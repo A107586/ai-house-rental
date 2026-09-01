@@ -348,13 +348,13 @@ export default {
 				.input {
 					width: 100%;
 					
-					& /deep/ .el-form-item__label {
+					& ::v-deep .el-form-item__label {
 						line-height: 40px;
 						color: rgba(104, 223, 240, 1);
 						font-size: #606266;
 					}
 					
-					& /deep/ .el-input__inner {
+					& ::v-deep .el-input__inner {
 						height: 40px;
 						color: #606266;
 						font-size: 14px;
