@@ -165,8 +165,16 @@ class TestRepairs(ApiTestCase):
         for content, urgency in (("漏水", "紧急"), ("灯泡坏了", "可延后")):
             self.client.post("/api/repairs", json={
                 "house_no": "DL0001", "content": content, "urgency": urgency})
-        data = self.client.get("/api/repairs", params={"urgency": "紧急"}).json()
+        # 不带房源号会列出全平台工单，含联系人与故障描述，必须登录
+        data = self.client.get("/api/repairs", params={"urgency": "紧急"},
+                               headers=auth_header(self.client, "landlord1",
+                                                   "test123")).json()
         self.assertEqual(data["total"], 1)
+
+    def test_platform_wide_list_requires_login(self):
+        """匿名不能拉到全平台工单——那会暴露所有租客的报修内容。"""
+        response = self.client.get("/api/repairs")
+        self.assertEqual(response.status_code, 401)
 
     def test_empty_content_rejected(self):
         response = self.client.post("/api/repairs",

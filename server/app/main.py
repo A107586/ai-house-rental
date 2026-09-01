@@ -830,13 +830,31 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
 
 @app.get("/api/repairs")
 def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
+                 user: User = Depends(current_user),
                  session: Session = Depends(get_session)):
+    """报修列表。
+
+    指定房源号时任何人都能看（房源详情页要展示该房源的维修历史，
+    这是对租客透明的信息）；不指定时会列出全平台工单，
+    含联系人与故障描述，必须登录且按角色限定范围。
+    """
     stmt = select(Repair)
+
     if house_no:
         house = session.scalar(select(House).where(House.house_no == house_no))
         if not house:
             return {"total": 0, "list": []}
         stmt = stmt.where(Repair.house_id == house.id)
+    else:
+        if not user:
+            raise HTTPException(status_code=401, detail="请先登录")
+        if user.role == "landlord":
+            house_ids = [row[0] for row in session.execute(
+                select(House.id).where(House.landlord_id == user.id)).all()]
+            stmt = stmt.where(Repair.house_id.in_(house_ids or [-1]))
+        elif user.role != "admin":
+            stmt = stmt.where(Repair.tenant_id == user.id)
+
     if status:
         stmt = stmt.where(Repair.status == status)
     if urgency:
@@ -884,9 +902,118 @@ def update_repair(repair_id: int, payload: RepairUpdate,
     repair = session.get(Repair, repair_id)
     if not repair:
         raise HTTPException(status_code=404, detail="工单不存在")
+
+    # 房东只能处理自己房源上的工单。缺了这一层，任何房东都能改
+    # 别人房源工单的状态，甚至把没修的标成已完成。
+    if user.role != "admin":
+        house = session.get(House, repair.house_id)
+        if not house or house.landlord_id != user.id:
+            raise HTTPException(status_code=403, detail="只能处理自己房源的工单")
+
     repair.status = payload.status
+    if payload.status == "done" and repair.tenant_id:
+        leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
+                       "你提交的报修（%s）已处理完成。" % repair.content[:20])
     session.commit()
     return {"ok": True, "repair": repair.to_dict()}
+
+
+@app.get("/api/landlord/tenants")
+def landlord_tenants(user: User = Depends(require_staff),
+                     session: Session = Depends(get_session)):
+    """租客档案：名下所有签过约的租客，附租约与缴费概况。"""
+    stmt = select(Contract)
+    if user.role != "admin":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    contracts = session.scalars(stmt).all()
+
+    profiles = {}
+    for contract in contracts:
+        entry = profiles.setdefault(contract.tenant_id, {
+            "contracts": [], "paid": 0.0, "unpaid": 0.0, "overdue": 0,
+        })
+        entry["contracts"].append(contract)
+        for bill in contract.bills:
+            if bill.status == "paid":
+                entry["paid"] += float(bill.amount)
+            elif bill.status == "unpaid":
+                entry["unpaid"] += float(bill.amount)
+                if bill.overdue:
+                    entry["overdue"] += 1
+
+    rows = []
+    for tenant_id, entry in profiles.items():
+        tenant = session.get(User, tenant_id)
+        if not tenant:
+            continue
+        active = [c for c in entry["contracts"] if c.status == "active"]
+        rows.append({
+            **tenant.to_dict(),
+            "contract_count": len(entry["contracts"]),
+            "active_count": len(active),
+            "houses": [c.house.house_no for c in active if c.house],
+            "paid_total": round(entry["paid"], 2),
+            "unpaid_total": round(entry["unpaid"], 2),
+            "overdue_count": entry["overdue"],
+        })
+    # 有逾期的排前面，房东最需要先看到这些人
+    rows.sort(key=lambda r: (-r["overdue_count"], -r["unpaid_total"]))
+    return {"total": len(rows), "list": rows}
+
+
+@app.get("/api/admin/contracts")
+def admin_contracts(status: str = "", user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """全平台租约总览。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    stmt = select(Contract)
+    if status:
+        stmt = stmt.where(Contract.status == status)
+    rows = session.scalars(stmt.order_by(Contract.created_at.desc())).all()
+    return {"total": len(rows), "list": [c.to_dict() for c in rows]}
+
+
+@app.get("/api/admin/appointments")
+def admin_appointments(status: str = "", user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """全平台看房预约总览。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    stmt = select(Appointment)
+    if status:
+        stmt = stmt.where(Appointment.status == status)
+    rows = session.scalars(
+        stmt.order_by(Appointment.viewing_time.desc()).limit(200)).all()
+    return {"total": len(rows), "list": [a.to_dict() for a in rows]}
+
+
+@app.patch("/api/notices/{notice_id}")
+def toggle_notice(notice_id: int, published: bool,
+                  user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """上下架公告。下架后前台不再展示，但记录仍保留。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    notice = session.get(Notice, notice_id)
+    if not notice:
+        raise HTTPException(status_code=404, detail="公告不存在")
+    notice.is_published = published
+    session.commit()
+    return {"ok": True, "notice": notice.to_dict()}
+
+
+@app.get("/api/admin/notices")
+def admin_notices(user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """管理员看全部公告，含已下架的。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    rows = session.scalars(
+        select(Notice).order_by(Notice.published_at.desc())).all()
+    return {"total": len(rows),
+            "list": [{**n.to_dict(), "is_published": n.is_published}
+                     for n in rows]}
 
 
 # ------------------------------------------------------------------ 统计

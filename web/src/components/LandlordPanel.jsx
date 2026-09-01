@@ -8,6 +8,12 @@ const HOUSE_STATUS = {
   pending: { label: '待审核', cls: 'status-pending' },
 }
 
+const REPAIR_STATUS = {
+  pending: { label: '待处理', cls: 'status-pending' },
+  processing: { label: '处理中', cls: 'status-pending' },
+  done: { label: '已完成', cls: 'status-confirmed' },
+}
+
 const EMPTY_FORM = {
   title: '', district: '中山区', community: '', address: '',
   rent_price: '', deposit: '', area: '', layout: '两室一厅',
@@ -25,6 +31,8 @@ export default function LandlordPanel({ user, onClose }) {
   const [tab, setTab] = useState('dashboard')
   const [dash, setDash] = useState(null)
   const [houses, setHouses] = useState([])
+  const [repairs, setRepairs] = useState([])
+  const [tenants, setTenants] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [editing, setEditing] = useState('')
   const [error, setError] = useState('')
@@ -34,12 +42,16 @@ export default function LandlordPanel({ user, onClose }) {
   async function load() {
     setError('')
     try {
-      const [d, h] = await Promise.all([
+      const [d, h, r, t] = await Promise.all([
         api.landlordDashboard(),
         api.landlordHouses(),
+        api.listRepairs(),
+        api.landlordTenants(),
       ])
       setDash(d)
       setHouses(h.list || [])
+      setRepairs(r.list || [])
+      setTenants(t.list || [])
     } catch (err) {
       setError(err.message)
     }
@@ -122,6 +134,8 @@ export default function LandlordPanel({ user, onClose }) {
   const TABS = [
     { key: 'dashboard', label: '工作台' },
     { key: 'houses', label: '我的房源', n: houses.length },
+    { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
+    { key: 'tenants', label: '租客', n: tenants.length },
     { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
   ]
 
@@ -279,6 +293,88 @@ export default function LandlordPanel({ user, onClose }) {
                   </li>
                 )
               })}
+            </ul>
+          ))}
+
+        {/* ---------------- 工单处理 ---------------- */}
+        {tab === 'repairs' &&
+          (repairs.length === 0 ? (
+            <p className="desc">名下房源暂无报修工单。</p>
+          ) : (
+            <ul className="record-list">
+              {repairs.map((item) => {
+                const st = REPAIR_STATUS[item.status] || { label: item.status, cls: '' }
+                return (
+                  <li key={item.id}>
+                    <div className="record-head">
+                      <strong>{item.house_no}</strong>
+                      {item.urgency === '紧急' && <span className="pill urgent">紧急</span>}
+                      <span className={`pill ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <div className="record-body">
+                      {item.category && `${item.category} · `}{item.content}
+                    </div>
+                    <div className="record-body">
+                      {item.contact_name} {item.contact_phone} · {item.created_at}
+                      {item.assignee && ` · 建议派单：${item.assignee}`}
+                    </div>
+                    {item.analysis && (
+                      <div className="record-body ai-note">{item.analysis}</div>
+                    )}
+                    {item.status !== 'done' && (
+                      <div className="record-actions">
+                        {item.status === 'pending' && (
+                          <button
+                            className="btn ghost small"
+                            disabled={busy === `r${item.id}`}
+                            onClick={() => run(`r${item.id}`,
+                              () => api.updateRepair(item.id, 'processing'))}
+                          >
+                            开始处理
+                          </button>
+                        )}
+                        <button
+                          className="btn small"
+                          disabled={busy === `r${item.id}`}
+                          onClick={() => run(`r${item.id}`,
+                            () => api.updateRepair(item.id, 'done'),
+                            '已标记完成并通知租客。')}
+                        >
+                          标记完成
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          ))}
+
+        {/* ---------------- 租客档案 ---------------- */}
+        {tab === 'tenants' &&
+          (tenants.length === 0 ? (
+            <p className="desc">还没有签约租客。</p>
+          ) : (
+            <ul className="record-list">
+              {tenants.map((t) => (
+                <li key={t.id} className={t.overdue_count ? 'unread' : ''}>
+                  <div className="record-head">
+                    <strong>{t.real_name || t.username}</strong>
+                    {t.overdue_count > 0 && (
+                      <span className="pill urgent">逾期 {t.overdue_count} 笔</span>
+                    )}
+                    <span className="pill">{t.active_count} 份在租</span>
+                  </div>
+                  <div className="record-body">
+                    {t.phone} · 房源 {t.houses.join('、') || '—'}
+                  </div>
+                  <div className="record-body">
+                    已收 <span className="amount">{t.paid_total} 元</span> ·
+                    待收 <span className="amount">{t.unpaid_total} 元</span> ·
+                    累计 {t.contract_count} 份合同
+                  </div>
+                </li>
+              ))}
             </ul>
           ))}
 

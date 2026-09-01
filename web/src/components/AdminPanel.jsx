@@ -3,11 +3,28 @@ import { api } from '../api'
 
 const ROLE_LABEL = { tenant: '租客', landlord: '房东', admin: '管理员' }
 
+const CONTRACT_STATUS = {
+  pending: { label: '待确认', cls: 'status-pending' },
+  active: { label: '生效中', cls: 'status-confirmed' },
+  ended: { label: '已结束', cls: 'status-cancelled' },
+  cancelled: { label: '已取消', cls: 'status-rejected' },
+}
+
+const APPOINTMENT_STATUS = {
+  pending: '待确认', confirmed: '已确认',
+  rejected: '已拒绝', cancelled: '已取消',
+}
+
 export default function AdminPanel({ user, onClose }) {
   const [tab, setTab] = useState('dashboard')
   const [stats, setStats] = useState(null)
   const [pending, setPending] = useState([])
   const [users, setUsers] = useState([])
+  const [contracts, setContracts] = useState([])
+  const [appointments, setAppointments] = useState([])
+  const [repairs, setRepairs] = useState([])
+  const [notices, setNotices] = useState([])
+  const [draft, setDraft] = useState({ title: '', content: '', category: '公告' })
   const [keyword, setKeyword] = useState('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
@@ -16,14 +33,22 @@ export default function AdminPanel({ user, onClose }) {
   async function load() {
     setError('')
     try {
-      const [s, p, u] = await Promise.all([
+      const [s, p, u, c, a, r, n] = await Promise.all([
         api.stats(),
         api.adminHouses({ status: 'pending' }),
         api.adminUsers({ keyword }),
+        api.adminContracts(),
+        api.adminAppointments(),
+        api.listRepairs(),
+        api.adminNotices(),
       ])
       setStats(s)
       setPending(p.list || [])
       setUsers(u.list || [])
+      setContracts(c.list || [])
+      setAppointments(a.list || [])
+      setRepairs(r.list || [])
+      setNotices(n.list || [])
     } catch (err) {
       setError(err.message)
     }
@@ -70,6 +95,9 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'dashboard', label: '数据看板' },
     { key: 'review', label: '房源审核', n: pending.length },
     { key: 'users', label: '用户管理', n: users.length },
+    { key: 'orders', label: '订单总览', n: contracts.length },
+    { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
+    { key: 'notices', label: '公告', n: notices.length },
   ]
 
   return (
@@ -221,6 +249,157 @@ export default function AdminPanel({ user, onClose }) {
               ))}
             </ul>
           ))}
+
+        {/* ---------------- 订单总览 ---------------- */}
+        {tab === 'orders' && (
+          <>
+            <div className="section-title">租约（{contracts.length}）</div>
+            {contracts.length === 0 ? (
+              <p className="desc">暂无租约。</p>
+            ) : (
+              <ul className="record-list">
+                {contracts.map((c) => {
+                  const st = CONTRACT_STATUS[c.status] || { label: c.status, cls: '' }
+                  return (
+                    <li key={c.contract_no}>
+                      <div className="record-head">
+                        <strong>{c.house_no}</strong>
+                        <span className={`pill ${st.cls}`}>{st.label}</span>
+                      </div>
+                      <div className="record-body">
+                        {c.contract_no} · {c.start_date} 至 {c.end_date} ·
+                        <span className="amount"> {c.rent} 元/月</span>
+                        {c.status === 'active' && ` · 剩余 ${c.days_left} 天`}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+
+            <div className="section-title">看房预约（{appointments.length}）</div>
+            {appointments.length === 0 ? (
+              <p className="desc">暂无预约。</p>
+            ) : (
+              <ul className="record-list">
+                {appointments.slice(0, 20).map((a) => (
+                  <li key={a.id}>
+                    <div className="record-head">
+                      <strong>{a.house_no}</strong>
+                      <span className={`pill status-${a.status}`}>
+                        {APPOINTMENT_STATUS[a.status] || a.status}
+                      </span>
+                    </div>
+                    <div className="record-body">
+                      {a.viewing_time.slice(0, 16)} · {a.contact_name} {a.contact_phone}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {/* ---------------- 工单总览 ---------------- */}
+        {tab === 'repairs' &&
+          (repairs.length === 0 ? (
+            <p className="desc">全平台暂无报修工单。</p>
+          ) : (
+            <ul className="record-list">
+              {[...repairs]
+                .sort((a, b) => (b.urgency === '紧急') - (a.urgency === '紧急'))
+                .map((item) => (
+                  <li key={item.id} className={item.urgency === '紧急'
+                    && item.status !== 'done' ? 'unread' : ''}>
+                    <div className="record-head">
+                      <strong>{item.house_no}</strong>
+                      {item.urgency === '紧急' && <span className="pill urgent">紧急</span>}
+                      <span className={`pill ${item.status === 'done'
+                        ? 'status-confirmed' : 'status-pending'}`}>
+                        {item.status === 'done' ? '已完成'
+                          : item.status === 'processing' ? '处理中' : '待处理'}
+                      </span>
+                    </div>
+                    <div className="record-body">
+                      {item.category && `${item.category} · `}{item.content}
+                    </div>
+                    <div className="record-body">
+                      {item.contact_name} {item.contact_phone} · {item.created_at}
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          ))}
+
+        {/* ---------------- 公告管理 ---------------- */}
+        {tab === 'notices' && (
+          <>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!draft.title.trim() || !draft.content.trim()) {
+                  setError('标题和正文都要填')
+                  return
+                }
+                run('notice', () => api.createNotice(draft), '公告已发布。')
+                  .then(() => setDraft({ title: '', content: '', category: '公告' }))
+              }}
+            >
+              <label className="fld">
+                <span>标题</span>
+                <input value={draft.title}
+                  onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              </label>
+              <label className="fld">
+                <span>分类</span>
+                <select value={draft.category}
+                  onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+                  <option>公告</option>
+                  <option>费用说明</option>
+                  <option>服务规则</option>
+                  <option>合同条款</option>
+                </select>
+              </label>
+              <label className="fld">
+                <span>正文</span>
+                <textarea rows={4} value={draft.content}
+                  onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
+              </label>
+              <button className="btn block" type="submit" disabled={busy === 'notice'}>
+                {busy === 'notice' ? '发布中…' : '发布公告'}
+              </button>
+            </form>
+
+            <div className="section-title">已有公告</div>
+            <ul className="record-list">
+              {notices.map((n) => (
+                <li key={n.id}>
+                  <div className="record-head">
+                    <strong>{n.title}</strong>
+                    <span className={`pill ${n.is_published
+                      ? 'status-confirmed' : 'status-cancelled'}`}>
+                      {n.is_published ? '已发布' : '已下架'}
+                    </span>
+                  </div>
+                  <div className="record-body">
+                    {n.category} · {n.published_at} · 浏览 {n.view_count}
+                  </div>
+                  <div className="record-body desc-clip">{n.content}</div>
+                  <div className="record-actions">
+                    <button
+                      className="btn ghost small"
+                      disabled={busy === `n${n.id}`}
+                      onClick={() => run(`n${n.id}`,
+                        () => api.toggleNotice(n.id, !n.is_published))}
+                    >
+                      {n.is_published ? '下架' : '重新发布'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         {/* ---------------- 用户管理 ---------------- */}
         {tab === 'users' && (

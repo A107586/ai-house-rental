@@ -154,6 +154,12 @@ export const api = {
   // ---------------- 房东端 ----------------
   landlordDashboard: () => request('/api/landlord/dashboard'),
   landlordHouses: () => request('/api/landlord/houses'),
+  landlordTenants: () => request('/api/landlord/tenants'),
+  updateRepair: (id, status) =>
+    request(`/api/repairs/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
   createHouse: (payload) => post('/api/houses', payload),
   updateHouse: (houseNo, payload) =>
     request(`/api/houses/${houseNo}`, {
@@ -173,6 +179,14 @@ export const api = {
       body: JSON.stringify({ approved, reason }),
     }),
   adminUsers: (params = {}) => request(`/api/admin/users?${toQuery(params)}`),
+  adminContracts: (status = '') =>
+    request(`/api/admin/contracts?${toQuery({ status })}`),
+  adminAppointments: (status = '') =>
+    request(`/api/admin/appointments?${toQuery({ status })}`),
+  adminNotices: () => request('/api/admin/notices'),
+  createNotice: (payload) => post('/api/notices', payload),
+  toggleNotice: (id, published) =>
+    request(`/api/notices/${id}?${toQuery({ published })}`, { method: 'PATCH' }),
   updateUser: (id, payload) =>
     request(`/api/admin/users/${id}`, {
       method: 'PATCH',

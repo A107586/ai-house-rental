@@ -1275,3 +1275,13 @@ textarea {
     padding-right: 20px;
   }
 }
+
+/* 智能体分析结论：与人工填写的内容区分开 */
+.ai-note {
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: var(--brand-soft);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--brand);
+}
