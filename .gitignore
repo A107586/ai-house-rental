@@ -38,3 +38,10 @@ agent/.env
 back/src/main/resources/static/upload/
 *.log
 logs/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

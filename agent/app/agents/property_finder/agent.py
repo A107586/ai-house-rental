@@ -1,0 +1,140 @@
+"""房源智能体（PropertyFinder）：编排 parse_query 与 search_properties 完成 AI-01。
+
+职责边界很窄——只负责「把一句话变成房源列表和一句说明」。
+意图判断在 Supervisor，取数在后端，本层只做编排。
+"""
+
+from app.config import settings
+from app.llm.base import LLMUnavailable
+from app.agents.property_finder.tools.parse_query import parse_query
+from app.agents.property_finder.tools.search_properties import (
+    search_properties, summarize)
+
+_PARSE_SYSTEM = "你是房屋租赁平台的查询解析器，只输出 JSON，不要任何解释。"
+
+_PARSE_PROMPT = """把用户的找房需求解析成结构化筛选条件。
+
+可用字段（没提到的一律省略，不要臆造）：
+- suozaidiqu：所在地区，如「中山区」
+- fangwuhuxing：户型，如「两室一厅」
+- zujia_min / zujia_max：租价下限 / 上限，单位元，整数
+- mianji_min / mianji_max：面积下限 / 上限，单位平方米，整数
+- fangyuanleixing：房源类型，只能是 整租 / 合租 / 公寓 / 住宅 / 别墅 之一
+
+用户输入：「{text}」
+
+只输出如下 JSON：
+{{"filters": {{...}}, "features": ["地铁", "电梯"]}}
+其中 features 是无法用上述字段表达的偏好，没有就给空数组。"""
+
+_ALLOWED_FILTERS = {
+    "suozaidiqu", "fangwuhuxing", "fangyuanleixing",
+    "zujia_min", "zujia_max", "mianji_min", "mianji_max",
+}
+_INT_FILTERS = {"zujia_min", "zujia_max", "mianji_min", "mianji_max"}
+
+
+def _sanitize(filters):
+    """只保留白名单字段并做类型校验。
+
+    大模型的输出不可全信：字段名可能臆造、数值可能是字符串或负数。
+    这一层把不合法的内容直接丢弃，避免脏参数传到后端接口。
+    """
+    if not isinstance(filters, dict):
+        return {}
+    clean = {}
+    for key, value in filters.items():
+        if key not in _ALLOWED_FILTERS or value in (None, ""):
+            continue
+        if key in _INT_FILTERS:
+            try:
+                number = int(float(value))
+            except (TypeError, ValueError):
+                continue
+            if number > 0:
+                clean[key] = number
+        else:
+            text = str(value).strip()
+            if text:
+                clean[key] = text
+    return clean
+
+
+def understand(text, provider=None):
+    """把自然语言变成筛选条件，返回 ``(filters, features, source)``。
+
+    规则解析置信度达标就直接用；不达标且大模型可用时才调用大模型。
+    """
+    rule_result = parse_query(text)
+    if rule_result["confidence"] >= settings.rule_confidence_threshold:
+        return rule_result["filters"], rule_result["features"], "rules"
+
+    if provider is None or not provider.available:
+        return rule_result["filters"], rule_result["features"], "rules_fallback"
+
+    try:
+        data = provider.complete_json(_PARSE_SYSTEM, _PARSE_PROMPT.format(text=text))
+    except LLMUnavailable:
+        return rule_result["filters"], rule_result["features"], "rules_fallback"
+
+    if not isinstance(data, dict):
+        return rule_result["filters"], rule_result["features"], "rules_fallback"
+
+    filters = _sanitize(data.get("filters"))
+    if not filters:
+        return rule_result["filters"], rule_result["features"], "rules_fallback"
+
+    features = data.get("features")
+    if not isinstance(features, list):
+        features = rule_result["features"]
+    features = [str(f).strip() for f in features if str(f).strip()][:5]
+
+    return filters, features, "llm"
+
+
+def run(text, page=1, limit=10, provider=None, backend=None):
+    """房源智能体入口。
+
+    返回结构固定，便于前端统一渲染；任何一步失败都不抛异常给调用方。
+    """
+    filters, features, source = understand(text, provider=provider)
+
+    if not filters and not features:
+        return {
+            "intent": "search",
+            "filters": {},
+            "features": [],
+            "source": source,
+            "items": [],
+            "total": 0,
+            "message": "没听懂你的找房需求，可以说得具体一点，"
+                       "比如「中山区两室一厅，租金三千以内」。",
+            "ok": False,
+        }
+
+    result = search_properties(filters, features=features, page=page,
+                               limit=limit, backend=backend)
+
+    if not result["ok"]:
+        return {
+            "intent": "search",
+            "filters": filters,
+            "features": features,
+            "source": source,
+            "items": [],
+            "total": 0,
+            "message": "房源服务暂时不可用，请稍后再试。",
+            "ok": False,
+            "error": result["error"],
+        }
+
+    return {
+        "intent": "search",
+        "filters": filters,
+        "features": features,
+        "source": source,
+        "items": result["items"],
+        "total": result["total"],
+        "message": summarize(result["items"], result["total"], filters, features),
+        "ok": True,
+    }
