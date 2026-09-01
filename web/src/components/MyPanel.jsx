@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContractCard from './ContractCard'
 import ProfileForm from './ProfileForm'
+import ReviewForm from './ReviewForm'
 
 const APPOINTMENT_STATUS = {
   pending: '待确认',
@@ -24,6 +25,8 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
   const [bills, setBills] = useState({ list: [], unpaid_count: 0, unpaid_amount: 0, overdue_count: 0 })
   const [favorites, setFavorites] = useState([])
   const [messages, setMessages] = useState({ list: [], unread: 0 })
+  const [history, setHistory] = useState([])
+  const [pending, setPending] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
 
@@ -33,18 +36,23 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     setError('')
     try {
       // 一次性拉齐，切标签时不再等待
-      const [mine, myContracts, myBills, favs, msgs] = await Promise.all([
-        api.myAppointments(),
-        api.myContracts(),
-        api.myBills(),
-        api.listFavorites(),
-        api.listMessages(),
-      ])
+      const [mine, myContracts, myBills, favs, msgs, hist, pend] =
+        await Promise.all([
+          api.myAppointments(),
+          api.myContracts(),
+          api.myBills(),
+          api.listFavorites(),
+          api.listMessages(),
+          api.history(),
+          api.pendingReviews(),
+        ])
       setAppointments(mine.list || [])
       setContracts(myContracts.list || [])
       setBills(myBills)
       setFavorites(favs.list || [])
       setMessages(msgs)
+      setHistory(hist.list || [])
+      setPending(pend.list || [])
     } catch (err) {
       setError(err.message)
     }
@@ -81,6 +89,8 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     { key: 'appointments', label: isStaff ? '收到的预约' : '我的预约', n: appointments.length },
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
+    { key: 'history', label: '足迹', n: history.length },
+    { key: 'reviews', label: '待评价', n: pending.length },
     { key: 'profile', label: '账号设置' },
   ]
 
@@ -303,6 +313,56 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
               </ul>
             )}
           </>
+        )}
+
+        {/* ---------------- 浏览足迹 ---------------- */}
+        {tab === 'history' && (
+          history.length === 0 ? (
+            <p className="desc">还没有浏览记录。看过的房源会自动出现在这里。</p>
+          ) : (
+            <>
+              <div className="record-actions" style={{ marginBottom: 10 }}>
+                <button className="btn ghost small"
+                  onClick={() => run('clear', api.clearHistory)}>
+                  清空足迹
+                </button>
+              </div>
+              <ul className="record-list">
+                {history.map((h) => (
+                  <li key={h.house_no}>
+                    <div className="record-head">
+                      <strong>{h.title}</strong>
+                      <span className="pill">{Math.round(h.rent_price)} 元</span>
+                    </div>
+                    <div className="record-body">
+                      {h.district} · {h.layout} · {Math.round(h.area)} 平米
+                    </div>
+                    <div className="record-body own">
+                      {h.viewed_at} 看过{h.my_view_count > 1 && ` · 共 ${h.my_view_count} 次`}
+                    </div>
+                    <div className="record-actions">
+                      <button className="btn small" onClick={() => onOpenHouse(h)}>
+                        再看看
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )
+        )}
+
+        {/* ---------------- 待评价 ---------------- */}
+        {tab === 'reviews' && (
+          pending.length === 0 ? (
+            <p className="desc">没有待评价的租约。租约结束后可以对房源与房东评分。</p>
+          ) : (
+            <ul className="record-list">
+              {pending.map((c) => (
+                <ReviewForm key={c.contract_no} contract={c} onDone={load} />
+              ))}
+            </ul>
+          )
         )}
 
         {/* ---------------- 账号设置 ---------------- */}

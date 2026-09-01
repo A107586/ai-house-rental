@@ -106,6 +106,13 @@ export const api = {
   getHouse: (houseNo) => request(`/api/houses/${houseNo}`),
   listDistricts: () => request('/api/districts'),
   houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
+  houseReviews: (houseNo) => request(`/api/houses/${houseNo}/reviews`),
+
+  // ---------------- 足迹与评价 ----------------
+  history: () => request('/api/history'),
+  clearHistory: () => request('/api/history', { method: 'DELETE' }),
+  pendingReviews: () => request('/api/reviews/pending'),
+  createReview: (payload) => post('/api/reviews', payload),
   stats: () => request('/api/stats'),
 
   // ---------------- 收藏 ----------------

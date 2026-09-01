@@ -94,6 +94,7 @@ class House(Base):
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="house")
     images: Mapped[list["HouseImage"]] = relationship(
         back_populates="house", order_by="HouseImage.sort_order")
+    reviews: Mapped[list["Review"]] = relationship()
 
     def to_dict(self):
         return {
@@ -118,7 +119,16 @@ class House(Base):
             "status": self.status,
             "view_count": self.view_count,
             "landlord_name": self.landlord.real_name if self.landlord else "",
+            "rating": self.avg_rating,
+            "review_count": len(self.reviews),
         }
+
+    @property
+    def avg_rating(self):
+        """平均评分。没有评价时返回 0，前端据此显示「暂无评价」。"""
+        if not self.reviews:
+            return 0
+        return round(sum(r.rating for r in self.reviews) / len(self.reviews), 1)
 
 
 class Appointment(Base):
@@ -482,6 +492,71 @@ class Message(Base):
             "link_no": self.link_no,
             "is_read": self.is_read,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class BrowsingHistory(Base):
+    """浏览足迹。
+
+    每个用户对同一房源只保留一条，重复浏览更新时间与次数——
+    否则一个用户刷十次详情页就会把足迹列表刷满。
+    """
+
+    __tablename__ = "browsing_history"
+    __table_args__ = (
+        UniqueConstraint("user_id", "house_id", name="uq_history_user_house"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False)
+    view_count: Mapped[int] = mapped_column(Integer, default=1)
+    viewed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    house: Mapped["House"] = relationship()
+
+
+class Review(Base):
+    """租后评价。
+
+    只有租约正常结束的租客才能评价，且一份合同只能评一次——
+    不然任何人都能刷分，评分就没有参考价值了。
+    """
+
+    __tablename__ = "reviews"
+    __table_args__ = (
+        UniqueConstraint("contract_id", name="uq_review_contract"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"), nullable=False)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    # 1–5 星
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 分项评分，便于展示「房源真实度」「房东响应」这类维度
+    rating_house: Mapped[int] = mapped_column(Integer, default=0)
+    rating_landlord: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    tenant: Mapped["User"] = relationship()
+
+    def to_dict(self):
+        name = ""
+        if self.tenant:
+            raw = self.tenant.real_name or self.tenant.username
+            # 评价对所有人可见，只露姓氏，其余打码
+            name = raw[0] + "*" * max(len(raw) - 1, 1)
+        return {
+            "id": self.id,
+            "rating": self.rating,
+            "rating_house": self.rating_house,
+            "rating_landlord": self.rating_landlord,
+            "content": self.content,
+            "tenant_name": name,
+            "created_at": self.created_at.strftime("%Y-%m-%d"),
         }
 
 

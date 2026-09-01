@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
+import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
 import HouseDrawer from './components/HouseDrawer'
@@ -51,6 +52,7 @@ export default function App() {
   const [showWork, setShowWork] = useState(false)
   const [favorites, setFavorites] = useState([])
   const [filters, setFilters] = useState({})
+  const [compare, setCompare] = useState([])
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -150,6 +152,17 @@ export default function App() {
     } catch (err) {
       setError(err.message)
     }
+  }
+
+  function toggleCompare(house) {
+    setCompare((prev) => {
+      if (prev.some((h) => h.house_no === house.house_no)) {
+        return prev.filter((h) => h.house_no !== house.house_no)
+      }
+      // 超过四套就看不过来了，横向表格也会挤成一团
+      if (prev.length >= 4) return prev
+      return [...prev, house]
+    })
   }
 
   function logout() {
@@ -298,6 +311,8 @@ export default function App() {
                   house={house}
                   favorited={favorites.includes(house.house_no)}
                   onToggleFavorite={toggleFavorite}
+                  compared={compare.some((h) => h.house_no === house.house_no)}
+                  onToggleCompare={toggleCompare}
                   onClick={setSelected}
                 />
               ))}
@@ -313,6 +328,12 @@ export default function App() {
           </>
         )}
       </main>
+
+      <CompareBar
+        items={compare}
+        onRemove={(no) => setCompare(compare.filter((h) => h.house_no !== no))}
+        onClear={() => setCompare([])}
+      />
 
       {selected && (
         <HouseDrawer

@@ -1,4 +1,5 @@
-export default function HouseCard({ house, favorited, onToggleFavorite, onClick }) {
+export default function HouseCard({ house, favorited, onToggleFavorite,
+  onClick, compared, onToggleCompare }) {
   return (
     <article
       className="card"
@@ -31,6 +32,16 @@ export default function HouseCard({ house, favorited, onToggleFavorite, onClick 
           <span className="photo-none">暂无图片</span>
         )}
         <span className="kind-tag">{house.rent_type}</span>
+        {onToggleCompare && (
+          <label className="cmp-pick" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={compared}
+              onChange={() => onToggleCompare(house)}
+            />
+            对比
+          </label>
+        )}
       </div>
 
       <div className="card-body">
@@ -45,6 +56,9 @@ export default function HouseCard({ house, favorited, onToggleFavorite, onClick 
       </div>
 
       <div className="card-meta">
+        {house.rating > 0 && (
+          <span className="rate">★ {house.rating}</span>
+        )}
         <span>{house.layout}</span>
         <span>{Math.round(house.area)} 平米</span>
         <span>{house.rent_type}</span>

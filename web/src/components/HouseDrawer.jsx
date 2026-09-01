@@ -21,6 +21,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
   const [tab, setTab] = useState('booking')
   const [booked, setBooked] = useState([])
   const [repairs, setRepairs] = useState([])
+  const [reviews, setReviews] = useState({ list: [], average: 0, total: 0 })
   const [text, setText] = useState('')
   const [name, setName] = useState(user?.real_name || '')
   const [phone, setPhone] = useState('')
@@ -34,15 +35,18 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
 
   async function refresh() {
     try {
-      const [appointments, tickets] = await Promise.all([
+      const [appointments, tickets, rated] = await Promise.all([
         api.listAppointments(house.house_no),
         api.listRepairs({ house_no: house.house_no }),
+        api.houseReviews(house.house_no),
       ])
       setBooked(appointments.list || [])
       setRepairs(tickets.list || [])
+      setReviews(rated)
     } catch {
       setBooked([])
       setRepairs([])
+      setReviews({ list: [], average: 0, total: 0 })
     }
   }
 
@@ -179,6 +183,26 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
         <p className="desc" style={{ marginTop: 14 }}>
           {house.description}
         </p>
+
+        {reviews.total > 0 && (
+          <>
+            <div className="section-title">
+              租客评价（{reviews.total}）· 平均 {reviews.average} 分
+            </div>
+            <ul className="review-list">
+              {reviews.list.slice(0, 5).map((r) => (
+                <li key={r.id}>
+                  <div className="review-head">
+                    <span className="stars">{'★'.repeat(r.rating)}
+                      <span className="dim">{'★'.repeat(5 - r.rating)}</span></span>
+                    <span className="own">{r.tenant_name} · {r.created_at}</span>
+                  </div>
+                  {r.content && <div className="record-body">{r.content}</div>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         <div className="tabs">
           {TABS.map((item) => (

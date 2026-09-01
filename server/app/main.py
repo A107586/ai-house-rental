@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 from app import leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app.db import get_session, init_db
-from app.models import (Appointment, Bill, ChatMessage, Contract, Favorite,
-                        House, HouseImage, Message, Notice, Payment, Repair,
-                        User)
+from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
+                        Contract, Favorite, House, HouseImage, Message,
+                        Notice, Payment, Repair, Review, User)
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -200,6 +200,14 @@ class ProfileUpdate(BaseModel):
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str = Field(min_length=6, max_length=64)
+
+
+class ReviewCreate(BaseModel):
+    contract_no: str
+    rating: int = Field(ge=1, le=5)
+    rating_house: int = Field(default=0, ge=0, le=5)
+    rating_landlord: int = Field(default=0, ge=0, le=5)
+    content: str = Field(default="", max_length=500)
 
 
 class ChatLog(BaseModel):
@@ -402,11 +410,25 @@ def list_houses(
 
 
 @app.get("/api/houses/{house_no}")
-def get_house(house_no: str, session: Session = Depends(get_session)):
+def get_house(house_no: str, user: User = Depends(current_user),
+              session: Session = Depends(get_session)):
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
     house.view_count += 1
+
+    # 登录用户顺手记一条浏览足迹。同一房源只留一条，重复浏览更新时间与次数，
+    # 否则刷十次详情页就把足迹列表刷满了。
+    if user:
+        record = session.scalar(select(BrowsingHistory).where(
+            BrowsingHistory.user_id == user.id,
+            BrowsingHistory.house_id == house.id))
+        if record:
+            record.view_count += 1
+            record.viewed_at = datetime.now()
+        else:
+            session.add(BrowsingHistory(user_id=user.id, house_id=house.id))
+
     session.commit()
     return house.to_dict()
 
@@ -660,6 +682,105 @@ def admin_update_user(user_id: int, payload: UserUpdate,
     session.commit()
     session.refresh(target)
     return {"ok": True, "user": target.to_dict()}
+
+
+@app.get("/api/history")
+def browsing_history(limit: int = Query(20, ge=1, le=100),
+                     user: User = Depends(require_login),
+                     session: Session = Depends(get_session)):
+    """我的浏览足迹。同时是 AI-07 房源推荐的输入。"""
+    rows = session.scalars(
+        select(BrowsingHistory).where(BrowsingHistory.user_id == user.id)
+        .order_by(BrowsingHistory.viewed_at.desc()).limit(limit)).all()
+    result = []
+    for record in rows:
+        if not record.house:
+            continue
+        result.append({
+            **record.house.to_dict(),
+            "viewed_at": record.viewed_at.strftime("%Y-%m-%d %H:%M"),
+            "my_view_count": record.view_count,
+        })
+    return {"total": len(result), "list": result}
+
+
+@app.delete("/api/history")
+def clear_history(user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    rows = session.scalars(select(BrowsingHistory).where(
+        BrowsingHistory.user_id == user.id)).all()
+    for record in rows:
+        session.delete(record)
+    session.commit()
+    return {"ok": True, "deleted": len(rows)}
+
+
+# ------------------------------------------------------------------ 评价
+
+@app.get("/api/houses/{house_no}/reviews")
+def list_reviews(house_no: str, session: Session = Depends(get_session)):
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    rows = session.scalars(
+        select(Review).where(Review.house_id == house.id)
+        .order_by(Review.created_at.desc())).all()
+    return {
+        "total": len(rows),
+        "average": house.avg_rating,
+        "list": [r.to_dict() for r in rows],
+    }
+
+
+@app.post("/api/reviews")
+def create_review(payload: ReviewCreate, user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """租后评价。
+
+    只有租约正常结束的承租方才能评，且一份合同只能评一次——
+    不然任何人都能刷分，评分就失去参考价值了。
+    """
+    contract = session.scalar(
+        select(Contract).where(Contract.contract_no == payload.contract_no))
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    if contract.tenant_id != user.id:
+        raise HTTPException(status_code=403, detail="只有承租方可以评价")
+    if contract.status != "ended":
+        raise HTTPException(status_code=409, detail="租约结束后才能评价")
+
+    exists = session.scalar(
+        select(Review).where(Review.contract_id == contract.id))
+    if exists:
+        raise HTTPException(status_code=409, detail="该租约已评价过")
+
+    review = Review(
+        contract_id=contract.id, house_id=contract.house_id,
+        tenant_id=user.id, rating=payload.rating,
+        rating_house=payload.rating_house or payload.rating,
+        rating_landlord=payload.rating_landlord or payload.rating,
+        content=payload.content)
+    session.add(review)
+
+    leasing.notify(session, contract.landlord_id, "system", "收到新评价",
+                   "房源 %s 收到一条 %d 星评价。"
+                   % (contract.house.house_no if contract.house else "", payload.rating))
+    session.commit()
+    session.refresh(review)
+    return {"ok": True, "review": review.to_dict()}
+
+
+@app.get("/api/reviews/pending")
+def pending_reviews(user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """待评价的租约：已结束但还没评过的。"""
+    contracts = session.scalars(
+        select(Contract).where(Contract.tenant_id == user.id,
+                               Contract.status == "ended")).all()
+    reviewed = {row[0] for row in session.execute(
+        select(Review.contract_id).where(Review.tenant_id == user.id)).all()}
+    rows = [c.to_dict() for c in contracts if c.id not in reviewed]
+    return {"total": len(rows), "list": rows}
 
 
 # ------------------------------------------------------------------ 收藏
