@@ -41,6 +41,9 @@ app.add_middleware(
 # 一次看房占用一小时，与智能体端的约定保持一致
 VIEWING_MINUTES = 60
 
+# 允许匿名与普通用户查询的房源状态。pending 待审、offline 已下架不对外。
+PUBLIC_HOUSE_STATUS = ("available", "rented")
+
 
 @app.on_event("startup")
 def _startup():
@@ -162,6 +165,31 @@ class NoticeCreate(BaseModel):
     category: str = "公告"
 
 
+class HouseUpdate(BaseModel):
+    title: str | None = None
+    community: str | None = None
+    address: str | None = None
+    rent_price: float | None = Field(default=None, gt=0)
+    deposit: float | None = Field(default=None, ge=0)
+    area: float | None = Field(default=None, gt=0)
+    layout: str | None = None
+    rent_type: str | None = None
+    floor: str | None = None
+    orientation: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+
+
+class HouseReview(BaseModel):
+    approved: bool
+    reason: str = ""
+
+
+class UserUpdate(BaseModel):
+    status: str | None = None
+    role: str | None = None
+
+
 class ChatLog(BaseModel):
     session_id: str
     role: str
@@ -267,10 +295,17 @@ def list_houses(
     sort: str = "published_at",
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     """房源列表。所有筛选条件都是可选的，未传即不过滤。"""
     stmt = select(House)
+
+    # 待审核与已下架的房源不对外可见。若不拦，房东一发布就能被匿名用户
+    # 通过 ?status=pending 查到，审核机制就形同虚设了。
+    if not user or user.role != "admin":
+        if status not in PUBLIC_HOUSE_STATUS:
+            status = "available"
 
     if status:
         stmt = stmt.where(House.status == status)
@@ -372,6 +407,203 @@ def list_districts(session: Session = Depends(get_session)):
         counts[district] = counts.get(district, 0) + 1
     return [{"district": d, "count": c}
             for d, c in sorted(counts.items(), key=lambda kv: -kv[1])]
+
+
+@app.put("/api/houses/{house_no}")
+def update_house(house_no: str, payload: HouseUpdate,
+                 user: User = Depends(require_staff),
+                 session: Session = Depends(get_session)):
+    """编辑房源内容。对应需求 F-01 此前缺失的「修改」。
+
+    房东改完关键信息后房源要重新走审核，避免先发一套合规的、
+    审核通过之后再改成违规内容。
+    """
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能修改自己发布的房源")
+
+    fields = payload.model_dump(exclude_unset=True, exclude_none=True)
+    tags = fields.pop("tags", None)
+    for key, value in fields.items():
+        setattr(house, key, value)
+    if tags is not None:
+        house.tags = ",".join(tags)
+
+    # 内容变更后回到待审状态，管理员改的不用重审
+    if fields or tags is not None:
+        if user.role != "admin" and house.status == "available":
+            house.status = "pending"
+
+    session.commit()
+    session.refresh(house)
+    return {"ok": True, "house": house.to_dict()}
+
+
+# ------------------------------------------------------------------ 房东工作台
+
+@app.get("/api/landlord/dashboard")
+def landlord_dashboard(user: User = Depends(require_staff),
+                       session: Session = Depends(get_session)):
+    """房东工作台：数据卡片 + 待办聚合，登录后一屏看清该处理什么。"""
+    houses = session.scalars(
+        select(House).where(House.landlord_id == user.id)).all()
+    house_ids = [h.id for h in houses] or [-1]
+
+    rented = [h for h in houses if h.status == "rented"]
+    vacant = [h for h in houses if h.status == "available"]
+
+    contracts = session.scalars(
+        select(Contract).where(Contract.landlord_id == user.id)).all()
+    active = [c for c in contracts if c.status == "active"]
+    expiring = [c for c in active if c.days_left <= 30]
+
+    contract_ids = [c.id for c in contracts] or [-1]
+    bills = session.scalars(
+        select(Bill).where(Bill.contract_id.in_(contract_ids))).all()
+    paid = [b for b in bills if b.status == "paid"]
+    unpaid = [b for b in bills if b.status == "unpaid"]
+
+    this_month = datetime.now().strftime("%Y-%m")
+    month_income = sum(float(b.amount) for b in paid
+                       if b.paid_at and b.paid_at.strftime("%Y-%m") == this_month)
+
+    pending_appointments = session.scalars(
+        select(Appointment).where(Appointment.house_id.in_(house_ids),
+                                  Appointment.status == "pending")).all()
+    open_repairs = session.scalars(
+        select(Repair).where(Repair.house_id.in_(house_ids),
+                             Repair.status != "done")).all()
+    urgent_repairs = [r for r in open_repairs if r.urgency == "紧急"]
+
+    return {
+        "house_total": len(houses),
+        "house_rented": len(rented),
+        "house_vacant": len(vacant),
+        "house_pending": sum(1 for h in houses if h.status == "pending"),
+        "occupancy_rate": (round(len(rented) / len(houses) * 100, 1)
+                           if houses else 0),
+        "month_income": round(month_income, 2),
+        "income_pending": round(sum(float(b.amount) for b in unpaid), 2),
+        "overdue_count": sum(1 for b in unpaid if b.overdue),
+        "contract_active": len(active),
+        "todo": {
+            "appointments": len(pending_appointments),
+            "repairs": len(open_repairs),
+            "urgent_repairs": len(urgent_repairs),
+            "expiring_contracts": len(expiring),
+            "total": (len(pending_appointments) + len(open_repairs)
+                      + len(expiring)),
+        },
+        "expiring_list": [c.to_dict() for c in expiring],
+    }
+
+
+@app.get("/api/landlord/houses")
+def landlord_houses(user: User = Depends(require_staff),
+                    session: Session = Depends(get_session)):
+    """我的房源。房东只看自己的，管理员看全部。"""
+    stmt = select(House)
+    if user.role != "admin":
+        stmt = stmt.where(House.landlord_id == user.id)
+    rows = session.scalars(stmt.order_by(House.published_at.desc())).all()
+    return {"total": len(rows), "list": [h.to_dict() for h in rows]}
+
+
+# ------------------------------------------------------------------ 管理员
+
+@app.get("/api/admin/houses")
+def admin_houses(status: str = "", keyword: str = "",
+                 user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """管理员房源总览，可按状态筛出待审核的。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    stmt = select(House)
+    if status:
+        stmt = stmt.where(House.status == status)
+    if keyword:
+        like = "%" + keyword + "%"
+        stmt = stmt.where(House.title.like(like) | House.house_no.like(like))
+    rows = session.scalars(stmt.order_by(House.published_at.desc())).all()
+    return {"total": len(rows), "list": [h.to_dict() for h in rows]}
+
+
+@app.patch("/api/houses/{house_no}/review")
+def review_house(house_no: str, payload: HouseReview,
+                 user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """房源审核。通过则上架，驳回则退回待审并通知房东。
+
+    此前房东发布的房源会落成 pending 却没有任何地方能审，
+    导致它永远不会出现在前台——这个接口补上了这个断点。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in ("pending", "offline"):
+        raise HTTPException(status_code=409, detail="该房源当前无需审核")
+
+    if payload.approved:
+        house.status = "available"
+        title, content = "房源审核通过", "房源 %s 已通过审核并上架。" % house.house_no
+    else:
+        house.status = "offline"
+        title = "房源审核未通过"
+        content = "房源 %s 未通过审核。%s" % (house.house_no, payload.reason or "")
+
+    leasing.notify(session, house.landlord_id, "system", title, content,
+                   house.house_no)
+    session.commit()
+    session.refresh(house)
+    return {"ok": True, "house": house.to_dict()}
+
+
+@app.get("/api/admin/users")
+def admin_users(keyword: str = "", role: str = "",
+                user: User = Depends(require_login),
+                session: Session = Depends(get_session)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    stmt = select(User)
+    if role:
+        stmt = stmt.where(User.role == role)
+    if keyword:
+        like = "%" + keyword + "%"
+        stmt = stmt.where(User.username.like(like) | User.real_name.like(like))
+    rows = session.scalars(stmt.order_by(User.created_at.desc())).all()
+    return {"total": len(rows), "list": [u.to_dict() for u in rows]}
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, payload: UserUpdate,
+                      user: User = Depends(require_login),
+                      session: Session = Depends(get_session)):
+    """禁用／启用账号，或调整角色。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.id == user.id:
+        # 管理员把自己禁用或降级会直接锁死后台，必须挡住
+        raise HTTPException(status_code=409, detail="不能修改自己的账号状态")
+
+    if payload.status is not None:
+        if payload.status not in ("active", "disabled"):
+            raise HTTPException(status_code=400, detail="状态值不合法")
+        target.status = payload.status
+    if payload.role is not None:
+        if payload.role not in ("tenant", "landlord", "admin"):
+            raise HTTPException(status_code=400, detail="角色值不合法")
+        target.role = payload.role
+
+    session.commit()
+    session.refresh(target)
+    return {"ok": True, "user": target.to_dict()}
 
 
 # ------------------------------------------------------------------ 收藏
