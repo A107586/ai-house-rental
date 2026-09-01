@@ -129,7 +129,7 @@ h1{
   font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums;
 }
 .stat .k{font-size:12px;color:var(--muted);margin-top:4px}
-.stat.p0 .n{color:var(--p0)}
+.stat.p0 .n{color:var(--p2)}
 .stat.p1 .n{color:var(--p1)}
 .stat.p2 .n{color:var(--p2)}
 .stat.total .n{color:var(--ink)}
@@ -312,6 +312,22 @@ footer a{color:var(--brand)}
   .hcard{width:100%}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* 已完成的行整体降饱和，待办项才是读者要找的 */
+tr.row-done td{opacity:.62}
+tr.row-done td.id{opacity:1;color:var(--p2)}
+tr.row-part td.id{color:var(--p1)}
+.done-note{
+  background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--p2);border-radius:var(--r);
+  padding:15px 18px;margin:0 0 20px;font-size:13.5px;
+}
+.done-note .lbl{
+  display:block;font-family:"JetBrains Mono",monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--p2);margin-bottom:6px;
+}
+.done-note p{margin:0 0 8px;max-width:none}
+.done-note p:last-child{margin-bottom:0}
 </style>
 </head>
 <body>
@@ -321,104 +337,118 @@ footer a{color:var(--brand)}
   <div class="eyebrow">基于 AI 智能体的房屋租赁系统 · 待办规划</div>
   <h1>智租功能路线图</h1>
   <p class="lede">
-    对照真实租赁平台盘点出的功能缺口，按租客端、房东端、管理员端、智能体四条线拆开，
-    每一项标好优先级与归属，可以直接认领。文末含视觉设计方案与分工建议。
+    对照真实租赁平台盘点出的功能缺口，按租客端、房东端、管理员端、智能体四条线拆开。
+    <strong>38 项中已完成 25 项、部分完成 2 项、待办 11 项</strong>，
+    表格里带 ✅ 的已经做完。文末含视觉设计方案与分工建议。
   </p>
   <div class="meta">
-    <span>共 <b>38 项待办</b></span>
-    <span>新增 <b>9 张数据表</b></span>
+    <span>已完成 <b>25 / 38</b></span>
+    <span>数据表 <b>14 张</b></span>
+    <span>自动化测试 <b>369 个</b></span>
     <span>代码封版 <b>10 月 16 日</b></span>
     <span>数据库评审 <b>9 月 24 日</b></span>
   </div>
 </header>
 
 <div class="glance">
-  <div class="stat total"><div class="n">38</div><div class="k">待办总数</div></div>
-  <div class="stat p0"><div class="n">16</div><div class="k">P0 必须完成</div></div>
-  <div class="stat p1"><div class="n">14</div><div class="k">P1 重要</div></div>
-  <div class="stat p2"><div class="n">8</div><div class="k">P2 加分项</div></div>
+  <div class="stat total"><div class="n">25</div><div class="k">已完成</div></div>
+  <div class="stat p0"><div class="n">2</div><div class="k">部分完成</div></div>
+  <div class="stat p1"><div class="n">11</div><div class="k">待办</div></div>
+  <div class="stat p2"><div class="n">14</div><div class="k">数据表</div></div>
 </div>
 
 <div class="bars">
   <div class="bar-row">
     <span class="lbl">租客端</span>
     <span class="track">
-      <span class="seg p0" style="flex:6">6</span>
-      <span class="seg p1" style="flex:4">4</span>
-      <span class="seg p2" style="flex:2">2</span>
+      <span class="seg p2" style="flex:10">10 完成</span>
+      <span class="seg p1" style="flex:1">1</span>
+      <span class="seg p0" style="flex:1">1</span>
     </span>
     <span class="num">12</span>
   </div>
   <div class="bar-row">
     <span class="lbl">房东端</span>
     <span class="track">
-      <span class="seg p0" style="flex:6">6</span>
-      <span class="seg p1" style="flex:3">3</span>
-      <span class="seg p2" style="flex:1">1</span>
+      <span class="seg p2" style="flex:8">8 完成</span>
+      <span class="seg p1" style="flex:1">1</span>
+      <span class="seg p0" style="flex:1">1</span>
     </span>
     <span class="num">10</span>
   </div>
   <div class="bar-row">
     <span class="lbl">管理员端</span>
     <span class="track">
-      <span class="seg p0" style="flex:3">3</span>
-      <span class="seg p1" style="flex:3">3</span>
-      <span class="seg p2" style="flex:4">4</span>
+      <span class="seg p2" style="flex:6">6 完成</span>
+      <span class="seg p0" style="flex:4">4</span>
     </span>
     <span class="num">10</span>
   </div>
   <div class="bar-row">
     <span class="lbl">智能体</span>
     <span class="track">
-      <span class="seg p0" style="flex:1">1</span>
-      <span class="seg p1" style="flex:4">4</span>
       <span class="seg p2" style="flex:1">1</span>
+      <span class="seg p0" style="flex:5">5 待办</span>
     </span>
     <span class="num">6</span>
   </div>
-</div>
-
 <h2><span class="idx">01</span>现状盘点</h2>
 <div class="two">
   <div class="panel done">
     <h4>已经做完</h4>
     <ul>
-      <li>6 张数据表：用户、房源、预约、收藏、报修、对话记录</li>
-      <li>租客端：自然语言找房、房源列表与详情、收藏、智能预约、智能报修、个人中心</li>
-      <li>房东端：发布房源（接口）、上下架（接口）、确认与拒绝预约</li>
-      <li>管理员端：平台统计（接口）</li>
-      <li>智能体：AI-01 找房、AI-04 报修分派、AI-06 预约</li>
+      <li><strong>14 张数据表</strong>，55 个后端接口，8 个智能体接口，369 个自动化测试</li>
+      <li>租客端：自然语言找房、筛选排序、图片相册、收藏、智能预约、智能报修、在线签约、租约、账单缴费、足迹、对比、评价、消息、账号设置</li>
+      <li>房东端：工作台、发布与编辑、上下架、预约处理、租约、收租、工单、租客档案</li>
+      <li>管理员端：数据看板、房源审核、用户管理、订单总览、工单总览、公告</li>
+      <li>智能体：AI-01 找房、AI-02 合同审阅、AI-04 报修分派、AI-06 预约</li>
+      <li><strong>业务链已从找房走通到签约、缴费、退租、评价</strong>——最初盘点时这条链是断的</li>
     </ul>
   </div>
+
   <div class="panel gap">
-    <h4>明显短板</h4>
+    <h4>仍然明显的短板</h4>
     <ul>
-      <li><strong>业务链在「预约看房」处断掉了</strong>——签约、交租、退租一个都没有，而这是租赁系统的主干</li>
-      <li><strong>房东端几乎只有一个发布功能</strong>，而且没有前端页面</li>
-      <li><strong>管理员端只有一个统计接口</strong>，没有审核、没有用户管理、没有界面</li>
-      <li><strong>房源没有图片</strong>——租房是看图决策的生意</li>
-      <li>拿需求说明书自己列的 <strong>11 个业务模块逐条核对，只有 F-04 看房申请是完整的</strong>；F-05 合同、F-06 收租、F-07 收租统计三个连表都没建</li>
+      <li><strong>房源图片无法由房东上传</strong>——演示图已入库，但发布页只能填文字</li>
+      <li><strong>没有地图找房</strong>，区域筛选只能选行政区，看不到位置关系</li>
+      <li><strong>智能客服尚未开发</strong>，公告已作为知识语料备好（5 条，覆盖押金、水电、看房、报修、退租）</li>
+      <li><strong>移动端未适配</strong>，布局能收窄但抽屉与筛选器在小屏上仍不好用</li>
     </ul>
   </div>
+<div class="done-note">
+  <span class="lbl">开发过程中修复的越权问题</span>
+  <p>这些不是规划出来的，是写代码与写测试时发现的。<strong>测试报告与答辩可以直接用。</strong></p>
 </div>
+
+<div class="tw"><table>
+  <thead><tr><th>问题</th><th>影响</th><th>修复</th></tr></thead>
+  <tbody>
+    <tr><td class="name">匿名可查待审房源</td><td>房东一发布就被公开看到，审核机制形同虚设</td><td>非管理员只能查 available 与 rented</td></tr>
+    <tr><td class="name">工单状态无归属校验</td><td>任何房东能改别人房源工单，甚至把没修的标成已完成</td><td>房东只能处理自己房源的工单</td></tr>
+    <tr><td class="name">工单列表无鉴权</td><td>匿名可拉全平台工单，含联系人与故障描述</td><td>不带房源号必须登录且按角色限定范围</td></tr>
+    <tr><td class="name">预约表的唯一约束</td><td>取消的预约永久占住时段，与「取消后释放」冲突</td><td>移除约束，冲突校验交给接口层</td></tr>
+    <tr><td class="name">管理员可禁用自己</td><td>一键锁死整个后台</td><td>拒绝修改自身状态</td></tr>
+    <tr><td class="name">测试文件各自建内存库</td><td>后导入的覆盖前者，27 个用例误报</td><td>共享状态统一到 tests/base.py</td></tr>
+  </tbody>
+</table></div>
 
 <h2><span class="idx">02</span>租客端</h2>
 <p class="section-note">重点是把业务链从「看房」接到「签约—缴费—退租」，让系统成为一个完整的租赁平台而不是房源展示页。</p>
 <div class="tw"><table>
   <thead><tr><th>编号</th><th>功能</th><th>说明</th><th>优先级</th></tr></thead>
   <tbody>
-    <tr><td class="id">T-01</td><td class="name">房源图片与相册</td><td>列表封面图、详情页多图轮播</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-02</td><td class="name">传统筛选器</td><td>区域／租金／户型／面积多选，与自然语言搜索并存。评审会问「不会说话的用户怎么办」</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-04</td><td class="name">在线签约</td><td>看房通过后生成合同，双方确认成约。<strong>打通业务链的关键一步</strong></td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-05</td><td class="name">我的租约</td><td>当前租约、剩余天数、到期提醒、续租与退租入口</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-06</td><td class="name">账单与缴费</td><td>月度租金、押金、水电费；缴费记录与状态（模拟支付即可）</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-01</td><td class="name">房源图片与相册</td><td>列表封面图、详情页多图轮播</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-02</td><td class="name">传统筛选器</td><td>区域／租金／户型／面积多选，与自然语言搜索并存。评审会问「不会说话的用户怎么办」</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-04</td><td class="name">在线签约</td><td>看房通过后生成合同，双方确认成约。<strong>打通业务链的关键一步</strong></td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-05</td><td class="name">我的租约</td><td>当前租约、剩余天数、到期提醒、续租与退租入口</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-06</td><td class="name">账单与缴费</td><td>月度租金、押金、水电费；缴费记录与状态（模拟支付即可）</td><td><span class="pri p0">P0</span></td></tr>
     <tr><td class="id">T-03</td><td class="name">地图找房</td><td>按区域在地图上打点，点气泡看详情</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">T-07</td><td class="name">看房记录与足迹</td><td>浏览历史，同时为智能体的偏好记忆提供数据</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">T-10</td><td class="name">消息中心</td><td>预约结果、账单到期、工单进度的站内通知</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">T-11</td><td class="name">个人资料与改密码</td><td>目前注册登录之后就没有了，改不了手机号也改不了密码。对应需求 <code>F-03</code> 的后半段</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-12</td><td class="name">搜索结果分页</td><td>现在搜索一次性取 50 条，没有分页；分页只在「最新房源」上有</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">T-08</td><td class="name">房源对比</td><td>勾选 2–4 套并排对比</td><td><span class="pri p2">P2</span></td></tr>
-    <tr><td class="id">T-09</td><td class="name">评价与评分</td><td>租期结束后对房源与房东评分</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-07</td><td class="name">看房记录与足迹</td><td>浏览历史，同时为智能体的偏好记忆提供数据</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-10</td><td class="name">消息中心</td><td>预约结果、账单到期、工单进度的站内通知</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-11</td><td class="name">个人资料与改密码</td><td>目前注册登录之后就没有了，改不了手机号也改不了密码。对应需求 <code>F-03</code> 的后半段</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-part"><td class="id">⚠️ T-12</td><td class="name">搜索结果分页</td><td>现在搜索一次性取 50 条，没有分页；分页只在「最新房源」上有</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-08</td><td class="name">房源对比</td><td>勾选 2–4 套并排对比</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-09</td><td class="name">评价与评分</td><td>租期结束后对房源与房东评分</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
 
@@ -439,15 +469,15 @@ footer a{color:var(--brand)}
 <div class="tw"><table>
   <thead><tr><th>编号</th><th>功能</th><th>说明</th><th>优先级</th></tr></thead>
   <tbody>
-    <tr><td class="id">L-01</td><td class="name">房东工作台</td><td>上图的数据卡片 + 待办聚合，登录后的落地页</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-02</td><td class="name">房源发布页面</td><td>表单 + 图片上传 + 标签勾选。<span class="own">接口已有，缺前端</span></td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-03</td><td class="name">我的房源管理</td><td>列表、编辑、上下架、标记已租、查看浏览量</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-04</td><td class="name">预约处理页面</td><td>确认／拒绝并填回复。<span class="own">接口已有，缺前端</span></td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-05</td><td class="name">租约管理</td><td>租约列表、到期提醒、发起续租、办理退租</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-06</td><td class="name">账单与收租</td><td>按月生成账单、标记已收、逾期提醒、收入统计</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">L-07</td><td class="name">工单处理</td><td>查看名下房源的报修，改状态、填处理结果</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">L-08</td><td class="name">租客档案</td><td>名下租客、联系方式、租约与缴费历史</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">L-09</td><td class="name">经营分析</td><td>出租率、空置天数、月度收入曲线（ECharts）</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-01</td><td class="name">房东工作台</td><td>上图的数据卡片 + 待办聚合，登录后的落地页</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-02</td><td class="name">房源发布页面</td><td>表单 + 图片上传 + 标签勾选。<span class="own">接口已有，缺前端</span></td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-03</td><td class="name">我的房源管理</td><td>列表、编辑、上下架、标记已租、查看浏览量</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-04</td><td class="name">预约处理页面</td><td>确认／拒绝并填回复。<span class="own">接口已有，缺前端</span></td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-05</td><td class="name">租约管理</td><td>租约列表、到期提醒、发起续租、办理退租</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-06</td><td class="name">账单与收租</td><td>按月生成账单、标记已收、逾期提醒、收入统计</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-07</td><td class="name">工单处理</td><td>查看名下房源的报修，改状态、填处理结果</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-08</td><td class="name">租客档案</td><td>名下租客、联系方式、租约与缴费历史</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-part"><td class="id">⚠️ L-09</td><td class="name">经营分析</td><td>出租率、空置天数、月度收入曲线（ECharts）</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">L-10</td><td class="name">定价建议</td><td>智能体对比同区域同户型给出定价区间</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
@@ -457,12 +487,12 @@ footer a{color:var(--brand)}
 <div class="tw"><table>
   <thead><tr><th>编号</th><th>功能</th><th>说明</th><th>优先级</th></tr></thead>
   <tbody>
-    <tr><td class="id">M-01</td><td class="name">数据看板</td><td>房源／用户／订单／收入总览 + 趋势图 + 各区分布</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">M-02</td><td class="name">房源审核</td><td>待审列表、通过／驳回并填理由</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">M-03</td><td class="name">用户管理</td><td>列表、搜索、禁用／启用、角色调整</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">M-04</td><td class="name">订单与租约总览</td><td>全平台预约、租约、账单的查询与干预</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">M-05</td><td class="name">工单总览</td><td>全平台报修，按紧急程度排序，超时预警</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">M-06</td><td class="name">公告管理</td><td>发布平台公告，前台展示</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-01</td><td class="name">数据看板</td><td>房源／用户／订单／收入总览 + 趋势图 + 各区分布</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-02</td><td class="name">房源审核</td><td>待审列表、通过／驳回并填理由</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-03</td><td class="name">用户管理</td><td>列表、搜索、禁用／启用、角色调整</td><td><span class="pri p0">P0</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-04</td><td class="name">订单与租约总览</td><td>全平台预约、租约、账单的查询与干预</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-05</td><td class="name">工单总览</td><td>全平台报修，按紧急程度排序，超时预警</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-06</td><td class="name">公告管理</td><td>发布平台公告，前台展示</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">M-07</td><td class="name">操作日志</td><td>谁在什么时候改了什么，可追溯</td><td><span class="pri p2">P2</span></td></tr>
     <tr><td class="id">M-08</td><td class="name">内容审核</td><td>房源描述违规词检测</td><td><span class="pri p2">P2</span></td></tr>
     <tr><td class="id">M-09</td><td class="name">系统配置</td><td>看房时段、单次时长、押金比例等参数可配</td><td><span class="pri p2">P2</span></td></tr>
@@ -491,7 +521,7 @@ footer a{color:var(--brand)}
   <thead><tr><th>编号</th><th>功能</th><th>说明</th><th>优先级</th></tr></thead>
   <tbody>
     <tr><td class="id">AI-03</td><td class="name">智能客服问答</td><td>RAG 检索公告与常见问答，<strong>无依据必须拒答</strong></td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">AI-02</td><td class="name">合同智能审阅</td><td>抽取关键条款、标注对租客不利的条目</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ AI-02</td><td class="name">合同智能审阅</td><td>抽取关键条款、标注对租客不利的条目</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">AI-05</td><td class="name">经营分析报告</td><td>由 <code>/api/stats</code> 取数生成文字分析</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">AI-07</td><td class="name">房源智能推荐</td><td>基于浏览与收藏记录推荐相似房源</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">AI-09</td><td class="name">多轮对话记忆</td><td><code>chat_messages</code> 表已建好，尚未接入</td><td><span class="pri p1">P1</span></td></tr>
