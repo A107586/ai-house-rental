@@ -8,6 +8,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 
 from app.config import settings
 
@@ -40,6 +41,57 @@ class BackendClient(object):
         except Exception as exc:
             raise BackendError("无法连接业务后端（%s）：%s" % (type(exc).__name__, self.base_url))
 
+    def post(self, path, payload):
+        """发起 POST 请求，用于写入类操作。"""
+        url = self.base_url + "/" + path.lstrip("/")
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise BackendError("后端返回 HTTP %s：%s" % (exc.code, path))
+        except Exception as exc:
+            raise BackendError("无法连接业务后端（%s）：%s" % (type(exc).__name__, self.base_url))
+
+    def list_viewings(self, house_no):
+        """查询某房源已有的看房预约时刻，返回 `datetime` 列表。
+
+        表结构演进期间，看房时间可能是纯日期，也可能带时刻，
+        因此这里做兼容解析；无法解析的记录直接跳过，不影响其余判断。
+        """
+        body = self.get("/kanfangshenqing/list",
+                        {"fangwubianhao": house_no, "page": 1, "limit": 100})
+        data = body.get("data") or {}
+        rows = data if isinstance(data, list) else (data.get("list") or [])
+
+        moments = []
+        for row in rows:
+            raw = row.get("kanfangshijian")
+            if not raw:
+                continue
+            parsed = _parse_moment(str(raw))
+            if parsed:
+                moments.append(parsed)
+        return moments
+
+    def create_viewing(self, house_no, moment, applicant):
+        """提交看房申请。"""
+        payload = {
+            "fangwubianhao": house_no,
+            "kanfangshijian": moment.strftime("%Y-%m-%d %H:%M:%S"),
+            "shenqingriqi": datetime.now().strftime("%Y-%m-%d"),
+            "sfsh": "否",
+        }
+        for key in ("zhanghao", "xingming", "shouji", "beizhu"):
+            if applicant.get(key):
+                payload[key] = applicant[key]
+        return self.post("/kanfangshenqing/add", payload)
+
     def list_properties(self, params):
         """查询房源列表。
 
@@ -54,6 +106,24 @@ class BackendClient(object):
             "list": data.get("list") or [],
             "total": data.get("total") or 0,
         }
+
+
+_MOMENT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
+                   "%Y-%m-%d %H:%M", "%Y-%m-%d")
+
+
+def _parse_moment(raw):
+    """兼容多种时间格式；纯日期按当天 10:00 处理。"""
+    raw = raw.strip()
+    for fmt in _MOMENT_FORMATS:
+        try:
+            parsed = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        if fmt == "%Y-%m-%d":
+            return parsed.replace(hour=10)
+        return parsed
+    return None
 
 
 # 模块级单例，便于测试时整体替换

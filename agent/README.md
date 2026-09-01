@@ -26,7 +26,7 @@ Supervisor 意图分类 ──► 规则命中且置信度 ≥ 0.5 ──► 直
 2. **可降级** — 没有 API Key、大模型超时、厂商故障，服务照常工作
    （对应非功能需求 N-07）。
 3. **可测试** — 每个工具都是纯函数，脱离大模型就能写单元测试。
-   目前 **59 个单元测试，全部不依赖网络、数据库和大模型**。
+   目前 **92 个单元测试，全部不依赖网络、数据库和大模型**。
 
 ## 目录结构
 
@@ -42,12 +42,17 @@ agent/
 │   │   ├── base.py          LLMProvider 抽象 + JSON 容错提取
 │   │   └── providers.py     OpenAI 兼容协议实现
 │   └── agents/
-│       └── property_finder/
-│           ├── agent.py     房源智能体编排
+│       ├── property_finder/
+│       │   ├── agent.py     房源智能体编排
+│       │   └── tools/
+│       │       ├── parse_query.py        自然语言 → 筛选条件
+│       │       └── search_properties.py  条件 → 后端查询
+│       └── booking/
+│           ├── agent.py     预约智能体编排
 │           └── tools/
-│               ├── parse_query.py        自然语言 → 筛选条件
-│               └── search_properties.py  条件 → 后端查询
-├── tests/                   59 个单元测试
+│               ├── parse_datetime.py     中文相对时间 →「这周六下午两点」
+│               └── slots.py              冲突检测与可用时段推荐
+├── tests/                   92 个单元测试
 ├── demo.py                  命令行演示，无需任何外部依赖
 └── requirements.txt
 ```
@@ -90,6 +95,7 @@ uvicorn app.main:app --reload --port 8000
 | GET | `/health` | 健康检查，返回当前运行模式（不含密钥） |
 | POST | `/agent/route` | 只做意图识别，返回决策过程，便于答辩演示 |
 | POST | `/agent/search` | AI-01 自然语言找房 |
+| POST | `/agent/booking` | AI-06 智能预约看房（需带 `house_no`） |
 | POST | `/agent/chat` | 统一入口，先判意图再路由 |
 
 请求体统一为 `{"text": "用户说的话"}`。
@@ -119,6 +125,12 @@ LLM_API_KEY=<你的密钥>
   「怎么」「如何」这类泛问句词只能当弱特征加权。曾经把它们混为一谈，
   导致「今天股市怎么样」被判成客服问答且置信度高到不会转交大模型复核，
   `tests/test_supervisor.py` 里有对应的回归测试。
+- **时间解析必须能注入「现在」。** `parse_datetime(text, now=...)` 的 `now`
+  参数不是可有可无——若函数内部直接调 `datetime.now()`，测试结果会随运行
+  日期漂移，根本没法写确定性断言。
+- **带「这/本/下」修饰的星期要按周边界算。** 曾经用「下一次出现再加七天」
+  的写法，导致周二说「下周一」算成了两周后。`tests/test_booking.py`
+  里有回归测试。
 - **后端字段名不要泄漏到解析层。** `parse_query` 输出的是业务语义字段
   （`zujia_min`/`zujia_max`），转成 MyBatis-Plus 的 `_start`/`_end`
   约定这件事只在 `search_properties.build_params` 里做。
@@ -128,9 +140,9 @@ LLM_API_KEY=<你的密钥>
 | 需求 | 状态 |
 |---|---|
 | AI-01 自然语言找房 | ✅ 已完成 |
+| AI-06 智能预约看房 | ✅ 已完成 |
 | AI-03 智能客服问答（RAG） | ⬜ 待开发 |
 | AI-04 报修工单智能分派 | ⬜ 待开发 |
-| AI-06 智能预约看房 | ⬜ 待开发 |
 | AI-02 合同智能审阅 | ⬜ 待开发 |
 | AI-05 经营分析报告 | ⬜ 待开发 |
 

@@ -20,6 +20,7 @@ if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 from app import supervisor  # noqa: E402
+from app.agents.booking import agent as booking  # noqa: E402
 from app.agents.property_finder.agent import understand  # noqa: E402
 from app.agents.property_finder.tools.search_properties import build_params  # noqa: E402
 from app.llm.base import NullProvider  # noqa: E402
@@ -30,7 +31,8 @@ SAMPLES = [
     "沙河口 合租 单间 1500以下",
     "甘井子区 80平以上的三室 预算不超过五千",
     "有没有金州区2000到3000的一居室",
-    "我想预约这周六下午看房",
+    "我想预约这周六下午两点看房",
+    "最近三天都可以看房",
     "卫生间漏水了，能报修吗",
     "帮我看看这份合同的违约条款",
     "退租的时候押金怎么退",
@@ -47,6 +49,12 @@ def show(text, provider):
           % (supervisor.label(routed["intent"]), routed["confidence"], routed["source"]))
     if routed["hits"]:
         print("  命中词：%s" % "、".join(routed["hits"]))
+
+    if routed["intent"] == "booking":
+        result = booking.run(text, house_no=None, taken=[])
+        print("  状态：%s" % result["status"])
+        print("  回复：%s" % result["message"])
+        return
 
     if routed["intent"] != "search":
         return

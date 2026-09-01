@@ -102,6 +102,7 @@ def run(text, page=1, limit=10, provider=None, backend=None):
     if not filters and not features:
         return {
             "intent": "search",
+            "status": "unparsed",
             "filters": {},
             "features": [],
             "source": source,
@@ -118,6 +119,7 @@ def run(text, page=1, limit=10, provider=None, backend=None):
     if not result["ok"]:
         return {
             "intent": "search",
+            "status": "error",
             "filters": filters,
             "features": features,
             "source": source,
@@ -130,6 +132,7 @@ def run(text, page=1, limit=10, provider=None, backend=None):
 
     return {
         "intent": "search",
+        "status": "found" if result["total"] else "empty",
         "filters": filters,
         "features": features,
         "source": source,

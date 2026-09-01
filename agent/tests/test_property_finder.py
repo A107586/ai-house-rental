@@ -149,5 +149,35 @@ class TestSanitize(unittest.TestCase):
         self.assertEqual(agent._sanitize("not a dict"), {})
 
 
+
+class TestResponseShape(unittest.TestCase):
+    """所有返回都必须带 status，前端才能只写一套判断逻辑。"""
+
+    REQUIRED = ("intent", "status", "ok", "message")
+
+    def test_found(self):
+        backend = FakeBackend([make_house(1, 2200)])
+        result = agent.run("中山区两室一厅三千以内",
+                           provider=NullProvider(), backend=backend)
+        for key in self.REQUIRED:
+            self.assertIn(key, result)
+        self.assertEqual(result["status"], "found")
+
+    def test_empty(self):
+        backend = FakeBackend([])
+        result = agent.run("中山区两室一厅三千以内",
+                           provider=NullProvider(), backend=backend)
+        self.assertEqual(result["status"], "empty")
+
+    def test_error(self):
+        result = agent.run("中山区两室一厅三千以内",
+                           provider=NullProvider(), backend=FakeBackend(fail=True))
+        self.assertEqual(result["status"], "error")
+
+    def test_unparsed(self):
+        result = agent.run("你好啊", provider=NullProvider(), backend=FakeBackend([]))
+        self.assertEqual(result["status"], "unparsed")
+
+
 if __name__ == "__main__":
     unittest.main()

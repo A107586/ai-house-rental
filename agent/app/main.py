@@ -9,7 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import supervisor
+from app.agents.booking import agent as booking
 from app.agents.property_finder import agent as property_finder
+from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
 
@@ -42,6 +44,14 @@ class ChatRequest(BaseModel):
     text: str
 
 
+class BookingRequest(BaseModel):
+    text: str
+    house_no: str
+    zhanghao: str = ""
+    xingming: str = ""
+    shouji: str = ""
+
+
 @app.get("/health")
 def health():
     """健康检查。返回内容**不含任何密钥**。"""
@@ -63,6 +73,19 @@ def agent_route(payload: ChatRequest):
     return result
 
 
+@app.post("/agent/booking")
+def agent_booking(payload: BookingRequest):
+    """AI-06 智能预约看房。"""
+    return booking.run(
+        payload.text,
+        house_no=payload.house_no,
+        applicant={"zhanghao": payload.zhanghao,
+                   "xingming": payload.xingming,
+                   "shouji": payload.shouji},
+        backend=backend_client,
+    )
+
+
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
     """统一入口：先判意图，再路由到对应子智能体。
@@ -77,10 +100,22 @@ def agent_chat(payload: ChatRequest):
         result["route"] = routed
         return result
 
+    if intent == "booking":
+        # 统一入口拿不到房源编号，只做时间解析与时段建议，
+        # 真正落库要走 /agent/booking 并带上 house_no
+        result = booking.run(payload.text, house_no=None, taken=[])
+        result["route"] = routed
+        return result
+
+    # 返回结构与各子智能体保持一致，前端只需处理一种形状
     return {
         "intent": intent,
         "label": supervisor.label(intent),
         "route": routed,
+        "status": "not_implemented" if intent != "unknown" else "unknown",
         "ok": False,
-        "message": "「%s」能力尚在开发中。" % supervisor.label(intent),
+        "alternatives": [],
+        "message": ("没太理解你的意思，可以试试「帮我找中山区两室一厅」"
+                    "或「预约这周六下午看房」。" if intent == "unknown"
+                    else "「%s」能力尚在开发中。" % supervisor.label(intent)),
     }
