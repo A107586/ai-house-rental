@@ -223,6 +223,10 @@ export const api = {
       submit,
     }),
 
+  // AI-02 合同智能审阅
+  agentContractReview: (text) =>
+    post(agentUrl('/agent/contract/review'), { text }),
+
   // 只做意图识别，用于展示智能体的决策过程
   agentRoute: (text) => post(agentUrl('/agent/route'), { text }),
 }

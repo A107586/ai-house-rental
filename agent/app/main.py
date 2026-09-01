@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app import supervisor
 from app.agents.booking import agent as booking
+from app.agents.contract import agent as contract
 from app.agents.property_finder import agent as property_finder
 from app.agents.repair import agent as repair
 from app.backend import client as backend_client
@@ -51,6 +52,10 @@ class RepairRequest(BaseModel):
     xingming: str = ""
     shouji: str = ""
     submit: bool = True
+
+
+class ContractRequest(BaseModel):
+    text: str
 
 
 class BookingRequest(BaseModel):
@@ -119,6 +124,12 @@ def agent_repair(payload: RepairRequest):
     )
 
 
+@app.post("/agent/contract/review")
+def agent_contract(payload: ContractRequest):
+    """AI-02 合同智能审阅。"""
+    return contract.run(payload.text, provider=provider)
+
+
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
     """统一入口：先判意图，再路由到对应子智能体。
@@ -132,6 +143,14 @@ def agent_chat(payload: ChatRequest):
         result = property_finder.run(payload.text, provider=provider)
         result["route"] = routed
         return result
+
+    if intent == "contract":
+        # 统一入口拿不到合同正文，只能引导用户去合同页
+        return {
+            "intent": "contract", "status": "need_content", "ok": False,
+            "route": routed, "alternatives": [],
+            "message": "请到「我的租约」里打开合同，点「智能审阅」。",
+        }
 
     if intent == "repair":
         # 统一入口只做分析预览，落库要走 /agent/repair 并带上 house_no

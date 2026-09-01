@@ -12,6 +12,21 @@ export default function ContractCard({ contract, role, onChanged }) {
   const [showText, setShowText] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [review, setReview] = useState(null)
+  const [reviewing, setReviewing] = useState(false)
+
+  async function runReview() {
+    if (reviewing) return
+    setReviewing(true)
+    setError('')
+    try {
+      setReview(await api.agentContractReview(contract.content))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setReviewing(false)
+    }
+  }
 
   const isTenant = role === 'tenant'
   const isStaff = role === 'landlord' || role === 'admin'
@@ -82,6 +97,10 @@ export default function ContractCard({ contract, role, onChanged }) {
           {showText ? '收起合同' : '查看合同'}
         </button>
 
+        <button className="btn ghost small" onClick={runReview} disabled={reviewing}>
+          {reviewing ? '审阅中…' : '智能审阅'}
+        </button>
+
         {contract.status === 'pending' && isTenant && (
           <button
             className="btn small"
@@ -111,6 +130,57 @@ export default function ContractCard({ contract, role, onChanged }) {
           </>
         )}
       </div>
+
+      {review && (
+        <div className="review-panel">
+          <div className="review-score">
+            <span className={`score-num ${review.score >= 80 ? 'good'
+              : review.score >= 50 ? 'warn' : 'bad'}`}>
+              {review.score}
+            </span>
+            <span className="score-unit">/ 100</span>
+            <span className="score-note">
+              {review.source === 'rules' ? '规则解析，未调用大模型'
+                : review.source === 'llm' ? '大模型解析'
+                : '大模型不可用，已降级为规则解析'}
+            </span>
+          </div>
+
+          <p className="record-body">{review.message}</p>
+
+          <div className="clause-grid">
+            {Object.entries(review.clauses).map(([k, v]) => (
+              <div className="clause" key={k}>
+                <div className="clause-k">{k}</div>
+                <div className="clause-v">{String(v)}</div>
+              </div>
+            ))}
+          </div>
+
+          {review.risks.length > 0 && (
+            <ul className="risk-list">
+              {review.risks.map((r) => (
+                <li key={r.id} className={`risk-${r.level}`}>
+                  <div className="risk-head">
+                    <span className={`pill risk-tag risk-${r.level}`}>
+                      {r.level === 'high' ? '签前必谈'
+                        : r.level === 'medium' ? '需注意' : '提示'}
+                    </span>
+                    <strong>{r.title}</strong>
+                  </div>
+                  <div className="risk-quote">「{r.quote}」</div>
+                  <div className="record-body">{r.why}</div>
+                  <div className="risk-advice">建议：{r.advice}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button className="btn ghost small" onClick={() => setReview(null)}>
+            收起审阅结果
+          </button>
+        </div>
+      )}
 
       {showText && <pre className="contract-text">{contract.content}</pre>}
     </li>

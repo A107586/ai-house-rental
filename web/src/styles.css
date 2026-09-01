@@ -1501,3 +1501,130 @@ textarea {
     max-width: none;
   }
 }
+
+/* ---------------- 合同审阅 ---------------- */
+
+.review-panel {
+  margin-top: 12px;
+  padding: 15px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.review-score {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.score-num {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-num.good { color: var(--ok); }
+.score-num.warn { color: var(--warn); }
+.score-num.bad  { color: var(--danger); }
+
+.score-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.score-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.clause-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.clause {
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.clause-k {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.clause-v {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.risk-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+/* 左侧色条编码严重程度，扫一眼就知道哪几条要重点看 */
+.risk-list li {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border-left: 3px solid var(--muted);
+  background: var(--surface-2);
+}
+
+.risk-list li.risk-high {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.risk-list li.risk-medium {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.risk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.pill.risk-tag {
+  margin-left: 0;
+}
+
+.pill.risk-high {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.pill.risk-medium {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+
+.risk-quote {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: normal;
+  margin-bottom: 4px;
+}
+
+.risk-advice {
+  font-size: 12.5px;
+  color: var(--brand);
+  margin-top: 5px;
+  font-weight: 500;
+}
