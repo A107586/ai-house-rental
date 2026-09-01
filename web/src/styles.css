@@ -763,3 +763,106 @@ textarea {
   margin-left: 0;
   margin-right: 6px;
 }
+
+/* ---------------- 租约与账单 ---------------- */
+
+.tabs.scroll {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.tabs.scroll .tab {
+  white-space: nowrap;
+}
+
+.tab-n {
+  display: inline-block;
+  margin-left: 5px;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.tab.active .tab-n {
+  background: var(--brand);
+  color: #fff;
+}
+
+/* 合同正文：等宽 + 保留换行，读起来像一份真合同 */
+.contract-text {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.warn-text {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.amount {
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 账单汇总 */
+.sum-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+
+.sum {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.sum-k {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.sum-v {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.sum-v.money {
+  color: var(--accent);
+}
+
+.sum-v.danger {
+  color: var(--danger);
+}
+
+.sum-d {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 未读消息用左侧色条标记，比整块变色克制 */
+.record-list li.unread {
+  border-left: 3px solid var(--brand);
+  background: var(--surface);
+}

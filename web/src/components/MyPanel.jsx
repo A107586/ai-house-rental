@@ -1,28 +1,49 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ContractCard from './ContractCard'
 
-const STATUS_LABEL = {
+const APPOINTMENT_STATUS = {
   pending: '待确认',
   confirmed: '已确认',
   rejected: '已拒绝',
   cancelled: '已取消',
 }
 
+const BILL_TYPE = {
+  rent: '租金',
+  deposit: '押金',
+  utility: '水电',
+  other: '其它',
+}
+
 export default function MyPanel({ user, onClose, onOpenHouse }) {
-  const [tab, setTab] = useState('appointments')
+  const [tab, setTab] = useState('contracts')
   const [appointments, setAppointments] = useState([])
+  const [contracts, setContracts] = useState([])
+  const [bills, setBills] = useState({ list: [], unpaid_count: 0, unpaid_amount: 0, overdue_count: 0 })
   const [favorites, setFavorites] = useState([])
+  const [messages, setMessages] = useState({ list: [], unread: 0 })
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
+
+  const isStaff = user.role === 'landlord' || user.role === 'admin'
 
   async function load() {
     setError('')
     try {
-      const [mine, favs] = await Promise.all([
+      // 一次性拉齐，切标签时不再等待
+      const [mine, myContracts, myBills, favs, msgs] = await Promise.all([
         api.myAppointments(),
+        api.myContracts(),
+        api.myBills(),
         api.listFavorites(),
+        api.listMessages(),
       ])
       setAppointments(mine.list || [])
+      setContracts(myContracts.list || [])
+      setBills(myBills)
       setFavorites(favs.list || [])
+      setMessages(msgs)
     } catch (err) {
       setError(err.message)
     }
@@ -30,6 +51,7 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
 
   useEffect(() => {
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -38,16 +60,27 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  async function change(id, status) {
+  async function run(key, fn) {
+    if (busy) return
+    setBusy(key)
+    setError('')
     try {
-      await api.updateAppointment(id, status)
-      load()
+      await fn()
+      await load()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy('')
     }
   }
 
-  const isStaff = user.role === 'landlord' || user.role === 'admin'
+  const TABS = [
+    { key: 'contracts', label: isStaff ? '出租合同' : '我的租约', n: contracts.length },
+    { key: 'bills', label: isStaff ? '收租' : '我的账单', n: bills.unpaid_count },
+    { key: 'appointments', label: isStaff ? '收到的预约' : '我的预约', n: appointments.length },
+    { key: 'messages', label: '消息', n: messages.unread },
+    { key: 'favorites', label: '收藏', n: favorites.length },
+  ]
 
   return (
     <>
@@ -58,27 +91,119 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
         </button>
         <h3>{user.real_name || user.username}</h3>
         <div className="loc">
-          {{ tenant: '租客', landlord: '房东', admin: '管理员' }[user.role]} ·{' '}
-          {user.phone}
+          {{ tenant: '租客', landlord: '房东', admin: '管理员' }[user.role]} · {user.phone}
         </div>
 
-        <div className="tabs">
-          <button
-            className={`tab ${tab === 'appointments' ? 'active' : ''}`}
-            onClick={() => setTab('appointments')}
-          >
-            {isStaff ? '收到的预约' : '我的预约'}（{appointments.length}）
-          </button>
-          <button
-            className={`tab ${tab === 'favorites' ? 'active' : ''}`}
-            onClick={() => setTab('favorites')}
-          >
-            我的收藏（{favorites.length}）
-          </button>
+        <div className="tabs scroll">
+          {TABS.map((item) => (
+            <button
+              key={item.key}
+              className={`tab ${tab === item.key ? 'active' : ''}`}
+              onClick={() => setTab(item.key)}
+            >
+              {item.label}
+              {item.n > 0 && <span className="tab-n">{item.n}</span>}
+            </button>
+          ))}
         </div>
 
         {error && <div className="reply failed">{error}</div>}
 
+        {/* ---------------- 租约 ---------------- */}
+        {tab === 'contracts' &&
+          (contracts.length === 0 ? (
+            <p className="desc">
+              还没有租约。{isStaff ? '确认看房预约后可以为租客发起签约。' : '看房满意后，房东会发起签约。'}
+            </p>
+          ) : (
+            <ul className="record-list">
+              {contracts.map((contract) => (
+                <ContractCard
+                  key={contract.contract_no}
+                  contract={contract}
+                  role={user.role}
+                  onChanged={load}
+                />
+              ))}
+            </ul>
+          ))}
+
+        {/* ---------------- 账单 ---------------- */}
+        {tab === 'bills' && (
+          <>
+            <div className="sum-row">
+              <div className="sum">
+                <div className="sum-k">{isStaff ? '待收' : '待缴'}</div>
+                <div className="sum-v money">{bills.unpaid_amount}</div>
+                <div className="sum-d">元 · {bills.unpaid_count} 笔</div>
+              </div>
+              <div className="sum">
+                <div className="sum-k">逾期</div>
+                <div className={`sum-v ${bills.overdue_count ? 'danger' : ''}`}>
+                  {bills.overdue_count}
+                </div>
+                <div className="sum-d">笔</div>
+              </div>
+            </div>
+
+            {bills.list.length === 0 ? (
+              <p className="desc">还没有账单。合同生效后会自动排出整个租期的账单。</p>
+            ) : (
+              <ul className="record-list">
+                {bills.list.map((bill) => (
+                  <li key={bill.bill_no}>
+                    <div className="record-head">
+                      <strong>
+                        {BILL_TYPE[bill.type] || bill.type}
+                        {bill.period && ` · ${bill.period}`}
+                      </strong>
+                      <span
+                        className={`pill ${
+                          bill.status === 'paid'
+                            ? 'status-confirmed'
+                            : bill.overdue
+                            ? 'status-rejected'
+                            : 'status-pending'
+                        }`}
+                      >
+                        {bill.status === 'paid'
+                          ? '已缴'
+                          : bill.status === 'cancelled'
+                          ? '已作废'
+                          : bill.overdue
+                          ? '已逾期'
+                          : '待缴'}
+                      </span>
+                    </div>
+                    <div className="record-body">
+                      <span className="amount">{bill.amount} 元</span> · {bill.house_no} ·
+                      到期 {bill.due_date}
+                    </div>
+                    {bill.status === 'paid' && (
+                      <div className="record-body">缴费时间 {bill.paid_at}</div>
+                    )}
+
+                    {bill.status === 'unpaid' && !isStaff && (
+                      <div className="record-actions">
+                        <button
+                          className="btn small"
+                          disabled={busy === bill.bill_no}
+                          onClick={() =>
+                            run(bill.bill_no, () => api.payBill(bill.bill_no, 'alipay'))
+                          }
+                        >
+                          {busy === bill.bill_no ? '支付中' : '立即缴费'}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {/* ---------------- 预约 ---------------- */}
         {tab === 'appointments' &&
           (appointments.length === 0 ? (
             <p className="desc">还没有预约记录。</p>
@@ -89,7 +214,7 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
                   <div className="record-head">
                     <strong>{item.house_no}</strong>
                     <span className={`pill status-${item.status}`}>
-                      {STATUS_LABEL[item.status] || item.status}
+                      {APPOINTMENT_STATUS[item.status] || item.status}
                     </span>
                   </div>
                   <div className="record-body">
@@ -103,13 +228,19 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
                         <>
                           <button
                             className="btn small"
-                            onClick={() => change(item.id, 'confirmed')}
+                            onClick={() =>
+                              run(`a${item.id}`, () =>
+                                api.updateAppointment(item.id, 'confirmed'))
+                            }
                           >
                             确认
                           </button>
                           <button
                             className="btn ghost small"
-                            onClick={() => change(item.id, 'rejected')}
+                            onClick={() =>
+                              run(`a${item.id}`, () =>
+                                api.updateAppointment(item.id, 'rejected'))
+                            }
                           >
                             拒绝
                           </button>
@@ -117,7 +248,10 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
                       )}
                       <button
                         className="btn ghost small"
-                        onClick={() => change(item.id, 'cancelled')}
+                        onClick={() =>
+                          run(`a${item.id}`, () =>
+                            api.updateAppointment(item.id, 'cancelled'))
+                        }
                       >
                         取消
                       </button>
@@ -128,6 +262,48 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
             </ul>
           ))}
 
+        {/* ---------------- 消息 ---------------- */}
+        {tab === 'messages' && (
+          <>
+            {messages.unread > 0 && (
+              <div className="record-actions" style={{ marginBottom: 10 }}>
+                <button
+                  className="btn ghost small"
+                  onClick={() => run('readall', api.readAllMessages)}
+                >
+                  全部标为已读
+                </button>
+              </div>
+            )}
+            {messages.list.length === 0 ? (
+              <p className="desc">还没有消息。预约结果、账单与合同变动都会通知到这里。</p>
+            ) : (
+              <ul className="record-list">
+                {messages.list.map((item) => (
+                  <li key={item.id} className={item.is_read ? '' : 'unread'}>
+                    <div className="record-head">
+                      <strong>{item.title}</strong>
+                      <span className="pill">{item.created_at.slice(5)}</span>
+                    </div>
+                    {item.content && <div className="record-body">{item.content}</div>}
+                    {!item.is_read && (
+                      <div className="record-actions">
+                        <button
+                          className="btn ghost small"
+                          onClick={() => run(`m${item.id}`, () => api.readMessage(item.id))}
+                        >
+                          标为已读
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {/* ---------------- 收藏 ---------------- */}
         {tab === 'favorites' &&
           (favorites.length === 0 ? (
             <p className="desc">还没有收藏房源。</p>
@@ -148,10 +324,9 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
                     </button>
                     <button
                       className="btn ghost small"
-                      onClick={async () => {
-                        await api.removeFavorite(house.house_no)
-                        load()
-                      }}
+                      onClick={() =>
+                        run(`f${house.house_no}`, () => api.removeFavorite(house.house_no))
+                      }
                     >
                       取消收藏
                     </button>

@@ -119,6 +119,30 @@ export const api = {
   // ---------------- 报修 ----------------
   listRepairs: (params = {}) => request(`/api/repairs?${toQuery(params)}`),
 
+  // ---------------- 合同 ----------------
+  myContracts: (status = '') =>
+    request(`/api/contracts/mine?${toQuery({ status })}`),
+  getContract: (no) => request(`/api/contracts/${no}`),
+  createContract: (payload) => post('/api/contracts', payload),
+  activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
+  endContract: (no, reason = '', deduct = 0) =>
+    post(`/api/contracts/${no}/end`, { reason, deduct }),
+  renewContract: (no, months = 12) =>
+    post(`/api/contracts/${no}/renew`, { months }),
+
+  // ---------------- 账单 ----------------
+  myBills: (status = '') => request(`/api/bills/mine?${toQuery({ status })}`),
+  payBill: (no, method = 'alipay') => post(`/api/bills/${no}/pay`, { method }),
+
+  // ---------------- 消息 ----------------
+  listMessages: (unreadOnly = false) =>
+    request(`/api/messages?${toQuery({ unread_only: unreadOnly })}`),
+  readMessage: (id) => request(`/api/messages/${id}/read`, { method: 'PATCH' }),
+  readAllMessages: () => post('/api/messages/read-all', {}),
+
+  // ---------------- 公告 ----------------
+  listNotices: () => request('/api/notices'),
+
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
   agentSearch: (text, limit = 12) => post(agentUrl('/agent/search'), { text, limit }),
