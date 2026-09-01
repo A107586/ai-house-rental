@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
+import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
 import HouseCard from './components/HouseCard'
 import HouseDrawer from './components/HouseDrawer'
+import LandlordPanel from './components/LandlordPanel'
 import MyPanel from './components/MyPanel'
 
 const EXAMPLES = [
@@ -45,6 +47,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
+  const [showWork, setShowWork] = useState(false)
   const [favorites, setFavorites] = useState([])
 
   const loadFavorites = useCallback(async () => {
@@ -140,6 +143,7 @@ export default function App() {
     setUser(null)
     setFavorites([])
     setShowMine(false)
+    setShowWork(false)
   }
 
   const filterChips = result
@@ -169,6 +173,11 @@ export default function App() {
 
             {user ? (
               <>
+                {(user.role === 'landlord' || user.role === 'admin') && (
+                  <button className="btn ghost small" onClick={() => setShowWork(true)}>
+                    {user.role === 'admin' ? '管理后台' : '工作台'}
+                  </button>
+                )}
                 <button className="btn ghost small" onClick={() => setShowMine(true)}>
                   {user.real_name || user.username}
                 </button>
@@ -305,6 +314,14 @@ export default function App() {
             loadFavorites()
           }}
         />
+      )}
+
+      {showWork && user?.role === 'landlord' && (
+        <LandlordPanel user={user} onClose={() => setShowWork(false)} />
+      )}
+
+      {showWork && user?.role === 'admin' && (
+        <AdminPanel user={user} onClose={() => setShowWork(false)} />
       )}
 
       {showMine && user && (

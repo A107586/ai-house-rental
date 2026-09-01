@@ -143,6 +143,34 @@ export const api = {
   // ---------------- 公告 ----------------
   listNotices: () => request('/api/notices'),
 
+  // ---------------- 房东端 ----------------
+  landlordDashboard: () => request('/api/landlord/dashboard'),
+  landlordHouses: () => request('/api/landlord/houses'),
+  createHouse: (payload) => post('/api/houses', payload),
+  updateHouse: (houseNo, payload) =>
+    request(`/api/houses/${houseNo}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  setHouseStatus: (houseNo, status) =>
+    request(`/api/houses/${houseNo}/status?${toQuery({ status })}`, {
+      method: 'PATCH',
+    }),
+
+  // ---------------- 管理员端 ----------------
+  adminHouses: (params = {}) => request(`/api/admin/houses?${toQuery(params)}`),
+  reviewHouse: (houseNo, approved, reason = '') =>
+    request(`/api/houses/${houseNo}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approved, reason }),
+    }),
+  adminUsers: (params = {}) => request(`/api/admin/users?${toQuery(params)}`),
+  updateUser: (id, payload) =>
+    request(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
   agentSearch: (text, limit = 12) => post(agentUrl('/agent/search'), { text, limit }),
