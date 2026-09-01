@@ -1,71 +1,10 @@
-"""业务后端接口测试。
+"""业务后端接口测试（第一批）：密码安全、登录、房源、预约冲突。"""
 
-每个测试类用独立的内存数据库，互不干扰，也不会污染开发用的 rental.db。
-"""
-
-import os
-import sys
 import unittest
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# 必须在导入 app.db 之前设置，否则会连到默认的 SQLite 文件
-os.environ["DATABASE_URL"] = "sqlite://"
-
-from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
-
-import app.db as db  # noqa: E402
-from app.models import Appointment, Base, House, User  # noqa: E402
-from app.security import hash_password, verify_password  # noqa: E402
-
-# 内存库必须用 StaticPool，否则每个连接都是一个全新的空库
-_engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
-                        poolclass=StaticPool, future=True)
-db.engine = _engine
-db.SessionLocal = sessionmaker(bind=_engine, autoflush=False, future=True)
-
-from app.main import app  # noqa: E402
-
-
-def seed(session):
-    landlord = User(username="ll", password_hash=hash_password("x"),
-                    real_name="房东甲", phone="13800001234", role="landlord")
-    session.add(landlord)
-    session.add(User(username="t1", password_hash=hash_password("test123"),
-                     real_name="租客甲", phone="13900005678", role="tenant"))
-    session.flush()
-
-    session.add_all([
-        House(house_no="DL0001", title="中山区两室", landlord_id=landlord.id,
-              district="中山区", community="青泥洼桥", rent_price=2800, area=70,
-              layout="两室一厅", rent_type="整租", tags="电梯,地铁",
-              description="有电梯近地铁", status="available"),
-        House(house_no="DL0002", title="甘井子三室", landlord_id=landlord.id,
-              district="甘井子区", community="泡崖", rent_price=4200, area=100,
-              layout="三室一厅", rent_type="整租", tags="有阳台",
-              status="available"),
-        House(house_no="DL0003", title="已租房源", landlord_id=landlord.id,
-              district="中山区", community="人民路", rent_price=3000, area=80,
-              layout="两室一厅", rent_type="整租", status="rented"),
-    ])
-    session.commit()
-
-
-class ApiTestCase(unittest.TestCase):
-
-    def setUp(self):
-        Base.metadata.drop_all(_engine)
-        Base.metadata.create_all(_engine)
-        session = db.SessionLocal()
-        try:
-            seed(session)
-        finally:
-            session.close()
-        self.client = TestClient(app)
+from tests.base import ApiTestCase, auth_header  # noqa: F401
+from app.security import hash_password, verify_password
 
 
 class TestPasswordSecurity(unittest.TestCase):
@@ -90,25 +29,25 @@ class TestAuth(ApiTestCase):
 
     def test_login_ok(self):
         response = self.client.post("/api/auth/login",
-                                    json={"username": "t1", "password": "test123"})
+                                    json={"username": "tenant1", "password": "test123"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["user"]["username"], "t1")
+        self.assertEqual(response.json()["user"]["username"], "tenant1")
 
     def test_login_wrong_password(self):
         response = self.client.post("/api/auth/login",
-                                    json={"username": "t1", "password": "bad"})
+                                    json={"username": "tenant1", "password": "bad"})
         self.assertEqual(response.status_code, 401)
 
     def test_response_never_leaks_password_hash(self):
         """接口返回里绝不能出现密码哈希。"""
         response = self.client.post("/api/auth/login",
-                                    json={"username": "t1", "password": "test123"})
+                                    json={"username": "tenant1", "password": "test123"})
         self.assertNotIn("password", response.text)
 
     def test_phone_is_masked(self):
         """R-02：手机号必须脱敏后返回。"""
         response = self.client.post("/api/auth/login",
-                                    json={"username": "t1", "password": "test123"})
+                                    json={"username": "tenant1", "password": "test123"})
         phone = response.json()["user"]["phone"]
         self.assertEqual(phone, "139****5678")
         self.assertNotIn("13900005678", response.text)

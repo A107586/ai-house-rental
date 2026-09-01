@@ -19,7 +19,7 @@ if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
-from app.models import Appointment, Base, House, User  # noqa: E402
+from app.models import Appointment, Base, House, Repair, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -183,6 +183,24 @@ def main():
                 viewing_time=moment,
                 status=random.choice(["pending", "confirmed"])))
 
+        print("生成报修工单 ...")
+        samples = [
+            ("卫生间水管漏水，地上都是水", "水暖", "紧急", "水暖工"),
+            ("空调不制冷了", "家电", "一般", "家电维修师傅"),
+            ("客厅灯泡坏了，不急，有空再换", "电路", "可延后", "电工"),
+            ("卧室门锁打不开", "门窗", "紧急", "门窗维修师傅"),
+        ]
+        for content, category, urgency, assignee in samples:
+            house = random.choice(houses)
+            tenant = random.choice(tenants)
+            session.add(Repair(
+                house_id=house.id, tenant_id=tenant.id,
+                contact_name=tenant.real_name, contact_phone=tenant.phone,
+                content=content, category=category, urgency=urgency,
+                assignee=assignee,
+                analysis="由报修智能体自动分类",
+                status="pending"))
+
         session.commit()
 
         available = sum(1 for h in houses if h.status == "available")
@@ -190,9 +208,10 @@ def main():
         print("  用户 %d 个（管理员 1、房东 %d、租客 %d）"
               % (1 + len(landlords) + len(tenants), len(landlords), len(tenants)))
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
-        print("  看房预约 %d 条" % len(used))
+        print("  看房预约 %d 条，报修工单 %d 条" % (len(used), len(samples)))
         print("\n  管理员账号 admin / admin123")
-        print("  测试账号   tenant1 / test123")
+        print("  房东账号   landlord1 / test123")
+        print("  租客账号   tenant1 / test123")
     finally:
         session.close()
 

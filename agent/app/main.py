@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app import supervisor
 from app.agents.booking import agent as booking
 from app.agents.property_finder import agent as property_finder
+from app.agents.repair import agent as repair
 from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
@@ -42,6 +43,14 @@ class SearchRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str
+
+
+class RepairRequest(BaseModel):
+    text: str
+    house_no: str = ""
+    xingming: str = ""
+    shouji: str = ""
+    submit: bool = True
 
 
 class BookingRequest(BaseModel):
@@ -86,6 +95,19 @@ def agent_booking(payload: BookingRequest):
     )
 
 
+@app.post("/agent/repair")
+def agent_repair(payload: RepairRequest):
+    """AI-04 报修工单智能分派。"""
+    return repair.run(
+        payload.text,
+        house_no=payload.house_no or None,
+        applicant={"xingming": payload.xingming, "shouji": payload.shouji},
+        provider=provider,
+        backend=backend_client,
+        submit=payload.submit,
+    )
+
+
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
     """统一入口：先判意图，再路由到对应子智能体。
@@ -98,6 +120,13 @@ def agent_chat(payload: ChatRequest):
     if intent == "search":
         result = property_finder.run(payload.text, provider=provider)
         result["route"] = routed
+        return result
+
+    if intent == "repair":
+        # 统一入口只做分析预览，落库要走 /agent/repair 并带上 house_no
+        result = repair.run(payload.text, provider=provider, submit=False)
+        result["route"] = routed
+        result["alternatives"] = []
         return result
 
     if intent == "booking":

@@ -110,6 +110,23 @@ class BackendClient(object):
             "remark": applicant.get("beizhu") or "",
         })
 
+    # ------------------------------------------------------------ 报修
+
+    def create_repair(self, house_no, content, category="", urgency="",
+                      assignee="", analysis="", applicant=None):
+        """提交报修工单。分类结果由智能体分析得出，一并写入。"""
+        applicant = applicant or {}
+        return self.post("/api/repairs", {
+            "house_no": house_no,
+            "content": content,
+            "category": category,
+            "urgency": urgency,
+            "assignee": assignee,
+            "analysis": analysis,
+            "contact_name": applicant.get("xingming") or applicant.get("contact_name") or "",
+            "contact_phone": applicant.get("shouji") or applicant.get("contact_phone") or "",
+        })
+
 
 # 模块级单例，便于测试时整体替换
 client = BackendClient()

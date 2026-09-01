@@ -122,9 +122,10 @@ class Appointment(Base):
     """
 
     __tablename__ = "appointments"
-    __table_args__ = (
-        UniqueConstraint("house_id", "viewing_time", name="uq_house_time"),
-    )
+    # 刻意不加 UNIQUE(house_id, viewing_time)：
+    # 该约束既太严——取消掉的预约会永久占住那个时段，与「取消后释放」的
+    # 业务规则冲突；又太松——管不了「一次看房占用一小时」的重叠判断。
+    # 真正的规则由接口层的时段冲突校验实现，那里会排除已取消与已拒绝的记录。
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False, index=True)
@@ -168,6 +169,54 @@ class Favorite(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class Repair(Base):
+    """房屋报修工单。
+
+    `category` / `urgency` / `assignee` 三个字段由 AI-04 报修智能体
+    从租客的自由文本描述中分析得出，不需要租客自己填。
+    """
+
+    __tablename__ = "repairs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    contact_name: Mapped[str] = mapped_column(String(50), default="")
+    contact_phone: Mapped[str] = mapped_column(String(20), default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # ---- 以下三项由智能体分析填充 ----
+    # 水电 / 家具 / 门窗 / 家电 / 其他
+    category: Mapped[str] = mapped_column(String(30), default="", index=True)
+    # 紧急 / 一般 / 可延后
+    urgency: Mapped[str] = mapped_column(String(20), default="", index=True)
+    assignee: Mapped[str] = mapped_column(String(50), default="")
+    analysis: Mapped[str] = mapped_column(Text, default="")
+
+    # pending 待处理 / processing 处理中 / done 已完成
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    house: Mapped["House"] = relationship()
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "house_id": self.house_id,
+            "house_no": self.house.house_no if self.house else "",
+            "contact_name": self.contact_name,
+            "contact_phone": mask_phone(self.contact_phone),
+            "content": self.content,
+            "category": self.category,
+            "urgency": self.urgency,
+            "assignee": self.assignee,
+            "analysis": self.analysis,
+            "status": self.status,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+        }
 
 
 class ChatMessage(Base):

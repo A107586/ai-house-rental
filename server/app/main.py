@@ -7,20 +7,22 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import create_token, decode_token, using_dev_secret
 from app.db import get_session, init_db
-from app.models import Appointment, ChatMessage, House, User
-from app.security import verify_password
+from app.models import (Appointment, ChatMessage, Favorite, House, Repair,
+                        User)
+from app.security import hash_password, verify_password
 
 app = FastAPI(
     title="房屋租赁系统 · 业务后端",
-    description="房源、预约、用户的增删改查接口",
-    version="0.1.0",
+    description="房源、预约、报修、收藏、用户的增删改查接口",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -33,13 +35,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 一次看房占用一小时，与智能体端的约定保持一致
+VIEWING_MINUTES = 60
+
 
 @app.on_event("startup")
 def _startup():
     init_db()
 
 
-# ------------------------------------------------------------------ 模型
+# ------------------------------------------------------------------ 鉴权
+
+def current_user(authorization: str = Header(default=""),
+                 session: Session = Depends(get_session)):
+    """从 Authorization 头解出当前用户。未登录或令牌无效返回 None。"""
+    if not authorization.lower().startswith("bearer "):
+        return None
+    payload = decode_token(authorization[7:].strip())
+    if not payload:
+        return None
+    user = session.get(User, payload["uid"])
+    return user if user and user.status == "active" else None
+
+
+def require_login(user: User = Depends(current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return user
+
+
+def require_staff(user: User = Depends(require_login)):
+    """房东或管理员才能操作。"""
+    if user.role not in ("landlord", "admin"):
+        raise HTTPException(status_code=403, detail="没有操作权限")
+    return user
+
+
+# ------------------------------------------------------------------ 请求模型
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=6, max_length=64)
+    real_name: str = ""
+    phone: str = ""
+    role: str = "tenant"
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -54,6 +94,42 @@ class AppointmentCreate(BaseModel):
     remark: str = ""
 
 
+class AppointmentUpdate(BaseModel):
+    status: str
+    reply: str = ""
+
+
+class RepairCreate(BaseModel):
+    house_no: str
+    content: str = Field(min_length=1)
+    contact_name: str = ""
+    contact_phone: str = ""
+    category: str = ""
+    urgency: str = ""
+    assignee: str = ""
+    analysis: str = ""
+
+
+class RepairUpdate(BaseModel):
+    status: str
+
+
+class HouseCreate(BaseModel):
+    title: str
+    district: str
+    community: str = ""
+    address: str = ""
+    rent_price: float = Field(gt=0)
+    deposit: float = 0
+    area: float = Field(gt=0)
+    layout: str = ""
+    rent_type: str = "整租"
+    floor: str = ""
+    orientation: str = ""
+    description: str = ""
+    tags: list[str] = []
+
+
 class ChatLog(BaseModel):
     session_id: str
     role: str
@@ -62,21 +138,42 @@ class ChatLog(BaseModel):
     user_id: int | None = None
 
 
-# 一次看房占用一小时，与智能体端的约定保持一致
-VIEWING_MINUTES = 60
-
-
 # ------------------------------------------------------------------ 通用
 
 @app.get("/health")
 def health(session: Session = Depends(get_session)):
-    total = session.scalar(select(House).with_only_columns(
-        House.id).order_by(None).limit(1))
     house_count = len(session.execute(select(House.id)).all())
-    return {"status": "ok", "houses": house_count, "seeded": total is not None}
+    return {
+        "status": "ok",
+        "houses": house_count,
+        "seeded": house_count > 0,
+        # 部署前必须设置 AUTH_SECRET，这里主动提醒，避免带着开发密钥上线
+        "auth_secret_is_default": using_dev_secret(),
+    }
 
 
 # ------------------------------------------------------------------ 认证
+
+@app.post("/api/auth/register")
+def register(payload: RegisterRequest, session: Session = Depends(get_session)):
+    if payload.role not in ("tenant", "landlord"):
+        raise HTTPException(status_code=400, detail="只能注册租客或房东账号")
+    exists = session.scalar(select(User).where(User.username == payload.username))
+    if exists:
+        raise HTTPException(status_code=409, detail="用户名已被占用")
+
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        real_name=payload.real_name,
+        phone=payload.phone,
+        role=payload.role,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"ok": True, "token": create_token(user), "user": user.to_dict()}
+
 
 @app.post("/api/auth/login")
 def login(payload: LoginRequest, session: Session = Depends(get_session)):
@@ -86,7 +183,12 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if user.status != "active":
         raise HTTPException(status_code=403, detail="账号已被禁用")
-    return {"ok": True, "user": user.to_dict()}
+    return {"ok": True, "token": create_token(user), "user": user.to_dict()}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(require_login)):
+    return user.to_dict()
 
 
 # ------------------------------------------------------------------ 房源
@@ -158,6 +260,48 @@ def get_house(house_no: str, session: Session = Depends(get_session)):
     return house.to_dict()
 
 
+@app.post("/api/houses")
+def create_house(payload: HouseCreate, user: User = Depends(require_staff),
+                 session: Session = Depends(get_session)):
+    """房东发布房源。新房源默认待审核，管理员通过后才对外可见。"""
+    last = session.scalar(select(House).order_by(House.id.desc()))
+    next_no = "DL%04d" % ((last.id if last else 0) + 1)
+
+    house = House(
+        house_no=next_no, title=payload.title, landlord_id=user.id,
+        district=payload.district, community=payload.community,
+        address=payload.address, rent_price=payload.rent_price,
+        deposit=payload.deposit or payload.rent_price, area=payload.area,
+        layout=payload.layout, rent_type=payload.rent_type,
+        floor=payload.floor, orientation=payload.orientation,
+        description=payload.description, tags=",".join(payload.tags),
+        status="available" if user.role == "admin" else "pending",
+    )
+    session.add(house)
+    session.commit()
+    session.refresh(house)
+    return {"ok": True, "house": house.to_dict()}
+
+
+@app.patch("/api/houses/{house_no}/status")
+def update_house_status(house_no: str, status: str,
+                        user: User = Depends(require_staff),
+                        session: Session = Depends(get_session)):
+    """上下架或审核房源。房东只能改自己的房源。"""
+    if status not in ("available", "rented", "offline", "pending"):
+        raise HTTPException(status_code=400, detail="状态值不合法")
+
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能修改自己发布的房源")
+
+    house.status = status
+    session.commit()
+    return {"ok": True, "house": house.to_dict()}
+
+
 @app.get("/api/districts")
 def list_districts(session: Session = Depends(get_session)):
     """可选区域及其房源数量，供前端筛选器使用。"""
@@ -168,6 +312,54 @@ def list_districts(session: Session = Depends(get_session)):
         counts[district] = counts.get(district, 0) + 1
     return [{"district": d, "count": c}
             for d, c in sorted(counts.items(), key=lambda kv: -kv[1])]
+
+
+# ------------------------------------------------------------------ 收藏
+
+@app.get("/api/favorites")
+def list_favorites(user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    rows = session.scalars(
+        select(Favorite).where(Favorite.user_id == user.id)
+        .order_by(Favorite.created_at.desc())).all()
+    houses = []
+    for favorite in rows:
+        house = session.get(House, favorite.house_id)
+        if house:
+            houses.append(house.to_dict())
+    return {"total": len(houses), "list": houses}
+
+
+@app.post("/api/favorites/{house_no}")
+def add_favorite(house_no: str, user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+
+    exists = session.scalar(select(Favorite).where(
+        Favorite.user_id == user.id, Favorite.house_id == house.id))
+    if exists:
+        # 重复收藏不算错误，直接返回成功，前端无需特殊处理
+        return {"ok": True, "favorited": True}
+
+    session.add(Favorite(user_id=user.id, house_id=house.id))
+    session.commit()
+    return {"ok": True, "favorited": True}
+
+
+@app.delete("/api/favorites/{house_no}")
+def remove_favorite(house_no: str, user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    favorite = session.scalar(select(Favorite).where(
+        Favorite.user_id == user.id, Favorite.house_id == house.id))
+    if favorite:
+        session.delete(favorite)
+        session.commit()
+    return {"ok": True, "favorited": False}
 
 
 # ------------------------------------------------------------------ 预约
@@ -195,8 +387,27 @@ def list_appointments(
     return {"total": len(rows), "list": [a.to_dict() for a in rows]}
 
 
+@app.get("/api/appointments/mine")
+def my_appointments(user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """我的预约。房东看自己房源上的预约，租客看自己提交的。"""
+    if user.role in ("landlord", "admin"):
+        house_ids = [row[0] for row in session.execute(
+            select(House.id).where(House.landlord_id == user.id)).all()]
+        if user.role == "admin":
+            stmt = select(Appointment)
+        else:
+            stmt = select(Appointment).where(Appointment.house_id.in_(house_ids or [-1]))
+    else:
+        stmt = select(Appointment).where(Appointment.tenant_id == user.id)
+
+    rows = session.scalars(stmt.order_by(Appointment.viewing_time.desc())).all()
+    return {"total": len(rows), "list": [a.to_dict() for a in rows]}
+
+
 @app.post("/api/appointments")
 def create_appointment(payload: AppointmentCreate,
+                       user: User = Depends(current_user),
                        session: Session = Depends(get_session)):
     """提交看房预约。
 
@@ -224,8 +435,9 @@ def create_appointment(payload: AppointmentCreate,
 
     appointment = Appointment(
         house_id=house.id,
-        contact_name=payload.contact_name,
-        contact_phone=payload.contact_phone,
+        tenant_id=user.id if user else None,
+        contact_name=payload.contact_name or (user.real_name if user else ""),
+        contact_phone=payload.contact_phone or (user.phone if user else ""),
         viewing_time=payload.viewing_time,
         remark=payload.remark,
         status="pending",
@@ -234,6 +446,135 @@ def create_appointment(payload: AppointmentCreate,
     session.commit()
     session.refresh(appointment)
     return {"ok": True, "appointment": appointment.to_dict()}
+
+
+@app.patch("/api/appointments/{appointment_id}")
+def update_appointment(appointment_id: int, payload: AppointmentUpdate,
+                       user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """确认 / 拒绝 / 取消预约。
+
+    房东与管理员可确认或拒绝；租客只能取消自己的预约。
+    """
+    if payload.status not in ("confirmed", "rejected", "cancelled"):
+        raise HTTPException(status_code=400, detail="状态值不合法")
+
+    appointment = session.get(Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="预约不存在")
+
+    house = session.get(House, appointment.house_id)
+    is_staff = user.role == "admin" or (house and house.landlord_id == user.id)
+
+    if payload.status == "cancelled":
+        if not is_staff and appointment.tenant_id != user.id:
+            raise HTTPException(status_code=403, detail="只能取消自己的预约")
+    elif not is_staff:
+        raise HTTPException(status_code=403, detail="只有房东或管理员可以处理预约")
+
+    appointment.status = payload.status
+    appointment.reply = payload.reply
+    session.commit()
+    return {"ok": True, "appointment": appointment.to_dict()}
+
+
+# ------------------------------------------------------------------ 报修
+
+@app.get("/api/repairs")
+def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
+                 session: Session = Depends(get_session)):
+    stmt = select(Repair)
+    if house_no:
+        house = session.scalar(select(House).where(House.house_no == house_no))
+        if not house:
+            return {"total": 0, "list": []}
+        stmt = stmt.where(Repair.house_id == house.id)
+    if status:
+        stmt = stmt.where(Repair.status == status)
+    if urgency:
+        stmt = stmt.where(Repair.urgency == urgency)
+
+    rows = session.scalars(stmt.order_by(Repair.created_at.desc())).all()
+    return {"total": len(rows), "list": [r.to_dict() for r in rows]}
+
+
+@app.post("/api/repairs")
+def create_repair(payload: RepairCreate, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """提交报修工单。
+
+    `category` / `urgency` / `assignee` 由调用方（智能体）分析后填入；
+    直接调用本接口而不填这几项也允许，此时工单进入人工分派流程。
+    """
+    house = session.scalar(select(House).where(House.house_no == payload.house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+
+    repair = Repair(
+        house_id=house.id,
+        tenant_id=user.id if user else None,
+        contact_name=payload.contact_name or (user.real_name if user else ""),
+        contact_phone=payload.contact_phone or (user.phone if user else ""),
+        content=payload.content,
+        category=payload.category,
+        urgency=payload.urgency,
+        assignee=payload.assignee,
+        analysis=payload.analysis,
+    )
+    session.add(repair)
+    session.commit()
+    session.refresh(repair)
+    return {"ok": True, "repair": repair.to_dict()}
+
+
+@app.patch("/api/repairs/{repair_id}")
+def update_repair(repair_id: int, payload: RepairUpdate,
+                  user: User = Depends(require_staff),
+                  session: Session = Depends(get_session)):
+    if payload.status not in ("pending", "processing", "done"):
+        raise HTTPException(status_code=400, detail="状态值不合法")
+    repair = session.get(Repair, repair_id)
+    if not repair:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    repair.status = payload.status
+    session.commit()
+    return {"ok": True, "repair": repair.to_dict()}
+
+
+# ------------------------------------------------------------------ 统计
+
+@app.get("/api/stats")
+def stats(session: Session = Depends(get_session)):
+    """平台概况。供管理端仪表盘与 AI-05 经营分析取数。"""
+    houses = session.scalars(select(House)).all()
+    appointments = session.scalars(select(Appointment)).all()
+    repairs = session.scalars(select(Repair)).all()
+
+    available = [h for h in houses if h.status == "available"]
+    prices = [float(h.rent_price) for h in available]
+
+    by_district = {}
+    for house in available:
+        entry = by_district.setdefault(house.district, {"count": 0, "total": 0.0})
+        entry["count"] += 1
+        entry["total"] += float(house.rent_price)
+
+    return {
+        "house_total": len(houses),
+        "house_available": len(available),
+        "house_rented": sum(1 for h in houses if h.status == "rented"),
+        "avg_rent": round(sum(prices) / len(prices), 2) if prices else 0,
+        "appointment_total": len(appointments),
+        "appointment_pending": sum(1 for a in appointments if a.status == "pending"),
+        "repair_total": len(repairs),
+        "repair_pending": sum(1 for r in repairs if r.status == "pending"),
+        "repair_urgent": sum(1 for r in repairs if r.urgency == "紧急"),
+        "by_district": [
+            {"district": d, "count": v["count"],
+             "avg_rent": round(v["total"] / v["count"], 2)}
+            for d, v in sorted(by_district.items(), key=lambda kv: -kv[1]["count"])
+        ],
+    }
 
 
 # ------------------------------------------------------------------ 对话记录
@@ -247,3 +588,15 @@ def log_chat(payload: ChatLog, session: Session = Depends(get_session)):
     session.add(message)
     session.commit()
     return {"ok": True, "id": message.id}
+
+
+@app.get("/api/chat-messages")
+def list_chat(session_id: str, limit: int = Query(50, ge=1, le=200),
+              session: Session = Depends(get_session)):
+    rows = session.scalars(
+        select(ChatMessage).where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc()).limit(limit)).all()
+    return {"total": len(rows), "list": [
+        {"role": m.role, "content": m.content, "intent": m.intent,
+         "created_at": m.created_at.strftime("%Y-%m-%d %H:%M:%S")}
+        for m in reversed(rows)]}

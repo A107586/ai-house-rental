@@ -12,7 +12,7 @@
 ```
 ├── server/          业务后端（Python + FastAPI + SQLAlchemy）      ← 当前主线
 ├── agent/           AI 智能体服务（Python + FastAPI）              ← 当前主线
-├── web/             【待建】React 前端
+├── web/             React 前端（Vite + React 18）
 ├── docs/            设计文档、评审材料、测试说明
 ├── start-all.ps1    一键启动两个服务
 ├── back/ front/     早期 SpringBoot + Vue 方案，暂留作参考
@@ -24,7 +24,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 前端 | React · Axios |
+| 前端 | React 18 · Vite |
 | 后端 | Python · FastAPI · SQLAlchemy |
 | 智能体 | Python · FastAPI · DeepSeek API |
 | 数据库 | 开发用 SQLite，部署用 MySQL |
@@ -58,14 +58,19 @@
 
 ```
 pip install fastapi uvicorn pydantic sqlalchemy
+cd web && npm install
 cd server && python seed.py
 powershell -ExecutionPolicy Bypass -File .\start-all.ps1
+cd web && npm run dev
 ```
 
-| 服务 | 接口文档 |
+| 服务 | 地址 |
 |---|---|
+| **前端网站** | <http://localhost:5173> |
 | 业务后端 | <http://localhost:8080/docs> |
 | 智能体服务 | <http://localhost:8000/docs> |
+
+演示账号：`tenant1` / `test123`（租客）· `landlord1` / `test123`（房东）· `admin` / `admin123`
 
 **怎么测试见 [docs/测试说明.md](docs/测试说明.md)。**
 
@@ -73,13 +78,14 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 
 | 模块 | 状态 |
 |---|---|
-| 业务后端：房源、预约、登录 | ✅ 可用，29 个测试 |
+| React 前端：找房、收藏、预约、报修、个人中心 | ✅ 可用 |
+| 业务后端：房源、预约、报修、收藏、鉴权、统计 | ✅ 可用 |
 | AI-01 自然语言找房 | ✅ 可用 |
+| AI-04 报修工单智能分派 | ✅ 可用 |
 | AI-06 智能预约看房 | ✅ 可用 |
-| AI-02/03/04/05 | ⬜ 待开发 |
-| React 前端 | ⬜ 待开发 |
+| AI-02 合同审阅 / AI-03 智能客服 / AI-05 经营分析 | ⬜ 待开发 |
 
-共 **121 个自动化测试**，全部不依赖网络、数据库与大模型。
+共 **176 个自动化测试**，全部不依赖网络、数据库与大模型。
 
 ## 致谢 / Attribution
 

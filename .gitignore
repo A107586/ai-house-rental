@@ -49,3 +49,7 @@ venv/
 # ===== 本地开发数据库 =====
 server/rental.db
 *.db-journal
+
+# ===== 前端 =====
+web/node_modules/
+web/dist/
