@@ -325,7 +325,7 @@ footer a{color:var(--brand)}
     每一项标好优先级与归属，可以直接认领。文末含视觉设计方案与分工建议。
   </p>
   <div class="meta">
-    <span>共 <b>35 项待办</b></span>
+    <span>共 <b>38 项待办</b></span>
     <span>新增 <b>9 张数据表</b></span>
     <span>代码封版 <b>10 月 16 日</b></span>
     <span>数据库评审 <b>9 月 24 日</b></span>
@@ -333,21 +333,21 @@ footer a{color:var(--brand)}
 </header>
 
 <div class="glance">
-  <div class="stat total"><div class="n">35</div><div class="k">待办总数</div></div>
-  <div class="stat p0"><div class="n">15</div><div class="k">P0 必须完成</div></div>
-  <div class="stat p1"><div class="n">13</div><div class="k">P1 重要</div></div>
-  <div class="stat p2"><div class="n">7</div><div class="k">P2 加分项</div></div>
+  <div class="stat total"><div class="n">38</div><div class="k">待办总数</div></div>
+  <div class="stat p0"><div class="n">16</div><div class="k">P0 必须完成</div></div>
+  <div class="stat p1"><div class="n">14</div><div class="k">P1 重要</div></div>
+  <div class="stat p2"><div class="n">8</div><div class="k">P2 加分项</div></div>
 </div>
 
 <div class="bars">
   <div class="bar-row">
     <span class="lbl">租客端</span>
     <span class="track">
-      <span class="seg p0" style="flex:5">5</span>
-      <span class="seg p1" style="flex:3">3</span>
+      <span class="seg p0" style="flex:6">6</span>
+      <span class="seg p1" style="flex:4">4</span>
       <span class="seg p2" style="flex:2">2</span>
     </span>
-    <span class="num">10</span>
+    <span class="num">12</span>
   </div>
   <div class="bar-row">
     <span class="lbl">房东端</span>
@@ -363,9 +363,9 @@ footer a{color:var(--brand)}
     <span class="track">
       <span class="seg p0" style="flex:3">3</span>
       <span class="seg p1" style="flex:3">3</span>
-      <span class="seg p2" style="flex:3">3</span>
+      <span class="seg p2" style="flex:4">4</span>
     </span>
-    <span class="num">9</span>
+    <span class="num">10</span>
   </div>
   <div class="bar-row">
     <span class="lbl">智能体</span>
@@ -397,6 +397,7 @@ footer a{color:var(--brand)}
       <li><strong>房东端几乎只有一个发布功能</strong>，而且没有前端页面</li>
       <li><strong>管理员端只有一个统计接口</strong>，没有审核、没有用户管理、没有界面</li>
       <li><strong>房源没有图片</strong>——租房是看图决策的生意</li>
+      <li>拿需求说明书自己列的 <strong>11 个业务模块逐条核对，只有 F-04 看房申请是完整的</strong>；F-05 合同、F-06 收租、F-07 收租统计三个连表都没建</li>
     </ul>
   </div>
 </div>
@@ -414,6 +415,8 @@ footer a{color:var(--brand)}
     <tr><td class="id">T-03</td><td class="name">地图找房</td><td>按区域在地图上打点，点气泡看详情</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">T-07</td><td class="name">看房记录与足迹</td><td>浏览历史，同时为智能体的偏好记忆提供数据</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">T-10</td><td class="name">消息中心</td><td>预约结果、账单到期、工单进度的站内通知</td><td><span class="pri p1">P1</span></td></tr>
+    <tr><td class="id">T-11</td><td class="name">个人资料与改密码</td><td>目前注册登录之后就没有了，改不了手机号也改不了密码。对应需求 <code>F-03</code> 的后半段</td><td><span class="pri p0">P0</span></td></tr>
+    <tr><td class="id">T-12</td><td class="name">搜索结果分页</td><td>现在搜索一次性取 50 条，没有分页；分页只在「最新房源」上有</td><td><span class="pri p1">P1</span></td></tr>
     <tr><td class="id">T-08</td><td class="name">房源对比</td><td>勾选 2–4 套并排对比</td><td><span class="pri p2">P2</span></td></tr>
     <tr><td class="id">T-09</td><td class="name">评价与评分</td><td>租期结束后对房源与房东评分</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
@@ -463,6 +466,7 @@ footer a{color:var(--brand)}
     <tr><td class="id">M-07</td><td class="name">操作日志</td><td>谁在什么时候改了什么，可追溯</td><td><span class="pri p2">P2</span></td></tr>
     <tr><td class="id">M-08</td><td class="name">内容审核</td><td>房源描述违规词检测</td><td><span class="pri p2">P2</span></td></tr>
     <tr><td class="id">M-09</td><td class="name">系统配置</td><td>看房时段、单次时长、押金比例等参数可配</td><td><span class="pri p2">P2</span></td></tr>
+    <tr><td class="id">M-10</td><td class="name">维修数据统计</td><td>维修物品、次数、人员的登记与统计。对应需求 <code>F-09</code></td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
 
@@ -603,7 +607,7 @@ footer a{color:var(--brand)}
   <div class="head"><span class="when">9 月底前</span><span class="goal">让系统「完整」</span></div>
   <p style="margin:0 0 8px;font-size:13.5px;color:var(--ink-2)">目标：业务链从找房走通到缴费。</p>
   <ul>
-    <li>T-01 房源图片 · T-02 传统筛选器</li>
+    <li>T-01 房源图片 · T-02 传统筛选器 · T-11 个人资料与改密码</li>
     <li>T-04 在线签约 · T-05 我的租约 · T-06 账单缴费</li>
     <li>L-01 工作台 · L-02 发布页面 · L-03 房源管理 · L-04 预约处理</li>
     <li>M-01 数据看板 · M-02 房源审核 · M-03 用户管理</li>
@@ -617,7 +621,7 @@ footer a{color:var(--brand)}
   <ul>
     <li>L-05 租约管理 · L-06 收租 · L-07 工单处理 · L-09 经营分析</li>
     <li>M-04 订单总览 · M-05 工单总览 · M-06 公告</li>
-    <li>T-03 地图找房 · T-10 消息中心</li>
+    <li>T-03 地图找房 · T-10 消息中心 · T-12 搜索结果分页</li>
     <li>AI-02 合同审阅 · AI-05 经营报告 · AI-09 对话记忆</li>
     <li>视觉：首页主视觉、卡片改版、骨架屏</li>
   </ul>
@@ -627,7 +631,7 @@ footer a{color:var(--brand)}
   <div class="head"><span class="when">10 月 16 日封版</span><span class="goal">加分项</span></div>
   <ul>
     <li>T-08 房源对比 · T-09 评价</li>
-    <li>M-07 操作日志 · M-09 系统配置</li>
+    <li>M-07 操作日志 · M-09 系统配置 · M-10 维修数据统计</li>
     <li>AI-07 智能推荐 · AI-08 描述生成</li>
     <li>移动端适配</li>
   </ul>
