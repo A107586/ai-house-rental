@@ -1,0 +1,40 @@
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== 前端 =====
+node_modules/
+dist/
+npm-debug.log*
+yarn-error.log*
+.npm/
+package-lock.json.bak
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
+
+# ===== 敏感配置：不要提交 API Key =====
+.env
+.env.local
+**/application-local.yml
+**/application-local.properties
+agent/.env
+
+# ===== 上传文件 / 日志 =====
+back/src/main/resources/static/upload/
+*.log
+logs/
