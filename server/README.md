@@ -39,6 +39,18 @@ python -m uvicorn app.main:app --reload --port 8080
 
 接口文档：<http://localhost:8080/docs>
 
+## 前端托管
+
+若 `web/dist` 存在（跑过 `cd web && npm run build`），本服务会把它挂载到 `/`，
+访问 <http://localhost:8080> 就是完整网站，不需要单独起前端服务。
+
+两个实现要点：
+
+1. **挂载必须写在文件最末尾。** 挂到 `/` 会接管所有未匹配路径，
+   放在 API 路由之前会把 `/api/*` 请求也吞掉。
+2. **根路径的 JSON 提示只在没有构建产物时注册。** 显式路由优先级高于挂载，
+   无条件注册会把静态首页整个盖住，访问根路径永远只看到那段 JSON。
+
 演示账号：`admin` / `admin123`，`tenant1` / `test123`
 
 ## 测试

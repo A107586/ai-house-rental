@@ -1,9 +1,27 @@
 // 后端接口封装。
 //
-// 路径都用相对地址，由 vite.config.js 里的代理转发到对应服务：
-//   /api    → 业务后端 8080
-//   /agent  → 智能体服务 8000
-// 这样前端代码不需要知道端口，也就不存在跨域问题。
+// 两种运行方式都要支持：
+//
+// 1. 开发模式（vite dev，5173 端口）
+//    两类请求都用相对地址，由 vite.config.js 里的代理转发，享受热更新。
+//
+// 2. 生产模式（业务后端 8080 直接托管 web/dist）
+//    /api 与页面同源，仍用相对地址；
+//    /agent 在另一个进程上，必须补上绝对地址。
+//    智能体服务的 CORS 已经放行了 8080 来源。
+//
+// 这样组员只要跑 `npm run build`，之后访问 8080 就是完整网站，
+// 不需要再单独启动前端，也不会出现「访问 8080 只看到 Not Found」的困惑。
+
+const DEV_PORT = '5173'
+const isDev = typeof location !== 'undefined' && location.port === DEV_PORT
+
+// 智能体服务地址：开发模式走代理，生产模式直连 8000
+const AGENT_BASE = isDev
+  ? ''
+  : `${location.protocol}//${location.hostname}:8000`
+
+const agentUrl = (path) => AGENT_BASE + path
 
 const TOKEN_KEY = 'rental_token'
 
@@ -103,11 +121,11 @@ export const api = {
 
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
-  agentSearch: (text, limit = 12) => post('/agent/search', { text, limit }),
+  agentSearch: (text, limit = 12) => post(agentUrl('/agent/search'), { text, limit }),
 
   // AI-06 智能预约看房
   agentBooking: (text, houseNo, applicant = {}) =>
-    post('/agent/booking', {
+    post(agentUrl('/agent/booking'), {
       text,
       house_no: houseNo,
       xingming: applicant.name || '',
@@ -116,7 +134,7 @@ export const api = {
 
   // AI-04 报修工单智能分派
   agentRepair: (text, houseNo, applicant = {}, submit = true) =>
-    post('/agent/repair', {
+    post(agentUrl('/agent/repair'), {
       text,
       house_no: houseNo,
       xingming: applicant.name || '',
@@ -125,5 +143,5 @@ export const api = {
     }),
 
   // 只做意图识别，用于展示智能体的决策过程
-  agentRoute: (text) => post('/agent/route', { text }),
+  agentRoute: (text) => post(agentUrl('/agent/route'), { text }),
 }

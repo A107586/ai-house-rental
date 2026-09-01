@@ -5,10 +5,12 @@
 （对应非功能需求 N-06：禁止拼接执行任意 SQL）。
 """
 
+import os
 from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -139,6 +141,34 @@ class ChatLog(BaseModel):
 
 
 # ------------------------------------------------------------------ 通用
+
+# 前端构建产物目录。跑过 `cd web && npm run build` 之后就会存在。
+WEB_DIST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "web", "dist")
+HAS_WEB = os.path.isdir(WEB_DIST)
+
+
+if not HAS_WEB:
+    # 只有在没有构建产物时才注册这个路由。
+    # 显式路由的优先级高于文件末尾挂载的静态目录，若无条件注册，
+    # 它会把静态首页整个盖住，访问根路径永远只能看到这段 JSON。
+    @app.get("/", include_in_schema=False)
+    def root():
+        """没有前端构建产物时的根路径引导。
+
+        直接访问本服务根路径只看到一句 {"detail":"Not Found"} 太容易让人困惑，
+        这里明确告诉使用者网站在哪、怎么把网站挂到本端口下。
+        """
+        return {
+            "service": "房屋租赁系统 · 业务后端",
+            "提示": "还没有前端构建产物，本端口当前只提供接口。",
+            "看网站": "开发模式访问 http://localhost:5173"
+                      "；或执行 cd web && npm run build 后刷新本页面",
+            "接口文档": "/docs",
+            "健康检查": "/health",
+        }
+
 
 @app.get("/health")
 def health(session: Session = Depends(get_session)):
@@ -600,3 +630,15 @@ def list_chat(session_id: str, limit: int = Query(50, ge=1, le=200),
         {"role": m.role, "content": m.content, "intent": m.intent,
          "created_at": m.created_at.strftime("%Y-%m-%d %H:%M:%S")}
         for m in reversed(rows)]}
+
+
+# ------------------------------------------------------------------ 前端托管
+#
+# 必须放在文件最末尾：挂载到 "/" 会接管所有未匹配的路径，
+# 若放在 API 路由之前，/api/* 请求会被静态文件处理器吞掉。
+#
+# 有构建产物时，访问 http://localhost:8080 就是完整网站，
+# 不需要额外启动前端开发服务器。
+
+if HAS_WEB:
+    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

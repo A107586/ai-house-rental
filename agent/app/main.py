@@ -61,6 +61,17 @@ class BookingRequest(BaseModel):
     shouji: str = ""
 
 
+@app.get("/")
+def root():
+    """根路径引导。本服务只提供接口，没有页面。"""
+    return {
+        "service": "房屋租赁智能体服务",
+        "提示": "本服务只提供接口，没有网页。网站入口在 http://localhost:5173",
+        "接口文档": "http://localhost:8000/docs",
+        "健康检查": "http://localhost:8000/health",
+    }
+
+
 @app.get("/health")
 def health():
     """健康检查。返回内容**不含任何密钥**。"""

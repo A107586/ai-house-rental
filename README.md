@@ -58,17 +58,21 @@
 
 ```
 pip install fastapi uvicorn pydantic sqlalchemy
-cd web && npm install
+cd web && npm install && npm run build
 cd server && python seed.py
 powershell -ExecutionPolicy Bypass -File .\start-all.ps1
-cd web && npm run dev
 ```
 
-| 服务 | 地址 |
+打开 **<http://localhost:8080>** 就是完整网站——业务后端直接托管前端构建产物，
+不需要单独启动前端服务。
+
+| 地址 | 说明 |
 |---|---|
-| **前端网站** | <http://localhost:5173> |
-| 业务后端 | <http://localhost:8080/docs> |
-| 智能体服务 | <http://localhost:8000/docs> |
+| **<http://localhost:8080>** | **网站** |
+| <http://localhost:8080/docs> | 业务后端接口文档 |
+| <http://localhost:8000/docs> | 智能体接口文档 |
+
+改前端代码时用开发模式：`cd web && npm run dev`，访问 <http://localhost:5173>，有热更新。
 
 演示账号：`tenant1` / `test123`（租客）· `landlord1` / `test123`（房东）· `admin` / `admin123`
 
