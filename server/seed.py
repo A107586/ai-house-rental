@@ -19,7 +19,9 @@ if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
-from app.models import Appointment, Base, House, Repair, User  # noqa: E402
+from app import leasing  # noqa: E402
+from app.models import (Appointment, Base, House, Notice,  # noqa: E402
+                        Repair, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -201,6 +203,57 @@ def main():
                 analysis="由报修智能体自动分类",
                 status="pending"))
 
+        print("生成租约与账单 ...")
+        # 挑几套房签成在租状态，让演示时能看到完整的交易链
+        signed = 0
+        for house in houses:
+            if signed >= 6 or house.status != "available":
+                continue
+            tenant = tenants[signed % len(tenants)]
+            start = datetime.now().replace(day=1, hour=0, minute=0,
+                                           second=0, microsecond=0)
+            start = leasing.add_months(start, -(signed % 4))
+            contract = leasing.create_contract(
+                session, house, tenant, start_date=start, months=12,
+                pay_months=(3 if signed % 2 else 1))
+            leasing.activate_contract(session, contract)
+
+            # 已到期的账单标成已缴，制造出真实的收租流水
+            for bill in sorted(contract.bills, key=lambda b: b.due_date):
+                if bill.due_date <= datetime.now():
+                    leasing.pay_bill(session, bill, tenant)
+            signed += 1
+
+        print("生成平台公告 ...")
+        notices = [
+            ("押金退还说明",
+             "租期届满且无违约情形的，平台将在租客腾房并结清费用后 7 个工作日内"
+             "原路退还押金。若房屋存在人为损坏，由双方确认扣款金额后退还剩余部分。",
+             "费用说明"),
+            ("水电费如何缴纳",
+             "水电费由租客按实际用量自行向供水供电单位缴纳，不通过平台代收。"
+             "合租房源的水电费由同住租客按人数均摊，具体分摊方式以租赁合同约定为准。",
+             "费用说明"),
+            ("看房预约规则",
+             "平台可预约时段为每天 9:00 至 18:00，每次看房占用一小时。"
+             "预约提交后需等待房东确认，确认结果会通过站内消息通知。"
+             "如需取消，请在约定时间前自行取消预约。",
+             "服务规则"),
+            ("报修处理时限",
+             "涉及漏水、漏电、燃气泄漏等安全隐患的报修，平台将标记为紧急并优先派单，"
+             "通常 24 小时内响应；一般报修 48 小时内响应；"
+             "可延后的报修在 7 个工作日内安排。",
+             "服务规则"),
+            ("提前退租怎么办",
+             "任一方提前解除合同的，应提前 30 日书面通知对方，"
+             "并向对方支付相当于一个月租金的违约金。退租后未到期的租金账单将自动作废。",
+             "合同条款"),
+        ]
+        for title, content, category in notices:
+            session.add(Notice(title=title, content=content,
+                               summary=content[:60], category=category,
+                               publisher_id=admin.id))
+
         session.commit()
 
         available = sum(1 for h in houses if h.status == "available")
@@ -209,6 +262,7 @@ def main():
               % (1 + len(landlords) + len(tenants), len(landlords), len(tenants)))
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
         print("  看房预约 %d 条，报修工单 %d 条" % (len(used), len(samples)))
+        print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")
         print("  租客账号   tenant1 / test123")

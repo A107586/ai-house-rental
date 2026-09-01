@@ -15,10 +15,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app.db import get_session, init_db
-from app.models import (Appointment, ChatMessage, Favorite, House, Repair,
-                        User)
+from app.models import (Appointment, Bill, ChatMessage, Contract, Favorite,
+                        House, Message, Notice, Payment, Repair, User)
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -130,6 +131,35 @@ class HouseCreate(BaseModel):
     orientation: str = ""
     description: str = ""
     tags: list[str] = []
+
+
+class ContractCreate(BaseModel):
+    house_no: str
+    tenant_username: str
+    start_date: datetime
+    months: int = Field(default=12, ge=1, le=60)
+    deposit_months: int = Field(default=1, ge=0, le=6)
+    pay_months: int = Field(default=1, ge=1, le=12)
+
+
+class ContractEnd(BaseModel):
+    reason: str = ""
+    deduct: float = Field(default=0, ge=0)
+
+
+class ContractRenew(BaseModel):
+    months: int = Field(default=12, ge=1, le=60)
+
+
+class PayRequest(BaseModel):
+    method: str = "alipay"
+
+
+class NoticeCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1)
+    summary: str = ""
+    category: str = "公告"
 
 
 class ChatLog(BaseModel):
@@ -589,22 +619,283 @@ def stats(session: Session = Depends(get_session)):
         entry["count"] += 1
         entry["total"] += float(house.rent_price)
 
+    contracts = session.scalars(select(Contract)).all()
+    bills = session.scalars(select(Bill)).all()
+    paid = [b for b in bills if b.status == "paid"]
+    unpaid = [b for b in bills if b.status == "unpaid"]
+
+    # 按月汇总已收租金，对应需求 F-07 收租统计
+    monthly = {}
+    for bill in paid:
+        if bill.type != "rent" or not bill.paid_at:
+            continue
+        key = bill.paid_at.strftime("%Y-%m")
+        monthly[key] = monthly.get(key, 0.0) + float(bill.amount)
+
     return {
         "house_total": len(houses),
         "house_available": len(available),
         "house_rented": sum(1 for h in houses if h.status == "rented"),
         "avg_rent": round(sum(prices) / len(prices), 2) if prices else 0,
+        "occupancy_rate": (round(sum(1 for h in houses if h.status == "rented")
+                                 / len(houses) * 100, 1) if houses else 0),
         "appointment_total": len(appointments),
         "appointment_pending": sum(1 for a in appointments if a.status == "pending"),
         "repair_total": len(repairs),
         "repair_pending": sum(1 for r in repairs if r.status == "pending"),
         "repair_urgent": sum(1 for r in repairs if r.urgency == "紧急"),
+        "contract_total": len(contracts),
+        "contract_active": sum(1 for c in contracts if c.status == "active"),
+        "income_received": round(sum(float(b.amount) for b in paid), 2),
+        "income_pending": round(sum(float(b.amount) for b in unpaid), 2),
+        "overdue_count": sum(1 for b in unpaid if b.overdue),
+        "monthly_income": [{"month": m, "amount": round(v, 2)}
+                           for m, v in sorted(monthly.items())],
         "by_district": [
             {"district": d, "count": v["count"],
              "avg_rent": round(v["total"] / v["count"], 2)}
             for d, v in sorted(by_district.items(), key=lambda kv: -kv[1]["count"])
         ],
     }
+
+
+# ------------------------------------------------------------------ 合同
+
+def _visible_contract(session, contract_no, user):
+    """取出合同并校验可见性：只有当事双方与管理员能看。"""
+    contract = session.scalar(
+        select(Contract).where(Contract.contract_no == contract_no))
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    if user.role != "admin" and user.id not in (contract.tenant_id,
+                                                contract.landlord_id):
+        raise HTTPException(status_code=403, detail="无权查看该合同")
+    return contract
+
+
+@app.get("/api/contracts/mine")
+def my_contracts(status: str = "", user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """我的合同。房东看自己出租的，租客看自己承租的，管理员看全部。"""
+    stmt = select(Contract)
+    if user.role == "admin":
+        pass
+    elif user.role == "landlord":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    else:
+        stmt = stmt.where(Contract.tenant_id == user.id)
+    if status:
+        stmt = stmt.where(Contract.status == status)
+
+    rows = session.scalars(stmt.order_by(Contract.created_at.desc())).all()
+    return {"total": len(rows), "list": [c.to_dict() for c in rows]}
+
+
+@app.get("/api/contracts/{contract_no}")
+def get_contract(contract_no: str, user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    return _visible_contract(session, contract_no, user).to_dict()
+
+
+@app.post("/api/contracts")
+def create_contract(payload: ContractCreate, user: User = Depends(require_staff),
+                    session: Session = Depends(get_session)):
+    """房东为某位租客发起签约，生成待确认合同。"""
+    house = session.scalar(select(House).where(House.house_no == payload.house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能为自己的房源签约")
+
+    tenant = session.scalar(
+        select(User).where(User.username == payload.tenant_username))
+    if not tenant:
+        raise HTTPException(status_code=404, detail="租客不存在")
+
+    try:
+        contract = leasing.create_contract(
+            session, house, tenant, payload.start_date,
+            months=payload.months, deposit_months=payload.deposit_months,
+            pay_months=payload.pay_months)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    leasing.notify(session, tenant.id, "contract", "有一份合同待确认",
+                   "房源 %s 的租赁合同已生成，请确认。" % house.house_no,
+                   contract.contract_no)
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
+
+
+@app.post("/api/contracts/{contract_no}/activate")
+def activate_contract(contract_no: str, user: User = Depends(require_login),
+                      session: Session = Depends(get_session)):
+    """租客确认合同，合同生效并排出整个租期的账单。"""
+    contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id != contract.tenant_id:
+        raise HTTPException(status_code=403, detail="只有承租方可以确认合同")
+
+    try:
+        bills = leasing.activate_contract(session, contract)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
+
+
+@app.post("/api/contracts/{contract_no}/end")
+def end_contract(contract_no: str, payload: ContractEnd,
+                 user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """退租或到期结束。押金扣款只有房东与管理员能填。"""
+    contract = _visible_contract(session, contract_no, user)
+    is_staff = user.role == "admin" or user.id == contract.landlord_id
+    if payload.deduct and not is_staff:
+        raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+
+    try:
+        result = leasing.end_contract(session, contract,
+                                      reason=payload.reason, deduct=payload.deduct)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict(), **result}
+
+
+@app.post("/api/contracts/{contract_no}/renew")
+def renew_contract(contract_no: str, payload: ContractRenew,
+                   user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """续租：结束当前合同，生成一份新的待确认合同。"""
+    contract = _visible_contract(session, contract_no, user)
+    try:
+        new_contract = leasing.renew_contract(session, contract,
+                                              months=payload.months)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    session.commit()
+    session.refresh(new_contract)
+    return {"ok": True, "contract": new_contract.to_dict()}
+
+
+# ------------------------------------------------------------------ 账单
+
+@app.get("/api/bills/mine")
+def my_bills(status: str = "", user: User = Depends(require_login),
+             session: Session = Depends(get_session)):
+    """我的账单。租客看自己要交的，房东看自己该收的。"""
+    if user.role == "admin":
+        stmt = select(Bill)
+    else:
+        field = (Contract.landlord_id if user.role == "landlord"
+                 else Contract.tenant_id)
+        contract_ids = [row[0] for row in session.execute(
+            select(Contract.id).where(field == user.id)).all()]
+        stmt = select(Bill).where(Bill.contract_id.in_(contract_ids or [-1]))
+    if status:
+        stmt = stmt.where(Bill.status == status)
+
+    rows = session.scalars(stmt.order_by(Bill.due_date)).all()
+    unpaid = [b for b in rows if b.status == "unpaid"]
+    return {
+        "total": len(rows),
+        "unpaid_count": len(unpaid),
+        "unpaid_amount": round(sum(float(b.amount) for b in unpaid), 2),
+        "overdue_count": sum(1 for b in unpaid if b.overdue),
+        "list": [b.to_dict() for b in rows],
+    }
+
+
+@app.post("/api/bills/{bill_no}/pay")
+def pay_bill(bill_no: str, payload: PayRequest,
+             user: User = Depends(require_login),
+             session: Session = Depends(get_session)):
+    """缴费。只有承租方与管理员能付。"""
+    bill = session.scalar(select(Bill).where(Bill.bill_no == bill_no))
+    if not bill:
+        raise HTTPException(status_code=404, detail="账单不存在")
+
+    contract = bill.contract
+    if user.role != "admin" and (not contract or user.id != contract.tenant_id):
+        raise HTTPException(status_code=403, detail="只有承租方可以缴费")
+
+    try:
+        payment = leasing.pay_bill(session, bill, user, method=payload.method)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict(), "payment": payment.to_dict()}
+
+
+# ------------------------------------------------------------------ 站内消息
+
+@app.get("/api/messages")
+def list_messages(unread_only: bool = False, user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    stmt = select(Message).where(Message.user_id == user.id)
+    if unread_only:
+        stmt = stmt.where(Message.is_read.is_(False))
+    rows = session.scalars(stmt.order_by(Message.created_at.desc()).limit(100)).all()
+    unread = session.scalars(
+        select(Message).where(Message.user_id == user.id,
+                              Message.is_read.is_(False))).all()
+    return {"total": len(rows), "unread": len(unread),
+            "list": [m.to_dict() for m in rows]}
+
+
+@app.patch("/api/messages/{message_id}/read")
+def read_message(message_id: int, user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    message = session.get(Message, message_id)
+    if not message or message.user_id != user.id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    message.is_read = True
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/messages/read-all")
+def read_all_messages(user: User = Depends(require_login),
+                      session: Session = Depends(get_session)):
+    rows = session.scalars(
+        select(Message).where(Message.user_id == user.id,
+                              Message.is_read.is_(False))).all()
+    for message in rows:
+        message.is_read = True
+    session.commit()
+    return {"ok": True, "updated": len(rows)}
+
+
+# ------------------------------------------------------------------ 公告
+
+@app.get("/api/notices")
+def list_notices(session: Session = Depends(get_session)):
+    rows = session.scalars(
+        select(Notice).where(Notice.is_published.is_(True))
+        .order_by(Notice.published_at.desc())).all()
+    return {"total": len(rows), "list": [n.to_dict() for n in rows]}
+
+
+@app.post("/api/notices")
+def create_notice(payload: NoticeCreate, user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以发布公告")
+    notice = Notice(title=payload.title, content=payload.content,
+                    summary=payload.summary or payload.content[:80],
+                    category=payload.category, publisher_id=user.id)
+    session.add(notice)
+    session.commit()
+    session.refresh(notice)
+    return {"ok": True, "notice": notice.to_dict()}
 
 
 # ------------------------------------------------------------------ 对话记录
