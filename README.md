@@ -10,12 +10,13 @@
 ## 目录结构
 
 ```
-├── back/            SpringBoot 后端（Java 8 + MyBatis-Plus + Shiro）
-├── front/           Vue 2 前端（element-ui）
-├── agent/           【待建】AI 智能体服务（Python + FastAPI）
-├── db/T040.sql      数据库建库脚本（13 张表）
-├── docs/            设计文档、评审材料
-│   └── upstream/    上游原项目的说明与功能文档（供参考）
+├── server/          业务后端（Python + FastAPI + SQLAlchemy）      ← 当前主线
+├── agent/           AI 智能体服务（Python + FastAPI）              ← 当前主线
+├── web/             【待建】React 前端
+├── docs/            设计文档、评审材料、测试说明
+├── start-all.ps1    一键启动两个服务
+├── back/ front/     早期 SpringBoot + Vue 方案，暂留作参考
+├── db/              早期 MySQL 建库脚本与初始化工具
 └── LICENSE          MIT
 ```
 
@@ -23,12 +24,12 @@
 
 | 层 | 技术 |
 |---|---|
-| 前端 | Vue 2.6 · element-ui 2.13 · axios · ECharts |
-| 后端 | SpringBoot 2.2.2 · MyBatis-Plus · Shiro · Java 8 |
-| 智能体 | Python · FastAPI · 大模型 API（待定） |
-| 数据库 | MySQL |
+| 前端 | React · Axios |
+| 后端 | Python · FastAPI · SQLAlchemy |
+| 智能体 | Python · FastAPI · DeepSeek API |
+| 数据库 | 开发用 SQLite，部署用 MySQL |
 
-前后端分离，智能体作为独立微服务通过 HTTP 与后端通信。
+前后端分离，智能体作为独立微服务通过 HTTP 与业务后端通信。
 
 ## 核心业务模块
 
@@ -55,7 +56,30 @@
 
 ## 快速开始
 
-见 [docs/开发环境搭建.md](docs/开发环境搭建.md)（待补充）。
+```
+pip install fastapi uvicorn pydantic sqlalchemy
+cd server && python seed.py
+powershell -ExecutionPolicy Bypass -File .\start-all.ps1
+```
+
+| 服务 | 接口文档 |
+|---|---|
+| 业务后端 | <http://localhost:8080/docs> |
+| 智能体服务 | <http://localhost:8000/docs> |
+
+**怎么测试见 [docs/测试说明.md](docs/测试说明.md)。**
+
+## 当前进度
+
+| 模块 | 状态 |
+|---|---|
+| 业务后端：房源、预约、登录 | ✅ 可用，29 个测试 |
+| AI-01 自然语言找房 | ✅ 可用 |
+| AI-06 智能预约看房 | ✅ 可用 |
+| AI-02/03/04/05 | ⬜ 待开发 |
+| React 前端 | ⬜ 待开发 |
+
+共 **121 个自动化测试**，全部不依赖网络、数据库与大模型。
 
 ## 致谢 / Attribution
 

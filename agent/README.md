@@ -102,14 +102,17 @@ uvicorn app.main:app --reload --port 8000
 
 ## 换大模型厂商
 
-国内主流厂商都提供 OpenAI 兼容端点，通常只需改 `.env` 三行：
+团队选定 **DeepSeek**，`.env` 里填上密钥即可：
 
 ```
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=<厂商的兼容端点>
-LLM_MODEL=<模型名>
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
 LLM_API_KEY=<你的密钥>
 ```
+
+换成其它厂商只需改 `LLM_BASE_URL` 与 `LLM_MODEL`——通义千问、智谱 GLM、
+Kimi、豆包都提供 OpenAI 兼容端点。
 
 若某厂商只有私有协议，在 `app/llm/providers.py` 新增一个 `LLMProvider`
 子类即可，智能体代码无需改动。

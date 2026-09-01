@@ -1,31 +1,34 @@
 """工具：把结构化筛选条件转成后端房源接口参数并执行查询（AI-01 的第二步）。
 
-`parse_query` 输出的字段名是面向业务语义的（`zujia_min` / `zujia_max`），
-而后端 MyBatis-Plus 的区间约定是 `字段_start` / `字段_end`，
-两者的转换集中在本模块，避免语义命名泄漏到解析层。
+`parse_query` 输出的字段名是面向业务语义的中文拼音（`zujia_min` / `zujia_max`），
+而后端接口用的是英文命名（`rent_price_min` / `rent_price_max`），
+两者的转换集中在本模块，避免后端字段命名泄漏到解析层。
 """
 
 from app.backend import BackendError, client
 
 # 业务语义字段 -> 后端接口参数
 _RANGE_MAP = {
-    "zujia_min": "zujia_start",
-    "zujia_max": "zujia_end",
-    "mianji_min": "mianji_start",
-    "mianji_max": "mianji_end",
+    "zujia_min": "rent_price_min",
+    "zujia_max": "rent_price_max",
+    "mianji_min": "area_min",
+    "mianji_max": "area_max",
 }
 
-# 可直接透传的等值/模糊匹配字段
-_PASS_THROUGH = ("suozaidiqu", "suozaichengshi", "suozaishengfen",
-                 "fangwuhuxing", "fangyuanleixing", "zhuangtai")
+# 等值 / 模糊匹配字段
+_PASS_THROUGH = {
+    "suozaidiqu": "district",
+    "fangwuhuxing": "layout",
+    "fangyuanleixing": "rent_type",
+}
 
 
 def build_params(filters, page=1, limit=10):
-    """把筛选条件转换为后端 `/fangwuxinxi/list` 的查询参数。"""
+    """把筛选条件转换为后端 `/api/houses` 的查询参数。"""
     params = {"page": page, "limit": limit}
-    for key in _PASS_THROUGH:
-        if filters.get(key):
-            params[key] = filters[key]
+    for semantic, backend_key in _PASS_THROUGH.items():
+        if filters.get(semantic):
+            params[backend_key] = filters[semantic]
     for semantic, backend_key in _RANGE_MAP.items():
         if filters.get(semantic) is not None:
             params[backend_key] = filters[semantic]
@@ -35,14 +38,16 @@ def build_params(filters, page=1, limit=10):
 def score_by_features(item, features):
     """按用户偏好给房源打分，用于结果排序。
 
-    这些偏好（地铁、电梯、朝南……）在数据库里没有独立字段，
-    只能从房源详情文本里找线索，因此只用于排序，不作为硬过滤条件——
+    偏好（地铁、电梯、朝南……）存在 `tags` 与房源描述里，没有独立的
+    可筛选字段，因此只用于排序，不作为硬过滤条件——
     否则会把本来合适的房源直接筛掉。
     """
     if not features:
         return 0
-    haystack = " ".join(str(item.get(k) or "") for k in
-                        ("xiangqing", "xiangxidizhi", "fangyuanleixing", "fangwuhuxing"))
+    parts = [str(item.get(k) or "") for k in
+             ("description", "title", "address", "community", "rent_type")]
+    parts.extend(str(t) for t in (item.get("tags") or []))
+    haystack = " ".join(parts)
     return sum(1 for feature in features if feature in haystack)
 
 
@@ -90,8 +95,12 @@ def summarize(items, total, filters, features):
         parts.append(filters["fangwuhuxing"])
     condition = "".join(parts) if parts else "符合条件"
 
-    prices = [int(it["zujia"]) for it in items
-              if str(it.get("zujia") or "").strip().isdigit()]
+    prices = []
+    for it in items:
+        try:
+            prices.append(int(float(it.get("rent_price"))))
+        except (TypeError, ValueError):
+            continue
     price_text = ""
     if prices:
         low, high = min(prices), max(prices)

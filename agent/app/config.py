@@ -32,9 +32,7 @@ class Settings:
 
     def __init__(self):
         # ---- 业务后端 ----
-        # 注意后端配置了 context-path，缺少它会 404
-        self.backend_base_url = _get(
-            "BACKEND_BASE_URL", "http://localhost:8080/springboot93c4v")
+        self.backend_base_url = _get("BACKEND_BASE_URL", "http://localhost:8080")
         self.backend_timeout = _get_float("BACKEND_TIMEOUT", 10.0)
 
         # ---- 大模型 ----

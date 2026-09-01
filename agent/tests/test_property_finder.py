@@ -32,35 +32,41 @@ class FakeBackend(object):
         return {"list": self.items, "total": len(self.items)}
 
 
-def make_house(bianhao, zujia, huxing="两室一厅", diqu="中山区", xiangqing=""):
+def make_house(house_id, price, layout="两室一厅", district="中山区",
+               description="", tags=None):
     return {
-        "id": bianhao,
-        "fangwubianhao": "F%03d" % bianhao,
-        "zujia": zujia,
-        "fangwuhuxing": huxing,
-        "suozaidiqu": diqu,
-        "mianji": "80",
-        "xiangqing": xiangqing,
+        "id": house_id,
+        "house_no": "DL%04d" % house_id,
+        "title": "%s %s" % (district, layout),
+        "rent_price": price,
+        "layout": layout,
+        "district": district,
+        "area": 80.0,
+        "description": description,
+        "tags": tags or [],
+        "rent_type": "整租",
+        "address": "",
+        "community": "",
     }
 
 
 class TestBuildParams(unittest.TestCase):
-    """业务语义字段必须正确转成 MyBatis-Plus 的区间参数约定。"""
+    """业务语义字段必须正确转成后端接口的参数名。"""
 
     def test_range_mapping(self):
         params = build_params({"zujia_min": 2000, "zujia_max": 3000})
-        self.assertEqual(params["zujia_start"], 2000)
-        self.assertEqual(params["zujia_end"], 3000)
+        self.assertEqual(params["rent_price_min"], 2000)
+        self.assertEqual(params["rent_price_max"], 3000)
         self.assertNotIn("zujia_min", params)
 
     def test_area_mapping(self):
         params = build_params({"mianji_min": 80})
-        self.assertEqual(params["mianji_start"], 80)
+        self.assertEqual(params["area_min"], 80)
 
     def test_pass_through(self):
         params = build_params({"suozaidiqu": "中山区", "fangwuhuxing": "两室一厅"})
-        self.assertEqual(params["suozaidiqu"], "中山区")
-        self.assertEqual(params["fangwuhuxing"], "两室一厅")
+        self.assertEqual(params["district"], "中山区")
+        self.assertEqual(params["layout"], "两室一厅")
 
     def test_pagination_defaults(self):
         params = build_params({})
@@ -71,7 +77,7 @@ class TestBuildParams(unittest.TestCase):
 class TestFeatureScoring(unittest.TestCase):
 
     def test_score_counts_matches(self):
-        house = make_house(1, 2500, xiangqing="精装修，有电梯，紧邻地铁站")
+        house = make_house(1, 2500, tags=["电梯", "地铁"])
         self.assertEqual(score_by_features(house, ["电梯", "地铁"]), 2)
 
     def test_no_features_scores_zero(self):
@@ -102,14 +108,14 @@ class TestAgentRun(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["source"], "rules")
         self.assertEqual(result["total"], 2)
-        self.assertEqual(backend.last_params["suozaidiqu"], "中山区")
-        self.assertEqual(backend.last_params["zujia_end"], 3000)
+        self.assertEqual(backend.last_params["district"], "中山区")
+        self.assertEqual(backend.last_params["rent_price_max"], 3000)
 
     def test_features_reorder_results(self):
         """带电梯的房源应排在前面。"""
         backend = FakeBackend([
-            make_house(1, 2200, xiangqing="普通装修"),
-            make_house(2, 2800, xiangqing="有电梯，近地铁"),
+            make_house(1, 2200, tags=["有阳台"]),
+            make_house(2, 2800, tags=["电梯", "地铁"]),
         ])
         result = agent.run("中山区两室一厅三千以内，最好有电梯离地铁近",
                            provider=NullProvider(), backend=backend)
