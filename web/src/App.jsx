@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
+import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
 import HouseDrawer from './components/HouseDrawer'
 import LandlordPanel from './components/LandlordPanel'
@@ -49,6 +50,7 @@ export default function App() {
   const [showMine, setShowMine] = useState(false)
   const [showWork, setShowWork] = useState(false)
   const [favorites, setFavorites] = useState([])
+  const [filters, setFilters] = useState({})
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -78,9 +80,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function loadPage(nextPage, replace) {
+  async function loadPage(nextPage, replace, override) {
+    const active = override ?? filters
     try {
-      const data = await api.listHouses({ limit: PAGE_SIZE, page: nextPage })
+      const data = await api.listHouses({
+        ...active, limit: PAGE_SIZE, page: nextPage,
+      })
       setHouses((prev) => (replace ? data.list : [...prev, ...data.list]))
       setTotal(data.total || 0)
       setPage(nextPage)
@@ -117,7 +122,16 @@ export default function App() {
   function reset() {
     setResult(null)
     setText('')
-    loadPage(1, true)
+    setFilters({})
+    loadPage(1, true, {})
+  }
+
+  function applyFilters(next) {
+    // 用筛选器就退出智能搜索结果，两者是互斥的两种检索方式
+    setResult(null)
+    setText('')
+    setFilters(next)
+    loadPage(1, true, next)
   }
 
   async function toggleFavorite(houseNo) {
@@ -256,8 +270,13 @@ export default function App() {
           {error && <div className="answer error">{error}</div>}
         </section>
 
+        {!result && <FilterBar onApply={applyFilters} disabled={busy} />}
+
         <div className="list-head">
-          <h3>{result ? '搜索结果' : '最新房源'}</h3>
+          <h3>
+            {result ? '搜索结果'
+              : Object.values(filters).some(Boolean) ? '筛选结果' : '最新房源'}
+          </h3>
           <span className="count">共 {total} 套</span>
           {result && (
             <button className="btn ghost small" onClick={reset}>
@@ -327,6 +346,8 @@ export default function App() {
       {showMine && user && (
         <MyPanel
           user={user}
+          onUserUpdated={setUser}
+          onLogout={logout}
           onClose={() => setShowMine(false)}
           onOpenHouse={(house) => {
             setShowMine(false)

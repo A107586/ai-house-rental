@@ -92,6 +92,8 @@ class House(Base):
 
     landlord: Mapped["User"] = relationship(back_populates="houses")
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="house")
+    images: Mapped[list["HouseImage"]] = relationship(
+        back_populates="house", order_by="HouseImage.sort_order")
 
     def to_dict(self):
         return {
@@ -111,6 +113,8 @@ class House(Base):
             "description": self.description,
             "tags": [t for t in self.tags.split(",") if t],
             "cover_image": self.cover_image,
+            "images": [i.url for i in sorted(
+                self.images, key=lambda x: (not x.is_cover, x.sort_order))],
             "status": self.status,
             "view_count": self.view_count,
             "landlord_name": self.landlord.real_name if self.landlord else "",
@@ -250,6 +254,8 @@ class HouseImage(Base):
     caption: Mapped[str] = mapped_column(String(100), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_cover: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    house: Mapped["House"] = relationship(back_populates="images")
 
     def to_dict(self):
         return {

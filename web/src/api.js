@@ -93,11 +93,19 @@ export const api = {
   register: (payload) => post('/api/auth/register', payload),
   login: (username, password) => post('/api/auth/login', { username, password }),
   me: () => request('/api/auth/me'),
+  updateProfile: (payload) =>
+    request('/api/auth/profile', { method: 'PUT', body: JSON.stringify(payload) }),
+  changePassword: (oldPassword, newPassword) =>
+    post('/api/auth/password', {
+      old_password: oldPassword,
+      new_password: newPassword,
+    }),
 
   // ---------------- 房源 ----------------
   listHouses: (params = {}) => request(`/api/houses?${toQuery(params)}`),
   getHouse: (houseNo) => request(`/api/houses/${houseNo}`),
   listDistricts: () => request('/api/districts'),
+  houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
   stats: () => request('/api/stats'),
 
   // ---------------- 收藏 ----------------

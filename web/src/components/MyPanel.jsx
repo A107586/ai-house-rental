@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContractCard from './ContractCard'
+import ProfileForm from './ProfileForm'
 
 const APPOINTMENT_STATUS = {
   pending: '待确认',
@@ -16,7 +17,7 @@ const BILL_TYPE = {
   other: '其它',
 }
 
-export default function MyPanel({ user, onClose, onOpenHouse }) {
+export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onLogout }) {
   const [tab, setTab] = useState('contracts')
   const [appointments, setAppointments] = useState([])
   const [contracts, setContracts] = useState([])
@@ -80,6 +81,7 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
     { key: 'appointments', label: isStaff ? '收到的预约' : '我的预约', n: appointments.length },
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
+    { key: 'profile', label: '账号设置' },
   ]
 
   return (
@@ -301,6 +303,11 @@ export default function MyPanel({ user, onClose, onOpenHouse }) {
               </ul>
             )}
           </>
+        )}
+
+        {/* ---------------- 账号设置 ---------------- */}
+        {tab === 'profile' && (
+          <ProfileForm user={user} onUpdated={onUserUpdated} onLogout={onLogout} />
         )}
 
         {/* ---------------- 收藏 ---------------- */}

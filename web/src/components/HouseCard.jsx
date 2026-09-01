@@ -24,6 +24,16 @@ export default function HouseCard({ house, favorited, onToggleFavorite, onClick 
         {favorited ? '★' : '☆'}
       </button>
 
+      <div className="card-photo">
+        {house.cover_image ? (
+          <img src={house.cover_image} alt={house.title} loading="lazy" />
+        ) : (
+          <span className="photo-none">暂无图片</span>
+        )}
+        <span className="kind-tag">{house.rent_type}</span>
+      </div>
+
+      <div className="card-body">
       <div className="card-title">{house.title}</div>
       <div className="card-loc">
         {house.district} · {house.community} · {house.floor}
@@ -46,6 +56,7 @@ export default function HouseCard({ house, favorited, onToggleFavorite, onClick 
             {tag}
           </span>
         ))}
+      </div>
       </div>
     </article>
   )

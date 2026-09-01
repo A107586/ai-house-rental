@@ -20,8 +20,8 @@ if hasattr(sys.stdout, "buffer"):
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
-from app.models import (Appointment, Base, House, Notice,  # noqa: E402
-                        Repair, User)
+from app.models import (Appointment, Base, House, HouseImage,  # noqa: E402
+                        Notice, Repair, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -168,6 +168,26 @@ def main():
         session.add_all(houses)
         session.flush()
 
+        print("绑定房源图片 ...")
+        # static/houses/ 下的实拍图，按房源轮转分配。
+        # 每套 3 张，首张为封面。用固定规则而不是随机，保证每个人跑出来一致。
+        photos = sorted(
+            f for f in os.listdir(os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), "static", "houses"))
+            if f.endswith(".jpg"))
+        if photos:
+            for offset, house in enumerate(houses):
+                for slot in range(3):
+                    name = photos[(offset * 3 + slot) % len(photos)]
+                    session.add(HouseImage(
+                        house_id=house.id,
+                        url="/static/houses/" + name,
+                        sort_order=slot,
+                        is_cover=(slot == 0)))
+                house.cover_image = "/static/houses/" + photos[
+                    (offset * 3) % len(photos)]
+        session.flush()
+
         print("生成看房预约 ...")
         base = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
         used = set()
@@ -263,6 +283,7 @@ def main():
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
         print("  看房预约 %d 条，报修工单 %d 条" % (len(used), len(samples)))
         print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))
+        print("  房源图片 %d 张，每套 3 张" % len(photos))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")
         print("  租客账号   tenant1 / test123")

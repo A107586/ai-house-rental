@@ -19,7 +19,8 @@ from app import leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app.db import get_session, init_db
 from app.models import (Appointment, Bill, ChatMessage, Contract, Favorite,
-                        House, Message, Notice, Payment, Repair, User)
+                        House, HouseImage, Message, Notice, Payment, Repair,
+                        User)
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -190,6 +191,17 @@ class UserUpdate(BaseModel):
     role: str | None = None
 
 
+class ProfileUpdate(BaseModel):
+    real_name: str | None = Field(default=None, max_length=50)
+    phone: str | None = Field(default=None, max_length=20)
+    email: str | None = Field(default=None, max_length=100)
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=6, max_length=64)
+
+
 class ChatLog(BaseModel):
     session_id: str
     role: str
@@ -277,6 +289,50 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)):
 @app.get("/api/auth/me")
 def me(user: User = Depends(require_login)):
     return user.to_dict()
+
+
+@app.put("/api/auth/profile")
+def update_profile(payload: ProfileUpdate, user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """维护个人资料。对应需求 F-03 此前缺失的后半段。
+
+    用户名与角色不在这里改——用户名是登录凭据，角色调整属于管理员权限。
+    """
+    fields = payload.model_dump(exclude_unset=True, exclude_none=True)
+    for key, value in fields.items():
+        setattr(user, key, value)
+    session.commit()
+    session.refresh(user)
+    return {"ok": True, "user": user.to_dict()}
+
+
+@app.post("/api/auth/password")
+def change_password(payload: PasswordChange, user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """修改密码。必须验证原密码，否则拿到令牌就能直接改密夺号。"""
+    if not verify_password(payload.old_password, user.password_hash):
+        raise HTTPException(status_code=403, detail="原密码不正确")
+    if payload.old_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
+
+    user.password_hash = hash_password(payload.new_password)
+    session.commit()
+    # 令牌是无状态的，改密后旧令牌仍然有效。课程项目不做令牌吊销，
+    # 但前端会主动要求重新登录，避免用户误以为旧会话已失效。
+    return {"ok": True, "relogin": True}
+
+
+# ------------------------------------------------------------------ 房源相册
+
+@app.get("/api/houses/{house_no}/images")
+def list_house_images(house_no: str, session: Session = Depends(get_session)):
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    rows = session.scalars(
+        select(HouseImage).where(HouseImage.house_id == house.id)
+        .order_by(HouseImage.is_cover.desc(), HouseImage.sort_order)).all()
+    return {"total": len(rows), "list": [i.to_dict() for i in rows]}
 
 
 # ------------------------------------------------------------------ 房源
@@ -1162,6 +1218,12 @@ def list_chat(session_id: str, limit: int = Query(50, ge=1, le=200),
 #
 # 有构建产物时，访问 http://localhost:8080 就是完整网站，
 # 不需要额外启动前端开发服务器。
+
+# 房源图片等静态资源。必须挂在 web 之前，否则会被 "/" 的挂载吞掉。
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "static")
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 if HAS_WEB:
     app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

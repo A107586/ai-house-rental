@@ -26,6 +26,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
   const [phone, setPhone] = useState('')
   const [reply, setReply] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [shot, setShot] = useState(0)
+
+  const photos = house.images && house.images.length
+    ? house.images
+    : (house.cover_image ? [house.cover_image] : [])
 
   async function refresh() {
     try {
@@ -103,6 +108,26 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
         <button className="drawer-close" onClick={onClose} aria-label="关闭">
           ×
         </button>
+
+        {photos.length > 0 && (
+          <div className="album">
+            <img className="album-main" src={photos[shot]} alt={house.title} />
+            {photos.length > 1 && (
+              <div className="album-thumbs">
+                {photos.map((url, i) => (
+                  <button
+                    key={url}
+                    className={`thumb ${i === shot ? 'on' : ''}`}
+                    onClick={() => setShot(i)}
+                    aria-label={`第 ${i + 1} 张`}
+                  >
+                    <img src={url} alt="" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <h3>{house.title}</h3>
         <div className="loc">
