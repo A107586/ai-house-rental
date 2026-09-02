@@ -6,6 +6,8 @@ sqlalchemy>=2.0,<3.0
 # 图片上传（multipart 表单解析）。缺它时上传接口降级为 503，
 # 其余功能照常可用，见 app/main.py 的 HAS_UPLOAD。
 python-multipart>=0.0.9
+# FastAPI/Starlette TestClient 的测试运行依赖
+httpx2>=2.12,<3.0
 
 # 部署到 MySQL 时再装（本地 SQLite 不需要）
 # pymysql>=1.1

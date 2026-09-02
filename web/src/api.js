@@ -56,7 +56,7 @@ async function request(url, options = {}) {
     throw new Error('连不上服务器，请确认三个服务都已启动')
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 && url !== '/api/auth/login') {
     // 令牌过期或无效，清掉本地状态，让用户重新登录
     setToken('')
     throw new Error('登录已失效，请重新登录')

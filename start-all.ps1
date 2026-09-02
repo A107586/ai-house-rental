@@ -9,7 +9,8 @@ $root = $PSScriptRoot
 
 # ---------- 找 Python ----------
 $python = $null
-foreach ($candidate in @("python", "py")) {
+$venvPython = Join-Path $root ".venv\Scripts\python.exe"
+foreach ($candidate in @($venvPython, "python", "py")) {
     try {
         & $candidate --version 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $python = $candidate; break }

@@ -6,6 +6,14 @@
 """
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+# 本地开发配置位于 agent/.env。显式指定路径，避免从仓库根目录或
+# start-all.ps1 启动时因当前工作目录不同而漏读配置。
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 def _get(name, default=None):

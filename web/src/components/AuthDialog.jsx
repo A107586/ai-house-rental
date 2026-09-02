@@ -15,13 +15,34 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
     e.preventDefault()
     if (busy) return
 
+    const username = form.username.trim()
+    const realName = form.real_name.trim()
+    const phone = form.phone.trim()
+    if (!username) return setError('请输入用户名')
+    if (!form.password) return setError('请输入密码')
+    if (mode === 'register') {
+      if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+        return setError('用户名需为 3–20 位字母、数字或下划线')
+      }
+      if (form.password.length < 6 || form.password.length > 64) {
+        return setError('密码长度需为 6–64 位')
+      }
+      if (/\s/.test(form.password)) return setError('密码不能包含空格')
+      if (realName && !/^[A-Za-z\u4e00-\u9fff· ]{2,20}$/.test(realName)) {
+        return setError('姓名需为 2–20 位中英文字符')
+      }
+      if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
+        return setError('请输入正确的 11 位手机号')
+      }
+    }
+
     setBusy(true)
     setError('')
     try {
       const data =
         mode === 'login'
-          ? await api.login(form.username, form.password)
-          : await api.register(form)
+          ? await api.login(username, form.password)
+          : await api.register({ ...form, username, real_name: realName, phone })
       setToken(data.token)
       onLoggedIn(data.user)
     } catch (err) {
@@ -44,6 +65,7 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
           <div className="field">
             <input
               placeholder="用户名"
+              maxLength={20}
               value={form.username}
               onChange={update('username')}
               autoFocus
@@ -55,6 +77,7 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
               placeholder={mode === 'login' ? '密码' : '密码（至少 6 位）'}
               value={form.password}
               onChange={update('password')}
+              maxLength={64}
             />
           </div>
 
@@ -63,6 +86,7 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
               <div className="field">
                 <input
                   placeholder="姓名"
+                  maxLength={20}
                   value={form.real_name}
                   onChange={update('real_name')}
                 />
@@ -70,6 +94,8 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
                   placeholder="手机号"
                   value={form.phone}
                   onChange={update('phone')}
+                  inputMode="numeric"
+                  maxLength={11}
                 />
               </div>
               <div className="field">

@@ -39,9 +39,26 @@ const EMPTY = {
   priceIndex: -1, areaIndex: -1, sort: 'published_at',
 }
 
-export default function FilterBar({ onApply, disabled }) {
+function stateFromValue(value = {}) {
+  const priceIndex = PRICE_RANGES.findIndex((range) =>
+    String(range.min ?? '') === String(value.rent_price_min ?? '') &&
+    String(range.max ?? '') === String(value.rent_price_max ?? ''))
+  const areaIndex = AREA_RANGES.findIndex((range) =>
+    String(range.min ?? '') === String(value.area_min ?? '') &&
+    String(range.max ?? '') === String(value.area_max ?? ''))
+  return {
+    district: value.district || '',
+    layout: value.layout || '',
+    rent_type: value.rent_type || '',
+    priceIndex,
+    areaIndex,
+    sort: value.sort || 'published_at',
+  }
+}
+
+export default function FilterBar({ value, onApply, disabled }) {
   const [open, setOpen] = useState(false)
-  const [f, setF] = useState(EMPTY)
+  const [f, setF] = useState(() => stateFromValue(value))
   const [districts, setDistricts] = useState(
     FALLBACK_DISTRICTS.map((d) => ({ district: d, count: null })))
 
@@ -55,6 +72,12 @@ export default function FilterBar({ onApply, disabled }) {
       .catch(() => {})
     return () => { alive = false }
   }, [])
+
+  // 地图选区和条件筛选由父组件维护同一份值。地图点击改变 value 后，
+  // 在这里同步按钮高亮，形成真正的双向联动。
+  useEffect(() => {
+    setF(stateFromValue(value))
+  }, [value])
 
   function pick(key, value) {
     // 再点一次同一项即取消选择，省掉一个「全部」按钮

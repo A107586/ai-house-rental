@@ -114,7 +114,10 @@ export default function App() {
 
   async function search(e, query, nextPage = 1) {
     if (e) e.preventDefault()
-    const content = (query ?? searched ?? text).trim()
+    // 首次提交读取输入框；加载更多时沿用上次已提交的查询。
+    // searched 初始值是空字符串，不能直接放在 text 前用 ??，否则普通输入
+    // 会永远取到空字符串，只有显式传 query 的示例按钮能够触发搜索。
+    const content = (query ?? (nextPage > 1 ? searched : text)).trim()
     if (!content || busy) return
 
     setBusy(true)
@@ -302,7 +305,7 @@ export default function App() {
                 ))}
                 {(result.features || []).map((feature) => (
                   <span className="chip feature" key={feature}>
-                    偏好：{feature}
+                    要求：{feature}
                   </span>
                 ))}
               </div>
@@ -347,7 +350,9 @@ export default function App() {
           <MapFinder selected={filters.district || ''} onPick={pickDistrict} />
         )}
 
-        {!result && <FilterBar onApply={applyFilters} disabled={busy} />}
+        {!result && (
+          <FilterBar value={filters} onApply={applyFilters} disabled={busy} />
+        )}
 
         <div className="list-head">
           <h3>
@@ -395,7 +400,7 @@ export default function App() {
                 </button>
                 {result && (
                   <div className="load-note">
-                    智能搜索按发布时间取数，偏好项（如「带电梯」）的加权排序
+                    智能搜索会把设施条件（如「带电梯」）作为必须满足的筛选要求
                     只在当前这一页内生效。
                   </div>
                 )}

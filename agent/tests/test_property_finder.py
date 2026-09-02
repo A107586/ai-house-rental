@@ -12,9 +12,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.property_finder import agent  # noqa: E402
 from app.agents.property_finder.tools.search_properties import (  # noqa: E402
-    build_params, score_by_features, summarize)
+    build_params, matches_all_features, score_by_features, summarize)
 from app.backend import BackendError  # noqa: E402
-from app.llm.base import NullProvider  # noqa: E402
+from app.llm.base import LLMProvider, NullProvider  # noqa: E402
+
+
+class FakeProvider(LLMProvider):
+    def __init__(self, value):
+        self.value = value
+
+    def complete(self, system_prompt, user_prompt, max_tokens=None):
+        import json
+        return json.dumps(self.value, ensure_ascii=False)
 
 
 class FakeBackend(object):
@@ -83,6 +92,10 @@ class TestFeatureScoring(unittest.TestCase):
     def test_no_features_scores_zero(self):
         self.assertEqual(score_by_features(make_house(1, 2500), []), 0)
 
+    def test_all_requested_features_must_match(self):
+        house = make_house(1, 2500, tags=["电梯"])
+        self.assertFalse(matches_all_features(house, ["电梯", "可养宠物"]))
+
 
 class TestSummarize(unittest.TestCase):
 
@@ -101,6 +114,22 @@ class TestSummarize(unittest.TestCase):
 
 class TestAgentRun(unittest.TestCase):
 
+    def test_llm_feature_only_result_is_not_marked_unavailable(self):
+        backend = FakeBackend([make_house(1, 2200, tags=["可养宠物"])])
+        provider = FakeProvider({"filters": {}, "features": ["可养宠物"]})
+        result = agent.run("想找允许带小动物的住处",
+                           provider=provider, backend=backend)
+        self.assertEqual(result["source"], "llm")
+        self.assertEqual(result["total"], 1)
+
+    def test_llm_feature_synonym_is_normalized(self):
+        backend = FakeBackend([make_house(1, 2200, tags=["可养宠物"])])
+        provider = FakeProvider({"filters": {}, "features": ["允许养猫"]})
+        result = agent.run("想找允许养猫的住处",
+                           provider=provider, backend=backend)
+        self.assertEqual(result["features"], ["可养宠物"])
+        self.assertEqual(result["total"], 1)
+
     def test_full_flow(self):
         backend = FakeBackend([make_house(1, 2200), make_house(2, 2800)])
         result = agent.run("中山区两室一厅，租金三千以内",
@@ -111,15 +140,27 @@ class TestAgentRun(unittest.TestCase):
         self.assertEqual(backend.last_params["district"], "中山区")
         self.assertEqual(backend.last_params["rent_price_max"], 3000)
 
-    def test_features_reorder_results(self):
-        """带电梯的房源应排在前面。"""
+    def test_features_filter_results(self):
+        """明确提出的设施条件必须全部满足，不能只参与排序。"""
         backend = FakeBackend([
             make_house(1, 2200, tags=["有阳台"]),
             make_house(2, 2800, tags=["电梯", "地铁"]),
         ])
         result = agent.run("中山区两室一厅三千以内，最好有电梯离地铁近",
                            provider=NullProvider(), backend=backend)
-        self.assertEqual(result["items"][0]["id"], 2)
+        self.assertEqual([item["id"] for item in result["items"]], [2])
+        self.assertEqual(result["total"], 1)
+
+    def test_feature_only_query_does_not_return_every_house(self):
+        backend = FakeBackend([
+            make_house(1, 2200, tags=["电梯"]),
+            make_house(2, 2800, tags=["电梯", "可养宠物"]),
+            make_house(3, 2600, tags=["可养宠物"]),
+        ])
+        result = agent.run("想找带电梯、可以养猫的房子",
+                           provider=NullProvider(), backend=backend)
+        self.assertEqual([item["id"] for item in result["items"]], [2])
+        self.assertEqual(result["total"], 1)
 
     def test_backend_down_is_graceful(self):
         """后端挂掉时给用户可读提示，而不是抛异常。"""

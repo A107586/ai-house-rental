@@ -57,6 +57,43 @@ class TestRegister(ApiTestCase):
                                     json={"username": "abcd", "password": "123"})
         self.assertEqual(response.status_code, 422)
 
+    def test_invalid_phone_rejected_with_friendly_message(self):
+        response = self.client.post("/api/auth/register", json={
+            "username": "newbie", "password": "secret123", "phone": "hxbjsa"})
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "请输入正确的 11 位手机号")
+
+    def test_invalid_username_rejected(self):
+        response = self.client.post("/api/auth/register", json={
+            "username": "坏!", "password": "secret123"})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("3–20", response.json()["detail"])
+
+    def test_blank_fields_have_specific_messages(self):
+        username = self.client.post("/api/auth/register", json={
+            "username": "", "password": "secret123"})
+        password = self.client.post("/api/auth/register", json={
+            "username": "newbie", "password": ""})
+        self.assertEqual(username.json()["detail"], "请输入用户名")
+        self.assertEqual(password.json()["detail"], "请输入密码")
+
+
+class TestLoginValidation(ApiTestCase):
+
+    def test_wrong_credentials_have_friendly_message(self):
+        response = self.client.post("/api/auth/login", json={
+            "username": "tenant1", "password": "wrong"})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"], "用户名或密码错误")
+
+    def test_blank_username_and_password_are_distinguished(self):
+        no_username = self.client.post("/api/auth/login", json={
+            "username": "", "password": "x"})
+        no_password = self.client.post("/api/auth/login", json={
+            "username": "tenant1", "password": ""})
+        self.assertEqual(no_username.json()["detail"], "请输入用户名")
+        self.assertEqual(no_password.json()["detail"], "请输入密码")
+
     def test_cannot_self_register_as_admin(self):
         """不能通过注册接口把自己变成管理员。"""
         response = self.client.post("/api/auth/register", json={

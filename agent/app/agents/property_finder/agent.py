@@ -6,7 +6,7 @@
 
 from app.config import settings
 from app.llm.base import LLMUnavailable
-from app.agents.property_finder.tools.parse_query import parse_query
+from app.agents.property_finder.tools.parse_query import FEATURES, parse_query
 from app.agents.property_finder.tools.search_properties import (
     search_properties, summarize)
 
@@ -60,6 +60,20 @@ def _sanitize(filters):
     return clean
 
 
+def _sanitize_features(features):
+    """把大模型返回的近义表达映射成数据库使用的统一设施标签。"""
+    if not isinstance(features, list):
+        return []
+    clean = []
+    for value in features:
+        text = str(value).strip()
+        canonical = next((name for name, aliases in FEATURES.items()
+                          if name == text or any(alias in text for alias in aliases)), None)
+        if canonical and canonical not in clean:
+            clean.append(canonical)
+    return clean[:5]
+
+
 def understand(text, provider=None):
     """把自然语言变成筛选条件，返回 ``(filters, features, source)``。
 
@@ -81,13 +95,16 @@ def understand(text, provider=None):
         return rule_result["filters"], rule_result["features"], "rules_fallback"
 
     filters = _sanitize(data.get("filters"))
-    if not filters:
-        return rule_result["filters"], rule_result["features"], "rules_fallback"
+    features = _sanitize_features(data.get("features"))
+    # 规则词典对已覆盖的设施表达更稳定；合并大模型结果可避免近义词造成
+    # 数据库标签不匹配，同时保留大模型识别出的其他受支持设施。
+    features = list(dict.fromkeys(rule_result["features"] + features))[:5]
 
-    features = data.get("features")
-    if not isinstance(features, list):
-        features = rule_result["features"]
-    features = [str(f).strip() for f in features if str(f).strip()][:5]
+    # 只有设施条件也是有效的大模型解析结果。例如“可以养猫的房子”没有
+    # 地区、价格等 filters，但 features 中的“可养宠物”足以执行搜索。
+    # 旧逻辑只检查 filters，因而把成功调用误标成“大模型不可用”。
+    if not filters and not features:
+        return rule_result["filters"], rule_result["features"], "rules_fallback"
 
     return filters, features, "llm"
 

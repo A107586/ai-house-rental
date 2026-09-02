@@ -7,6 +7,7 @@
 
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
@@ -136,8 +137,8 @@ def require_staff(user: User = Depends(require_login)):
 # ------------------------------------------------------------------ 请求模型
 
 class RegisterRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=6, max_length=64)
+    username: str = ""
+    password: str = ""
     real_name: str = ""
     phone: str = ""
     role: str = "tenant"
@@ -324,17 +325,36 @@ def health(session: Session = Depends(get_session)):
 
 @app.post("/api/auth/register")
 def register(payload: RegisterRequest, session: Session = Depends(get_session)):
+    username = payload.username.strip()
+    real_name = payload.real_name.strip()
+    phone = payload.phone.strip()
+    if not username:
+        raise HTTPException(status_code=422, detail="请输入用户名")
+    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
+        raise HTTPException(status_code=422,
+                            detail="用户名需为 3–20 位字母、数字或下划线")
+    if not payload.password:
+        raise HTTPException(status_code=422, detail="请输入密码")
+    if not 6 <= len(payload.password) <= 64:
+        raise HTTPException(status_code=422, detail="密码长度需为 6–64 位")
+    if any(char.isspace() for char in payload.password):
+        raise HTTPException(status_code=422, detail="密码不能包含空格")
+    if real_name and not re.fullmatch(r"[A-Za-z\u4e00-\u9fff· ]{2,20}", real_name):
+        raise HTTPException(status_code=422,
+                            detail="姓名需为 2–20 位中英文字符")
+    if phone and not re.fullmatch(r"1[3-9]\d{9}", phone):
+        raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
     if payload.role not in ("tenant", "landlord"):
         raise HTTPException(status_code=400, detail="只能注册租客或房东账号")
-    exists = session.scalar(select(User).where(User.username == payload.username))
+    exists = session.scalar(select(User).where(User.username == username))
     if exists:
         raise HTTPException(status_code=409, detail="用户名已被占用")
 
     user = User(
-        username=payload.username,
+        username=username,
         password_hash=hash_password(payload.password),
-        real_name=payload.real_name,
-        phone=payload.phone,
+        real_name=real_name,
+        phone=phone,
         role=payload.role,
     )
     session.add(user)
@@ -345,7 +365,12 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)):
 
 @app.post("/api/auth/login")
 def login(payload: LoginRequest, session: Session = Depends(get_session)):
-    user = session.scalar(select(User).where(User.username == payload.username))
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=422, detail="请输入用户名")
+    if not payload.password:
+        raise HTTPException(status_code=422, detail="请输入密码")
+    user = session.scalar(select(User).where(User.username == username))
     # 用户不存在与密码错误返回同一句提示，避免暴露账号是否存在
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")

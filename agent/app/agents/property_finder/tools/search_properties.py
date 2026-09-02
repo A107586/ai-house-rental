@@ -36,19 +36,19 @@ def build_params(filters, page=1, limit=10):
 
 
 def score_by_features(item, features):
-    """按用户偏好给房源打分，用于结果排序。
-
-    偏好（地铁、电梯、朝南……）存在 `tags` 与房源描述里，没有独立的
-    可筛选字段，因此只用于排序，不作为硬过滤条件——
-    否则会把本来合适的房源直接筛掉。
-    """
+    """计算房源命中的设施/偏好条件数量。"""
     if not features:
         return 0
     parts = [str(item.get(k) or "") for k in
-             ("description", "title", "address", "community", "rent_type")]
+             ("description", "title", "address", "community", "rent_type", "orientation")]
     parts.extend(str(t) for t in (item.get("tags") or []))
     haystack = " ".join(parts)
     return sum(1 for feature in features if feature in haystack)
+
+
+def matches_all_features(item, features):
+    """用户明确提出的多个设施条件采用 AND 语义，必须全部满足。"""
+    return not features or score_by_features(item, features) == len(features)
 
 
 def search_properties(filters, features=None, page=1, limit=10, backend=None):
@@ -61,18 +61,39 @@ def search_properties(filters, features=None, page=1, limit=10, backend=None):
     backend = backend or client
     params = build_params(filters, page=page, limit=limit)
     try:
-        result = backend.list_properties(params)
+        if features:
+            # 设施条件不属于后端结构化字段。先取完结构化条件下的候选集，
+            # 再本地过滤和分页，避免仅过滤当前一页导致 total 与翻页错误。
+            fetch_params = build_params(filters, page=1, limit=100)
+            result = backend.list_properties(fetch_params)
+            candidates = list(result.get("list") or [])
+            candidate_total = result.get("total") or len(candidates)
+            fetch_page = 2
+            while len(candidates) < candidate_total:
+                next_params = build_params(filters, page=fetch_page, limit=100)
+                next_result = backend.list_properties(next_params)
+                next_items = next_result.get("list") or []
+                if not next_items:
+                    break
+                candidates.extend(next_items)
+                fetch_page += 1
+
+            matched = [item for item in candidates if matches_all_features(item, features)]
+            matched.sort(key=lambda it: score_by_features(it, features), reverse=True)
+            start = (page - 1) * limit
+            items = matched[start:start + limit]
+            total = len(matched)
+        else:
+            result = backend.list_properties(params)
+            items = result.get("list") or []
+            total = result.get("total") or len(items)
     except BackendError as exc:
         return {"ok": False, "items": [], "total": 0, "params": params, "error": str(exc)}
-
-    items = result.get("list") or []
-    if features:
-        items = sorted(items, key=lambda it: score_by_features(it, features), reverse=True)
 
     return {
         "ok": True,
         "items": items,
-        "total": result.get("total") or len(items),
+        "total": total,
         "params": params,
         "error": None,
     }
@@ -108,7 +129,7 @@ def summarize(items, total, filters, features):
 
     feature_text = ""
     if features:
-        feature_text = "，已按「%s」偏好排序" % "、".join(features)
+        feature_text = "，均满足「%s」要求" % "、".join(features)
 
     return "为你找到 %d 套%s的房源%s%s。" % (total, condition, price_text, feature_text)
 
