@@ -47,6 +47,15 @@ if ($npm -and $npm -ne "npm") {
     $env:PATH = (Split-Path $npm) + ";" + $env:PATH
 }
 
+# ---------- 检查后端依赖 ----------
+# 只探测最容易被漏掉的那个：python-multipart 是后加的依赖，
+# 组员拉了新代码却没重装依赖时，图片上传会退化成 503。
+& $python -c "import multipart" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "正在安装后端依赖 ..." -ForegroundColor Cyan
+    & $python -m pip install -r (Join-Path $root "server\requirements.txt")
+}
+
 # ---------- 首次运行自动建库 ----------
 if (-not (Test-Path (Join-Path $root "server\rental.db"))) {
     Write-Host "首次运行，正在生成演示数据 ..." -ForegroundColor Cyan

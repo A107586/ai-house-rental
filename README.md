@@ -34,7 +34,7 @@
 ## 快速开始
 
 ```
-pip install fastapi uvicorn pydantic sqlalchemy
+pip install -r server/requirements.txt
 cd web && npm install && npm run build
 cd server && python seed.py
 powershell -ExecutionPolicy Bypass -File .\start-all.ps1
