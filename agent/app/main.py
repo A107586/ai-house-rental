@@ -288,10 +288,16 @@ def _dispatch(payload, routed, intent, slots, feats):
     text = payload.text
 
     if intent == "search":
-        # 本轮仍走完整的「规则优先、大模型兜底」解析，
-        # 再把结果合并到历史槽位上——只有本轮值得为它调大模型。
-        cur_filters, cur_features, source = property_finder.understand(
-            text, provider=provider)
+        # 本轮走完整的「规则与大模型融合」解析，再把结果合并到历史槽位上。
+        #
+        # 这里的解包长度必须与 `property_finder.understand()` 一致。
+        # 它曾经返回三个值，融合层上线后变成四个（多了 divergence），
+        # 而这个调用点当时漏改了——`/agent/chat` 里所有找房请求因此 500，
+        # 前端显示成「智能体暂时联系不上」。
+        # 单元测试没能发现，是因为它们直接测 `understand()` 与 `run()`，
+        # 没有任何一条走过 `_dispatch`。补的回归测试见 test_dispatch.py。
+        cur_filters, cur_features, source, divergence = \
+            property_finder.understand(text, provider=provider)
         merged, features, notes = memory.apply_turn(
             slots, feats, text, filters=cur_filters, feats=cur_features)
 
@@ -302,6 +308,9 @@ def _dispatch(payload, routed, intent, slots, feats):
         result["context"] = merged
         result["context_text"] = memory.describe(merged, features)
         result["notes"] = notes
+        # 大模型改了规则的哪些字段。答辩时能当场展示「规则说什么、
+        # 模型改了什么」，比只给一个最终结果有说服力。
+        result["divergence"] = divergence
         # 承接了上文才说明，免得单轮对话也啰嗦一句「已记住」
         if slots and merged != cur_filters:
             result["message"] = "（延续上文：%s）%s" % (
@@ -309,11 +318,28 @@ def _dispatch(payload, routed, intent, slots, feats):
         return result
 
     if intent == "contract":
-        # 统一入口拿不到合同正文，只能引导用户去合同页
+        # 合同类问题分两种，不能一律当成「要审阅我的合同」：
+        #
+        # - **规则型**：「能签几年」「电子合同有效吗」「合同签错了能改吗」，
+        #   答案写在知识库里，直接答就好；
+        # - **审阅型**：「帮我看看我这份合同有没有坑」，需要合同正文，
+        #   而统一入口拿不到，只能引导到合同页。
+        #
+        # 原先不加区分地回「请到我的租约里打开合同」，问「能签几年合同」
+        # 的用户会被莫名其妙地支去点审阅按钮。先让检索试一次，
+        # 答得上来就答，答不上来才是真的需要正文。
+        result = support.run(text, token=payload.token,
+                             history=list(payload.history or []),
+                             provider=provider, backend=backend_client,
+                             settings=settings)
+        if result.get("status") == "answered":
+            result["route"] = routed
+            return result
         return {
             "intent": "contract", "status": "need_content", "ok": False,
-            "route": routed, "alternatives": [],
-            "message": "请到「我的租约」里打开合同，点「智能审阅」。",
+            "route": routed, "alternatives": result.get("alternatives", []),
+            "message": "这个得看你那份合同的正文。请到「我的租约」里打开合同，"
+                       "点「智能审阅」，我会把关键条款和风险点列出来。",
         }
 
     if intent == "repair":
@@ -345,15 +371,37 @@ def _dispatch(payload, routed, intent, slots, feats):
                 house_no, result.get("message", ""))
         return result
 
+    if intent == "unknown":
+        # **意图识别不出来时兜底走客服检索，而不是直接说「没太理解」。**
+        #
+        # 意图关键词表再全也覆盖不了所有说法：「预期收入」「能签几年」
+        # 这类问题一个关键词都不命中，可它们的答案很可能就写在知识库里。
+        # 与其让用户撞一句「没太理解你的意思」，不如让检索去试一次——
+        # 反正有可答性闸门兜底，检索不到照样会拒答，不存在编造的风险。
+        #
+        # 这一步把客服变成了整个对话入口的兜底通道：**能答的答上，
+        # 答不上的给「猜你想问」和转人工**，而不是把用户丢在原地。
+        result = support.run(text, token=payload.token,
+                             history=list(payload.history or []),
+                             provider=provider, backend=backend_client,
+                             settings=settings)
+        result["route"] = routed
+        if result.get("status") == "refused":
+            # 连检索都没依据，这才是真的没听懂。此时把找房与预约的
+            # 例句一并给出——用户多半是想用这两个功能但没说对话。
+            result["message"] = (
+                "这个我没查到相关规定，也没太理解你想做什么。"
+                "找房可以说「帮我找中山区两室一厅」，"
+                "预约可以说「预约这周六下午看房」。")
+        return result
+
     # 返回结构与各子智能体保持一致，前端只需处理一种形状
     return {
         "intent": intent,
         "label": supervisor.label(intent),
         "route": routed,
-        "status": "not_implemented" if intent != "unknown" else "unknown",
+        "status": "not_implemented",
         "ok": False,
         "alternatives": [],
-        "message": ("没太理解你的意思，可以试试「帮我找中山区两室一厅」"
-                    "或「预约这周六下午看房」。" if intent == "unknown"
-                    else "「%s」能力尚在开发中。" % supervisor.label(intent)),
+        "message": "「%s」能力尚在开发中。" % supervisor.label(intent),
     }

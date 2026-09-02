@@ -173,6 +173,44 @@ def _shape(status, message, **extra):
     return payload
 
 
+# 检索完全没沾边时，「猜你想问」改用这几类里的代表问题。
+# 覆盖率低于这个值就认为 top-3 是噪声。
+SUGGEST_FLOOR = 0.20
+
+# 兜底建议的分类顺序：按用户最常问的排
+FALLBACK_CATEGORIES = ["押金", "费用", "看房", "报修", "退租"]
+
+
+def suggest(index, query, candidates, cover):
+    """拒答时的「猜你想问」。
+
+    **检索完全没沾边时不能拿 top-3 充数。** 问「预期收入」时检索的前三名是
+    「入住时水电表读数要核对吗」「站内消息在哪看」这种毫不相关的条目，
+    把它们当建议推给用户，比不给建议更糟——用户会觉得这个客服在乱答。
+
+    所以分两种情况：沾了点边（覆盖率过得去）就用检索结果，
+    确实一点没沾就退回按分类挑的常见问题，等于告诉用户
+    「我会答的是这几类」。
+    """
+    if cover >= SUGGEST_FLOOR:
+        titles = [(index.get(cid) or {}).get("title", "") for cid in candidates[:3]]
+        titles = [t for t in titles if t]
+        if titles:
+            return titles
+
+    # 每个分类取第一条，保证建议之间是分散的而不是挤在同一个话题里
+    picked = []
+    for category in FALLBACK_CATEGORIES:
+        for chunk_id in index.order:
+            chunk = index.get(chunk_id) or {}
+            if chunk.get("category") == category:
+                picked.append(chunk.get("title", ""))
+                break
+        if len(picked) >= 3:
+            break
+    return [p for p in picked if p][:3]
+
+
 def _citation(index, chunk_id):
     chunk = index.get(chunk_id)
     if not chunk:
@@ -253,11 +291,7 @@ def run(text, token="", history=None, provider=None, backend=None,
     }
 
     if not verdict["ok"]:
-        # 拒答也要给出口：检索的 top-3 标题就是「猜你想问」，
-        # 一次检索的结果用两次，不额外花成本。
-        alternatives = [(index.get(cid) or {}).get("title", "")
-                        for cid in candidates[:3]]
-        alternatives = [a for a in alternatives if a]
+        alternatives = suggest(index, query, candidates, verdict["cover"])
         retrieval["latency_ms"] = int((time.time() - started) * 1000)
         return shaped(
             "refused",
@@ -275,8 +309,8 @@ def run(text, token="", history=None, provider=None, backend=None,
         retrieval["answer_source"] = source
         retrieval["answer_note"] = note
         return shaped("refused", "暂时没有查到相关规定，这个我不敢乱说。",
-                      alternatives=[(index.get(cid) or {}).get("title", "")
-                                    for cid in candidates[:3]],
+                      alternatives=suggest(index, query, candidates,
+                                           verdict["cover"]),
                       retrieval=retrieval,
                       handoff={"question": raw, "reason": note})
 
