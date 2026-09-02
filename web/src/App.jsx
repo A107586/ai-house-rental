@@ -8,6 +8,7 @@ import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
 import HouseDrawer from './components/HouseDrawer'
 import LandlordPanel from './components/LandlordPanel'
+import MapFinder from './components/MapFinder'
 import MyPanel from './components/MyPanel'
 import RecommendStrip from './components/RecommendStrip'
 
@@ -56,6 +57,7 @@ export default function App() {
   const [filters, setFilters] = useState({})
   const [compare, setCompare] = useState([])
   const [showChat, setShowChat] = useState(false)
+  const [showMap, setShowMap] = useState(false)
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -129,6 +131,17 @@ export default function App() {
     setText('')
     setFilters({})
     loadPage(1, true, {})
+  }
+
+  // 地图选区与条件筛选共用同一套 filters，两者不是两条独立的检索路径，
+  // 否则「地图选了中山区」和「筛选选了两室一厅」会互相覆盖
+  function pickDistrict(district) {
+    const next = { ...filters, district }
+    if (!district) delete next.district
+    setResult(null)
+    setText('')
+    setFilters(next)
+    loadPage(1, true, next)
   }
 
   function applyFilters(next) {
@@ -293,6 +306,24 @@ export default function App() {
             onToggleFavorite={toggleFavorite}
             onOpen={setSelected}
           />
+        )}
+
+        {!result && (
+          <div className="find-switch">
+            <button
+              className={`tab ${showMap ? 'active' : ''}`}
+              onClick={() => setShowMap(!showMap)}
+            >
+              {showMap ? '收起地图' : '地图找房'}
+            </button>
+            {filters.district && (
+              <span className="chip">已选区域：{filters.district}</span>
+            )}
+          </div>
+        )}
+
+        {!result && showMap && (
+          <MapFinder selected={filters.district || ''} onPick={pickDistrict} />
         )}
 
         {!result && <FilterBar onApply={applyFilters} disabled={busy} />}

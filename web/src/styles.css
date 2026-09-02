@@ -2008,3 +2008,202 @@ textarea {
   outline: none;
   border-color: var(--brand);
 }
+
+/* ============================================================
+   T-03 地图找房
+   手绘示意图，不依赖任何第三方地图服务——外网不通时整块功能仍然可用。
+   ============================================================ */
+.find-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mapfinder {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+
+.map-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.map-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.map-tip {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.map-metrics {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.map-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 16px;
+  align-items: start;
+}
+
+.map-svg {
+  width: 100%;
+  height: auto;
+  /* 不封顶的话在宽屏上会撑到五百多像素高，把下面的房源列表整个顶出首屏 */
+  max-height: 340px;
+  display: block;
+  background: linear-gradient(160deg, #eef4f7, #e6eef3);
+  border-radius: var(--radius);
+}
+
+/* 海岸线底图。区域块之间会露出这条底色，看着才像一张图 */
+.map-coast {
+  fill: #dbe6ec;
+  stroke: #b9ccd6;
+  stroke-width: 1.5;
+}
+
+.map-area {
+  cursor: pointer;
+}
+
+.map-area path {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  transition: opacity 0.15s;
+}
+
+.map-area:hover path {
+  opacity: 0.82;
+}
+
+/* 选中的区加深描边而不是换填充色——填充色承载的是数据，不能被状态占用 */
+.map-area.on path {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.map-area.nodata path {
+  fill: var(--surface-2);
+}
+
+.map-name {
+  fill: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(20, 30, 40, 0.35);
+  stroke-width: 3px;
+}
+
+.map-num {
+  fill: #ffffff;
+  font-size: 13px;
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(20, 30, 40, 0.35);
+  stroke-width: 3px;
+}
+
+.map-side {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-size: 13px;
+}
+
+.map-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.map-card-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: var(--ink-2);
+}
+
+.map-card-row b {
+  color: var(--ink);
+}
+
+.map-card-row b.accent {
+  color: var(--accent);
+}
+
+.map-side .btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.map-hint {
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.map-rank {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.map-rank li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+
+.map-rank li:hover,
+.map-rank li.on {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.map-rank li b {
+  margin-left: auto;
+  color: var(--ink);
+}
+
+.map-rank .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.map-foot {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 窄屏下侧栏放到地图下面，否则两列都挤得没法看 */
+@media (max-width: 720px) {
+  .map-body {
+    grid-template-columns: 1fr;
+  }
+}
