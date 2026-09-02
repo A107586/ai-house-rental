@@ -27,7 +27,8 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
-from app import config_store, moderation, oplog, pricing, uploads
+from app import (config_store, idcard, moderation, oplog, pricing,
+                 uploads)
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -248,6 +249,9 @@ class UserUpdate(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
+    # 身份证号。**只在请求里出现，绝不落库**——服务端算出哈希与掩码
+    # 之后原文就丢掉了，见 app/idcard.py 的说明。
+    id_card: str | None = Field(default=None, max_length=18)
     real_name: str | None = Field(default=None, max_length=50)
     phone: str | None = Field(default=None, max_length=20)
     email: str | None = Field(default=None, max_length=100)
@@ -363,8 +367,28 @@ def update_profile(payload: ProfileUpdate, user: User = Depends(require_login),
     用户名与角色不在这里改——用户名是登录凭据，角色调整属于管理员权限。
     """
     fields = payload.model_dump(exclude_unset=True, exclude_none=True)
+    # id_card 必须从这个循环里排除掉。User 上没有同名字段，setattr 会
+    # 直接给对象挂一个属性，把**明文号码**带进 ORM 会话——正是这里
+    # 最不该发生的事。它只走下面那段专门的处理。
+    fields.pop("id_card", None)
     for key, value in fields.items():
         setattr(user, key, value)
+
+    if payload.id_card is not None and payload.id_card.strip():
+        ok, result = idcard.prepare(payload.id_card)
+        if not ok:
+            raise HTTPException(status_code=400, detail=result)
+        # 同一个身份证号只能绑一个账号，否则实名就形同虚设
+        taken = session.scalar(select(User).where(
+            User.id_card_hash == result["hash"], User.id != user.id))
+        if taken:
+            raise HTTPException(status_code=409,
+                                detail="该身份证号已被其他账号绑定")
+        user.id_card_hash = result["hash"]
+        user.id_card_masked = result["masked"]
+        # 到此为止，payload.id_card 里的原文再没有被使用，
+        # 请求结束就随对象一起回收——从不写入任何持久化存储
+
     session.commit()
     session.refresh(user)
     return {"ok": True, "user": user.to_dict()}

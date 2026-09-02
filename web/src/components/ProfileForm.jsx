@@ -5,6 +5,7 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
   const [profile, setProfile] = useState({
     real_name: user.real_name || '',
     phone: '',
+    id_card: '',
     email: '',
   })
   const [pwd, setPwd] = useState({ old_password: '', new_password: '', confirm: '' })
@@ -29,7 +30,8 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
       }
       const data = await api.updateProfile(payload)
       onUpdated(data.user)
-      setProfile({ real_name: data.user.real_name || '', phone: '', email: '' })
+      setProfile({ real_name: data.user.real_name || '', phone: '',
+                   email: '', id_card: '' })
       setMsg({ ok: true, text: '资料已保存' })
     } catch (err) {
       setMsg({ ok: false, text: err.message })
@@ -86,6 +88,21 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
             onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
             placeholder="留空表示不修改"
           />
+        </label>
+        <label className="fld">
+          <span>
+            身份证号（当前 {user.id_card || '未实名'}）
+          </span>
+          <input
+            value={profile.id_card}
+            onChange={(e) => setProfile({ ...profile, id_card: e.target.value })}
+            placeholder="签约需要实名，留空表示不修改"
+            maxLength={18}
+          />
+          <span className="fld-hint">
+            系统<b>只保存脱敏后的号码与一个不可逆指纹</b>，完整号码不会入库
+            ——它的用途只有展示与查重，两者都不需要还原原文。
+          </span>
         </label>
         <label className="fld">
           <span>邮箱</span>

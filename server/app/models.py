@@ -37,6 +37,12 @@ class User(Base):
     real_name: Mapped[str] = mapped_column(String(50), default="")
     phone: Mapped[str] = mapped_column(String(20), default="")
     email: Mapped[str] = mapped_column(String(100), default="")
+
+    # 身份证号（R-02）。**只存哈希与掩码，原文从不落库**——
+    # 系统对它的全部需求就是「展示」与「查重」，两者都不需要还原，
+    # 那就不该保留还原的可能。详见 app/idcard.py。
+    id_card_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
+    id_card_masked: Mapped[str] = mapped_column(String(32), default="")
     # tenant 租客 / landlord 房东 / admin 管理员
     role: Mapped[str] = mapped_column(String(20), default="tenant", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
@@ -51,6 +57,8 @@ class User(Base):
             "username": self.username,
             "real_name": self.real_name,
             "phone": mask_phone(self.phone),
+            # 只给掩码。哈希是内部比对用的，没有任何接口该把它吐出去
+            "id_card": self.id_card_masked,
             "role": self.role,
             "status": self.status,
         }
