@@ -58,6 +58,8 @@ export default function App() {
   const [compare, setCompare] = useState([])
   const [showChat, setShowChat] = useState(false)
   const [showMap, setShowMap] = useState(false)
+  // M-09 公开配置。取不到就用内置文案，配置服务不该拦住首页。
+  const [site, setSite] = useState({ site_name: '大连智租', contact_phone: '' })
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -84,6 +86,7 @@ export default function App() {
         .catch(() => setUser(null))
     }
     loadPage(1, true)
+    api.publicConfig().then(setSite).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -202,7 +205,10 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <div className="logo">
-            大连<span>智租</span>
+            {/* 站点名可在「系统配置」里改。取前两字做深色、其余做品牌色，
+                名字长短不一时也不会散架 */}
+            {site.site_name.slice(0, 2)}
+            <span>{site.site_name.slice(2)}</span>
           </div>
           <div className="tagline">基于 AI 智能体的房屋租赁平台</div>
 
@@ -392,6 +398,12 @@ export default function App() {
           onClose={() => setShowChat(false)}
         />
       )}
+
+      <footer className="site-foot">
+        <span>{site.site_name} · 基于 AI 智能体的房屋租赁平台</span>
+        {site.contact_phone && <span>客服电话：{site.contact_phone}</span>}
+        <span>大连理工大学 实习实训课程设计</span>
+      </footer>
 
       <CompareBar
         items={compare}

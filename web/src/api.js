@@ -200,6 +200,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // M-09 系统配置
+  publicConfig: () => request('/api/config'),
+  adminConfig: () => request('/api/admin/config'),
+  updateConfig: (items) =>
+    request('/api/admin/config', { method: 'PATCH', body: JSON.stringify({ items }) }),
+
   // M-07 操作日志
   adminLogs: (params) => request(`/api/admin/logs?${toQuery(params)}`),
   adminLogActions: () => request('/api/admin/logs/actions'),

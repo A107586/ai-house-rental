@@ -21,8 +21,9 @@ from app import db as db_module
 from app.db import get_session, init_db
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         Contract, Favorite, House, HouseImage, Message,
-                        Notice, OperationLog, Payment, Repair, Review, User)
-from app import oplog
+                        Notice, OperationLog, Payment, Repair, Review,
+                        SystemConfig, User)
+from app import config_store, oplog
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -76,7 +77,8 @@ async def record_operation(request, call_next):
     return response
 
 
-# 一次看房占用一小时，与智能体端的约定保持一致
+# 一次看房占用多久由系统配置决定（M-09），这里只是配置缺失时的兜底。
+# 智能体端的默认值与此保持一致。
 VIEWING_MINUTES = 60
 
 # 允许匿名与普通用户查询的房源状态。pending 待审、offline 已下架不对外。
@@ -86,6 +88,13 @@ PUBLIC_HOUSE_STATUS = ("available", "rented")
 @app.on_event("startup")
 def _startup():
     init_db()
+    # 补齐缺失的配置项。只插不覆盖，否则每次重启都会把管理员改过的
+    # 配置打回默认值。
+    session = db_module.SessionLocal()
+    try:
+        config_store.ensure_defaults(session)
+    finally:
+        session.close()
 
 
 # ------------------------------------------------------------------ 鉴权
@@ -179,7 +188,9 @@ class ContractCreate(BaseModel):
     tenant_username: str
     start_date: datetime
     months: int = Field(default=12, ge=1, le=60)
-    deposit_months: int = Field(default=1, ge=0, le=6)
+    # 不填就用系统配置里的默认押金月数（M-09）。这里必须是 None 而不是
+    # 具体数字：0 本身是合法取值（免押），用 0 当哨兵就没法表达免押了。
+    deposit_months: int | None = Field(default=None, ge=0, le=6)
     pay_months: int = Field(default=1, ge=1, le=12)
 
 
@@ -485,7 +496,11 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
         layout=payload.layout, rent_type=payload.rent_type,
         floor=payload.floor, orientation=payload.orientation,
         description=payload.description, tags=",".join(payload.tags),
-        status="available" if user.role == "admin" else "pending",
+        # 管理员发布的房源无需自审；房东发布的是否免审由系统配置决定（M-09）
+        status="available" if (
+            user.role == "admin"
+            or config_store.get_bool(session, "house_auto_approve")
+        ) else "pending",
     )
     session.add(house)
     session.commit()
@@ -786,6 +801,15 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
     if contract.status != "ended":
         raise HTTPException(status_code=409, detail="租约结束后才能评价")
 
+    # 评价有效期（M-09 可配）。放太久的评价参考价值很低，
+    # 也容易变成事后翻旧账的工具。
+    window_days = config_store.get_int(session, "review_window_days")
+    if contract.ended_at and (
+            datetime.now() - contract.ended_at).days > window_days:
+        raise HTTPException(
+            status_code=409,
+            detail="退租超过 %d 天，已过评价有效期" % window_days)
+
     exists = session.scalar(
         select(Review).where(Review.contract_id == contract.id))
     if exists:
@@ -928,7 +952,21 @@ def create_appointment(payload: AppointmentCreate,
     if payload.viewing_time <= datetime.now():
         raise HTTPException(status_code=400, detail="看房时间必须晚于当前时间")
 
-    window = timedelta(minutes=VIEWING_MINUTES)
+    # 每人每日预约上限，防止刷单占位（M-09 可配）
+    daily_limit = config_store.get_int(session, "appointment_daily_limit")
+    if user:
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        used = len(session.scalars(select(Appointment).where(
+            Appointment.tenant_id == user.id,
+            Appointment.created_at >= today,
+            Appointment.status.in_(["pending", "confirmed"]))).all())
+        if used >= daily_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
+
+    window = timedelta(minutes=config_store.get_int(
+        session, "viewing_minutes", VIEWING_MINUTES))
     clash = session.scalar(
         select(Appointment).where(
             Appointment.house_id == house.id,
@@ -1288,7 +1326,10 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
     try:
         contract = leasing.create_contract(
             session, house, tenant, payload.start_date,
-            months=payload.months, deposit_months=payload.deposit_months,
+            months=payload.months,
+            deposit_months=(payload.deposit_months
+                            if payload.deposit_months is not None
+                            else config_store.get_int(session, "deposit_months")),
             pay_months=payload.pay_months)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -1529,6 +1570,57 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
         session.delete(record)
     session.commit()
     return {"ok": True, "deleted": len(rows)}
+
+
+# ------------------------------------------------------------------ 系统配置
+
+class ConfigUpdate(BaseModel):
+    items: dict[str, str]
+
+
+@app.get("/api/config")
+def public_config(session: Session = Depends(get_session)):
+    """公开配置。只返回标了 is_public 的项，未登录也能读。
+
+    公开范围必须由数据本身标记，不能靠调用方传 key 来决定——
+    否则前端换个 key 就能把预约上限、免审开关这些内部配置读走。
+    """
+    rows = config_store.list_all(session, public_only=True)
+    return {row.key: row.value for row in rows}
+
+
+@app.get("/api/admin/config")
+def list_config(user: User = Depends(require_login),
+                session: Session = Depends(get_session)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看系统配置")
+    return {"list": [row.to_dict() for row in config_store.list_all(session)]}
+
+
+@app.patch("/api/admin/config")
+def update_config(payload: ConfigUpdate, user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """批量更新配置。
+
+    全部校验通过才写入。半套配置比旧配置更危险——比如看房时长改成功了、
+    预约上限却因为写错被拒，管理员多半以为两项都生效了。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以修改系统配置")
+
+    cleaned = {}
+    for key, value in payload.items.items():
+        ok, result = config_store.validate(key, value)
+        if not ok:
+            raise HTTPException(status_code=400,
+                                detail="%s：%s" % (key, result))
+        cleaned[key] = result
+
+    for key, value in cleaned.items():
+        config_store.set_value(session, key, value)
+    session.commit()
+    return {"ok": True, "updated": len(cleaned),
+            "list": [row.to_dict() for row in config_store.list_all(session)]}
 
 
 # ------------------------------------------------------------------ 操作日志

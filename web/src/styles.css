@@ -2338,3 +2338,126 @@ textarea {
   font-size: 13px;
   color: var(--ink-2);
 }
+
+/* ============================================================
+   M-09 系统配置
+   说明文字比输入框更重要：配置页最容易变成一堆没人敢动的开关，
+   不是因为复杂，是因为看不出影响范围。
+   ============================================================ */
+.cfg-group {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 16px;
+}
+
+.cfg-group h5 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--brand);
+}
+
+.cfg-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.cfg-row:last-child {
+  border-bottom: none;
+}
+
+.cfg-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.cfg-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 3px;
+}
+
+.cfg-public,
+.cfg-dirty {
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.cfg-public {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.cfg-dirty {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.cfg-desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cfg-input {
+  flex-shrink: 0;
+  width: 180px;
+}
+
+.cfg-input input[type='text'],
+.cfg-input input[type='number'] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.cfg-input input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.cfg-switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.cfg-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.cfg-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  flex: 1;
+  min-width: 200px;
+}
+
+/* 页脚。客服电话来自系统配置，管理员改了立刻反映到这里 */
+.site-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  padding: 26px 20px 90px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}

@@ -599,6 +599,43 @@ class OperationLog(Base):
         }
 
 
+class SystemConfig(Base):
+    """系统配置（M-09）。
+
+    值统一用字符串存，类型由 `value_type` 描述、读取时再转换。理由是
+    配置项会随需求增删，用一张宽表给每种类型开一列，加一个布尔配置就
+    要改表结构；字符串加类型标记则只是插一行数据。
+
+    **配置必须真的生效**——存了值却没人读，那只是个假功能。当前每一项
+    都接进了对应的业务逻辑，见 `app/config_store.py` 的说明。
+    """
+
+    __tablename__ = "system_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(60), unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(String(255), default="")
+    value_type: Mapped[str] = mapped_column(String(10), default="text")
+    label: Mapped[str] = mapped_column(String(60), default="")
+    description: Mapped[str] = mapped_column(String(200), default="")
+    group_name: Mapped[str] = mapped_column(String(30), default="通用")
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 onupdate=datetime.now)
+
+    def to_dict(self):
+        return {
+            "key": self.key,
+            "value": self.value,
+            "value_type": self.value_type,
+            "label": self.label,
+            "description": self.description,
+            "group": self.group_name,
+            "is_public": self.is_public,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
 def mask_phone(phone):
     """手机号中间四位掩码（R-02）。"""
     if not phone or len(phone) < 7:
