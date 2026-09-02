@@ -175,6 +175,14 @@ class Appointment(Base):
             "id": self.id,
             "house_id": self.house_id,
             "house_no": self.house.house_no if self.house else "",
+            # 光有编号看不出是哪套房。用户在「我的预约」里看到一行
+            # 「DL0007」，得再去房源列表里翻一遍才知道约的是什么——
+            # 把小区、户型、租金一并带上，列表才读得懂。
+            "house_title": self.house.title if self.house else "",
+            "community": self.house.community if self.house else "",
+            "district": self.house.district if self.house else "",
+            "layout": self.house.layout if self.house else "",
+            "rent_price": float(self.house.rent_price) if self.house else 0,
             "contact_name": self.contact_name,
             "contact_phone": mask_phone(self.contact_phone),
             "viewing_time": self.viewing_time.strftime("%Y-%m-%d %H:%M:%S"),

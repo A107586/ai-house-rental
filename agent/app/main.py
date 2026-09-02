@@ -17,6 +17,7 @@ from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.agents.support import agent as support
+from app.agents.support.tools import actions
 from app.agents.support.tools import actions as support_actions
 from app.backend import client as backend_client
 from app.config import settings
@@ -340,6 +341,36 @@ def agent_chat(payload: ChatRequest):
 def _dispatch(payload, routed, intent, slots, feats):
     text = payload.text
 
+    # ---- 代办优先于意图路由 ----
+    #
+    # supervisor 会把「报修」判成 repair、「预约看房」判成 booking，
+    # 各自路由到专门的子智能体。可那些子智能体只会分析与追问，
+    # **没有确认卡片，也不会真的落库**——用户说「帮我报修，断电了」，
+    # 得到的是一句「已识别为电路故障、紧急程度紧急」，然后就没有然后了。
+    # 他追问「你不能像查房源一样帮我弹框办理吗」，问的正是这个。
+    #
+    # 所以先问一句「这句话是不是在要求做事」。是的话一律走客服的
+    # 两阶段流程：出确认卡片、用户点了才执行。不是的话再按意图分流。
+    #
+    # 房源编号在这里就要解析好——「第一套帮我预约看房」里的「第一套」
+    # 只有结合上一轮的搜索结果才还原得出来，而代办层拿不到那份上下文。
+    resolved_house = memory.resolve_house(text, payload.last_house_nos)
+    if actions.detect(text) or (payload.pending or {}).get("action"):
+        result = support.run(text, token=payload.token,
+                             history=list(payload.history or []),
+                             provider=provider, backend=backend_client,
+                             settings=settings, house_no=resolved_house,
+                             pending=payload.pending)
+        # 代办层认领了这句话（出卡片、追问、要登录、已取消）才返回；
+        # 它自己也没辙时（status 是 refused / answered 之类）继续按意图走，
+        # 免得把一句普通问题堵死在代办分支里
+        if result.get("status") in ("confirm", "need_slot", "need_login",
+                                    "cancelled", "escalate", "failed"):
+            result["route"] = routed
+            if resolved_house:
+                result["house_no"] = resolved_house
+            return result
+
     if intent == "search":
         # 本轮走完整的「规则与大模型融合」解析，再把结果合并到历史槽位上。
         #
@@ -384,7 +415,8 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
-                             settings=settings, pending=payload.pending)
+                             settings=settings, house_no=resolved_house,
+                             pending=payload.pending)
         if result.get("status") == "answered":
             result["route"] = routed
             return result
@@ -437,7 +469,8 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
-                             settings=settings, pending=payload.pending)
+                             settings=settings, house_no=resolved_house,
+                             pending=payload.pending)
         result["route"] = routed
         if result.get("status") == "refused":
             # 连检索都没依据，这才是真的没听懂。此时把找房与预约的

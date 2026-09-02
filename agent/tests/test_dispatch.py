@@ -30,7 +30,14 @@ from app.agents.support import agent as support  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
 
 
-def ask(text, **kwargs):
+def ask(text, house_no="", **kwargs):
+    """从 /agent/chat 入口提一个问题。
+
+    `house_no` 通过 last_house_nos 注入——统一入口就是这么拿到
+    「第一套」指的是哪一套的。
+    """
+    if house_no:
+        kwargs.setdefault("last_house_nos", [house_no])
     return agent_chat(ChatRequest(text=text, session_id="test", **kwargs))
 
 
@@ -165,6 +172,88 @@ class TestChatDispatch(unittest.TestCase):
         for text in ["押金怎么退", "厨房水管漏水了", "预约这周六下午看房"]:
             result = ask(text)
             self.assertIn("context_text", result, "「%s」缺 context_text" % text)
+
+
+class TestActionFirstRouting(unittest.TestCase):
+    """代办要先于意图路由。**这一组直接对应用户反馈的「一点也不能用」。**
+
+    supervisor 会把「报修」判成 repair、「预约看房」判成 booking，
+    路由到各自的子智能体。可那些子智能体只会分析与追问，**没有确认卡片，
+    也不会真的落库**——用户说「帮我报修，断电了」，得到一句
+    「已识别为电路故障、紧急程度紧急」，然后就没有然后了。
+    他追问「你不能像查房源一样帮我弹框办理吗」，问的正是这个。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_repair_request_produces_a_card_not_an_analysis(self):
+        result = ask("帮我报修，厨房断电了", token="")
+        # 未登录时至少要走到代办分支要求登录，而不是被 repair 子智能体
+        # 拿去做一次「分析预览」
+        self.assertEqual(result["retrieval"].get("mode"), "action")
+        self.assertEqual(result["retrieval"].get("action"), "submit_repair")
+
+    def test_booking_request_goes_through_the_action_layer(self):
+        result = ask("帮我预约看房", token="")
+        self.assertEqual(result["retrieval"].get("mode"), "action")
+
+    def test_plain_search_still_goes_to_the_finder(self):
+        """代办优先不能把普通找房也抢走。"""
+        result = ask("中山区两室一厅")
+        self.assertEqual(result["intent"], "search")
+        self.assertIn("items", result)
+
+
+class TestHouseSpecificQuestions(unittest.TestCase):
+    """针对某一套房的提问，定向取房源详情，不走检索。
+
+    「讲解第一套的收费」以前一路走到检索、被闸门拒掉，
+    用户看到「这个我没查到相关规定」——可信息就在房源页上。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_house_question_without_context_is_not_hijacked(self):
+        """没有房源上下文时不能瞎答——「多大面积」得先知道问的是哪套。"""
+        from app.agents.support.tools import house as house_tool
+        self.assertEqual(house_tool.asks_about_house("多大面积", ""), "")
+
+    def test_aspect_detection(self):
+        from app.agents.support.tools import house as house_tool
+        self.assertEqual(house_tool.asks_about_house("讲解收费", "DL0007"), "rent")
+        self.assertEqual(house_tool.asks_about_house("多大面积", "DL0007"), "size")
+        self.assertEqual(house_tool.asks_about_house("几楼", "DL0007"), "floor")
+
+    def test_platform_rule_in_house_context_is_not_treated_as_house_attribute(self):
+        """在房源详情页里问「押金怎么退」问的是平台规则，不是这套房的属性。
+
+        注意这条与上一条的边界：「押金」既可能问这套房收多少（属性），
+        也可能问退还流程（规则）。带「怎么退」就是规则。
+        """
+        result = ask("押金怎么退", house_no="DL0007")
+        self.assertEqual(result["status"], "answered")
+        self.assertTrue(result["citations"], "平台规则的回答必须带依据引用")
+
+
+class TestRentFlow(unittest.TestCase):
+    """「帮我租下来」——平台的签约由房东在看房通过后发起，代办不了。"""
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_explains_the_flow_instead_of_pretending(self):
+        result = ask("帮我租一套房子")
+        self.assertEqual(result["status"], "answered")
+        self.assertIn("预约看房", result["message"])
+        self.assertIn("房东", result["message"])
+
+    def test_never_claims_it_can_sign_for_you(self):
+        """不能假装能一键租下。签约关系到双方确认合同条款。"""
+        result = ask("直接帮我租")
+        for word in ("已为你", "已经帮你", "已签约"):
+            self.assertNotIn(word, result["message"])
 
 
 if __name__ == "__main__":

@@ -3463,3 +3463,17 @@ td.accent {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+
+/* 房源编号。用户跟客服、房东沟通时唯一能准确指认一套房的东西，
+   所以在详情页和每一条预约记录里都要露出来。 */
+.house-no {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #f2f4f7;
+  color: #4b5563;
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+}

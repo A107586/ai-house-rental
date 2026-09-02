@@ -23,7 +23,8 @@ import time
 
 from app.agents.support import corpus
 from app.agents.support.tools import (actions, answer as answer_tool,
-                                      classify_ask, gate, toolcall)
+                                      classify_ask, gate, house as house_tool,
+                                      toolcall)
 from app.backend import BackendError
 from app.retrieval.embed import VectorCache, build_embedder
 from app.retrieval.index import KnowledgeIndex
@@ -408,6 +409,29 @@ def run(text, token="", history=None, provider=None, backend=None,
         # NOT_APPLICABLE 且没话可说时 result 为 None，继续往下走检索
         if result is not None:
             return result
+
+    # ③.5 关于「这一套房」的提问：定向取房源详情，不走检索。
+    #
+    # 「讲解第一套的收费」这类问题，答案既不在 FAQ 里（每套房都不一样，
+    # 也不该写进平台规则），也不是用户的个人数据。以前一路走到检索、
+    # 被闸门拒掉，用户看到「这个我没查到相关规定」——可信息就在房源页上。
+    aspect = house_tool.asks_about_house(raw, house_no)
+    if aspect and backend is not None:
+        message, house = house_tool.describe(backend, house_no, aspect)
+        if message:
+            return shaped("answered", message,
+                          retrieval={"mode": "house", "house_no": house_no,
+                                     "aspect": aspect,
+                                     "note": "定向取房源详情，未使用知识检索"})
+
+    # ③.6 「帮我租下来」——平台的签约由房东在看房通过后发起，
+    # 代办不了。与其含糊答应，不如把流程讲清楚再把能做的递过去。
+    if house_tool.wants_to_rent(raw):
+        return shaped("answered", house_tool.rent_flow_message(house_no),
+                      alternatives=["预约这周六下午两点看房", "怎么在线签约？",
+                                    "签约要准备什么"],
+                      retrieval={"mode": "flow", "note": "签约由房东发起，"
+                                                        "智能体无此接口"})
 
     # ④ 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
     # 返回 knowledge 表示「这不是个人数据问题」，继续往下走检索。

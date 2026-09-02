@@ -224,14 +224,24 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
               {appointments.map((item) => (
                 <li key={item.id}>
                   <div className="record-head">
-                    <strong>{item.house_no}</strong>
+                    <strong>{item.house_title || item.house_no}</strong>
                     <span className={`pill status-${item.status}`}>
                       {APPOINTMENT_STATUS[item.status] || item.status}
                     </span>
                   </div>
                   <div className="record-body">
-                    {item.viewing_time.slice(0, 16)} · {item.contact_name}
+                    {/* 编号单独标出来：跟客服或房东沟通时要报的就是它 */}
+                    <span className="house-no">{item.house_no}</span>
+                    {item.district && `${item.district} · `}
+                    {item.community}
+                    {item.layout && ` · ${item.layout}`}
+                    {item.rent_price ? ` · ${Math.round(item.rent_price)} 元/月` : ''}
                   </div>
+                  <div className="record-body">
+                    看房时间：{item.viewing_time.slice(0, 16)}
+                    {item.contact_name && ` · 联系人 ${item.contact_name}`}
+                  </div>
+                  {item.remark && <div className="record-body">备注：{item.remark}</div>}
                   {item.reply && <div className="record-body">房东回复：{item.reply}</div>}
 
                   {item.status === 'pending' && (

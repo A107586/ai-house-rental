@@ -143,6 +143,10 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
 
         <h3>{house.title}</h3>
         <div className="loc">
+          {/* 房源编号要露出来。它是用户与客服、房东沟通时唯一能准确指认
+              这套房的东西——「青泥洼桥那套」在同一个小区有好几套时说不清，
+              报修、预约、投诉的记录里存的也都是这个编号。 */}
+          <span className="house-no">{house.house_no}</span>
           {house.district} · {house.community} · {house.address}
         </div>
 
