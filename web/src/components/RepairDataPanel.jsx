@@ -26,6 +26,9 @@ export default function RepairDataPanel() {
   const [items, setItems] = useState([])
   const [worker, setWorker] = useState(EMPTY_WORKER)
   const [item, setItem] = useState(EMPTY_ITEM)
+  // 正在改价／补库存的物品。测试用例 P-09 要验证「调价不影响历史成本」，
+  // 没有这个入口就只能去调接口。
+  const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 
@@ -75,6 +78,23 @@ export default function RepairDataPanel() {
       })
       setItem(EMPTY_ITEM)
       setOk('物品已入库。')
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function saveItem(e) {
+    e.preventDefault()
+    setError('')
+    setOk('')
+    try {
+      await api.updateItem(editing.id, {
+        unit_price: Number(editing.unit_price) || 0,
+        stock: Number(editing.stock) || 0,
+      })
+      setEditing(null)
+      setOk('已保存。调价只影响以后的领用，历史记录不受影响。')
       load()
     } catch (err) {
       setError(err.message)
@@ -322,15 +342,48 @@ export default function RepairDataPanel() {
           {items.length === 0 ? <div className="empty">还没有物品。</div> : (
             <table className="log-table">
               <thead>
-                <tr><th>物品</th><th>单位</th><th>单价</th><th>库存</th></tr>
+                <tr><th>物品</th><th>单位</th><th>单价</th><th>库存</th><th /></tr>
               </thead>
               <tbody>
                 {items.map((row) => (
                   <tr key={row.id} className={row.stock === 0 ? 'bad' : ''}>
                     <td>{row.name}</td>
                     <td>{row.unit}</td>
-                    <td className="accent">{row.unit_price} 元</td>
-                    <td>{row.stock}</td>
+                    {editing?.id === row.id ? (
+                      <>
+                        <td>
+                          <input type="number" min="0" className="cell-input"
+                            value={editing.unit_price}
+                            onChange={(e) => setEditing({
+                              ...editing, unit_price: e.target.value })} />
+                        </td>
+                        <td>
+                          <input type="number" min="0" className="cell-input"
+                            value={editing.stock}
+                            onChange={(e) => setEditing({
+                              ...editing, stock: e.target.value })} />
+                        </td>
+                        <td>
+                          <button className="btn small" onClick={saveItem}>保存</button>
+                          <button className="btn ghost small"
+                            onClick={() => setEditing(null)}>取消</button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="accent">{row.unit_price} 元</td>
+                        <td>{row.stock}</td>
+                        <td>
+                          <button className="btn ghost small"
+                            onClick={() => setEditing({
+                              id: row.id,
+                              unit_price: String(row.unit_price),
+                              stock: String(row.stock) })}>
+                            调价／补货
+                          </button>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -3,6 +3,7 @@ import { api, getToken, setToken } from './api'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
 import ChatPanel from './components/ChatPanel'
+import ErrorBoundary from './components/ErrorBoundary'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
@@ -10,6 +11,7 @@ import HouseDrawer from './components/HouseDrawer'
 import LandlordPanel from './components/LandlordPanel'
 import MapFinder from './components/MapFinder'
 import MyPanel from './components/MyPanel'
+import NoticeBar from './components/NoticeBar'
 import RecommendStrip from './components/RecommendStrip'
 
 const EXAMPLES = [
@@ -314,6 +316,10 @@ export default function App() {
           {error && <div className="answer error">{error}</div>}
         </section>
 
+        <ErrorBoundary label="公告">
+          <NoticeBar />
+        </ErrorBoundary>
+
         {!result && (
           <RecommendStrip
             user={user}
@@ -458,11 +464,15 @@ export default function App() {
       )}
 
       {showWork && user?.role === 'landlord' && (
-        <LandlordPanel user={user} onClose={() => setShowWork(false)} />
+        <ErrorBoundary label="工作台">
+          <LandlordPanel user={user} onClose={() => setShowWork(false)} />
+        </ErrorBoundary>
       )}
 
       {showWork && user?.role === 'admin' && (
-        <AdminPanel user={user} onClose={() => setShowWork(false)} />
+        <ErrorBoundary label="管理后台">
+          <AdminPanel user={user} onClose={() => setShowWork(false)} />
+        </ErrorBoundary>
       )}
 
       {showMine && user && (

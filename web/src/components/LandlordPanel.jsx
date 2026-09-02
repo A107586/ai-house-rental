@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import CloseRepairDialog from './CloseRepairDialog'
 import ImageUploader from './ImageUploader'
 
 const HOUSE_STATUS = {
@@ -44,6 +45,9 @@ export default function LandlordPanel({ user, onClose }) {
   // L-10 定价建议 / AI-08 描述生成，两者都只在发布表单里用
   const [priceTip, setPriceTip] = useState(null)
   const [descBusy, setDescBusy] = useState(false)
+  // 正在登记结案的工单。走对话框而不是直接改状态，
+  // 否则人、物、工时一概不记，维修统计会漏算
+  const [closing, setClosing] = useState(null)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -408,12 +412,9 @@ export default function LandlordPanel({ user, onClose }) {
                         )}
                         <button
                           className="btn small"
-                          disabled={busy === `r${item.id}`}
-                          onClick={() => run(`r${item.id}`,
-                            () => api.updateRepair(item.id, 'done'),
-                            '已标记完成并通知租客。')}
+                          onClick={() => setClosing(item)}
                         >
-                          标记完成
+                          完成并登记
                         </button>
                       </div>
                     )}
@@ -613,6 +614,18 @@ export default function LandlordPanel({ user, onClose }) {
           </p>
         )}
       </aside>
+
+      {closing && (
+        <CloseRepairDialog
+          repair={closing}
+          onClose={() => setClosing(null)}
+          onDone={() => {
+            setClosing(null)
+            setOk('已完成并登记维修记录，租客会收到通知。')
+            load()
+          }}
+        />
+      )}
     </>
   )
 }

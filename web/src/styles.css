@@ -2963,3 +2963,219 @@ td.accent {
   color: var(--muted);
   font-size: 11px;
 }
+
+
+/* ============================================================
+   F-10 平台公告（前台）
+   公告讲的是押金怎么退、水电怎么算这类租房前就该知道的事。
+   放在个人中心里等用户想起来去翻，等于没发。
+   ============================================================ */
+.noticebar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.notice-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.notice-tag {
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.notice-tag.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.notice-tag.brand {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.notice-title {
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+  flex: 1;
+  min-width: 140px;
+}
+
+.notice-date {
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.notice-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.notice-close:hover {
+  color: var(--ink);
+}
+
+.notice-summary {
+  margin-top: 7px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.notice-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.notice-list li {
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.notice-list li:last-child {
+  border-bottom: none;
+}
+
+.notice-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.notice-item-head b {
+  flex: 1;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.notice-list p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+/* 关掉之后收成一个小按钮，而不是彻底消失——
+   用户想回头看还找得到 */
+.notice-mini {
+  margin-bottom: 14px;
+}
+
+
+/* 结案登记里的物料清单 */
+.use-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.use-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+
+.use-name {
+  flex: 1;
+  color: var(--ink);
+}
+
+.use-list input {
+  width: 62px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-size: 13px;
+}
+
+.use-amount {
+  width: 78px;
+  text-align: right;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.use-total {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.use-total b {
+  color: var(--accent);
+  font-size: 15px;
+}
+
+/* 表格里的行内编辑输入框 */
+.cell-input {
+  width: 76px;
+  border: 1px solid var(--brand);
+  border-radius: 5px;
+  padding: 4px 7px;
+  font-size: 13px;
+}
+
+
+/* 错误边界的降级卡片。出错的那一块变成这个，其余部分照常可用 */
+.crash {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.crash-title {
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.crash p {
+  margin: 0 0 10px;
+}
+
+.crash-detail {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 9px 11px;
+  margin: 0 0 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 140px;
+  overflow: auto;
+}

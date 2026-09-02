@@ -20,9 +20,10 @@ if hasattr(sys.stdout, "buffer"):
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
-from app.models import (Appointment, Base, ContentFlag, House,  # noqa: E402
-                        HouseImage, Notice, Repair, RepairItem,
-                        RepairItemUsage, RepairRecord, RepairWorker, User)
+from app.models import (Appointment, Base, BrowsingHistory,  # noqa: E402
+                        ContentFlag, Favorite, House, HouseImage, Notice,
+                        Repair, RepairItem, RepairItemUsage, RepairRecord,
+                        RepairWorker, Review, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -311,6 +312,65 @@ def main():
                     leasing.pay_bill(session, bill, tenant)
             signed += 1
 
+        print("生成浏览足迹与收藏 ...")
+        # AI-07 房源推荐依赖浏览足迹。没有足迹的话，演示时首页的
+        # 「为你推荐」是空的——得先手动点开六七套房才出得来，
+        # 而答辩脚本里并没有这一步。
+        watcher = tenants[0]
+        # 刻意集中在中山区的两室一厅：偏好画像才有明显倾向，
+        # 推荐理由也才说得出「在你常看的中山区」
+        liked = [h for h in houses
+                 if h.district == "中山区" and h.status == "available"][:5]
+        others = [h for h in houses
+                  if h.district == "西岗区" and h.status == "available"][:2]
+        for index, house in enumerate(liked + others):
+            session.add(BrowsingHistory(
+                user_id=watcher.id, house_id=house.id,
+                view_count=random.randint(1, 3),
+                viewed_at=datetime.now() - timedelta(hours=index * 5)))
+        for house in liked[:2]:
+            session.add(Favorite(user_id=watcher.id, house_id=house.id))
+        session.flush()
+
+        print("生成一份已结束的租约与一条评价 ...")
+        # 「待评价」与房源评分都需要已结束的合同。全是生效中的话，
+        # 租后评价（T-09）和房源卡片上的星级都演示不了。
+        done_house = next((h for h in houses
+                           if h.status == "available"
+                           and h.landlord_id == landlords[1].id), None)
+        if done_house:
+            past = leasing.add_months(
+                datetime.now().replace(day=1, hour=0, minute=0,
+                                       second=0, microsecond=0), -14)
+            old_contract = leasing.create_contract(
+                session, done_house, tenants[1], start_date=past,
+                months=12, pay_months=1)
+            leasing.activate_contract(session, old_contract)
+            leasing.end_contract(session, old_contract, deduct=0,
+                                 reason="租期届满，正常退租")
+            session.flush()
+
+            # 只评一份，另留一份「待评价」——两种状态在界面上都看得到
+            second = next((h for h in houses
+                           if h.status == "available"
+                           and h.landlord_id == landlords[2].id), None)
+            if second:
+                # 待评价的那份给 tenants[0]——演示账号就是它，
+                # 给别人的话「待评价」页打开还是空的
+                pending_contract = leasing.create_contract(
+                    session, second, tenants[0], start_date=past,
+                    months=12, pay_months=1)
+                leasing.activate_contract(session, pending_contract)
+                leasing.end_contract(session, pending_contract, deduct=0,
+                                     reason="租期届满，正常退租")
+
+            session.add(Review(
+                contract_id=old_contract.id, house_id=done_house.id,
+                tenant_id=tenants[1].id, rating=5, rating_house=5,
+                rating_landlord=4,
+                content="房子采光很好，房东响应也快，水管坏了当天就来修了。"))
+            session.flush()
+
         print("生成一份待确认的合同（供答辩演示签约流程）...")
         # 答辩演示要从「租客确认签约」这一步开始讲，所以必须留一份
         # pending 的合同。全都 activate 掉的话，演示时只能现场调接口
@@ -387,6 +447,8 @@ def main():
         print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))
         print("  维修人员 %d 人，维修物品 %d 种" % (len(workers), len(items)))
         print("  待复核内容 1 条")
+        print("  浏览足迹 7 条、收藏 2 条（供推荐功能演示）")
+        print("  已结束租约 2 份，其中 1 份已评价、1 份待评价")
         print("  房源图片 %d 张，每套 3 张" % len(photos))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")
