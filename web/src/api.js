@@ -278,7 +278,8 @@ export const api = {
 
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
-  agentSearch: (text, limit = 12) => post(agentUrl('/agent/search'), { text, limit }),
+  agentSearch: (text, limit = 12, page = 1) =>
+    post(agentUrl('/agent/search'), { text, limit, page }),
 
   // AI-06 智能预约看房
   agentBooking: (text, houseNo, applicant = {}) =>

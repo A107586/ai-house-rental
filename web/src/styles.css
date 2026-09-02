@@ -2746,3 +2746,11 @@ td.accent {
   color: var(--muted);
   font-size: 12px;
 }
+
+
+.load-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}

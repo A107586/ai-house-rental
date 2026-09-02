@@ -20,9 +20,9 @@ if hasattr(sys.stdout, "buffer"):
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
-from app.models import (Appointment, Base, House, HouseImage,  # noqa: E402
-                        Notice, Repair, RepairItem, RepairItemUsage,
-                        RepairRecord, RepairWorker, User)
+from app.models import (Appointment, Base, ContentFlag, House,  # noqa: E402
+                        HouseImage, Notice, Repair, RepairItem,
+                        RepairItemUsage, RepairRecord, RepairWorker, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -311,6 +311,22 @@ def main():
                     leasing.pay_bill(session, bill, tenant)
             signed += 1
 
+        print("生成一条待人工复核的内容 ...")
+        # 让「内容审核」队列打开就有东西可看。这条是「机器拿不准」的典型：
+        # 夸大宣传不违法，但也不该放任，正好需要人判断。
+        # 确定违规的（留微信号、留手机号）在提交时就被拦了，进不到队列里。
+        flagged = houses[3]
+        flagged.title = "全网最低价！" + flagged.title
+        session.flush()
+        session.add(ContentFlag(
+            scene="house", target_id=flagged.id, target_key=flagged.house_no,
+            author_id=flagged.landlord_id,
+            author_name=landlords[0].real_name,
+            excerpt="标题：%s / 描述：%s" % (flagged.title, flagged.description or ""),
+            categories="夸大宣传",
+            reasons="标题：疑似夸大宣传：全网最低",
+            status="pending"))
+
         print("生成平台公告 ...")
         notices = [
             ("押金退还说明",
@@ -352,6 +368,7 @@ def main():
               % (len(used), len(made), len(plans)))
         print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))
         print("  维修人员 %d 人，维修物品 %d 种" % (len(workers), len(items)))
+        print("  待复核内容 1 条")
         print("  房源图片 %d 张，每套 3 张" % len(photos))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")

@@ -58,6 +58,9 @@ export default function App() {
   const [compare, setCompare] = useState([])
   const [showChat, setShowChat] = useState(false)
   const [showMap, setShowMap] = useState(false)
+  // 已经搜过的那句话。翻页要用它重新请求，
+  // 不能用输入框里的当前内容——用户可能已经改了半句还没提交
+  const [searched, setSearched] = useState('')
   // M-09 公开配置。取不到就用内置文案，配置服务不该拦住首页。
   const [site, setSite] = useState({ site_name: '大连智租', contact_phone: '' })
 
@@ -107,22 +110,27 @@ export default function App() {
     }
   }
 
-  async function search(e, query) {
+  async function search(e, query, nextPage = 1) {
     if (e) e.preventDefault()
-    const content = (query ?? text).trim()
+    const content = (query ?? searched ?? text).trim()
     if (!content || busy) return
 
     setBusy(true)
     setError('')
     try {
-      const data = await api.agentSearch(content, 50)
+      const data = await api.agentSearch(content, PAGE_SIZE, nextPage)
       setResult(data)
-      setHouses(data.items || [])
+      setSearched(content)
+      // 翻页时追加而不是替换，与筛选结果的「加载更多」保持同一种交互
+      setHouses((prev) => (nextPage === 1
+        ? (data.items || [])
+        : [...prev, ...(data.items || [])]))
       setTotal(data.total || 0)
+      setPage(nextPage)
       setOnline(true)
     } catch (err) {
       setError(err.message)
-      setResult(null)
+      if (nextPage === 1) setResult(null)
       setOnline(false)
     } finally {
       setBusy(false)
@@ -131,6 +139,7 @@ export default function App() {
 
   function reset() {
     setResult(null)
+    setSearched('')
     setText('')
     setFilters({})
     loadPage(1, true, {})
@@ -198,7 +207,7 @@ export default function App() {
         .map(([key, value]) => FILTER_LABELS[key](value))
     : []
 
-  const hasMore = !result && houses.length < total
+  const hasMore = houses.length < total
 
   return (
     <>
@@ -369,9 +378,21 @@ export default function App() {
 
             {hasMore && (
               <div className="load-more">
-                <button className="btn ghost" onClick={() => loadPage(page + 1, false)}>
-                  加载更多（已显示 {houses.length} / {total}）
+                <button
+                  className="btn ghost"
+                  disabled={busy}
+                  onClick={() => (result
+                    ? search(null, null, page + 1)
+                    : loadPage(page + 1, false))}
+                >
+                  {busy ? '加载中…' : `加载更多（已显示 ${houses.length} / ${total}）`}
                 </button>
+                {result && (
+                  <div className="load-note">
+                    智能搜索按发布时间取数，偏好项（如「带电梯」）的加权排序
+                    只在当前这一页内生效。
+                  </div>
+                )}
               </div>
             )}
           </>

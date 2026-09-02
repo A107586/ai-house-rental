@@ -619,10 +619,32 @@ def landlord_dashboard(user: User = Depends(require_staff),
                              Repair.status != "done")).all()
     urgent_repairs = [r for r in open_repairs if r.urgency == "紧急"]
 
+    # 近半年的月度收租，用于工作台的收入曲线。
+    # 只统计本房东自己的账单——房东看到全平台的收入既没意义也不该看到。
+    monthly = {}
+    for bill in paid:
+        if not bill.paid_at:
+            continue
+        monthly.setdefault(bill.paid_at.strftime("%Y-%m"), 0.0)
+        monthly[bill.paid_at.strftime("%Y-%m")] += float(bill.amount)
+
+    # 中间没有收入的月份要补 0，否则曲线会把 1 月和 5 月画成相邻两根柱子，
+    # 看上去像是「一直有稳定收入」
+    months = []
+    if monthly:
+        cursor = datetime.strptime(min(monthly), "%Y-%m")
+        last = datetime.strptime(max(monthly), "%Y-%m")
+        while cursor <= last:
+            key = cursor.strftime("%Y-%m")
+            months.append({"month": key, "amount": round(monthly.get(key, 0), 2)})
+            cursor = leasing.add_months(cursor, 1)
+    months = months[-6:]
+
     return {
         "house_total": len(houses),
         "house_rented": len(rented),
         "house_vacant": len(vacant),
+        "monthly_income": months,
         "house_pending": sum(1 for h in houses if h.status == "pending"),
         "occupancy_rate": (round(len(rented) / len(houses) * 100, 1)
                            if houses else 0),

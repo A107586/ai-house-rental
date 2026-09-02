@@ -132,6 +132,10 @@ export default function LandlordPanel({ user, onClose }) {
     }
   }
 
+  // 柱状图的基准值。至少取 1，否则全为 0 时会除出 NaN
+  const maxIncome = Math.max(
+    1, ...(dash?.monthly_income || []).map((m) => m.amount))
+
   const TABS = [
     { key: 'dashboard', label: '工作台' },
     { key: 'houses', label: '我的房源', n: houses.length },
@@ -196,6 +200,28 @@ export default function LandlordPanel({ user, onClose }) {
                 <div className="dd">条</div>
               </div>
             </div>
+
+            {dash.monthly_income?.length > 0 && (
+              <>
+                <div className="section-title">近半年收租</div>
+                <div className="bar-chart">
+                  {dash.monthly_income.map((m) => (
+                    <div className="bar-item" key={m.month}>
+                      <div className="bar-val">{Math.round(m.amount)}</div>
+                      <div
+                        className="bar-fill"
+                        style={{
+                          // 收入为 0 的月份也留一点高度，
+                          // 否则那一格看上去像是数据缺失而不是没收到钱
+                          height: `${Math.max((m.amount / maxIncome) * 100, 4)}%`,
+                        }}
+                      />
+                      <div className="bar-lbl">{m.month.slice(5)}月</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="section-title">待办事项</div>
             {dash.todo.total === 0 ? (
