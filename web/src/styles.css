@@ -1628,3 +1628,185 @@ textarea {
   margin-top: 5px;
   font-weight: 500;
 }
+
+/* ============================================================
+   AI-07 房源智能推荐
+   用深青（智能体色）做左侧标识条，与下方普通房源列表区分开：
+   一眼能看出这一屏是智能体给的，不是按时间排的最新房源。
+   ============================================================ */
+.rec {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 18px 20px 20px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+
+.rec-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.rec-head h3 {
+  margin: 0;
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.rec-badge {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rec-tip {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.rec-why {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+
+.rec-why b {
+  color: var(--brand);
+}
+
+.rec-grid {
+  margin: 0;
+}
+
+.rec-item {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 理由紧贴卡片底部，视觉上属于卡片而不是独立一块 */
+.rec-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+
+.rec-score {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rec-reason {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
+/* ============================================================
+   AI-05 经营分析报告
+   ============================================================ */
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.report-head h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.report-acts {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.report-chips .chip.alert {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: transparent;
+}
+
+.report-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 16px;
+}
+
+.report-sec h5 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--brand);
+}
+
+.report-sec p {
+  margin: 0 0 10px;
+  line-height: 1.85;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+/* 依据数字与结论并排，方便和数据看板逐项核对——AI-05 要求数字可追溯 */
+.report-figs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.rfig {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.rfig .rk {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.rfig .rv {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.report-foot {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}

@@ -96,6 +96,10 @@ uvicorn app.main:app --reload --port 8000
 | POST | `/agent/route` | 只做意图识别，返回决策过程，便于答辩演示 |
 | POST | `/agent/search` | AI-01 自然语言找房 |
 | POST | `/agent/booking` | AI-06 智能预约看房（需带 `house_no`） |
+| POST | `/agent/repair` | AI-04 报修工单智能分派 |
+| POST | `/agent/contract/review` | AI-02 合同智能审阅 |
+| POST | `/agent/recommend` | AI-07 房源智能推荐（需带前端转发的 `token`） |
+| POST | `/agent/report` | AI-05 经营分析报告 |
 | POST | `/agent/chat` | 统一入口，先判意图再路由 |
 
 请求体统一为 `{"text": "用户说的话"}`。

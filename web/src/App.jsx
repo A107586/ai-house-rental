@@ -8,6 +8,7 @@ import HouseCard from './components/HouseCard'
 import HouseDrawer from './components/HouseDrawer'
 import LandlordPanel from './components/LandlordPanel'
 import MyPanel from './components/MyPanel'
+import RecommendStrip from './components/RecommendStrip'
 
 const EXAMPLES = [
   '中山区两室一厅，租金三千以内，最好带电梯',
@@ -282,6 +283,15 @@ export default function App() {
 
           {error && <div className="answer error">{error}</div>}
         </section>
+
+        {!result && (
+          <RecommendStrip
+            user={user}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onOpen={setSelected}
+          />
+        )}
 
         {!result && <FilterBar onApply={applyFilters} disabled={busy} />}
 

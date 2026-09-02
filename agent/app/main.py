@@ -12,6 +12,8 @@ from app import supervisor
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.property_finder import agent as property_finder
+from app.agents.recommend import agent as recommend
+from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.backend import client as backend_client
 from app.config import settings
@@ -52,6 +54,11 @@ class RepairRequest(BaseModel):
     xingming: str = ""
     shouji: str = ""
     submit: bool = True
+
+
+class RecommendRequest(BaseModel):
+    token: str = ""
+    limit: int = 6
 
 
 class ContractRequest(BaseModel):
@@ -128,6 +135,28 @@ def agent_repair(payload: RepairRequest):
 def agent_contract(payload: ContractRequest):
     """AI-02 合同智能审阅。"""
     return contract.run(payload.text, provider=provider)
+
+
+@app.post("/agent/recommend")
+def agent_recommend(payload: RecommendRequest):
+    """AI-07 房源智能推荐。
+
+    需要用户令牌才能读到「这个人」的浏览足迹与收藏。
+    智能体不持有身份，令牌由前端带来、原样转发给业务后端。
+    """
+    return recommend.run(token=payload.token, limit=payload.limit,
+                         backend=backend_client)
+
+
+@app.post("/agent/report")
+def agent_report():
+    """AI-05 经营分析报告。数字全部取自业务后端，不由大模型生成。"""
+    try:
+        stats = backend_client.stats()
+    except Exception:
+        return {"intent": "report", "status": "error", "ok": False,
+                "message": "统计服务暂时不可用，请稍后再试。"}
+    return report.run(stats, provider=provider)
 
 
 @app.post("/agent/chat")

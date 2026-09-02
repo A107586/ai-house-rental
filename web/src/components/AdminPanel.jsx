@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ReportPanel from './ReportPanel'
 
 const ROLE_LABEL = { tenant: '租客', landlord: '房东', admin: '管理员' }
 
@@ -93,6 +94,7 @@ export default function AdminPanel({ user, onClose }) {
 
   const TABS = [
     { key: 'dashboard', label: '数据看板' },
+    { key: 'report', label: '经营分析' },
     { key: 'review', label: '房源审核', n: pending.length },
     { key: 'users', label: '用户管理', n: users.length },
     { key: 'orders', label: '订单总览', n: contracts.length },
@@ -125,6 +127,9 @@ export default function AdminPanel({ user, onClose }) {
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
+
+        {/* ---------------- 经营分析（AI-05） ---------------- */}
+        {tab === 'report' && <ReportPanel />}
 
         {/* ---------------- 数据看板 ---------------- */}
         {tab === 'dashboard' && stats && (

@@ -42,7 +42,7 @@ class BackendClient(object):
 
     # ------------------------------------------------------------ 底层
 
-    def _request(self, method, path, params=None, payload=None):
+    def _request(self, method, path, params=None, payload=None, token=None):
         url = self.base_url + "/" + path.lstrip("/")
         if params:
             # 过滤空值，避免后端把空串当成有效筛选条件
@@ -52,6 +52,10 @@ class BackendClient(object):
 
         data = None
         headers = {"Accept": "application/json"}
+        # 透传用户令牌。推荐、账单这类接口要读「当前用户自己的」数据，
+        # 智能体不持有身份，只能把前端带来的令牌原样转发。
+        if token:
+            headers["Authorization"] = "Bearer " + token
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
@@ -72,11 +76,38 @@ class BackendClient(object):
             raise BackendError("无法连接业务后端（%s）：%s"
                                % (type(exc).__name__, self.base_url))
 
-    def get(self, path, params=None):
-        return self._request("GET", path, params=params)
+    def get(self, path, params=None, token=None):
+        return self._request("GET", path, params=params, token=token)
 
-    def post(self, path, payload):
-        return self._request("POST", path, payload=payload)
+    def post(self, path, payload, token=None):
+        return self._request("POST", path, payload=payload, token=token)
+
+    # ------------------------------------------------------------ 推荐所需数据
+
+    def list_history(self, token):
+        """用户浏览足迹。未登录或接口不可用时返回空列表。"""
+        if not token:
+            return []
+        try:
+            return self.get("/api/history", {"limit": 30}, token=token).get("list") or []
+        except BackendError:
+            return []
+
+    def list_favorites(self, token):
+        if not token:
+            return []
+        try:
+            return self.get("/api/favorites", token=token).get("list") or []
+        except BackendError:
+            return []
+
+    def list_candidates(self, params=None, limit=100):
+        """候选房源池。"""
+        body = self.get("/api/houses", dict(params or {}, limit=limit))
+        return body.get("list") or []
+
+    def stats(self):
+        return self.get("/api/stats")
 
     # ------------------------------------------------------------ 房源
 

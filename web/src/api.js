@@ -227,6 +227,14 @@ export const api = {
   agentContractReview: (text) =>
     post(agentUrl('/agent/contract/review'), { text }),
 
+  // AI-07 房源智能推荐。令牌要显式传给智能体：
+  // 智能体是独立进程，不持有身份，只能靠前端把令牌转发过去。
+  agentRecommend: (limit = 6) =>
+    post(agentUrl('/agent/recommend'), { token: getToken(), limit }),
+
+  // AI-05 经营分析报告
+  agentReport: () => post(agentUrl('/agent/report'), {}),
+
   // 只做意图识别，用于展示智能体的决策过程
   agentRoute: (text) => post(agentUrl('/agent/route'), { text }),
 }
