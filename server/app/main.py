@@ -755,6 +755,77 @@ def admin_users(keyword: str = "", role: str = "",
     return {"total": len(rows), "list": [u.to_dict() for u in rows]}
 
 
+@app.get("/api/admin/landlords")
+def admin_landlords(keyword: str = "", user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """户主（房东）档案（F-02）。
+
+    「用户管理」看的是账号本身——谁在什么时候注册、是不是被禁用。
+    户主档案要回答的是另一类问题：**这个房东手上有多少房、租出去几套、
+    这个月收了多少、有没有积压的工单**。同一批数据换个视角看，
+    单开一个页面比在用户列表里塞一堆列要清楚。
+
+    电话按 R-02 掩码。管理员要联系房东走站内消息，不需要看到完整号码。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    stmt = select(User).where(User.role == "landlord")
+    if keyword:
+        like = "%" + keyword + "%"
+        stmt = stmt.where(User.username.like(like) | User.real_name.like(like))
+    landlords = session.scalars(stmt.order_by(User.created_at)).all()
+    if not landlords:
+        return {"total": 0, "list": []}
+
+    ids = [u.id for u in landlords]
+
+    # 一次把房源、合同、账单、工单全取回来再在内存里归组，
+    # 而不是对每个房东各查一遍——8 个房东就是 32 次查询（N+1）
+    houses = session.scalars(
+        select(House).where(House.landlord_id.in_(ids))).all()
+    contracts = session.scalars(
+        select(Contract).where(Contract.landlord_id.in_(ids))).all()
+    contract_ids = [c.id for c in contracts] or [-1]
+    bills = session.scalars(
+        select(Bill).where(Bill.contract_id.in_(contract_ids))).all()
+    bill_owner = {c.id: c.landlord_id for c in contracts}
+    house_owner = {h.id: h.landlord_id for h in houses}
+    repairs = session.scalars(
+        select(Repair).where(Repair.house_id.in_(
+            [h.id for h in houses] or [-1]))).all()
+
+    this_month = datetime.now().strftime("%Y-%m")
+    rows = []
+    for u in landlords:
+        mine = [h for h in houses if h.landlord_id == u.id]
+        my_contracts = [c for c in contracts if c.landlord_id == u.id]
+        my_bills = [b for b in bills if bill_owner.get(b.contract_id) == u.id]
+        my_repairs = [r for r in repairs
+                      if house_owner.get(r.house_id) == u.id]
+
+        month_income = sum(
+            float(b.amount) for b in my_bills
+            if b.status == "paid" and b.paid_at
+            and b.paid_at.strftime("%Y-%m") == this_month)
+
+        rows.append({
+            **u.to_dict(),
+            "house_total": len(mine),
+            "house_rented": sum(1 for h in mine if h.status == "rented"),
+            "house_pending": sum(1 for h in mine if h.status == "pending"),
+            "contract_active": sum(1 for c in my_contracts
+                                   if c.status == "active"),
+            "month_income": round(month_income, 2),
+            "unpaid": round(sum(float(b.amount) for b in my_bills
+                                if b.status == "unpaid"), 2),
+            "repair_open": sum(1 for r in my_repairs if r.status != "done"),
+        })
+
+    rows.sort(key=lambda r: -r["house_total"])
+    return {"total": len(rows), "list": rows}
+
+
 @app.patch("/api/admin/users/{user_id}")
 def admin_update_user(user_id: int, payload: UserUpdate,
                       user: User = Depends(require_login),

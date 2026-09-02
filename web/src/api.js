@@ -260,6 +260,9 @@ export const api = {
     request(`/api/repairs/${repairId}/record`,
       { method: 'POST', body: JSON.stringify(payload) }),
 
+  // F-02 户主档案
+  adminLandlords: (params) => request(`/api/admin/landlords?${toQuery(params)}`),
+
   // M-08 内容审核
   adminFlags: (status = 'pending') =>
     request(`/api/admin/flags?${toQuery({ status })}`),

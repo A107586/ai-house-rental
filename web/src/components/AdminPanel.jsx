@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ConfigPanel from './ConfigPanel'
 import FlagPanel from './FlagPanel'
+import LandlordRoster from './LandlordRoster'
 import RepairDataPanel from './RepairDataPanel'
 import LogPanel from './LogPanel'
 import ReportPanel from './ReportPanel'
@@ -101,6 +102,7 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'report', label: '经营分析' },
     { key: 'review', label: '房源审核', n: pending.length },
     { key: 'users', label: '用户管理', n: users.length },
+    { key: 'landlords', label: '户主档案' },
     { key: 'orders', label: '订单总览', n: contracts.length },
     { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'notices', label: '公告', n: notices.length },
@@ -135,6 +137,9 @@ export default function AdminPanel({ user, onClose }) {
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
+
+        {/* ---------------- 户主档案（F-02） ---------------- */}
+        {tab === 'landlords' && <LandlordRoster />}
 
         {/* ---------------- 内容审核（M-08） ---------------- */}
         {tab === 'flags' && <FlagPanel />}
