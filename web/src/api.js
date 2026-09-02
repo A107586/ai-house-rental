@@ -200,6 +200,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // M-07 操作日志
+  adminLogs: (params) => request(`/api/admin/logs?${toQuery(params)}`),
+  adminLogActions: () => request('/api/admin/logs/actions'),
+
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
   agentSearch: (text, limit = 12) => post(agentUrl('/agent/search'), { text, limit }),

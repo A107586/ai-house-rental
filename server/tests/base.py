@@ -73,6 +73,24 @@ class ApiTestCase(unittest.TestCase):
         self.client = TestClient(app)
 
 
+def make_admin(client, username="root", password="admin123"):
+    """注册一个账号并直接改库提权，返回可用的鉴权头。
+
+    注册接口不允许自封管理员，这是刻意的；测试要用管理员只能绕过接口。
+    """
+    client.post("/api/auth/register", json={
+        "username": username, "password": password, "real_name": "管理员"})
+    session = db.SessionLocal()
+    try:
+        from app.models import User as _User
+        user = session.query(_User).filter_by(username=username).one()
+        user.role = "admin"
+        session.commit()
+    finally:
+        session.close()
+    return auth_header(client, username, password)
+
+
 def auth_header(client, username="tenant1", password="test123"):
     """登录并返回可直接用于请求的 Authorization 头。"""
     data = client.post("/api/auth/login",

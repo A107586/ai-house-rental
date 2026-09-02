@@ -12,15 +12,17 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import leasing
 from app.auth import create_token, decode_token, using_dev_secret
+from app import db as db_module
 from app.db import get_session, init_db
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         Contract, Favorite, House, HouseImage, Message,
-                        Notice, Payment, Repair, Review, User)
+                        Notice, OperationLog, Payment, Repair, Review, User)
+from app import oplog
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -38,6 +40,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def record_operation(request, call_next):
+    """M-07 操作日志：统一采集所有改变状态的业务请求。
+
+    放在中间件而不是各接口里手写，是因为手写**会漏**——新增接口时忘了
+    加日志，事后从日志里根本看不出来少了什么。这里是「默认全记，显式排除」。
+
+    失败的请求也记：一串 403 正是需要被看见的信号。
+    但写日志本身不能拖垮业务——落库异常一律吞掉。
+    """
+    response = await call_next(request)
+
+    method, path = request.method, request.url.path
+    if not oplog.should_log(method, path):
+        return response
+
+    user_id, username, role = oplog.identify(request.headers.get("authorization"))
+    # 按模块引用取会话工厂，不用 from ... import 绑死名字：
+    # 测试会把 db.SessionLocal 换成内存库，绑死了就写到真库里去了
+    session = db_module.SessionLocal()
+    try:
+        session.add(OperationLog(
+            user_id=user_id, username=username, role=role,
+            action=oplog.action_of(method, path),
+            method=method, path=path[:255],
+            status_code=response.status_code,
+            ip=oplog.client_ip(request)))
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+    return response
+
 
 # 一次看房占用一小时，与智能体端的约定保持一致
 VIEWING_MINUTES = 60
@@ -1492,6 +1529,54 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
         session.delete(record)
     session.commit()
     return {"ok": True, "deleted": len(rows)}
+
+
+# ------------------------------------------------------------------ 操作日志
+
+@app.get("/api/admin/logs")
+def list_logs(keyword: str = "", action: str = "", role: str = "",
+              failed_only: bool = False,
+              limit: int = Query(50, ge=1, le=200), page: int = Query(1, ge=1),
+              user: User = Depends(require_login),
+              session: Session = Depends(get_session)):
+    """操作日志查询（M-07）。
+
+    只对管理员开放。日志里有全站所有人的操作轨迹，房东能翻到就等于
+    能看别的房东在做什么。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看操作日志")
+
+    query = select(OperationLog)
+    if keyword:
+        like = "%" + keyword + "%"
+        query = query.where(or_(OperationLog.username.like(like),
+                                OperationLog.action.like(like),
+                                OperationLog.path.like(like)))
+    if action:
+        query = query.where(OperationLog.action == action)
+    if role:
+        query = query.where(OperationLog.role == role)
+    if failed_only:
+        # 一串 403 正是需要被看见的信号
+        query = query.where(OperationLog.status_code >= 400)
+
+    total = len(session.scalars(query).all())
+    rows = session.scalars(
+        query.order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+        .offset((page - 1) * limit).limit(limit)).all()
+    return {"total": total, "page": page,
+            "list": [row.to_dict() for row in rows]}
+
+
+@app.get("/api/admin/logs/actions")
+def log_actions(user: User = Depends(require_login),
+                session: Session = Depends(get_session)):
+    """日志里出现过的动作清单，供前端做下拉筛选。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看操作日志")
+    rows = session.scalars(select(OperationLog.action).distinct()).all()
+    return {"list": sorted(name for name in rows if name)}
 
 
 # ------------------------------------------------------------------ 前端托管

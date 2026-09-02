@@ -2207,3 +2207,134 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   M-07 操作日志
+   ============================================================ */
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.log-filters input[type='text'],
+.log-filters input:not([type]) {
+  flex: 1;
+  min-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.log-filters select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--surface);
+}
+
+.log-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.log-count {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-bottom: 10px;
+}
+
+.log-note {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 3px;
+}
+
+/* 表格比屏幕宽时让它自己横向滚，不能把整个页面撑出横向滚动条 */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.log-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.log-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  color: var(--ink-2);
+}
+
+.log-table tr.bad td {
+  background: var(--danger-soft);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.log-role {
+  display: inline-block;
+  margin-left: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.log-path {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.log-code {
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.log-code.ok {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.log-code.bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.log-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding-top: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}

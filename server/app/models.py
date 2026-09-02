@@ -560,6 +560,45 @@ class Review(Base):
         }
 
 
+class OperationLog(Base):
+    """操作日志（M-07）。
+
+    只记录**改变了状态的操作**：GET 请求不落库。全量记访问会让日志
+    以每天几万条的速度增长，真正需要追溯时反而翻不动；而审计要回答的
+    问题从来是「谁改了什么」，不是「谁看了什么」。
+
+    用户名与角色是**冗余存下来的**，不靠外键 join 取。用户改名或被删
+    之后，日志仍要能说清当时是谁做的——这正是审计日志存在的意义。
+    """
+
+    __tablename__ = "operation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
+    username: Mapped[str] = mapped_column(String(50), default="")
+    role: Mapped[str] = mapped_column(String(20), default="")
+    action: Mapped[str] = mapped_column(String(60), default="")
+    method: Mapped[str] = mapped_column(String(10), default="")
+    path: Mapped[str] = mapped_column(String(255), default="")
+    status_code: Mapped[int] = mapped_column(Integer, default=0)
+    ip: Mapped[str] = mapped_column(String(45), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username or "匿名",
+            "role": self.role or "-",
+            "action": self.action,
+            "method": self.method,
+            "path": self.path,
+            "status_code": self.status_code,
+            "ip": self.ip,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
 def mask_phone(phone):
     """手机号中间四位掩码（R-02）。"""
     if not phone or len(phone) < 7:
