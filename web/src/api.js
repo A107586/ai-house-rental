@@ -260,6 +260,12 @@ export const api = {
     request(`/api/repairs/${repairId}/record`,
       { method: 'POST', body: JSON.stringify(payload) }),
 
+  // M-08 内容审核
+  adminFlags: (status = 'pending') =>
+    request(`/api/admin/flags?${toQuery({ status })}`),
+  handleFlag: (id, action) =>
+    request(`/api/admin/flags/${id}?${toQuery({ action })}`, { method: 'PATCH' }),
+
   // M-09 系统配置
   publicConfig: () => request('/api/config'),
   adminConfig: () => request('/api/admin/config'),

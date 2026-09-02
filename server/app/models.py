@@ -599,6 +599,56 @@ class OperationLog(Base):
         }
 
 
+class ContentFlag(Base):
+    """待人工复核的内容（M-08）。
+
+    只记「疑似有问题、但没到直接拦」的内容。直接拦下的根本没进库，
+    也就不需要复核；真正需要人看一眼的恰恰是机器拿不准的那部分。
+
+    作者名与内容摘要都**冗余存下来**：等管理员来看的时候，原内容可能
+    已经被作者自己改掉或删掉了，那时再去 join 就什么都查不到了。
+    """
+
+    __tablename__ = "content_flags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # house / review / notice
+    scene: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_key: Mapped[str] = mapped_column(String(64), default="")
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
+    author_name: Mapped[str] = mapped_column(String(50), default="")
+    excerpt: Mapped[str] = mapped_column(String(300), default="")
+    categories: Mapped[str] = mapped_column(String(120), default="")
+    reasons: Mapped[str] = mapped_column(Text, default="")
+    # pending 待复核 / approved 复核通过 / removed 已下架
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    handled_by: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 index=True)
+    handled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    SCENE_LABEL = {"house": "房源", "review": "评价", "notice": "公告"}
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "scene": self.scene,
+            "scene_label": self.SCENE_LABEL.get(self.scene, self.scene),
+            "target_id": self.target_id,
+            "target_key": self.target_key,
+            "author_name": self.author_name or "未知",
+            "excerpt": self.excerpt,
+            "categories": [c for c in (self.categories or "").split(",") if c],
+            "reasons": [r for r in (self.reasons or "").split("\n") if r],
+            "status": self.status,
+            "handled_by": self.handled_by,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+            "handled_at": (self.handled_at.strftime("%Y-%m-%d %H:%M")
+                           if self.handled_at else ""),
+        }
+
+
 class RepairImage(Base):
     """报修照片（F-08）。
 

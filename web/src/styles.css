@@ -2673,3 +2673,76 @@ td.accent {
 .up-acts button:hover {
   background: rgba(20, 30, 40, 0.85);
 }
+
+
+/* ============================================================
+   M-08 内容审核队列
+   ============================================================ */
+.flag-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.flag-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.flag-scene {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-size: 12px;
+}
+
+.flag-author {
+  color: var(--ink-2);
+}
+
+.flag-time {
+  margin-left: auto;
+}
+
+/* 原文是判断依据，字号与颜色都要压过命中词 */
+.flag-excerpt {
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--ink);
+  margin-bottom: 9px;
+}
+
+.flag-reasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.flag-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.btn.danger {
+  background: var(--danger);
+}
+
+.flag-done {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}

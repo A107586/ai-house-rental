@@ -20,11 +20,12 @@ from app.auth import create_token, decode_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
-                        Contract, Favorite, House, HouseImage, Message,
-                        Notice, OperationLog, Payment, Repair, RepairImage,
+                        ContentFlag, Contract, Favorite, House, HouseImage,
+                        Message, Notice, OperationLog, Payment, Repair,
+                        RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
-from app import config_store, oplog, uploads
+from app import config_store, moderation, oplog, uploads
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -490,6 +491,9 @@ def get_house(house_no: str, user: User = Depends(current_user),
 def create_house(payload: HouseCreate, user: User = Depends(require_staff),
                  session: Session = Depends(get_session)):
     """房东发布房源。新房源默认待审核，管理员通过后才对外可见。"""
+    house_fields = {"标题": payload.title, "描述": payload.description}
+    verdict = moderate(house_fields, scene="house")
+
     last = session.scalar(select(House).order_by(House.id.desc()))
     next_no = "DL%04d" % ((last.id if last else 0) + 1)
 
@@ -508,6 +512,9 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
         ) else "pending",
     )
     session.add(house)
+    session.flush()
+    record_flag(session, verdict, house_fields, "house", user,
+                house.id, house.house_no)
     session.commit()
     session.refresh(house)
     return {"ok": True, "house": house.to_dict()}
@@ -820,6 +827,9 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
     if exists:
         raise HTTPException(status_code=409, detail="该租约已评价过")
 
+    review_fields = {"评价内容": payload.content}
+    verdict = moderate(review_fields, scene="review")
+
     review = Review(
         contract_id=contract.id, house_id=contract.house_id,
         tenant_id=user.id, rating=payload.rating,
@@ -827,6 +837,9 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
         rating_landlord=payload.rating_landlord or payload.rating,
         content=payload.content)
     session.add(review)
+    session.flush()
+    record_flag(session, verdict, review_fields, "review", user,
+                review.id, contract.contract_no)
 
     leasing.notify(session, contract.landlord_id, "system", "收到新评价",
                    "房源 %s 收到一条 %d 星评价。"
@@ -1508,10 +1521,16 @@ def create_notice(payload: NoticeCreate, user: User = Depends(require_login),
                   session: Session = Depends(get_session)):
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以发布公告")
+    notice_fields = {"标题": payload.title, "正文": payload.content}
+    verdict = moderate(notice_fields, scene="notice")
+
     notice = Notice(title=payload.title, content=payload.content,
                     summary=payload.summary or payload.content[:80],
                     category=payload.category, publisher_id=user.id)
     session.add(notice)
+    session.flush()
+    record_flag(session, verdict, notice_fields, "notice", user,
+                notice.id, notice.title[:60])
     session.commit()
     session.refresh(notice)
     return {"ok": True, "notice": notice.to_dict()}
@@ -1575,6 +1594,98 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
         session.delete(record)
     session.commit()
     return {"ok": True, "deleted": len(rows)}
+
+
+# ------------------------------------------------------------------ 内容审核
+
+def moderate(fields, scene):
+    """审核一段用户内容，命中拦截规则直接抛 400。
+
+    先审再落库：先存后删的话，中间那段时间违规内容对所有人可见。
+
+    只做判断、不写库——写标记必须等实体建出来拿到主键之后，
+    否则标记指向的 target_id 是空的，管理员点「下架」就无处可下。
+    """
+    verdict = moderation.check_all(fields, scene=scene)
+    if verdict["level"] == moderation.LEVEL_BLOCK:
+        raise HTTPException(status_code=400,
+                            detail="内容未通过审核。" + " ".join(verdict["reasons"]))
+    return verdict
+
+
+def record_flag(session, verdict, fields, scene, user, target_id, target_key=""):
+    """把「需人工复核」的判定落成一条待办。实体建好之后再调。"""
+    if verdict["level"] != moderation.LEVEL_FLAG:
+        return None
+    excerpt = " / ".join(str(v) for v in fields.values() if v)
+    flag = ContentFlag(
+        scene=scene, target_id=target_id, target_key=target_key,
+        author_id=user.id if user else None,
+        author_name=(user.real_name or user.username) if user else "",
+        excerpt=excerpt[:300],
+        categories=",".join(verdict["categories"]),
+        reasons="\n".join(verdict["reasons"]))
+    session.add(flag)
+    return flag
+
+
+@app.get("/api/admin/flags")
+def list_flags(status: str = "pending", limit: int = Query(50, ge=1, le=200),
+               user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看内容审核")
+    query = select(ContentFlag)
+    if status:
+        query = query.where(ContentFlag.status == status)
+    rows = session.scalars(
+        query.order_by(ContentFlag.created_at.desc()).limit(limit)).all()
+    pending = len(session.scalars(select(ContentFlag).where(
+        ContentFlag.status == "pending")).all())
+    return {"total": len(rows), "pending": pending,
+            "list": [row.to_dict() for row in rows]}
+
+
+@app.patch("/api/admin/flags/{flag_id}")
+def handle_flag(flag_id: int, action: str,
+                user: User = Depends(require_login),
+                session: Session = Depends(get_session)):
+    """处理一条待复核内容：approve 保留，remove 下架。
+
+    下架的动作按场景不同：房源转为已下架、公告转为未发布、评价直接删除。
+    评价没有状态字段，删掉是最直接的做法；flag 里留着摘要与处理人，
+    事后仍查得到发生过什么。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以处理内容审核")
+    if action not in ("approve", "remove"):
+        raise HTTPException(status_code=400, detail="action 只能是 approve 或 remove")
+
+    flag = session.get(ContentFlag, flag_id)
+    if not flag:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    if flag.status != "pending":
+        raise HTTPException(status_code=409, detail="该记录已处理过")
+
+    if action == "remove":
+        if flag.scene == "house":
+            house = session.get(House, flag.target_id)
+            if house:
+                house.status = "offline"
+        elif flag.scene == "notice":
+            notice = session.get(Notice, flag.target_id)
+            if notice:
+                notice.published = False
+        elif flag.scene == "review":
+            review = session.get(Review, flag.target_id)
+            if review:
+                session.delete(review)
+
+    flag.status = "approved" if action == "approve" else "removed"
+    flag.handled_by = user.real_name or user.username
+    flag.handled_at = datetime.now()
+    session.commit()
+    return {"ok": True, "flag": flag.to_dict()}
 
 
 # ------------------------------------------------------------------ 图片上传
