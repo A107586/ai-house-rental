@@ -25,7 +25,7 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
-from app import config_store, moderation, oplog, uploads
+from app import config_store, moderation, oplog, pricing, uploads
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -1616,6 +1616,26 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
         session.delete(record)
     session.commit()
     return {"ok": True, "deleted": len(rows)}
+
+
+@app.get("/api/pricing/suggest")
+def pricing_suggest(district: str, layout: str = "", area: float = 0,
+                    user: User = Depends(require_staff),
+                    session: Session = Depends(get_session)):
+    """定价建议（L-10）。
+
+    只对房东与管理员开放：这是发布房源时的辅助，对租客没有意义，
+    反而会暴露平台的定价口径。
+
+    比较基准只取**在租与可租**的房源。待审核的还没被认可，已下架的
+    往往正是因为定价不合理——拿它们当参照就是在拿反面教材做标准。
+    """
+    rows = session.scalars(select(House).where(
+        House.status.in_(["available", "rented"]))).all()
+    houses = [{"district": h.district, "layout": h.layout,
+               "rent_price": float(h.rent_price or 0),
+               "area": float(h.area or 0)} for h in rows]
+    return pricing.suggest(houses, district, layout, area)
 
 
 # ------------------------------------------------------------------ 内容审核

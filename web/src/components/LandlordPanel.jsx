@@ -36,6 +36,9 @@ export default function LandlordPanel({ user, onClose }) {
   const [tenants, setTenants] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [editing, setEditing] = useState('')
+  // L-10 定价建议 / AI-08 描述生成，两者都只在发布表单里用
+  const [priceTip, setPriceTip] = useState(null)
+  const [descBusy, setDescBusy] = useState(false)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -135,6 +138,44 @@ export default function LandlordPanel({ user, onClose }) {
   // 柱状图的基准值。至少取 1，否则全为 0 时会除出 NaN
   const maxIncome = Math.max(
     1, ...(dash?.monthly_income || []).map((m) => m.amount))
+
+  // 面积和户型齐了才问得出定价——先填面积再折算是这个功能的前提
+  async function askPrice() {
+    if (!form.area) {
+      setPriceTip({ ok: false, message: '先填面积，才能给出定价建议。' })
+      return
+    }
+    try {
+      setPriceTip(await api.pricingSuggest({
+        district: form.district, layout: form.layout, area: Number(form.area),
+      }))
+    } catch (err) {
+      setPriceTip({ ok: false, message: err.message })
+    }
+  }
+
+  async function genDescription() {
+    setDescBusy(true)
+    try {
+      const r = await api.agentDescribe({
+        district: form.district, community: form.community,
+        layout: form.layout, area: Number(form.area) || 0,
+        rent_price: Number(form.rent_price) || 0,
+        rent_type: form.rent_type, floor: form.floor,
+        orientation: form.orientation, tags: form.tags,
+      })
+      if (r.ok) {
+        setForm((f) => ({ ...f, description: r.text }))
+        setError('')
+      } else {
+        setError(r.message)
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDescBusy(false)
+    }
+  }
 
   const TABS = [
     { key: 'dashboard', label: '工作台' },
@@ -438,10 +479,39 @@ export default function LandlordPanel({ user, onClose }) {
               <input value={form.address} onChange={set('address')} />
             </label>
 
+            {priceTip && (
+              <div className={`assist ${priceTip.ok ? '' : 'warn'}`}>
+                <div className="assist-body">
+                  {priceTip.message}
+                  {priceTip.ok && (
+                    <div className="assist-hint">
+                      用的是中位单价而不是平均值——一套定价离谱的房源
+                      就能把平均值拉歪。
+                    </div>
+                  )}
+                </div>
+                {priceTip.ok && (
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    onClick={() => setForm({
+                      ...form, rent_price: String(priceTip.median),
+                    })}
+                  >
+                    用 {priceTip.median} 元
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="fld-row">
               <label className="fld">
                 <span>月租金（元）</span>
                 <input type="number" value={form.rent_price} onChange={set('rent_price')} />
+                <button type="button" className="btn ghost small"
+                        onClick={askPrice}>
+                  看看同类房源定价
+                </button>
               </label>
               <label className="fld">
                 <span>押金（元）</span>
@@ -494,8 +564,23 @@ export default function LandlordPanel({ user, onClose }) {
 
             <label className="fld">
               <span>房源描述</span>
-              <textarea rows={4} value={form.description} onChange={set('description')} />
+              <textarea rows={5} value={form.description} onChange={set('description')} />
             </label>
+
+            <div className="assist">
+              <div className="assist-body">
+                写不出来？智能体可以按你已填的字段生成一段。
+                <div className="assist-hint">
+                  只组织语言，<b>不添加任何字段里没有的信息</b>——
+                  写了「步行五分钟到地铁」而实际没有，那是虚假宣传。
+                  生成后可以自己改。
+                </div>
+              </div>
+              <button type="button" className="btn ghost small"
+                      disabled={descBusy} onClick={genDescription}>
+                {descBusy ? '生成中…' : '帮我写一段'}
+              </button>
+            </div>
 
             <button className="btn block" type="submit" disabled={busy === 'form'}>
               {busy === 'form' ? '提交中…' : editing ? '保存修改' : '提交发布'}

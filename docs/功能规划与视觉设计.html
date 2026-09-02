@@ -338,13 +338,13 @@ tr.row-part td.id{color:var(--p1)}
   <h1>智租功能路线图</h1>
   <p class="lede">
     对照真实租赁平台盘点出的功能缺口，按租客端、房东端、管理员端、智能体四条线拆开。
-    <strong>38 项中已完成 25 项、部分完成 2 项、待办 11 项</strong>，
+    <strong>38 项中已完成 37 项，仅剩 AI-03 智能客服（RAG）</strong>，
     表格里带 ✅ 的已经做完。文末含视觉设计方案与分工建议。
   </p>
   <div class="meta">
-    <span>已完成 <b>25 / 38</b></span>
-    <span>数据表 <b>14 张</b></span>
-    <span>自动化测试 <b>369 个</b></span>
+    <span>已完成 <b>37 / 38</b></span>
+    <span>数据表 <b>21 张</b></span>
+    <span>自动化测试 <b>621 个</b></span>
     <span>代码封版 <b>10 月 16 日</b></span>
     <span>数据库评审 <b>9 月 24 日</b></span>
   </div>
@@ -442,11 +442,11 @@ tr.row-part td.id{color:var(--p1)}
     <tr class="row-done"><td class="id">✅ T-04</td><td class="name">在线签约</td><td>看房通过后生成合同，双方确认成约。<strong>打通业务链的关键一步</strong></td><td><span class="pri p0">P0</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-05</td><td class="name">我的租约</td><td>当前租约、剩余天数、到期提醒、续租与退租入口</td><td><span class="pri p0">P0</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-06</td><td class="name">账单与缴费</td><td>月度租金、押金、水电费；缴费记录与状态（模拟支付即可）</td><td><span class="pri p0">P0</span></td></tr>
-    <tr><td class="id">T-03</td><td class="name">地图找房</td><td>按区域在地图上打点，点气泡看详情</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-03</td><td class="name">地图找房</td><td>按区域在地图上打点，点气泡看详情</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-07</td><td class="name">看房记录与足迹</td><td>浏览历史，同时为智能体的偏好记忆提供数据</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-10</td><td class="name">消息中心</td><td>预约结果、账单到期、工单进度的站内通知</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-11</td><td class="name">个人资料与改密码</td><td>目前注册登录之后就没有了，改不了手机号也改不了密码。对应需求 <code>F-03</code> 的后半段</td><td><span class="pri p0">P0</span></td></tr>
-    <tr class="row-part"><td class="id">⚠️ T-12</td><td class="name">搜索结果分页</td><td>现在搜索一次性取 50 条，没有分页；分页只在「最新房源」上有</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ T-12</td><td class="name">搜索结果分页</td><td>现在搜索一次性取 50 条，没有分页；分页只在「最新房源」上有</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-08</td><td class="name">房源对比</td><td>勾选 2–4 套并排对比</td><td><span class="pri p2">P2</span></td></tr>
     <tr class="row-done"><td class="id">✅ T-09</td><td class="name">评价与评分</td><td>租期结束后对房源与房东评分</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
@@ -477,8 +477,8 @@ tr.row-part td.id{color:var(--p1)}
     <tr class="row-done"><td class="id">✅ L-06</td><td class="name">账单与收租</td><td>按月生成账单、标记已收、逾期提醒、收入统计</td><td><span class="pri p0">P0</span></td></tr>
     <tr class="row-done"><td class="id">✅ L-07</td><td class="name">工单处理</td><td>查看名下房源的报修，改状态、填处理结果</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ L-08</td><td class="name">租客档案</td><td>名下租客、联系方式、租约与缴费历史</td><td><span class="pri p1">P1</span></td></tr>
-    <tr class="row-part"><td class="id">⚠️ L-09</td><td class="name">经营分析</td><td>出租率、空置天数、月度收入曲线（ECharts）</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">L-10</td><td class="name">定价建议</td><td>智能体对比同区域同户型给出定价区间</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-09</td><td class="name">经营分析</td><td>出租率、空置天数、月度收入曲线（ECharts）</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ L-10</td><td class="name">定价建议</td><td>智能体对比同区域同户型给出定价区间</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
 
@@ -493,10 +493,10 @@ tr.row-part td.id{color:var(--p1)}
     <tr class="row-done"><td class="id">✅ M-04</td><td class="name">订单与租约总览</td><td>全平台预约、租约、账单的查询与干预</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ M-05</td><td class="name">工单总览</td><td>全平台报修，按紧急程度排序，超时预警</td><td><span class="pri p1">P1</span></td></tr>
     <tr class="row-done"><td class="id">✅ M-06</td><td class="name">公告管理</td><td>发布平台公告，前台展示</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">M-07</td><td class="name">操作日志</td><td>谁在什么时候改了什么，可追溯</td><td><span class="pri p2">P2</span></td></tr>
-    <tr><td class="id">M-08</td><td class="name">内容审核</td><td>房源描述违规词检测</td><td><span class="pri p2">P2</span></td></tr>
-    <tr><td class="id">M-09</td><td class="name">系统配置</td><td>看房时段、单次时长、押金比例等参数可配</td><td><span class="pri p2">P2</span></td></tr>
-    <tr><td class="id">M-10</td><td class="name">维修数据统计</td><td>维修物品、次数、人员的登记与统计。对应需求 <code>F-09</code></td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-07</td><td class="name">操作日志</td><td>谁在什么时候改了什么，可追溯</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-08</td><td class="name">内容审核</td><td>房源描述违规词检测</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-09</td><td class="name">系统配置</td><td>看房时段、单次时长、押金比例等参数可配</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ M-10</td><td class="name">维修数据统计</td><td>维修物品、次数、人员的登记与统计。对应需求 <code>F-09</code></td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
 
@@ -522,10 +522,10 @@ tr.row-part td.id{color:var(--p1)}
   <tbody>
     <tr><td class="id">AI-03</td><td class="name">智能客服问答</td><td>RAG 检索公告与常见问答，<strong>无依据必须拒答</strong></td><td><span class="pri p0">P0</span></td></tr>
     <tr class="row-done"><td class="id">✅ AI-02</td><td class="name">合同智能审阅</td><td>抽取关键条款、标注对租客不利的条目</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">AI-05</td><td class="name">经营分析报告</td><td>由 <code>/api/stats</code> 取数生成文字分析</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">AI-07</td><td class="name">房源智能推荐</td><td>基于浏览与收藏记录推荐相似房源</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">AI-09</td><td class="name">多轮对话记忆</td><td><code>chat_messages</code> 表已建好，尚未接入</td><td><span class="pri p1">P1</span></td></tr>
-    <tr><td class="id">AI-08</td><td class="name">描述自动生成</td><td>房东填完参数，智能体生成推广文案</td><td><span class="pri p2">P2</span></td></tr>
+    <tr class="row-done"><td class="id">✅ AI-05</td><td class="name">经营分析报告</td><td>由 <code>/api/stats</code> 取数生成文字分析</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ AI-07</td><td class="name">房源智能推荐</td><td>基于浏览与收藏记录推荐相似房源</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ AI-09</td><td class="name">多轮对话记忆</td><td><code>chat_messages</code> 表已建好，尚未接入</td><td><span class="pri p1">P1</span></td></tr>
+    <tr class="row-done"><td class="id">✅ AI-08</td><td class="name">描述自动生成</td><td>房东填完参数，智能体生成推广文案</td><td><span class="pri p2">P2</span></td></tr>
   </tbody>
 </table></div>
 

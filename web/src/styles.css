@@ -2908,3 +2908,41 @@ td.accent {
     gap: 6px;
   }
 }
+
+
+/* ============================================================
+   L-10 定价建议 / AI-08 描述生成
+   两者都挂在发布表单里，用同一套「助手条」样式
+   ============================================================ */
+.assist {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--brand-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: -4px 0 12px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--brand);
+}
+
+.assist-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.assist .btn {
+  flex-shrink: 0;
+}
+
+.assist-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.assist.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}

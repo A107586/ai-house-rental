@@ -312,6 +312,13 @@ export const api = {
   // AI-05 经营分析报告
   agentReport: () => post(agentUrl('/agent/report'), {}),
 
+  // L-10 定价建议
+  pricingSuggest: (params) => request(`/api/pricing/suggest?${toQuery(params)}`),
+
+  // AI-08 房源描述自动生成。字段由前端原样带过去——
+  // 房源还没提交，库里根本没有它，智能体查不到。
+  agentDescribe: (house) => post(agentUrl('/agent/describe'), house),
+
   // AI-09 多轮对话。history 是未登录时的兜底：
   // 登录用户的上下文存在后端，未登录用户由前端自己带着走。
   agentChat: (text, sessionId, history = [], lastHouseNos = []) =>

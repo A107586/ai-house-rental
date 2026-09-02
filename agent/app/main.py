@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app import memory, supervisor
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
+from app.agents.describe import agent as describe
 from app.agents.property_finder import agent as property_finder
 from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
@@ -153,6 +154,27 @@ def agent_recommend(payload: RecommendRequest):
     """
     return recommend.run(token=payload.token, limit=payload.limit,
                          backend=backend_client)
+
+
+class DescribeRequest(BaseModel):
+    # 结构化字段，全部由前端从发布表单原样带过来。
+    # 智能体只负责组织语言，不去后端查任何东西——
+    # 房源还没提交，库里根本没有它。
+    district: str = ""
+    community: str = ""
+    layout: str = ""
+    area: float = 0
+    rent_price: float = 0
+    rent_type: str = ""
+    floor: str = ""
+    orientation: str = ""
+    tags: list[str] = []
+
+
+@app.post("/agent/describe")
+def agent_describe(payload: DescribeRequest):
+    """AI-08 房源描述自动生成。"""
+    return describe.run(payload.model_dump(), provider=provider)
 
 
 @app.post("/agent/report")
