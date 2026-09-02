@@ -2754,3 +2754,157 @@ td.accent {
   font-size: 12px;
   line-height: 1.7;
 }
+
+/* ============================================================
+   移动端适配
+   ============================================================
+
+   前面各处已有零散的断点，这里集中处理整站级的问题。
+   分两档：
+     ≤ 860px  平板与横屏手机——主要是抽屉铺满、内边距收紧
+     ≤ 560px  竖屏手机——顶栏重排、次要信息隐藏
+
+   一条贯穿的原则：**窄屏下先砍次要信息，再考虑缩小字号。**
+   把字缩到 11px 硬塞进去，读不清等于没显示，还占着位置。
+   ============================================================ */
+
+@media (max-width: 860px) {
+  .page {
+    padding: 18px 14px 90px;
+  }
+
+  .topbar-inner {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  /* 抽屉在窄屏铺满整个屏幕。留一条 40px 的边既遮不住内容，
+     又让人误以为点那条边能关闭 */
+  .drawer,
+  .drawer.wide,
+  .drawer.chat {
+    width: 100%;
+    border-left: none;
+    padding: 20px 16px 60px;
+  }
+
+  .search-card {
+    padding: 18px 16px;
+  }
+
+  .dash-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  /* 顶栏：副标题与服务状态都是次要信息，窄屏下先砍掉。
+     品牌名与登录入口必须留着——那是用户在顶栏唯一要用的两样东西 */
+  .tagline,
+  .status-dot {
+    display: none;
+  }
+
+  .logo {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  /* 按钮里的用户名可能很长，压缩它而不是让整排溢出 */
+  .topbar-right .btn {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .search-card h2 {
+    font-size: 18px;
+  }
+
+  /* 搜索框与按钮竖排。并排时输入框只剩不到两百像素，
+     打完一句需求看不见开头 */
+  .search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-row .btn {
+    width: 100%;
+  }
+
+  /* 房源卡片单列。两列时每张卡不到 170px，图和字都糊成一团 */
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .dcell .dv {
+    font-size: 20px;
+  }
+
+  /* 悬浮助手按钮缩成圆形图标，横排文字会挡住底部的卡片 */
+  .chat-fab {
+    right: 14px;
+    bottom: 14px;
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+
+  /* 表格类内容一律允许横向滚动，但只在自己的容器里滚，
+     不能把整个页面撑出横向滚动条 */
+  .log-table {
+    min-width: 560px;
+  }
+
+  .oplog,
+  .repairdata,
+  .flags {
+    overflow-x: auto;
+  }
+
+  /* 维修数据的录入表单在窄屏竖排，四个输入框并排会挤成一条缝。
+     必须排除复选框——把它也撑满一行会把旁边的标签文字挤没。 */
+  .rd-form input:not([type="checkbox"]),
+  .log-filters input:not([type="checkbox"]),
+  .log-filters select {
+    min-width: 100%;
+  }
+
+  .log-check {
+    width: 100%;
+  }
+
+  /* 系统配置：说明与输入框上下排，不再左右分栏 */
+  .cfg-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cfg-input {
+    width: 100%;
+  }
+
+  /* 地图的侧栏在 720px 断点已经移到下方，这里只收紧内边距 */
+  .mapfinder {
+    padding: 14px 12px;
+  }
+
+  .site-foot {
+    padding: 20px 14px 100px;
+    gap: 6px;
+  }
+}

@@ -176,7 +176,9 @@ export default function MapFinder({ selected, onPick }) {
             </>
           ) : (
             <div className="map-hint">
-              把鼠标移到区域上看明细，点击可只看该区房源。
+              {/* 不说「把鼠标移到」——手机上没有鼠标，
+                  点选是两端都成立的说法 */}
+              点选任一区域，即可只看该区的房源。
               <br />
               <br />
               颜色深浅表示

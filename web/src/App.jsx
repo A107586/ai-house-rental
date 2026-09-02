@@ -399,7 +399,10 @@ export default function App() {
         )}
       </main>
 
-      {/* 悬浮入口。对比栏在底部居中，这个放右下角，两者不重叠 */}
+      {/* 悬浮入口。对比栏在底部居中，这个放右下角，两者不重叠。
+          任何抽屉打开时都要收起来——它的层级在抽屉之上，
+          不收起就会盖住抽屉右下角的内容，窄屏上尤其明显。 */}
+      {!showChat && !showMine && !showWork && !selected && (
       <button
         className="chat-fab"
         onClick={() => setShowChat(true)}
@@ -408,6 +411,7 @@ export default function App() {
         <span className="fab-dot" />
         租房助手
       </button>
+      )}
 
       {showChat && (
         <ChatPanel
