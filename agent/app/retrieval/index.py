@@ -91,9 +91,14 @@ class KnowledgeIndex(object):
         self._chunk_tokens = {}
         for chunk_id, tokens in body_docs:
             self._chunk_tokens[chunk_id] = set(tokens)
+        # 只含问句与别名的词集合，单独留一份：闸门要问的是
+        # 「用户这句话像不像这条 FAQ 的问句」，那是比「正文里提没提」
+        # 强得多的信号——见 `title_coverage`。
+        self._title_tokens = {}
         for key, tokens in title_docs:
-            self._chunk_tokens.setdefault(
-                self._variant_owner[key], set()).update(tokens)
+            owner = self._variant_owner[key]
+            self._chunk_tokens.setdefault(owner, set()).update(tokens)
+            self._title_tokens.setdefault(owner, set()).update(tokens)
 
         # 语料里从未出现过的词该给多大权重：按「只在 0 篇文档里出现」代入
         # IDF 公式，得到的是这个语料下 IDF 的上界。
@@ -362,6 +367,38 @@ class KnowledgeIndex(object):
             if not in_vocab:
                 unseen += weight
         return round(unseen / total, 4) if total else 0.0
+
+    def title_coverage(self, query, chunk_id):
+        """查询在这条 FAQ 的**问句与别名**上的 IDF 加权覆盖率。
+
+        与 `coverage` 的区别只有一个：那个算的是整片（问句 + 别名 + 正文），
+        这个只算问句和别名。**「问句 vs 问句」比「问句 vs 答案正文」
+        强得多**，因为答案正文里充满了与提问无关的解释性文字，
+        它们会把覆盖率稀释掉。
+
+        这条判据是被一对反例逼出来的：
+
+            退租要打扫干净吗   该回答，整片覆盖率只有 0.38
+            装修能报销吗       该拒答，整片覆盖率高达 0.74
+
+        整片覆盖率在这一对上是**反的**——负例的正文恰好用词很像。
+        换成只看问句就正过来了：前者对上的是「退租时房子要打扫吗」，
+        几乎是同一个问题；后者对上的是「我自己找人修完能报销吗」，
+        问的根本是另一件事。
+        """
+        tokens = set(tokenize(query))
+        if not tokens:
+            return 0.0
+        present = self._title_tokens.get(chunk_id, set())
+
+        total = 0.0
+        matched = 0.0
+        for token in tokens:
+            weight = self.body_index.idf.get(token, self._unseen_idf)
+            total += weight
+            if token in present:
+                matched += weight
+        return round(matched / total, 4) if total else 0.0
 
     def key_term(self, query):
         """查询里区分度最高的那个词——近似「这句话在问什么」。

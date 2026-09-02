@@ -2,13 +2,17 @@
 
 一次问答的完整链路：
 
-    ① 转人工请求？    → 直接走转人工，不浪费一次检索
-    ② 事务型还是知识型？ → 事务型查后端真实数据，知识型才走检索
-    ③ 多轮指代消解     → 「那它多久到账」补成「押金多久到账」
-    ④ 同义扩展 + 多路检索 + RRF 融合
-    ⑤ 确定性精排，取 top-3
-    ⑥ 可答性闸门      → 不过就拒答，给「猜你想问」和转人工出口
-    ⑦ 受约束生成 + 引用校验 → 不过就退回抽取式
+    ① 转人工请求？     → 直接走转人工，不浪费一次检索
+    ② **代办请求？**    → 生成确认卡片，等用户点确认才执行（绝不直接做）
+    ③ 事务型还是知识型？ → 事务型查后端真实数据，知识型才走检索
+    ④ 多轮指代消解      → 「那它多久到账」补成「押金多久到账」
+    ⑤ 同义扩展 + 多路检索 + RRF 融合
+    ⑥ 确定性精排，取 top-3
+    ⑦ 可答性闸门       → 不过就拒答，给「猜你想问」和转人工出口
+    ⑧ 受约束生成 + 引用校验 → 不过就退回抽取式
+
+第 ② 步是这个客服从「能查」走到「能做」的分界。它**只提议不执行**：
+真正的写操作在 `/agent/support/confirm`，必须由用户点过确认才会被调用。
 
 每一步的中间结果都塞进返回值的 `retrieval` 字段里。这不是调试残留：
 前端要用它渲染「正在理解问题 → 正在检索知识库（命中 3 条）→ 正在核对依据」
@@ -18,8 +22,8 @@
 import time
 
 from app.agents.support import corpus
-from app.agents.support.tools import (answer as answer_tool, classify_ask,
-                                      gate, toolcall)
+from app.agents.support.tools import (actions, answer as answer_tool,
+                                      classify_ask, gate, toolcall)
 from app.backend import BackendError
 from app.retrieval.embed import VectorCache, build_embedder
 from app.retrieval.index import KnowledgeIndex
@@ -245,7 +249,37 @@ def run(text, token="", history=None, provider=None, backend=None,
                       "好的，我把你的问题转给管理员，稍后会通过站内消息回复你。",
                       handoff={"question": raw, "reason": "用户主动要求转人工"})
 
-    # ② 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
+    # ② 代办请求：生成确认卡片，**不执行**。
+    #
+    # 必须排在事务型查询前面。「帮我把房租交了」里有「房租」，
+    # 放到后面会被 bill 当成查询，回一句「你还有 35 笔待缴」——
+    # 用户要的是把它交掉，不是再看一遍余额。
+    #
+    # 这一步只读后端（查出要操作的是哪一笔），绝不写。真正的执行在
+    # `/agent/support/confirm`，必须由用户点过确认之后才会被调用。
+    action_name = actions.detect(raw)
+    if action_name:
+        status, message, card = actions.propose(
+            action_name, raw, token, backend, context={"house_no": house_no})
+        if status == actions.CONFIRM:
+            return shaped("confirm", "要我帮你%s吗？" % card["summary"],
+                          action=card,
+                          retrieval={"mode": "action", "action": action_name,
+                                     "risk": card["risk"],
+                                     "note": "已生成确认卡片，等待用户确认后才执行"})
+        if status in (actions.NEED_SLOT, actions.NEED_LOGIN, actions.FAILED):
+            return shaped(
+                "need_login" if status == actions.NEED_LOGIN else status,
+                message,
+                retrieval={"mode": "action", "action": action_name,
+                           "note": message})
+        # NOT_APPLICABLE：没什么可操作的（比如账单已结清），
+        # 把后端给出的那句话直接说了，不必再去检索 FAQ
+        if message:
+            return shaped("answered", message,
+                          retrieval={"mode": "action", "action": action_name})
+
+    # ③ 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
     # 返回 knowledge 表示「这不是个人数据问题」，继续往下走检索。
     status, message, asked = toolcall.run(
         raw, token, backend, provider=provider)
@@ -263,16 +297,16 @@ def run(text, token="", history=None, provider=None, backend=None,
     if index is None or not len(index):
         return shaped("refused", "知识库还没准备好，稍后再问我一次。")
 
-    # ③ 多轮指代消解
+    # ④ 多轮指代消解
     query, carried = rewrite(raw, history or [])
 
-    # ④⑤ 检索 + 精排
+    # ⑤⑥ 检索 + 精排
     expanded = corpus.expand_query(query)
     ranked, detail = index.search(query, expanded=expanded, top_k=CANDIDATE_K)
     reranked = index.rerank(query, ranked, detail, top_k=CONTEXT_K)
     candidates = [cid for cid, _ in reranked]
 
-    # ⑥ 可答性闸门
+    # ⑦ 可答性闸门
     verdict = gate.evaluate(index, query, candidates, provider=provider)
 
     retrieval = {
@@ -300,7 +334,7 @@ def run(text, token="", history=None, provider=None, backend=None,
             retrieval=retrieval,
             handoff={"question": raw, "reason": verdict["reason"]})
 
-    # ⑦ 生成 + 校验
+    # ⑧ 生成 + 校验
     message, citations, source, note = answer_tool.generate(
         provider, index, query, candidates)
 

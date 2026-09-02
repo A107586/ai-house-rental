@@ -28,7 +28,9 @@ const OPENING = {
   role: 'assistant',
   content: '你好，我是租房助手。找房可以一句一句地补充条件，我都记得住；'
     + '平台规则也可以直接问我，比如「押金怎么退」——'
-    + '我只按知识库里写的回答，查不到就直说，不会瞎编。',
+    + '我只按知识库里写的回答，查不到就直说，不会瞎编。'
+    + '也可以让我帮你做事——交房租、约看房、报修都行，'
+    + '我会先把要做的事列给你看，你点确认我才动手。',
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
@@ -103,6 +105,10 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         citations: res.citations || [],
         alternatives: res.alternatives || [],
         handoff: res.handoff || null,
+        // 代办确认卡片。有它就说明这一轮是「要我帮你做吗」，
+        // 在用户点确认之前，后端什么都还没做。
+        action: res.action || null,
+        acted: '',
         logId: res.log_id || null,
         status: res.status || '',
         feedback: 0,
@@ -155,6 +161,42 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
     }
   }
 
+  /**
+   * 用户点了确认，才真正执行这个操作。
+   *
+   * 对话接口 `/agent/support` 永远只返回卡片，执行走的是另一个接口。
+   * 这个函数是两者之间唯一的桥，**只能由按钮点击触发**——
+   * 不要为了「更顺畅」在收到卡片时自动调用它。
+   */
+  async function runAction(index) {
+    const message = messages[index]
+    if (!message?.action || message.acted || busy) return
+
+    setBusy(true)
+    setError('')
+    try {
+      const res = await api.supportConfirm(message.action.name, message.action.params)
+      setMessages((prev) => prev.map((m, i) => (
+        i === index ? { ...m, acted: res.ok ? 'done' : 'failed' } : m)))
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: res.message,
+        ok: res.ok,
+      }])
+    } catch (err) {
+      setError(err.message)
+      setMessages((prev) => prev.map((m, i) => (
+        i === index ? { ...m, acted: 'failed' } : m)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function cancelAction(index) {
+    setMessages((prev) => prev.map((m, i) => (
+      i === index ? { ...m, acted: 'cancelled' } : m)))
+  }
+
   async function restart() {
     setMessages([OPENING])
     setContext('')
@@ -202,6 +244,45 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
                   {message.notes.map((note) => (
                     <span className="note" key={note}>{note}</span>
                   ))}
+                </div>
+              )}
+
+              {message.action && (
+                <div className={`action-card risk-${message.action.risk}`}>
+                  <div className="action-head">
+                    <span className="action-label">{message.action.label}</span>
+                    {message.action.risk === 'high' && (
+                      <span className="action-risk">需谨慎</span>
+                    )}
+                  </div>
+                  <div className="action-summary">{message.action.summary}</div>
+                  {message.action.warning && (
+                    <div className="action-warning">{message.action.warning}</div>
+                  )}
+                  {!message.acted ? (
+                    <div className="action-buttons">
+                      <button
+                        className="btn"
+                        disabled={busy}
+                        onClick={() => runAction(index)}
+                      >
+                        确认执行
+                      </button>
+                      <button
+                        className="btn ghost"
+                        disabled={busy}
+                        onClick={() => cancelAction(index)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="action-done">
+                      {message.acted === 'done' && '已执行'}
+                      {message.acted === 'failed' && '未能执行'}
+                      {message.acted === 'cancelled' && '已取消，什么都没做'}
+                    </div>
+                  )}
                 </div>
               )}
 

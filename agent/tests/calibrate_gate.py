@@ -70,8 +70,12 @@ def main():
     print("检索 top-1 命中 %d/%d（阈值救不了没召回的样本）"
           % (len(recalled), len(positives)))
 
+    # 网格步长 0.01 而不是 0.05。粗网格出过事：语料扩容后，
+    # 0.05 的步长正好跨过 0.41~0.43 这段更优的平台，
+    # 选中的 0.45 让一条覆盖率 0.4497 的正例被卡在门外。
     best = None
-    for cover_strong in [x / 100.0 for x in range(30, 105, 5)]:
+    feasible = []
+    for cover_strong in [x / 100.0 for x in range(30, 101)]:
         for cover_min in [x / 100.0 for x in range(0, 50, 5)]:
             if cover_min >= cover_strong:
                 continue
@@ -85,10 +89,27 @@ def main():
             refuse_rate = refused / len(negatives)
             # 先过拒答率的门槛，再比回答率
             key = (refuse_rate >= REQUIRED_REFUSE, answer_rate, refuse_rate)
+            if refuse_rate >= REQUIRED_REFUSE and answer_rate >= REQUIRED_ANSWER:
+                feasible.append((cover_strong, cover_min, answer_rate, refuse_rate))
             if best is None or key > best[0]:
                 best = (key, cover_strong, cover_min, answer_rate, refuse_rate)
 
     _, cover_strong, cover_min, answer_rate, refuse_rate = best
+
+    # 在两项都达标的点里取覆盖率阈值的**中位数**，而不是让上面的
+    # 最大化直接选出一个边缘值。边缘阈值经不起语料增长——
+    # 语料一扩，IDF 一动，紧贴边界的正例就会掉出去。
+    if feasible:
+        best_answer = max(f[2] for f in feasible)
+        plateau = sorted(f[0] for f in feasible if f[2] >= best_answer - 1e-9)
+        if plateau:
+            middle = plateau[len(plateau) // 2]
+            for candidate in feasible:
+                if candidate[0] == middle:
+                    cover_strong, cover_min, answer_rate, refuse_rate = candidate
+                    break
+        print("可行区间：COVER_STRONG ∈ [%.2f, %.2f]，取中点 %.2f"
+              % (plateau[0], plateau[-1], cover_strong))
     print()
     print("标定结果：")
     print("  COVER_STRONG = %.2f" % cover_strong)

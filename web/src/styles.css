@@ -3388,3 +3388,67 @@ td.accent {
 @media (max-width: 720px) {
   .support-panel .stat { flex-basis: 45%; }
 }
+
+
+/* ---- 代办确认卡片 ----
+   参考 Siri / 千问那类助手：要做的事先摊开给用户看，点确认才执行。
+   高风险（涉及钱或不可逆）用更重的描边与一个「需谨慎」角标，
+   让人在点下去之前多看一眼。 */
+.action-card {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d5d9e0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.action-card.risk-medium { border-color: #f0b429; }
+.action-card.risk-high { border-color: #e0533d; border-width: 2px; }
+
+.action-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.action-label {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f2f4f7;
+  border-radius: 4px;
+  padding: 1px 7px;
+}
+
+.action-risk {
+  font-size: 11px;
+  color: #c0392b;
+  border: 1px solid #f0c8c1;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.action-summary {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.action-warning {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8a6d3b;
+  line-height: 1.7;
+}
+
+.action-buttons {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.action-done {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #6b7280;
+}

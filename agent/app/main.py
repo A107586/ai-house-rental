@@ -17,6 +17,7 @@ from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.agents.support import agent as support
+from app.agents.support.tools import actions as support_actions
 from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
@@ -218,6 +219,53 @@ def agent_support(payload: SupportRequest):
         # 前端点「有用/没用」时要用它回指这一轮
         result["log_id"] = log_id
     return result
+
+
+class ConfirmRequest(BaseModel):
+    """执行一个已被用户确认的操作。
+
+    `name` 与 `params` 原样来自上一轮返回的确认卡片。
+    """
+
+    name: str
+    params: dict = {}
+    token: str = ""
+
+
+@app.post("/agent/support/confirm")
+def agent_support_confirm(payload: ConfirmRequest):
+    """执行代办操作。**只有用户点过确认，前端才允许调这个接口。**
+
+    对话主流程（`/agent/support`）永远走不到这里——它最多返回一张确认卡片。
+    把执行与对话分成两个接口，是为了让「一句话就把钱划走」在架构上
+    不可能发生，而不是靠提示词约束模型别乱来。
+
+    参数走白名单校验：卡片是从前端回传的，多一个没见过的字段就拒绝，
+    不原样透传给后端。至于伪造——不构成提权，所有写操作都用用户自己的
+    令牌调后端受控接口，他打开网页也能做同样的事。
+    """
+    ok, message, data = support_actions.execute(
+        payload.name, payload.params, payload.token, backend_client)
+    return {
+        "intent": "support",
+        "status": "done" if ok else "failed",
+        "ok": ok,
+        "message": message,
+        "action": payload.name,
+        "data": data,
+    }
+
+
+@app.get("/agent/support/actions")
+def agent_support_actions():
+    """可代办操作的清单。答辩时用来说明「它到底能做哪些事」。"""
+    return {
+        "total": len(support_actions.PROPOSERS),
+        "list": [{"name": name,
+                  "keywords": keywords[:4]}
+                 for name, keywords in support_actions.ACTION_KEYWORDS],
+        "not_exposed": list(support_actions.NOT_EXPOSED),
+    }
 
 
 @app.get("/agent/support/knowledge")

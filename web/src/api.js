@@ -364,6 +364,19 @@ export const api = {
   // 知识库现状，答辩时用来当场展示「库里到底有什么」
   supportKnowledge: () => request(agentUrl('/agent/support/knowledge')),
 
+  // 执行一个已被用户确认的代办操作。
+  // **只有用户点了确认按钮才允许调这个接口**——对话本身永远不会执行写操作，
+  // 它最多返回一张确认卡片。这条边界在前后端两侧都要守住。
+  supportConfirm: (name, params) =>
+    post(agentUrl('/agent/support/confirm'), {
+      name,
+      params,
+      token: getToken(),
+    }),
+
+  // 可代办操作清单
+  supportActions: () => request(agentUrl('/agent/support/actions')),
+
   // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单
   supportFeedback: (logId, value) =>
     post('/api/support/feedback', { log_id: logId, value }),
