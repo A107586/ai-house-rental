@@ -16,8 +16,8 @@ import json
 
 from datetime import datetime
 
-from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, Numeric,
-                        String, Text, UniqueConstraint)
+from sqlalchemy import (Boolean, DateTime, Float, ForeignKey, Integer,
+                        Numeric, String, Text, UniqueConstraint)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -851,6 +851,145 @@ class SystemConfig(Base):
             "group": self.group_name,
             "is_public": self.is_public,
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class Faq(Base):
+    """客服知识条目——AI-03 智能客服的权威语料源。
+
+    与 `notices` 的分工：公告是**面向全体用户的通告**（有时效、会过期），
+    FAQ 是**平台规则的常驻问答**。两者都进检索，但生命周期完全不同，
+    混在一张表里会让「公告过期下架」和「FAQ 长期有效」互相打架。
+
+    `code` 而不是自增 id 作为检索侧的标识：智能体回答时要附引用，
+    引用 id 出现在提示词与前端卡片里，用 `faq-deposit-refund` 这样
+    可读的编码，比 `faq-37` 好排查得多——答辩时一眼看得出引的是哪条。
+    """
+
+    __tablename__ = "faqs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 检索侧标识，全局唯一。种子数据来自 agent/knowledge/faq.md 的 id 字段
+    code: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    question: Mapped[str] = mapped_column(String(200), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(30), default="其他", index=True)
+    # 同义问法，用 " / " 分隔。检索时每条别名单独建索引
+    aliases: Mapped[str] = mapped_column(String(255), default="")
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # 被智能体引用的次数。管理员据此知道哪些问题问得最多、
+    # 哪些条目写了没人用——这是运营视角，不是技术指标
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 onupdate=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "code": self.code,
+            "question": self.question,
+            "answer": self.answer,
+            "category": self.category,
+            "aliases": self.aliases,
+            "is_published": self.is_published,
+            "sort_order": self.sort_order,
+            "hit_count": self.hit_count,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class SupportLog(Base):
+    """客服问答日志——每一次提问的检索与判定过程。
+
+    存它不是为了排错，是为了**回答「这个客服到底行不行」**：
+    拒答率是多少、哪些问题反复问却答不出、命中的都是哪几条 FAQ。
+    没有这张表，语料该往哪补全靠拍脑袋。
+
+    `status` 与智能体返回的一致：answered / refused / escalate /
+    account / need_login。
+    """
+
+    __tablename__ = "support_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                         index=True)
+    session_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    question: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="", index=True)
+    # 检索模式：lexical / vector+lexical / account
+    mode: Mapped[str] = mapped_column(String(20), default="")
+    # 命中的片 id，逗号分隔；拒答时为空
+    cited: Mapped[str] = mapped_column(String(255), default="")
+    top_id: Mapped[str] = mapped_column(String(60), default="", index=True)
+    cover: Mapped[float] = mapped_column(Float, default=0.0)
+    # 回答由谁给出：llm / extractive / rules
+    answer_source: Mapped[str] = mapped_column(String(20), default="")
+    gate_reason: Mapped[str] = mapped_column(String(200), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    # 用户反馈：1 有用 / -1 没用 / 0 未评价
+    feedback: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "question": self.question,
+            "status": self.status,
+            "mode": self.mode,
+            "cited": [c for c in self.cited.split(",") if c],
+            "top_id": self.top_id,
+            "cover": round(self.cover, 3),
+            "answer_source": self.answer_source,
+            "gate_reason": self.gate_reason,
+            "latency_ms": self.latency_ms,
+            "feedback": self.feedback,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class SupportHandoff(Base):
+    """转人工工单。
+
+    智能体拒答、或用户明说要人工时，把问题连同上下文留给管理员。
+    这是客服闭环里**最不该省**的一环：没有它，拒答就是死路一条，
+    用户被告知「我不知道」之后无处可去。
+    """
+
+    __tablename__ = "support_handoffs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    handoff_no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False,
+                                         index=True)
+    question: Mapped[str] = mapped_column(String(500), nullable=False)
+    # 智能体为什么没答上来，供管理员判断是语料缺失还是问题本身超范围
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    context: Mapped[str] = mapped_column(Text, default="")
+    # pending 待处理 / replied 已回复 / closed 已关闭
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    reply: Mapped[str] = mapped_column(Text, default="")
+    handler_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 index=True)
+    replied_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "handoff_no": self.handoff_no,
+            "user_id": self.user_id,
+            "question": self.question,
+            "reason": self.reason,
+            "context": self.context,
+            "status": self.status,
+            "reply": self.reply,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+            "replied_at": (self.replied_at.strftime("%Y-%m-%d %H:%M")
+                           if self.replied_at else ""),
         }
 
 

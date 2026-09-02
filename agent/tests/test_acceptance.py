@@ -25,6 +25,9 @@ from app.agents.contract.tools.extract import extract_clauses  # noqa: E402
 from app.agents.contract.tools.risk import check_risks  # noqa: E402
 from app.agents.property_finder.tools.parse_query import parse_query  # noqa: E402
 from app.agents.repair.tools.classify import classify_repair  # noqa: E402
+from app.agents.support import agent as support_agent  # noqa: E402
+from app.agents.support import corpus  # noqa: E402
+from tests.fixtures import support_eval  # noqa: E402
 
 
 def report(title, hits, total, threshold, misses):
@@ -379,3 +382,116 @@ class TestAI02ContractAccuracy(unittest.TestCase):
         risks = check_risks(sample_contract())["risks"]
         high = [r for r in risks if r.get("level") == "高"]
         self.assertEqual(high, [], "规范合同不该有高风险：%s" % high)
+
+
+# ==================================================== AI-03
+# 「30 条测试问题中，有依据问题的正确率 ≥ 80%；无依据问题的拒答率 ≥ 90%」
+
+class TestAI03SupportAccuracy(unittest.TestCase):
+    """AI-03 智能客服问答的验收基准。
+
+    **跑在离线档**：没有大模型、没有向量嵌入，全部走词法检索 + 抽取式回答。
+    这与项目其余测试的口径一致（不依赖网络、数据库与大模型），
+    也意味着这里的数字是**下界**——配上 DeepSeek 后闸门还多一道
+    大模型判据，只会更严不会更松。
+
+    验收集见 `fixtures/support_eval.py`，**与调参集严格不相交**，
+    全程不参与任何阈值标定。阈值的标定过程见 `tests/calibrate_gate.py`。
+    """
+
+    ANSWER_THRESHOLD = 0.80
+    REFUSE_THRESHOLD = 0.90
+
+    @classmethod
+    def setUpClass(cls):
+        # 单例知识库可能被别的测试装载过，这里强制重来，
+        # 保证本类拿到的是纯本地语料、无后端、无嵌入的干净索引
+        support_agent.reset_knowledge_base()
+        cls.results = {}
+        for question, _ in support_eval.ANSWERABLE:
+            cls.results[question] = support_agent.run(question)
+        for question, _ in support_eval.UNANSWERABLE:
+            cls.results[question] = support_agent.run(question)
+        for question, _ in support_eval.TRANSACTIONAL:
+            cls.results[question] = support_agent.run(question)
+
+    def test_answerable_accuracy(self):
+        """有依据的 20 题：必须答出来，且**引用到正确的那一片**。
+
+        只看「答了没有」是不够的——答对内容但引用错来源，
+        用户点开引用会发现对不上，比拒答更伤信任。
+        """
+        hits, misses = 0, []
+        for question, gold in support_eval.ANSWERABLE:
+            result = self.results[question]
+            cited = [c["id"] for c in result.get("citations", [])]
+            if result["status"] == "answered" and any(g in cited for g in gold):
+                hits += 1
+            else:
+                misses.append("%s（%s，引用 %s，应为 %s）"
+                              % (question, result["status"],
+                                 cited or "无", gold[0]))
+
+        rate, line = report("AI-03 有依据问题正确率", hits,
+                            len(support_eval.ANSWERABLE),
+                            self.ANSWER_THRESHOLD, misses)
+        print(line)
+        self.assertGreaterEqual(rate / 100, self.ANSWER_THRESHOLD, line)
+
+    def test_unanswerable_refusal(self):
+        """无依据的 10 题：必须拒答，或（事务型）走查库而不是拿 FAQ 硬答。
+
+        事务型三题的判定口径特别说明：正确行为不是拒答，而是**识别出
+        这要查个人数据**去调后端接口。用 FAQ 编一个听起来合理的答案，
+        是这里最严重的错误——它看上去有依据。
+        """
+        hits, misses = 0, []
+        for question, kind in support_eval.UNANSWERABLE:
+            result = self.results[question]
+            if result["status"] == "refused":
+                hits += 1
+            else:
+                misses.append("%s（%s）应拒答，实际 %s"
+                              % (question, kind, result["status"]))
+
+        for question, topic in support_eval.TRANSACTIONAL:
+            result = self.results[question]
+            # need_login 也算对：它同样没有拿 FAQ 硬答
+            if result["status"] in ("account", "need_login"):
+                hits += 1
+            else:
+                misses.append("%s（事务型/%s）应走查库，实际 %s"
+                              % (question, topic, result["status"]))
+
+        total = len(support_eval.UNANSWERABLE) + len(support_eval.TRANSACTIONAL)
+        rate, line = report("AI-03 无依据问题拒答率", hits, total,
+                            self.REFUSE_THRESHOLD, misses)
+        print(line)
+        self.assertGreaterEqual(rate / 100, self.REFUSE_THRESHOLD, line)
+
+    def test_retrieval_recall_at_3(self):
+        """诊断指标：正确依据进入 top-3 的比例。
+
+        它不是验收标准，但**指标不达标时第一个要看的就是它**：
+        Recall@3 高而正确率低，说明是闸门太严或生成出了问题；
+        Recall@3 就低，那是检索或语料的问题，调闸门没有用。
+        开发中确实靠它定位过一次——七条失败样本的 Recall@3 是 7/7，
+        直接排除了检索，问题全在闸门。
+        """
+        index = support_agent.knowledge_base().refresh()
+        hits = 0
+        misses = []
+        for question, gold in support_eval.ANSWERABLE:
+            ranked, detail = index.search(
+                question, expanded=corpus.expand_query(question), top_k=8)
+            top3 = [cid for cid, _ in index.rerank(question, ranked, detail, top_k=3)]
+            if any(g in top3 for g in gold):
+                hits += 1
+            else:
+                misses.append("%s（top3=%s，应含 %s）" % (question, top3, gold[0]))
+
+        rate, line = report("AI-03 检索 Recall@3（诊断用）", hits,
+                            len(support_eval.ANSWERABLE), 0.90, misses)
+        print(line)
+        # 诊断指标只打印不设断言：它的阈值不是需求定的，
+        # 设了断言等于凭空给自己加一条验收标准

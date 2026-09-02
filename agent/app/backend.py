@@ -185,6 +185,34 @@ class BackendClient(object):
             "contact_phone": applicant.get("shouji") or applicant.get("contact_phone") or "",
         })
 
+    # ------------------------------------------------------------ AI-03 客服
+
+    def list_faqs(self):
+        """客服知识条目。拿不到时调用方退回本地 Markdown 语料。"""
+        data = self.get("/api/faqs")
+        return data.get("list", []) if isinstance(data, dict) else (data or [])
+
+    def log_support(self, payload, token=None):
+        """回写一次客服问答。
+
+        **写失败绝不能影响回答**——日志是运营用的，用户等的是答案。
+        与 `log_chat` 同样的处理：吞掉异常，返回 None。
+        """
+        try:
+            data = self.post("/api/support/logs", payload, token=token)
+        except Exception:
+            return None
+        return data.get("log_id") if isinstance(data, dict) else None
+
+    def create_handoff(self, question, reason="", context="", token=None):
+        """建一条转人工工单。需要登录，未登录时后端会返回 401。"""
+        try:
+            return self.post("/api/support/handoff",
+                             {"question": question, "reason": reason,
+                              "context": context}, token=token)
+        except Exception:
+            return None
+
 
 # 模块级单例，便于测试时整体替换
 client = BackendClient()

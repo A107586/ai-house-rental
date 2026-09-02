@@ -347,4 +347,54 @@ export const api = {
 
   // 只做意图识别，用于展示智能体的决策过程
   agentRoute: (text) => post(agentUrl('/agent/route'), { text }),
+
+  // ---------------------------------------------------------- AI-03 智能客服
+
+  // 知识型问答走检索，事务型问题（「我还欠多少房租」）由智能体去后端查真实数据。
+  // token 必须带上，否则事务型问题查不到「这个人自己的」记录。
+  agentSupport: (text, sessionId = '', history = [], houseNo = '') =>
+    post(agentUrl('/agent/support'), {
+      text,
+      token: getToken(),
+      session_id: sessionId,
+      history,
+      house_no: houseNo,
+    }),
+
+  // 知识库现状，答辩时用来当场展示「库里到底有什么」
+  supportKnowledge: () => request(agentUrl('/agent/support/knowledge')),
+
+  // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单
+  supportFeedback: (logId, value) =>
+    post('/api/support/feedback', { log_id: logId, value }),
+
+  // 转人工：把答不上来的问题留给管理员
+  supportHandoff: (question, reason = '', context = '') =>
+    post('/api/support/handoff', { question, reason, context }),
+  myHandoffs: () => request('/api/support/handoffs/mine'),
+
+  // 帮助中心页面直接读已发布的知识条目
+  faqs: (category = '') => request(`/api/faqs?${toQuery({ category })}`),
+
+  // ---- 管理端 ----
+  adminFaqs: (keyword = '') =>
+    request(`/api/admin/faqs?${toQuery({ keyword })}`),
+  createFaq: (payload) => post('/api/faqs', payload),
+  updateFaq: (id, payload) =>
+    request(`/api/faqs/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  toggleFaq: (id, published) =>
+    request(`/api/faqs/${id}?${toQuery({ published })}`, { method: 'PATCH' }),
+  deleteFaq: (id) => request(`/api/faqs/${id}`, { method: 'DELETE' }),
+
+  adminHandoffs: (status = '') =>
+    request(`/api/admin/handoffs?${toQuery({ status })}`),
+  replyHandoff: (handoffNo, reply) =>
+    post(`/api/admin/handoffs/${handoffNo}/reply`, { reply }),
+
+  supportAnalytics: (days = 30) =>
+    request(`/api/admin/support/analytics?${toQuery({ days })}`),
 }

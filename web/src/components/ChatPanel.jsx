@@ -26,11 +26,12 @@ function loadSessionId() {
 
 const OPENING = {
   role: 'assistant',
-  content: '你好，我是租房助手。可以直接说需求，也可以一句一句地补充——'
-    + '比如先说「中山区两室一厅」，再说「三千以内」，最后说「再便宜点」，我都记得住。',
+  content: '你好，我是租房助手。找房可以一句一句地补充条件，我都记得住；'
+    + '平台规则也可以直接问我，比如「押金怎么退」——'
+    + '我只按知识库里写的回答，查不到就直说，不会瞎编。',
 }
 
-const QUICK = ['中山区两室一厅', '三千以内的', '再便宜点', '要带电梯的']
+const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
 
 export default function ChatPanel({ user, onOpenHouse, onClose }) {
   const [sessionId] = useState(loadSessionId)
@@ -98,6 +99,13 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         notes: res.notes || [],
         intent: res.intent,
         ok: res.ok,
+        // AI-03 客服：引用来源、猜你想问、转人工线索、日志编号
+        citations: res.citations || [],
+        alternatives: res.alternatives || [],
+        handoff: res.handoff || null,
+        logId: res.log_id || null,
+        status: res.status || '',
+        feedback: 0,
       }])
     } catch (err) {
       setError(err.message)
@@ -108,6 +116,42 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
       }])
     } finally {
       setBusy(false)
+    }
+  }
+
+  /** 一条回答有用 / 没用。「没用」会进管理端的补语料清单。 */
+  async function rate(index, value) {
+    const message = messages[index]
+    if (!message?.logId || message.feedback) return
+    setMessages((prev) => prev.map((m, i) => (
+      i === index ? { ...m, feedback: value } : m)))
+    try {
+      await api.supportFeedback(message.logId, value)
+    } catch {
+      // 评价发不出去不该打断对话，界面上已经给了反馈
+    }
+  }
+
+  /** 转人工：把这个问题留给管理员，回复走站内消息。 */
+  async function handoff(index) {
+    const message = messages[index]
+    if (!message?.handoff) return
+    if (!getToken()) {
+      setError('转人工需要先登录，管理员回复时要知道回给谁。')
+      return
+    }
+    try {
+      const res = await api.supportHandoff(
+        message.handoff.question, message.handoff.reason,
+        localHistory().slice(-5).join('\n'))
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: `已转给管理员，工单号 ${res.handoff.handoff_no}。`
+          + '回复会通过站内消息通知你。',
+        ok: true,
+      }])
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -158,6 +202,63 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
                   {message.notes.map((note) => (
                     <span className="note" key={note}>{note}</span>
                   ))}
+                </div>
+              )}
+
+              {message.citations?.length > 0 && (
+                <div className="bubble-cites">
+                  <div className="cite-title">依据</div>
+                  {message.citations.map((cite) => (
+                    <div className="cite" key={cite.id}>
+                      <span className={`cite-tag ${cite.source}`}>
+                        {cite.source === 'notice' ? '公告' : '常见问题'}
+                      </span>
+                      <span className="cite-q">{cite.title}</span>
+                      <span className="cite-snippet">{cite.snippet}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {message.alternatives?.length > 0 && (
+                <div className="bubble-alts">
+                  <span className="alt-label">你可能想问</span>
+                  {message.alternatives.map((alt) => (
+                    <button
+                      className="chip-btn"
+                      key={alt}
+                      disabled={busy}
+                      onClick={() => send(null, alt)}
+                    >
+                      {alt}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {message.handoff && (
+                <div className="bubble-handoff">
+                  <button className="btn ghost small" onClick={() => handoff(index)}>
+                    转人工
+                  </button>
+                  <span className="muted small">
+                    我答不上来的问题，可以交给管理员
+                  </span>
+                </div>
+              )}
+
+              {message.logId && message.role === 'assistant' && (
+                <div className="bubble-rate">
+                  {message.feedback === 0 ? (
+                    <>
+                      <button className="rate" onClick={() => rate(index, 1)}>有用</button>
+                      <button className="rate" onClick={() => rate(index, -1)}>没用</button>
+                    </>
+                  ) : (
+                    <span className="muted small">
+                      {message.feedback > 0 ? '谢谢反馈' : '已记下，我们会补充这块内容'}
+                    </span>
+                  )}
                 </div>
               )}
 

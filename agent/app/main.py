@@ -16,6 +16,7 @@ from app.agents.property_finder import agent as property_finder
 from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
 from app.agents.repair import agent as repair
+from app.agents.support import agent as support
 from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
@@ -54,6 +55,16 @@ class ChatRequest(BaseModel):
     history: list[str] = []
     # 上一轮结果的房源编号，用于消解「第二套」「那套」这类指代
     last_house_nos: list[str] = []
+
+
+class SupportRequest(BaseModel):
+    text: str
+    # 事务型问题（「我还欠多少房租」）要拿令牌去后端查这个人自己的数据
+    token: str = ""
+    session_id: str = ""
+    # 多轮：用户自己说过的话，用于「那它多久到账」这类指代消解
+    history: list[str] = []
+    house_no: str = ""
 
 
 class RepairRequest(BaseModel):
@@ -188,6 +199,49 @@ def agent_report():
     return report.run(stats, provider=provider)
 
 
+@app.post("/agent/support")
+def agent_support(payload: SupportRequest):
+    """AI-03 智能客服问答（RAG）。
+
+    知识型问题走检索 + 可答性闸门 + 受约束生成；
+    事务型问题（问「我自己的」账单/租约/工单/预约）走后端接口取真实数据。
+    无依据时拒答，绝不编造。
+    """
+    result = support.run(payload.text, token=payload.token,
+                         history=payload.history, provider=provider,
+                         backend=backend_client, settings=settings,
+                         house_no=payload.house_no)
+    # 日志写在接口层而不是智能体里：`run()` 保持无副作用，方便测试
+    log_id = support.record(result, backend_client, token=payload.token,
+                            session_id=payload.session_id)
+    if log_id:
+        # 前端点「有用/没用」时要用它回指这一轮
+        result["log_id"] = log_id
+    return result
+
+
+@app.get("/agent/support/knowledge")
+def agent_support_knowledge():
+    """知识库现状：片数、来源、是否启用了向量通道。
+
+    调试与答辩用——被问「你们知识库里到底有什么」时能当场打开看。
+    """
+    kb = support.knowledge_base(backend=backend_client, settings=settings)
+    index = kb.refresh()
+    return {
+        "total": len(index) if index else 0,
+        "sources": kb.sources,
+        "origin": kb.origin,
+        "vector_enabled": bool(index and index.vector_enabled),
+        "refreshed_at": kb.loaded_at,
+        "items": [{"id": cid,
+                   "title": (index.get(cid) or {}).get("title", ""),
+                   "source": (index.get(cid) or {}).get("source", ""),
+                   "category": (index.get(cid) or {}).get("category", "")}
+                  for cid in (index.order if index else [])],
+    }
+
+
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
     """统一入口：先取上下文，再判意图，最后路由到对应子智能体。
@@ -267,6 +321,16 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = repair.run(text, provider=provider, submit=False)
         result["route"] = routed
         result["alternatives"] = []
+        return result
+
+    if intent == "support":
+        # AI-03。统一入口同样要把令牌带下去——用户在对话里问
+        # 「我还欠多少房租」，走的是同一个入口。
+        result = support.run(text, token=payload.token,
+                             history=list(payload.history or []),
+                             provider=provider, backend=backend_client,
+                             settings=settings)
+        result["route"] = routed
         return result
 
     if intent == "booking":

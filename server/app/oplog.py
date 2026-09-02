@@ -19,7 +19,10 @@ from app.auth import decode_token
 
 # 不记录的路径。登录失败的爆破痕迹有价值，但成功登录每天几百条纯噪音；
 # 对话记录接口一轮对话写两条，会把日志淹掉。
-SKIP_PATHS = ("/api/auth/login", "/api/chat-messages")
+# `/api/support/logs` 与 `/api/support/feedback` 是智能体与前端的高频机器写入，
+# 每问一句话就写一条。记进操作日志只会把真正需要审计的人工动作冲没。
+SKIP_PATHS = ("/api/auth/login", "/api/chat-messages",
+              "/api/support/logs", "/api/support/feedback")
 
 WATCHED_METHODS = ("POST", "PATCH", "PUT", "DELETE")
 
@@ -60,6 +63,13 @@ ACTION_RULES = (
 
     ("PATCH", r"^/api/admin/houses/", "审核房源"),
     ("PATCH", r"^/api/admin/users/", "修改用户状态或角色"),
+    # AI-03 智能客服
+    ("POST", r"^/api/faqs$", "新增知识条目"),
+    ("PUT", r"^/api/faqs/", "修改知识条目"),
+    ("PATCH", r"^/api/faqs/", "上下架知识条目"),
+    ("DELETE", r"^/api/faqs/", "删除知识条目"),
+    ("POST", r"^/api/support/handoff$", "提交转人工"),
+    ("POST", r"^/api/admin/handoffs/", "回复转人工工单"),
 )
 
 _COMPILED = tuple((method, re.compile(pattern), name)

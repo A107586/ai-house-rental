@@ -10,6 +10,7 @@
 import io
 import os
 import random
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -18,9 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
+from sqlalchemy import select  # noqa: E402
+
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
 from app.models import (Appointment, Base, BrowsingHistory,  # noqa: E402
+                        Faq,
                         ContentFlag, Favorite, House, HouseImage, Notice,
                         Repair, RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, User)
@@ -124,6 +128,83 @@ def build_house(index, landlord, district, layout_spec):
         view_count=random.randint(0, 500),
         published_at=datetime.now() - timedelta(days=random.randint(0, 90)),
     )
+
+
+
+# ---------------------------------------------------------------- AI-03 知识库
+
+# 语料的编写源是 `agent/knowledge/faq.md`——Markdown 好写、好 review，
+# 改动在 git diff 里一目了然，比在管理后台一条条敲强得多。
+# 种子把它导进 `faqs` 表，此后**数据库才是运行时的权威源**：
+# 管理员在后台增删改，智能体读的是表，不是文件。
+#
+# 这里重写了一遍解析而没有复用 `agent/app/agents/support/corpus.py`：
+# 业务后端不应该 import 智能体包，两个服务是独立部署的进程，
+# 让 server 依赖 agent 的目录结构，等于把两者绑死。
+# 格式很简单，二十行的重复换取零耦合，这笔账是划算的。
+
+FAQ_SOURCE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "agent", "knowledge", "faq.md")
+
+_FAQ_META = re.compile(r"^(id|category|alias)\s*:\s*(.+)$")
+
+
+def parse_faq_markdown(text):
+    """解析 faq.md，返回 [(code, question, answer, category, aliases)]。"""
+    items = []
+    for part in re.split(r"(?m)^##\s+", text)[1:]:
+        lines = part.splitlines()
+        question = lines[0].strip()
+        meta = {}
+        body_start = 1
+        for index in range(1, len(lines)):
+            line = lines[index].strip()
+            if not line:
+                if meta:
+                    body_start = index + 1
+                    break
+                continue
+            matched = _FAQ_META.match(line)
+            if not matched:
+                body_start = index
+                break
+            meta[matched.group(1)] = matched.group(2).strip()
+
+        code = meta.get("id")
+        if not code:
+            continue
+        answer = "\n".join(lines[body_start:]).strip()
+        answer = re.sub(r"\n*-{3,}\s*$", "", answer).strip()
+        items.append((code, question, answer,
+                      meta.get("category", "其他"), meta.get("alias", "")))
+    return items
+
+
+def seed_faqs(session):
+    """导入知识条目。已存在的按编码更新，不重复插入。"""
+    if not os.path.exists(FAQ_SOURCE):
+        print("  未找到 %s，跳过知识库导入" % FAQ_SOURCE)
+        return 0
+
+    with io.open(FAQ_SOURCE, encoding="utf-8") as handle:
+        items = parse_faq_markdown(handle.read())
+
+    created = 0
+    for order, (code, question, answer, category, aliases) in enumerate(items):
+        row = session.scalar(select(Faq).where(Faq.code == code))
+        if row is None:
+            row = Faq(code=code)
+            session.add(row)
+            created += 1
+        row.question = question
+        row.answer = answer
+        row.category = category
+        row.aliases = aliases
+        row.sort_order = order
+        row.is_published = True
+    session.commit()
+    return created
 
 
 def main():
@@ -437,11 +518,15 @@ def main():
 
         session.commit()
 
+        print("导入 AI-03 客服知识库 ...")
+        faq_count = seed_faqs(session)
+
         available = sum(1 for h in houses if h.status == "available")
         print("\n完成：")
         print("  用户 %d 个（管理员 1、房东 %d、租客 %d）"
               % (1 + len(landlords) + len(tenants), len(landlords), len(tenants)))
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
+        print("  客服知识条目 %d 条（AI-03 检索语料）" % faq_count)
         print("  看房预约 %d 条，报修工单 %d 条（已结案 %d 条）"
               % (len(used), len(made), len(plans)))
         print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))

@@ -6,6 +6,7 @@ import LandlordRoster from './LandlordRoster'
 import RepairDataPanel from './RepairDataPanel'
 import LogPanel from './LogPanel'
 import ReportPanel from './ReportPanel'
+import SupportPanel from './SupportPanel'
 
 const ROLE_LABEL = { tenant: '租客', landlord: '房东', admin: '管理员' }
 
@@ -106,6 +107,7 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'orders', label: '订单总览', n: contracts.length },
     { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'notices', label: '公告', n: notices.length },
+    { key: 'support', label: '智能客服' },
     { key: 'flags', label: '内容审核' },
     { key: 'repairdata', label: '维修数据' },
     { key: 'logs', label: '操作日志' },
@@ -142,6 +144,8 @@ export default function AdminPanel({ user, onClose }) {
         {tab === 'landlords' && <LandlordRoster />}
 
         {/* ---------------- 内容审核（M-08） ---------------- */}
+        {tab === 'support' && <SupportPanel />}
+
         {tab === 'flags' && <FlagPanel />}
 
         {/* ---------------- 维修数据（F-09） ---------------- */}

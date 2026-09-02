@@ -3198,3 +3198,193 @@ td.accent {
 .fld-hint b {
   color: var(--ink-2);
 }
+
+
+/* ---------------------------------------------------------- AI-03 智能客服 */
+
+/* 引用卡片。**这是整个功能最该被看见的部分**——
+   每条回答都指得回原文，用户点得开、评审看得到，
+   与「模型张口就来」的区别全在这一块。 */
+.bubble-cites {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--brand, #2f6fed);
+  background: rgba(47, 111, 237, 0.05);
+  border-radius: 0 6px 6px 0;
+}
+
+.cite-title {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.cite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.cite:last-child { margin-bottom: 0; }
+
+.cite-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: #e5edff;
+  color: #2f6fed;
+}
+
+.cite-tag.notice { background: #fff2e0; color: #b26a00; }
+
+.cite-q { font-weight: 600; }
+
+.cite-snippet {
+  width: 100%;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 猜你想问。检索失败也要给出口——这是客服产品与检索 demo 的区别 */
+.bubble-alts {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.alt-label { font-size: 12px; color: #6b7280; }
+
+.bubble-handoff {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bubble-rate {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.rate {
+  border: 1px solid #d5d9e0;
+  background: #fff;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.rate:hover { border-color: var(--brand, #2f6fed); color: var(--brand, #2f6fed); }
+
+/* ---- 管理端 ---- */
+
+.support-panel .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.support-panel .faq-editor {
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: #fafbfc;
+}
+
+.support-panel .faq-editor label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.support-panel .faq-editor label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.support-panel .faq-editor input,
+.support-panel .faq-editor textarea,
+.support-panel .faq-editor select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid #d5d9e0;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.support-panel .faq-editor label.inline input { width: auto; margin: 0; }
+
+.support-panel .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.support-panel .hint {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.7;
+  margin: 6px 0 12px;
+}
+
+.support-panel .stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.support-panel .stat {
+  flex: 1 1 110px;
+  padding: 10px 12px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.support-panel .stat b { display: block; font-size: 20px; }
+.support-panel .stat span { font-size: 12px; color: #6b7280; }
+
+.support-panel .reply-box { margin-top: 8px; }
+
+.support-panel .reply-box textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d5d9e0;
+  border-radius: 6px;
+  font: inherit;
+  margin-bottom: 6px;
+}
+
+.support-panel ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.support-panel .small { font-size: 12px; }
+.support-panel .link.danger { color: #c0392b; }
+
+@media (max-width: 720px) {
+  .support-panel .stat { flex-basis: 45%; }
+}

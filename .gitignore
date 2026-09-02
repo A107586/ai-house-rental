@@ -49,6 +49,9 @@ venv/
 # ===== 本地开发数据库 =====
 server/rental.db
 *.db-journal
+# SQLite 的 WAL 与共享内存文件，服务一跑起来就会出现
+*.db-wal
+*.db-shm
 
 # ===== 前端 =====
 web/node_modules/

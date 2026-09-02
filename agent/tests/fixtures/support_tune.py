@@ -1,0 +1,83 @@
+# -*- coding: utf-8 -*-
+"""AI-03 客服问答的**调参集**。
+
+这一组问题的用途只有一个：标定可答性闸门的两个阈值
+（`gate.COVER_STRONG` / `gate.COVER_MIN` / `gate.UNSEEN_MAX`）。
+
+**它与验收集 `support_eval.py` 严格不相交，且验收集全程不参与调参。**
+
+为什么要专门分两组：在用来验收的那批题上调阈值，等于拿考卷当练习册，
+调出来的数字必然虚高，而且高多少无从知晓。这个教训来自另一个项目——
+那边有五条结论因为「在测试集上读噪声」被撤回过，其中两条是把
+调参与评估混在一起造成的。
+
+这些题在开发过程中被反复查看、逐条分析过，所以它们**已经污染**，
+永远不能用来报告指标。
+"""
+
+# (问题, 期望能答出来的片 id 之一或 None 表示应当拒答)
+TUNE_CASES = [
+    # ---- 应当回答 ----
+    ("押金什么时候退", "faq-deposit-refund"),
+    ("保证金能退吗", "faq-deposit-refund"),
+    ("压金能退吗", "faq-deposit-refund"),          # 错别字
+    ("那个钱啥时候能回来", "faq-deposit-refund"),   # 极口语、无关键词
+    ("水电费怎么算", "faq-utility-pay"),
+    ("合租水电怎么分", "faq-utility-share"),
+    ("厨房漏水了怎么办", "faq-repair-submit"),
+    ("报修多久上门", "faq-repair-sla"),
+    ("提前搬走要赔钱吗", "faq-checkout-early"),
+    ("怎么续租", "faq-renew"),
+    ("房子怎么发布", "faq-landlord-publish"),
+    ("忘记密码了", "faq-account-password"),
+    ("电子合同有效吗", "faq-contract-legal"),
+    ("逾期没交租", "faq-bill-late"),
+
+    # ---- 应当拒答 ----
+    ("今天股市怎么样", None),
+    ("明天天气怎么样", None),
+    ("能不能开发票", None),
+    ("可以养宠物吗", None),
+    ("有没有停车位", None),
+    ("帮我写首诗", None),
+    ("附近有地铁吗", None),
+    ("推荐个电影", None),
+    ("装修能报销吗", None),
+]
+
+# 第二批：**中间带**样本。
+#
+# 第一批的正例覆盖率大多在 0.6 以上，直接从 COVER_STRONG 那一关过掉了，
+# 于是 UNSEEN_MAX 这个阈值实际上没有被任何正例约束过——标定出来的 0.45
+# 严到把七条本该回答的问题全拒了（它们的答案还都排在检索第一位）。
+#
+# 这一批专门补覆盖率 0.25~0.60 的自然口语问法，让中间带真正被约束住。
+# 刻意避开验收集用到的那 20 个片，防止调参与评估互相渗透。
+TUNE_CASES += [
+    # ---- 中间带正例 ----
+    ("东西没搬完会怎么样", "faq-checkout-belongings"),
+    ("身份证号会不会泄露出去", "faq-account-privacy"),
+    ("遇到假房源找谁", "faq-account-fake"),
+    ("站内信在哪看", "faq-account-message"),
+    ("房源审核一般多久", "faq-landlord-audit"),
+    ("租金定多少合适", "faq-landlord-price"),
+    ("房东在哪看租客交没交", "faq-landlord-collect"),
+    ("合同能下载下来吗", "faq-contract-copy"),
+    ("怎么让系统帮我看合同有没有坑", "faq-contract-review"),
+    ("第一次交房租在什么时候", "faq-bill-cycle"),
+    ("交完钱在哪查凭证", "faq-bill-receipt"),
+    ("看房是谁带我去", "faq-viewing-agent"),
+    ("约了没去会怎么样", "faq-viewing-noshow"),
+    ("宽带谁负责装", "faq-utility-network"),
+    ("水电费是自己交还是平台代收", "faq-utility-pay"),
+
+    # ---- 中间带负例 ----
+    ("房子能落户吗", None),
+    ("帮我算一下房贷月供", None),
+    ("小区有没有幼儿园", None),
+    ("能开增值税专用发票吗", None),
+    ("你们支持虚拟货币付款吗", None),
+]
+
+POSITIVES = [c for c in TUNE_CASES if c[1]]
+NEGATIVES = [c for c in TUNE_CASES if not c[1]]
