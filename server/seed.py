@@ -311,6 +311,24 @@ def main():
                     leasing.pay_bill(session, bill, tenant)
             signed += 1
 
+        print("生成一份待确认的合同（供答辩演示签约流程）...")
+        # 答辩演示要从「租客确认签约」这一步开始讲，所以必须留一份
+        # pending 的合同。全都 activate 掉的话，演示时只能现场调接口
+        # 建一份，台上敲命令行既慢又容易出错。
+        demo_house = next((h for h in houses
+                           if h.status == "available"
+                           and h.landlord_id == landlords[0].id), None)
+        if demo_house:
+            demo_contract = leasing.create_contract(
+                session, demo_house, tenants[0],
+                start_date=datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0),
+                months=12, pay_months=1)
+            # 刻意不调 activate_contract：留在待确认状态
+            print("  演示合同 %s（房源 %s，租客 %s）"
+                  % (demo_contract.contract_no, demo_house.house_no,
+                     tenants[0].username))
+
         print("生成一条待人工复核的内容 ...")
         # 让「内容审核」队列打开就有东西可看。这条是「机器拿不准」的典型：
         # 夸大宣传不违法，但也不该放任，正好需要人判断。
