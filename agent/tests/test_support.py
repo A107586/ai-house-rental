@@ -17,8 +17,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.support import agent as support  # noqa: E402
 from app.agents.support import corpus  # noqa: E402
-from app.agents.support.tools import (answer as answer_tool,  # noqa: E402
+from app.agents.support.tools import (account, answer as answer_tool,  # noqa: E402
                                       classify_ask, gate, toolcall)
+from app.backend import BackendError  # noqa: E402
 from app.retrieval.index import KnowledgeIndex  # noqa: E402
 
 
@@ -312,6 +313,168 @@ class TestSupportFlow(unittest.TestCase):
         self.assertIn("candidates", detail)
         self.assertIn("channels", detail)
         self.assertEqual(detail["mode"], "lexical")
+
+
+class TestTransactionalCoverage(unittest.TestCase):
+    """13 类事务型数据的分流。
+
+    这一组的价值不在「某一条对不对」，而在**三张表必须保持同步**：
+    `TOPICS`、`account.HANDLERS`、`toolcall.TOOL_SPECS`。
+    加一类事务要在三处各加一行，漏掉任何一处，
+    用户问出来的表现是「查不了这类记录」——一句看不出原因的话。
+    """
+
+    def test_three_registries_stay_in_sync(self):
+        topics = {name for name, _ in classify_ask.TOPICS}
+        handlers = set(account.HANDLERS)
+        specs = {name for name, _ in toolcall.TOOL_SPECS} - {"none"}
+        self.assertEqual(topics, handlers,
+                         "TOPICS 与 account.HANDLERS 不一致：%s" % (topics ^ handlers))
+        self.assertEqual(handlers, specs,
+                         "account.HANDLERS 与 TOOL_SPECS 不一致：%s" % (handlers ^ specs))
+
+    def test_every_topic_has_a_label(self):
+        for name in account.HANDLERS:
+            self.assertIn(name, account.TOPIC_LABELS,
+                          "%s 缺中文名，出错时用户会看到英文 topic" % name)
+
+    def test_routing_across_all_topics(self):
+        cases = [
+            ("我还欠多少房租", "bill"),
+            ("我这个月收了多少租金", "income"),
+            ("预期收入", "income"),
+            ("我的房源审核过了吗", "house"),
+            ("我的租客有谁欠费", "tenant"),
+            ("我的租约什么时候到期", "contract"),
+            ("我的报修到哪一步了", "repair"),
+            ("我预约的看房通过了吗", "booking"),
+            ("我收藏了哪些房子", "favorite"),
+            ("我看过哪些房源", "history"),
+            ("我有未读消息吗", "message"),
+            ("我有哪些租约没评价", "review"),
+            ("我的转人工工单处理了吗", "handoff"),
+            ("我的账号是什么身份", "profile"),
+        ]
+        misses = []
+        for question, want in cases:
+            result = classify_ask.classify(question)
+            got = result["topic"] if result["kind"] == classify_ask.KIND_ACCOUNT else "knowledge"
+            if got != want:
+                misses.append("%s -> %s（应为 %s）" % (question, got, want))
+        self.assertEqual(misses, [], "分流错误：\n" + "\n".join(misses))
+
+    def test_priority_order_narrow_beats_generic(self):
+        """含义更窄的类型必须排在通用业务名词前面。
+
+        三条都是实测撞出来的：「转人工工单」被 repair 的「工单」抢走、
+        「租约没评价」被 contract 的「租约」抢走、
+        「收了多少租金」被 bill 的「租金」抢走。
+        """
+        pairs = [("我的转人工工单处理了吗", "handoff", "repair"),
+                 ("我有哪些租约没评价", "review", "contract"),
+                 ("我这个月收了多少租金", "income", "bill")]
+        for question, want, loser in pairs:
+            got = classify_ask.classify(question)["topic"]
+            self.assertEqual(got, want,
+                             "「%s」被 %s 抢走了，应归 %s" % (question, got, want))
+
+
+    def test_status_query_is_not_a_handoff_request(self):
+        """问进度不能被当成「我要转人工」。
+
+        实测撞到过：「我的转人工工单处理了吗」里有「转人工」三个字，
+        `wants_handoff()` 先跑，于是又给用户建了一张新工单——
+        他只是想知道上一张的进度。
+        """
+        for question in ["我的转人工工单处理了吗", "人工回复了吗"]:
+            self.assertFalse(classify_ask.wants_handoff(question),
+                             "「%s」是问进度，不该新建工单" % question)
+            self.assertEqual(classify_ask.classify(question)["topic"], "handoff")
+
+    def test_real_handoff_request_still_works(self):
+        for question in ["我要转人工", "转人工", "找个人问问"]:
+            self.assertTrue(classify_ask.wants_handoff(question),
+                            "「%s」是真要转人工" % question)
+
+    def test_progress_words_imply_ownership(self):
+        """「报修处理好了吗」省略了「我的」，但显然问的是自己那一条。"""
+        for question, topic in [("报修处理好了吗", "repair"),
+                                ("预约有结果了吗", "booking")]:
+            result = classify_ask.classify(question)
+            self.assertEqual(result["kind"], classify_ask.KIND_ACCOUNT)
+            self.assertEqual(result["topic"], topic)
+
+    def test_generic_question_never_becomes_transactional(self):
+        """通用规则问题绝不能走查库——那会把 FAQ 的答案说成「你的」数据。"""
+        for question in ["押金一般收几个月", "水电费怎么算", "怎么评价房东",
+                         "报修多久上门", "提前退租要付违约金吗"]:
+            result = classify_ask.classify(question)
+            self.assertEqual(result["kind"], classify_ask.KIND_KNOWLEDGE,
+                             "「%s」被误判成事务型" % question)
+
+
+class TestAccountTools(unittest.TestCase):
+    """取数函数本身。用假后端喂数据，不连真库。"""
+
+    class FakeBackend(object):
+        def __init__(self, payloads):
+            self.payloads = payloads
+            self.calls = []
+
+        def get(self, path, params=None, token=None):
+            self.calls.append(path)
+            if path not in self.payloads:
+                raise AssertionError("用例没有为 %s 准备数据" % path)
+            return self.payloads[path]
+
+    def test_landlord_houses_summarised_by_status(self):
+        backend = self.FakeBackend({"/api/landlord/houses": {"list": [
+            {"house_no": "H1", "status": "available"},
+            {"house_no": "H2", "status": "rented"},
+            {"house_no": "H3", "status": "rented"},
+        ]}})
+        status, message, data = account.lookup(backend, "tok", "house")
+        self.assertEqual(status, "ok")
+        self.assertIn("3 套", message)
+        self.assertIn("已出租 2 套", message)
+        self.assertEqual(data["by_status"]["rented"], 2)
+
+    def test_income_reports_only_backend_numbers(self):
+        """经营数据里的每个数字都必须来自后端，不能由智能体推算。"""
+        backend = self.FakeBackend({"/api/landlord/dashboard": {
+            "house_total": 4, "house_rented": 3, "occupancy_rate": 75.0,
+            "month_income": 6600, "income_pending": 2200, "overdue_count": 1,
+        }})
+        status, message, _ = account.lookup(backend, "tok", "income")
+        self.assertEqual(status, "ok")
+        for number in ("4", "3", "75", "6600", "2200"):
+            self.assertIn(number, message)
+        self.assertIn("逾期", message)
+
+    def test_landlord_only_topic_explains_permission_to_tenant(self):
+        """租客问「我的房源」，后端会拒。要说清楚是身份问题，
+        而不是丢一句「数据取不到」让人反复重试。"""
+        class Denied(object):
+            def get(self, path, params=None, token=None):
+                raise BackendError("需要房东权限")
+
+        status, message, _ = account.lookup(Denied(), "tok", "house")
+        self.assertEqual(status, "error")
+        self.assertIn("房东端", message)
+
+    def test_missing_token_asks_for_login(self):
+        status, message, _ = account.lookup(None, "", "bill")
+        self.assertEqual(status, "need_login")
+
+    def test_unknown_topic_is_reported_not_crashed(self):
+        status, _, _ = account.lookup(None, "tok", "不存在的类型")
+        self.assertEqual(status, "error")
+
+    def test_empty_results_read_naturally(self):
+        """空数据也要说人话，不能返回「共 0 条」这种机器口吻。"""
+        backend = self.FakeBackend({"/api/favorites": {"list": []}})
+        _, message, _ = account.lookup(backend, "tok", "favorite")
+        self.assertIn("还没有收藏", message)
 
 
 if __name__ == "__main__":

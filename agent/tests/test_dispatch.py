@@ -92,7 +92,7 @@ class TestChatDispatch(unittest.TestCase):
 
     def test_unknown_and_unanswerable_still_guides(self):
         """既认不出意图、检索也没依据时，仍要给出路而不是死路。"""
-        result = ask("预期收入")
+        result = ask("帮我订个外卖")
         self.assert_shape(result)
         self.assertEqual(result["status"], "refused")
         self.assertTrue(result["alternatives"], "拒答必须给「猜你想问」")
@@ -100,13 +100,29 @@ class TestChatDispatch(unittest.TestCase):
     def test_suggestions_are_not_noise_when_nothing_matches(self):
         """检索完全没沾边时，「猜你想问」不能拿 top-3 充数。
 
-        问「预期收入」时检索前三名曾是「入住时水电表读数要核对吗」
-        这种毫不相关的条目，推给用户比不推更糟。
+        曾经问一个完全无关的问题，检索前三名是「入住时水电表读数要核对吗」
+        「站内消息在哪看」这种毫不相关的条目，推给用户比不推更糟。
         """
-        result = ask("预期收入")
+        result = ask("帮我订个外卖")
         joined = "".join(result["alternatives"])
         self.assertNotIn("水电表", joined)
         self.assertNotIn("站内消息", joined)
+
+    def test_expected_income_reaches_the_landlord_dashboard(self):
+        """「预期收入」曾经是「不理解」的典型：一个意图关键词都不命中，
+        落到 unknown 分支被甩一句「没太理解你的意思」。
+
+        它其实是房东在问自己名下房源的经营数据，答案在 landlord/dashboard
+        里，而不是 FAQ 里。现在应当走查库（未登录时提示登录），
+        **绝不能拿 FAQ 编一个收入数字**。
+        """
+        result = ask("预期收入")
+        self.assert_shape(result)
+        self.assertEqual(result["status"], "need_login")
+        self.assertEqual(result["retrieval"]["mode"], "account")
+        self.assertEqual(result["retrieval"]["tool"], "income")
+        self.assertEqual(result["citations"], [],
+                         "事务型问题不该带 FAQ 引用")
 
     def test_contract_knowledge_question_is_answered_not_redirected(self):
         """规则型合同问题该直接答，不该一律支去点「智能审阅」。"""
