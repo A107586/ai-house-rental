@@ -35,6 +35,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
     : (house.cover_image ? [house.cover_image] : [])
 
   async function refresh() {
+    // 必须打一次房源详情接口：浏览量与浏览足迹都由它记录。
+    // 卡片列表里已经带了全部字段，看着「不用再查一次」——
+    // 但不查的话浏览量永远不增长、足迹永远是空的，
+    // 而 AI-07 房源推荐正是靠足迹工作的。
+    // 失败不影响抽屉展示，所以单独 catch。
+    api.getHouse(house.house_no).catch(() => {})
+
     try {
       const [appointments, tickets, rated] = await Promise.all([
         api.listAppointments(house.house_no),

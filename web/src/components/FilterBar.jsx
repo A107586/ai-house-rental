@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../api'
 
-const DISTRICTS = ['中山区', '西岗区', '沙河口区', '甘井子区', '旅顺口区', '金州区']
+// 区域列表从接口取，不写死。写死的话新增一个区，筛选器里就永远没有它；
+// 顺带能显示每个区有多少套，选之前就知道值不值得点。
+// 接口拿不到时退回这份兜底，不能让筛选器整个空掉。
+const FALLBACK_DISTRICTS = ['中山区', '西岗区', '沙河口区', '甘井子区',
+  '旅顺口区', '金州区']
 const LAYOUTS = ['一室', '一室一厅', '两室一厅', '两室两厅', '三室一厅', '三室两厅']
 const RENT_TYPES = ['整租', '合租', '公寓']
 
@@ -37,6 +42,19 @@ const EMPTY = {
 export default function FilterBar({ onApply, disabled }) {
   const [open, setOpen] = useState(false)
   const [f, setF] = useState(EMPTY)
+  const [districts, setDistricts] = useState(
+    FALLBACK_DISTRICTS.map((d) => ({ district: d, count: null })))
+
+  useEffect(() => {
+    let alive = true
+    api
+      .listDistricts()
+      .then((rows) => {
+        if (alive && Array.isArray(rows) && rows.length) setDistricts(rows)
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   function pick(key, value) {
     // 再点一次同一项即取消选择，省掉一个「全部」按钮
@@ -100,9 +118,11 @@ export default function FilterBar({ onApply, disabled }) {
       {open && (
         <div className="filter-body">
           <Row label="区域">
-            {DISTRICTS.map((d) => (
-              <Chip key={d} on={f.district === d} onClick={() => pick('district', d)}>
-                {d}
+            {districts.map((d) => (
+              <Chip key={d.district} on={f.district === d.district}
+                onClick={() => pick('district', d.district)}>
+                {d.district}
+                {d.count != null && <span className="chip-n">{d.count}</span>}
               </Chip>
             ))}
           </Row>

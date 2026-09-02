@@ -3179,3 +3179,10 @@ td.accent {
   max-height: 140px;
   overflow: auto;
 }
+
+/* 筛选器里区域后面的房源数。选之前就知道值不值得点 */
+.chip-n {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
