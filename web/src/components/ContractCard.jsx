@@ -20,13 +20,31 @@ export default function ContractCard({ contract, role, onChanged }) {
     setReviewing(true)
     setError('')
     try {
-      setReview(await api.agentContractReview(contract.content))
+      const result = await api.agentContractReview(contract.content)
+      setReview(result)
+
+      // 把结论摘要回写到合同上，下次打开列表不用重跑一遍就能看到分数。
+      // 回写失败不影响本次展示——结果已经在眼前了。
+      try {
+        await api.saveReviewResult(contract.contract_no, {
+          score: result.score ?? 0,
+          summary: result.message || '',
+          risk_count: (result.risks || []).length,
+          source: result.source || '',
+        })
+        onChanged?.()
+      } catch {
+        // 静默：审阅结果本身已经显示出来了，存不存得下是次要的
+      }
     } catch (err) {
       setError(err.message)
     } finally {
       setReviewing(false)
     }
   }
+
+  // 已经审过的合同直接显示上次的结论，不用每次都重跑
+  const saved = contract.review_result
 
   const isTenant = role === 'tenant'
   const isStaff = role === 'landlord' || role === 'admin'
@@ -98,8 +116,18 @@ export default function ContractCard({ contract, role, onChanged }) {
         </button>
 
         <button className="btn ghost small" onClick={runReview} disabled={reviewing}>
-          {reviewing ? '审阅中…' : '智能审阅'}
+          {reviewing ? '审阅中…' : saved ? '重新审阅' : '智能审阅'}
         </button>
+
+        {/* 已审阅过就把上次的分数摆出来。每次点进来都要重跑一遍才知道
+            分数，那这个字段存了也等于没存 */}
+        {saved && !review && (
+          <span className="review-badge" title={saved.summary}>
+            已审阅 · {saved.score} 分
+            {saved.risk_count > 0 && ` · ${saved.risk_count} 条风险`}
+            <span className="review-time">{saved.reviewed_at}</span>
+          </span>
+        )}
 
         {contract.status === 'pending' && isTenant && (
           <button

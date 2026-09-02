@@ -8,7 +8,7 @@
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base
@@ -22,6 +22,32 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or DEFAULT_SQLITE
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True)
+
+
+if DATABASE_URL.startswith("sqlite") and not DATABASE_URL.endswith(":memory:") \
+        and DATABASE_URL != "sqlite://":
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, connection_record):
+        """SQLite 的并发调优。只对文件库生效，内存库（测试用）跳过。
+
+        默认的回滚日志模式下，**任何一个写事务都会把所有读者挡在门外**。
+        房源详情接口每次访问都要写（浏览量 +1、记一条足迹），
+        在并发下就成了整个系统的串行瓶颈——实测 100 并发时详情接口
+        最慢一次要 1.4 秒，而它本身只是查一行数据。
+
+        WAL 模式把写入记到单独的日志里，读者不再被写者阻塞。
+        synchronous=NORMAL 在 WAL 下是官方推荐值：仍能保证数据库不损坏，
+        只是极端断电时可能丢掉最后几个事务——对本项目可以接受。
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        # 拿不到锁时等待而不是立刻报 database is locked
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
 
 

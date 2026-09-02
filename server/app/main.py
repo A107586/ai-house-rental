@@ -5,6 +5,7 @@
 （对应非功能需求 N-06：禁止拼接执行任意 SQL）。
 """
 
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -12,7 +13,8 @@ from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 
 from app import leasing
@@ -304,7 +306,7 @@ if not HAS_WEB:
 
 @app.get("/health")
 def health(session: Session = Depends(get_session)):
-    house_count = len(session.execute(select(House.id)).all())
+    house_count = session.scalar(select(func.count(House.id)))
     return {
         "status": "ok",
         "houses": house_count,
@@ -446,7 +448,11 @@ def list_houses(
         stmt = stmt.where(House.title.like(like) | House.description.like(like)
                           | House.community.like(like))
 
-    total = len(session.execute(stmt).all())
+    # 用 count(*) 而不是把匹配的行全捞出来再 len()。
+    # 后者会把每一行都实例化成 ORM 对象，只为得到一个数字——
+    # 100 并发下这一处就把列表接口拖过了 1 秒。
+    total = session.scalar(
+        select(func.count()).select_from(stmt.subquery()))
 
     order = {
         "rent_price": House.rent_price.asc(),
@@ -456,8 +462,15 @@ def list_houses(
         "view_count": House.view_count.desc(),
     }.get(sort, House.published_at.desc())
 
+    # 预加载 to_dict() 会用到的三个关联：相册、房东、评价。
+    # 不预加载的话每条房源都要再发三次查询（images / landlord /
+    # reviews，后者被 avg_rating 与 review_count 各读一次）——
+    # 一页 12 条就是 36 次额外往返，典型的 N+1。
     rows = session.scalars(
-        stmt.order_by(order).offset((page - 1) * limit).limit(limit)).all()
+        stmt.options(selectinload(House.images),
+                     selectinload(House.reviews),
+                     joinedload(House.landlord))
+        .order_by(order).offset((page - 1) * limit).limit(limit)).all()
 
     return {"total": total, "page": page, "limit": limit,
             "list": [h.to_dict() for h in rows]}
@@ -1438,6 +1451,38 @@ def renew_contract(contract_no: str, payload: ContractRenew,
     return {"ok": True, "contract": new_contract.to_dict()}
 
 
+class ReviewResultIn(BaseModel):
+    score: int = Field(ge=0, le=100)
+    summary: str = Field(default="", max_length=500)
+    risk_count: int = Field(default=0, ge=0)
+    source: str = Field(default="", max_length=30)
+
+
+@app.post("/api/contracts/{contract_no}/review-result")
+def save_review_result(contract_no: str, payload: ReviewResultIn,
+                       user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """保存 AI-02 合同审阅的结论快照。
+
+    只存**结论摘要**（评分、一句话总结、风险条数、是否走了大模型），
+    不存完整的风险明细——明细每次审阅都能重新算出来，存下来只会在
+    规则升级后变成一份过期的旧结论。存摘要是为了让合同列表能直接显示
+    「已审阅 · 92 分」，不必为了一个数字把每份合同都重跑一遍。
+
+    只有合同的当事人（承租方或出租方）与管理员能写。
+    """
+    contract = _visible_contract(session, contract_no, user)
+    contract.review_result = json.dumps({
+        "score": payload.score,
+        "summary": payload.summary,
+        "risk_count": payload.risk_count,
+        "source": payload.source,
+        "reviewed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }, ensure_ascii=False)
+    session.commit()
+    return {"ok": True, "review_result": json.loads(contract.review_result)}
+
+
 # ------------------------------------------------------------------ 账单
 
 @app.get("/api/bills/mine")
@@ -2283,7 +2328,7 @@ def list_logs(keyword: str = "", action: str = "", role: str = "",
         # 一串 403 正是需要被看见的信号
         query = query.where(OperationLog.status_code >= 400)
 
-    total = len(session.scalars(query).all())
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.scalars(
         query.order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
         .offset((page - 1) * limit).limit(limit)).all()

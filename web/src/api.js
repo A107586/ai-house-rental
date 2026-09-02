@@ -312,6 +312,12 @@ export const api = {
   // AI-05 经营分析报告
   agentReport: () => post(agentUrl('/agent/report'), {}),
 
+  // AI-02 审阅结论回写。只存摘要，明细每次都能重算——
+  // 存下来只会在规则升级后变成一份过期的旧结论。
+  saveReviewResult: (contractNo, summary) =>
+    request(`/api/contracts/${contractNo}/review-result`,
+      { method: 'POST', body: JSON.stringify(summary) }),
+
   // L-10 定价建议
   pricingSuggest: (params) => request(`/api/pricing/suggest?${toQuery(params)}`),
 

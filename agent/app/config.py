@@ -32,7 +32,11 @@ class Settings:
 
     def __init__(self):
         # ---- 业务后端 ----
-        self.backend_base_url = _get("BACKEND_BASE_URL", "http://localhost:8080")
+        # 必须写 127.0.0.1 而不是 localhost。Windows 上 localhost 会先解析成
+        # IPv6 的 ::1，而后端默认只绑 IPv4；连不上再回退，这一次回退实测
+        # 要 2 秒——每一次智能体调后端都白付这 2 秒，找房、预约、报修、
+        # 推荐全都被拖慢。显式写 IPv4 就没有这个歧义。
+        self.backend_base_url = _get("BACKEND_BASE_URL", "http://127.0.0.1:8080")
         self.backend_timeout = _get_float("BACKEND_TIMEOUT", 10.0)
 
         # ---- 大模型 ----

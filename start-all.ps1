@@ -72,17 +72,23 @@ if ($npm -and -not (Test-Path (Join-Path $root "web\node_modules"))) {
     Pop-Location
 }
 
+# --host 0.0.0.0 的两个理由：
+#   1. 不指定时 uvicorn 只绑 127.0.0.1，手机连同一局域网也访问不到，
+#      而移动端适配那一组用例正需要用真机访问；
+#   2. localhost 在 Windows 上会先解析成 IPv6 的 ::1，只绑 IPv4 时
+#      浏览器要等一次回退。绑 0.0.0.0 覆盖全部 IPv4 地址。
+# 这是开发用的启动脚本，会把服务暴露到局域网内——在公共网络下慎用。
 Write-Host "启动业务后端 http://localhost:8080 ..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "cd '$root\server'; $python -m uvicorn app.main:app --reload --port 8080"
+    "cd '$root\server'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080"
 )
 Start-Sleep -Seconds 3
 
 Write-Host "启动智能体服务 http://localhost:8000 ..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "cd '$root\agent'; $python -m uvicorn app.main:app --reload --port 8000"
+    "cd '$root\agent'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 )
 Start-Sleep -Seconds 3
 

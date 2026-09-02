@@ -12,6 +12,8 @@
 看房通过后生成合同，合同生效时一次性排出整个租期的账单，缴费产生流水。
 """
 
+import json
+
 from datetime import datetime
 
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, Numeric,
@@ -310,7 +312,9 @@ class Contract(Base):
     # pending 待确认 / active 生效中 / ended 已结束 / cancelled 已取消
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     content: Mapped[str] = mapped_column(Text, default="")
-    # AI-02 合同智能审阅的结果，暂未接入
+    # AI-02 合同智能审阅的**结论摘要**（JSON 字符串）：评分、一句话
+    # 总结、风险条数、是否走了大模型。刻意不存风险明细——明细每次
+    # 都能重新算出来，存下来只会在规则升级后变成一份过期的旧结论。
     review_result: Mapped[str] = mapped_column(Text, default="")
 
     signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
@@ -328,6 +332,17 @@ class Contract(Base):
         if self.status != "active":
             return 0
         return max((self.end_date.date() - datetime.now().date()).days, 0)
+
+    @property
+    def review_summary(self):
+        """AI-02 审阅结论摘要。存的是 JSON 字符串，解不动就当没审过——
+        一个坏掉的字段不该让整个合同接口跟着报错。"""
+        if not self.review_result:
+            return None
+        try:
+            return json.loads(self.review_result)
+        except (ValueError, TypeError):
+            return None
 
     def to_dict(self):
         return {
@@ -350,6 +365,7 @@ class Contract(Base):
             "deposit_refund": (float(self.deposit_refund)
                                if self.deposit_refund is not None else None),
             "signed_at": self.signed_at.strftime("%Y-%m-%d %H:%M") if self.signed_at else "",
+            "review_result": self.review_summary,
         }
 
 
