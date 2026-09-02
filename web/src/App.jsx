@@ -32,10 +32,13 @@ const FILTER_LABELS = {
   mianji_max: (v) => `面积 ≤ ${v} 平`,
 }
 
+// 解析来源。fused 是当前的正常路径：规则先解析一遍，结论作为参考
+// 交给大模型，由它给出最终结果——两者同时参与，不是二选一。
 const SOURCE_LABEL = {
-  rules: '规则解析，未调用大模型',
+  rules: '规则解析，未配置大模型',
+  fused: '规则 + 大模型融合',
   llm: '大模型解析',
-  rules_fallback: '大模型不可用，已降级为规则解析',
+  rules_fallback: '大模型输出不可用，已退回规则结果',
 }
 
 const PAGE_SIZE = 12

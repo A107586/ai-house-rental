@@ -17,9 +17,12 @@ class FakeProvider(LLMProvider):
         self.payload = payload
         self.fail = fail
         self.calls = 0
+        # 记下提示词，用于验证规则的结论确实被带了进去
+        self.last_prompt = ""
 
     def complete(self, system_prompt, user_prompt, max_tokens=None):
         self.calls += 1
+        self.last_prompt = user_prompt
         if self.fail:
             raise LLMUnavailable("模拟故障")
         return self.payload
@@ -102,20 +105,54 @@ class TestAssignee(unittest.TestCase):
 
 class TestAnalyze(unittest.TestCase):
 
-    def test_high_confidence_skips_llm(self):
-        provider = FakeProvider(payload='{"category":"家电","urgency":"一般"}')
-        _, source = agent.analyze("卫生间水管漏水了", provider=provider)
-        self.assertEqual(source, "rules")
-        self.assertEqual(provider.calls, 0)
+    def test_llm_is_always_consulted(self):
+        """规则与大模型**同时参与**，规则再确定也要过一遍大模型。
 
-    def test_low_confidence_calls_llm(self):
+        旧架构是「置信度够就跳过大模型」，那样规则覆盖不到的说法永远
+        得不到修正；现在规则的结论作为参考交给大模型，由它给最终结果。
+        """
+        provider = FakeProvider(payload='{"category":"水暖","urgency":"紧急"}')
+        _, source = agent.analyze("卫生间水管漏水了", provider=provider)
+        self.assertEqual(provider.calls, 1, "规则确定时也要调用大模型")
+        self.assertEqual(source, "fused")
+
+    def test_rule_conclusion_is_in_the_prompt(self):
+        """规则的结论必须真的进到提示词里，否则「融合」就是空话。"""
+        provider = FakeProvider(payload='{"category":"水暖","urgency":"紧急"}')
+        agent.analyze("卫生间水管漏水了", provider=provider)
+        self.assertIn("水暖", provider.last_prompt)
+        self.assertIn("紧急", provider.last_prompt)
+
+    def test_llm_fixes_what_rules_missed(self):
+        """规则认不出的说法由大模型补上——这是融合的主要收益。
+
+        这句话没有任何可命中的关键词，规则只能落到「其他」。
+        """
         provider = FakeProvider(
             payload='{"category":"家具","urgency":"一般","reason":"床板松动"}')
-        # 这句话没有任何可命中的关键词，规则置信度为 0，才会转交大模型
         result, source = agent.analyze("说不上来哪里不对劲", provider=provider)
         self.assertEqual(provider.calls, 1)
-        self.assertEqual(source, "llm")
+        self.assertEqual(source, "fused")
         self.assertEqual(result["category"], "家具")
+
+    def test_safety_urgency_is_never_downgraded(self):
+        """**护栏**：规则判为紧急的，大模型不得降级。
+
+        需求 AI-04 原文写明涉及漏水、漏电、燃气泄漏必须判紧急。
+        写在提示词里只是「请你注意」，大模型可以不照做；写在护栏里
+        是无论它怎么答都改回来——漏判一次可能真出事。
+        """
+        provider = FakeProvider(payload='{"category":"水暖","urgency":"可延后"}')
+        result, _ = agent.analyze("卫生间水管漏水了", provider=provider)
+        self.assertEqual(result["urgency"], "紧急")
+        self.assertTrue(any("不降级" in d for d in result.get("divergence", [])))
+
+    def test_upgrading_urgency_is_allowed(self):
+        """反过来允许升级：多派一次工只是多跑一趟，
+        与漏判的代价完全不对等。"""
+        provider = FakeProvider(payload='{"category":"家具","urgency":"紧急"}')
+        result, _ = agent.analyze("衣柜门有点松", provider=provider)
+        self.assertEqual(result["urgency"], "紧急")
 
     def test_llm_invalid_category_is_rejected(self):
         """大模型返回枚举外的值必须丢弃，不能写进数据库。"""

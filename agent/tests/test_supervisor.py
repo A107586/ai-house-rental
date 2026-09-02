@@ -23,9 +23,11 @@ class FakeProvider(LLMProvider):
         self.payload = payload
         self.fail = fail
         self.calls = 0
+        self.last_prompt = ""
 
     def complete(self, system_prompt, user_prompt, max_tokens=None):
         self.calls += 1
+        self.last_prompt = user_prompt
         if self.fail:
             raise LLMUnavailable("模拟大模型故障")
         return self.payload
@@ -81,19 +83,59 @@ class TestRuleClassification(unittest.TestCase):
 
 class TestRouting(unittest.TestCase):
 
-    def test_high_confidence_skips_llm(self):
-        """规则置信度够高时，绝不能调用大模型——这是省 Token 的关键。"""
-        provider = FakeProvider(payload='{"intent":"search","confidence":0.9}')
-        result = supervisor.classify("卫生间漏水了，需要报修，马桶也堵了", provider=provider)
-        self.assertEqual(result["source"], "rules")
-        self.assertEqual(provider.calls, 0)
+    def test_llm_is_always_consulted(self):
+        """规则与大模型**同时参与**，规则再确定也要过一遍大模型。
 
-    def test_low_confidence_calls_llm(self):
+        旧架构是「置信度够就跳过」，好处是省 Token，代价是规则覆盖不到
+        的说法永远得不到修正。现在改为每次都问，规则的结论作为参考
+        一并交过去；成本由 FUSION_ENABLED 开关兜底（见下一个用例）。
+        """
+        provider = FakeProvider(payload='{"intent":"repair","confidence":0.9}')
+        result = supervisor.classify("卫生间漏水了，需要报修", provider=provider)
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(result["source"], "fused")
+
+    def test_can_be_switched_off_for_cost(self):
+        """需求 N-08 要求 Token 消耗受控，所以留了关掉融合的开关。
+
+        关掉之后功能仍然完整，只是少了大模型的修正。
+        """
+        from app.config import settings
+        provider = FakeProvider(payload='{"intent":"search","confidence":0.9}')
+        original = settings.fusion_enabled
+        settings.fusion_enabled = False
+        try:
+            result = supervisor.classify("卫生间漏水了，需要报修",
+                                         provider=provider)
+            self.assertEqual(provider.calls, 0)
+            self.assertEqual(result["source"], "rules")
+        finally:
+            settings.fusion_enabled = original
+
+    def test_rule_conclusion_is_in_the_prompt(self):
+        """规则的结论必须真的进到提示词里，否则「融合」就是空话。"""
+        provider = FakeProvider(payload='{"intent":"repair","confidence":0.9}')
+        supervisor.classify("卫生间漏水了，需要报修", provider=provider)
+        self.assertIn("报修", provider.last_prompt)
+
+    def test_llm_decides_when_rules_are_unsure(self):
         provider = FakeProvider(payload='{"intent":"support","confidence":0.88}')
         result = supervisor.classify("这个平台靠谱吗", provider=provider)
         self.assertEqual(provider.calls, 1)
-        self.assertEqual(result["source"], "llm")
+        self.assertEqual(result["source"], "fused")
         self.assertEqual(result["intent"], "support")
+
+    def test_strong_rule_intent_is_not_overridden(self):
+        """**护栏**：规则高置信度判定的意图不接受改写。
+
+        意图判错会把请求整个路由到错误的子智能体——用户说要报修，
+        结果走进找房流程，比答得不好严重得多。
+        """
+        provider = FakeProvider(payload='{"intent":"search","confidence":0.99}')
+        result = supervisor.classify("卫生间漏水了，需要报修", provider=provider)
+        self.assertEqual(result["intent"], "repair")
+        self.assertTrue(any("保留规则结果" in d
+                            for d in result.get("divergence", [])))
 
     def test_llm_failure_falls_back_to_rules(self):
         """大模型故障必须降级，不能把异常抛给用户（非功能需求 N-07）。"""
@@ -102,9 +144,13 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(result["source"], "rules_fallback")
 
     def test_no_provider_falls_back(self):
-        """未配置大模型时服务照常工作。"""
+        """未配置大模型时服务照常工作（需求 N-07）。
+
+        source 是 rules 而不是 rules_fallback：什么都没失败，
+        只是没配大模型。fallback 专指「调用了但输出不可用」。
+        """
         result = supervisor.classify("这个平台靠谱吗", provider=NullProvider())
-        self.assertEqual(result["source"], "rules_fallback")
+        self.assertEqual(result["source"], "rules")
 
     def test_llm_garbage_output_falls_back(self):
         """大模型返回了不存在的意图，必须丢弃而不是照单全收。"""

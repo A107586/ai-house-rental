@@ -8,6 +8,7 @@
 
 from app.agents.repair.tools.classify import (URGENCY_LEVELS, classify_repair,
                                               describe)
+from app import fusion
 from app.config import settings
 from app.llm.base import LLMUnavailable
 
@@ -23,8 +24,18 @@ _PROMPT = """分析下面这条报修描述，判断故障类型与紧急程度�
 
 报修描述：「{text}」
 
+系统的规则引擎已经先判了一遍，结果如下，**供你参考**：
+
+{reference}
+
+规则引擎靠关键词表匹配，常见说法判得准；但换个说法、说得含糊，
+它就只能落到「其他」。请在它的基础上确认与修正，直接给出最终判断。
+
 只输出如下 JSON：
 {{"category": "<故障类型>", "urgency": "<紧急程度>", "reason": "<一句话依据>"}}"""
+
+_RESULT_LABELS = {"category": "故障类型", "urgency": "紧急程度",
+                  "assignee": "建议派单"}
 
 _VALID_CATEGORIES = {"水暖", "电路", "家电", "门窗", "家具", "燃气", "其他"}
 
@@ -32,38 +43,61 @@ _VALID_CATEGORIES = {"水暖", "电路", "家电", "门窗", "家具", "燃气",
 def analyze(text, provider=None):
     """分析报修描述，返回 ``(result, source)``。
 
-    规则置信度达标就直接用；不达标且大模型可用时才调用大模型。
+    **规则与大模型同时参与**：规则先判一遍，结论作为参考写进提示词，
+    由大模型给出最终判断。大模型不可用时直接采用规则结论（需求 N-07）。
+
+    紧急程度有一条**不接受覆盖**的护栏，见 `_never_downgrade_safety`。
     """
-    rule_result = classify_repair(text)
-    if rule_result["confidence"] >= settings.rule_confidence_threshold:
-        return rule_result, "rules"
-
-    if provider is None or not provider.available:
-        return rule_result, "rules_fallback"
-
-    try:
-        data = provider.complete_json(_SYSTEM, _PROMPT.format(text=text))
-    except LLMUnavailable:
-        return rule_result, "rules_fallback"
-
-    if not isinstance(data, dict):
-        return rule_result, "rules_fallback"
-
-    category = str(data.get("category") or "").strip()
-    urgency = str(data.get("urgency") or "").strip()
-    # 大模型可能返回不在枚举里的值，一律丢弃回退，不能直接写进数据库
-    if category not in _VALID_CATEGORIES or urgency not in URGENCY_LEVELS:
-        return rule_result, "rules_fallback"
-
     from app.agents.repair.tools.classify import ASSIGNEE_BY_CATEGORY
-    return {
-        "category": category,
-        "urgency": urgency,
-        "assignee": ASSIGNEE_BY_CATEGORY.get(category, "综合维修工"),
-        "confidence": 0.9,
-        "matched": rule_result["matched"],
-        "reason": str(data.get("reason") or "")[:120],
-    }, "llm"
+
+    rule_result = classify_repair(text)
+
+    def sanitize(raw):
+        category = str(raw.get("category") or "").strip()
+        urgency = str(raw.get("urgency") or "").strip()
+        # 枚举外的值一律丢弃回退——这些字段会直接写进数据库，
+        # 写进去一个「非常紧急」，前端的状态过滤就全乱了
+        if category not in _VALID_CATEGORIES or urgency not in URGENCY_LEVELS:
+            return None
+        return {
+            "category": category,
+            "urgency": urgency,
+            "assignee": ASSIGNEE_BY_CATEGORY.get(category, "综合维修工"),
+            "confidence": 0.9,
+            "matched": rule_result["matched"],
+            "reason": str(raw.get("reason") or "")[:120],
+        }
+
+    reference = fusion.render_reference(
+        {k: rule_result[k] for k in ("category", "urgency", "assignee")},
+        _RESULT_LABELS)
+
+    final, source, divergence = fusion.fuse(
+        rule_result, provider, _SYSTEM,
+        _PROMPT.format(text=text, reference=reference),
+        sanitize, guards=(_never_downgrade_safety,),
+        enabled=settings.fusion_enabled)
+
+    if divergence:
+        final = dict(final, divergence=divergence)
+    return final, source
+
+
+def _never_downgrade_safety(rule_result, fused):
+    """护栏：规则判为紧急的，大模型不得降级。
+
+    需求 AI-04 的原文是「涉及漏水、漏电、燃气泄漏等安全隐患，**必须**判为
+    紧急」。这是硬性条款，不是倾向——漏判一次可能真出事，不能拿概率去赌。
+
+    写在提示词里只是「请你注意」，大模型可以不照做；写在这里是无论它
+    怎么答都改回来。反过来，大模型把「一般」升成「紧急」是允许的：
+    多派一次工只是多跑一趟，代价与漏判完全不对等。
+    """
+    if rule_result.get("urgency") == "紧急" and fused.get("urgency") != "紧急":
+        downgraded = fused.get("urgency")
+        fused["urgency"] = "紧急"
+        return fused, "紧急程度保留规则结果（大模型判为「%s」，涉及安全隐患不降级）" % downgraded
+    return fused, None
 
 
 def run(text, house_no=None, applicant=None, provider=None, backend=None,

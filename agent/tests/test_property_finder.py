@@ -115,11 +115,20 @@ class TestSummarize(unittest.TestCase):
 class TestAgentRun(unittest.TestCase):
 
     def test_llm_feature_only_result_is_not_marked_unavailable(self):
+        """只有设施、没有 filters 也是有效结果。
+
+        「想找允许带小动物的住处」解析不出地区价格，但「可养宠物」
+        这一条已经足够执行搜索。旧逻辑只看 filters，把成功的调用
+        误标成了「大模型不可用」。
+
+        source 现在是 fused 而不是 llm：规则也参与了这次解析，
+        它的结论被当作参考答案交给了大模型。
+        """
         backend = FakeBackend([make_house(1, 2200, tags=["可养宠物"])])
         provider = FakeProvider({"filters": {}, "features": ["可养宠物"]})
         result = agent.run("想找允许带小动物的住处",
                            provider=provider, backend=backend)
-        self.assertEqual(result["source"], "llm")
+        self.assertEqual(result["source"], "fused")
         self.assertEqual(result["total"], 1)
 
     def test_llm_feature_synonym_is_normalized(self):

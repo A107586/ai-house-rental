@@ -21,6 +21,13 @@ def _get(name, default=None):
     return value if value not in (None, "") else default
 
 
+def _get_bool(name, default):
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _get_int(name, default):
     try:
         return int(_get(name, default))
@@ -57,9 +64,31 @@ class Settings:
         # 单次请求上下文上限，避免 Token 消耗失控（非功能需求 N-08）
         self.llm_max_tokens = _get_int("LLM_MAX_TOKENS", 1024)
 
+        # ---- 向量嵌入（AI-03 智能客服的可选通道）----
+        # 与 LLM_* 是**独立的一组**配置，不能复用：团队的大模型是 DeepSeek，
+        # 而 DeepSeek 不提供 embeddings 接口。嵌入走本地部署的模型
+        # （LM Studio / Ollama 都实现了 OpenAI 兼容的 /v1/embeddings）。
+        #
+        # 留空即不启用，客服问答只用词法检索——功能完整，全部测试也跑在这个模式下。
+        self.embed_base_url = _get("EMBED_BASE_URL", "")
+        self.embed_api_key = _get("EMBED_API_KEY", "")
+        self.embed_model = _get("EMBED_MODEL", "")
+        self.embed_timeout = _get_float("EMBED_TIMEOUT", 30.0)
+        # 语料向量的落盘缓存。按内容哈希做键，语料改了自动失效
+        self.embed_cache_path = _get(
+            "EMBED_CACHE_PATH",
+            str(Path(__file__).resolve().parents[1] / "knowledge" / "vectors.json"))
+
         # ---- 路由阈值 ----
         # 规则解析置信度低于此值才调用大模型兜底
         self.rule_confidence_threshold = _get_float("RULE_CONFIDENCE_THRESHOLD", 0.5)
+        # 规则与大模型是否同时参与。开启时每次请求都会调一次大模型，
+        # 由它在规则结论的基础上给出最终结果；关闭则退回纯规则。
+        #
+        # 需求 N-08 要求「Token 消耗受控」——每请求一次调用确实比
+        # 「置信度不足才调」费钱，所以留这个开关：演示或压测时可以关掉，
+        # 关掉之后功能仍然完整，只是少了大模型的修正。
+        self.fusion_enabled = _get_bool("FUSION_ENABLED", True)
 
         self.service_port = _get_int("AGENT_PORT", 8000)
 
@@ -77,6 +106,9 @@ class Settings:
             "llm_enabled": self.llm_enabled,
             "mode": "大模型 + 规则" if self.llm_enabled else "纯规则（降级模式）",
             "rule_confidence_threshold": self.rule_confidence_threshold,
+            "fusion_enabled": self.fusion_enabled,
+            "embed_enabled": bool(self.embed_base_url),
+            "embed_model": self.embed_model or "(未配置)",
         }
 
 

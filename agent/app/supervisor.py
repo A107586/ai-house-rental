@@ -10,6 +10,7 @@
 都能脱离大模型单独做单元测试。
 """
 
+from app import fusion
 from app.config import settings
 from app.llm.base import LLMUnavailable
 
@@ -64,6 +65,13 @@ _CLASSIFY_PROMPT = """把用户这句话归入下列意图之一：
 
 用户输入：「{text}」
 
+系统的规则引擎已经先判了一遍，结果如下，**供你参考**：
+
+{reference}
+
+规则引擎靠关键词表匹配，说法典型时判得准；含糊或换个说法就会落到
+unknown。请在它的基础上给出最终判断。
+
 只输出如下 JSON：
 {{"intent": "<上述之一>", "confidence": <0 到 1 的小数>}}"""
 
@@ -110,42 +118,63 @@ def classify_by_rules(text):
 
 
 def classify(text, provider=None):
-    """完整的意图分类：规则优先，低置信度时交给大模型。
+    """完整的意图分类：**规则与大模型同时参与**。
 
-    返回 ``{"intent","confidence","source","hits"}``，
-    其中 ``source`` 标明结论来自 ``rules`` 还是 ``llm``，便于答辩时展示决策过程。
+    规则先判一遍，结论作为参考写进提示词，由大模型给出最终意图。
+    大模型不可用时直接采用规则结论（需求 N-07）。
+
+    返回 ``{"intent","confidence","source","hits","divergence"}``。
+    ``source`` 与 ``divergence`` 一起构成可展示的决策过程——答辩时能说清
+    「规则判了什么、大模型改成了什么」，比只给一个结论有说服力。
     """
     intent, confidence, hits = classify_by_rules(text)
-    if confidence >= settings.rule_confidence_threshold:
-        return {"intent": intent, "confidence": confidence,
-                "source": "rules", "hits": hits}
+    rule_result = {"intent": intent, "confidence": confidence}
 
-    if provider is None or not provider.available:
-        return {"intent": intent, "confidence": confidence,
-                "source": "rules_fallback", "hits": hits}
+    def sanitize(raw):
+        got = raw.get("intent")
+        # 意图决定请求走哪个子智能体，枚举外的值一律丢弃：
+        # 路由错了，后面每一步都是错的
+        if got not in INTENT_LABELS:
+            return None
+        try:
+            score = float(raw.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+        return {"intent": got,
+                "confidence": round(max(0.0, min(score, 1.0)), 2)}
 
-    try:
-        data = provider.complete_json(
-            _CLASSIFY_SYSTEM, _CLASSIFY_PROMPT.format(text=text))
-    except LLMUnavailable:
-        return {"intent": intent, "confidence": confidence,
-                "source": "rules_fallback", "hits": hits}
+    reference = "- 意图：%s（置信度 %.2f）" % (label(intent), confidence)
+    if hits:
+        reference += "\n- 命中关键词：" + "、".join(str(h) for h in hits[:5])
 
-    if not isinstance(data, dict) or data.get("intent") not in INTENT_LABELS:
-        return {"intent": intent, "confidence": confidence,
-                "source": "rules_fallback", "hits": hits}
+    final, source, divergence = fusion.fuse(
+        rule_result, provider, _CLASSIFY_SYSTEM,
+        _CLASSIFY_PROMPT.format(text=text, reference=reference),
+        sanitize, guards=(_keep_strong_rule_intent,),
+        enabled=settings.fusion_enabled)
 
-    try:
-        llm_confidence = float(data.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        llm_confidence = 0.0
+    return {"intent": final["intent"], "confidence": final["confidence"],
+            "source": source, "hits": hits, "divergence": divergence}
 
-    return {
-        "intent": data["intent"],
-        "confidence": round(max(0.0, min(llm_confidence, 1.0)), 2),
-        "source": "llm",
-        "hits": hits,
-    }
+
+def _keep_strong_rule_intent(rule_result, fused):
+    """护栏：规则以高置信度判定的意图不接受改写。
+
+    强关键词（「报修」「预约看房」这类）命中时，规则的判断几乎不会错，
+    而意图判错会把请求整个路由到错误的子智能体——用户说要报修，结果
+    走进了找房流程，比答得不好严重得多。
+
+    只拦高置信度的情况：规则本来就不确定时，正该让大模型来定。
+    """
+    if rule_result.get("confidence", 0) < settings.rule_confidence_threshold:
+        return fused, None
+    if fused.get("intent") == rule_result.get("intent"):
+        return fused, None
+    changed = fused.get("intent")
+    fused["intent"] = rule_result["intent"]
+    fused["confidence"] = rule_result["confidence"]
+    return fused, "意图保留规则结果「%s」（大模型判为「%s」）" % (
+        label(rule_result["intent"]), label(changed))
 
 
 def label(intent):
