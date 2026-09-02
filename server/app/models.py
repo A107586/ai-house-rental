@@ -599,6 +599,133 @@ class OperationLog(Base):
         }
 
 
+class RepairWorker(Base):
+    """维修人员档案（F-09）。"""
+
+    __tablename__ = "repair_workers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), default="")
+    # 擅长的故障类型，与报修工单的 category 取值一致，便于派单时匹配
+    skill: Mapped[str] = mapped_column(String(30), default="")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            # 维修人员的电话只有房东与管理员看得到，同样按 R-02 掩码
+            "phone": mask_phone(self.phone),
+            "skill": self.skill,
+            "status": self.status,
+        }
+
+
+class RepairItem(Base):
+    """维修物品／耗材（F-09）。"""
+
+    __tablename__ = "repair_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    unit: Mapped[str] = mapped_column(String(10), default="个")
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "unit": self.unit,
+            "unit_price": float(self.unit_price or 0),
+            "stock": self.stock,
+        }
+
+
+class RepairRecord(Base):
+    """维修记录：一张工单完成时登记的人、物、钱（F-09）。
+
+    `repair_id` 上有唯一约束——一张工单只能结案一次。少了它，重复提交
+    结案会把物料重复扣一遍库存、成本也重复计一遍，统计就废了。
+    """
+
+    __tablename__ = "repair_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repair_id: Mapped[int] = mapped_column(ForeignKey("repairs.id"),
+                                           unique=True, nullable=False)
+    worker_id: Mapped[int] = mapped_column(ForeignKey("repair_workers.id"),
+                                           nullable=True)
+    hours: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    labor_cost: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    item_cost: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    note: Mapped[str] = mapped_column(Text, default="")
+    finished_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    repair: Mapped["Repair"] = relationship()
+    worker: Mapped["RepairWorker"] = relationship()
+    usages: Mapped[list["RepairItemUsage"]] = relationship(
+        back_populates="record", cascade="all, delete-orphan")
+
+    @property
+    def total_cost(self):
+        return float(self.labor_cost or 0) + float(self.item_cost or 0)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "repair_id": self.repair_id,
+            "house_no": (self.repair.house.house_no
+                         if self.repair and self.repair.house else ""),
+            "category": self.repair.category if self.repair else "",
+            "worker_name": self.worker.name if self.worker else "未指派",
+            "hours": float(self.hours or 0),
+            "labor_cost": float(self.labor_cost or 0),
+            "item_cost": float(self.item_cost or 0),
+            "total_cost": round(self.total_cost, 2),
+            "note": self.note,
+            "items": [usage.to_dict() for usage in self.usages],
+            "finished_at": self.finished_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class RepairItemUsage(Base):
+    """一次维修用掉的物品与数量（F-09）。
+
+    单价是**下单当时的快照**，不是外键跟着物品表走。物品调价之后，
+    历史维修的成本不能跟着一起变——那等于把已经发生的账改了。
+    """
+
+    __tablename__ = "repair_item_usages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record_id: Mapped[int] = mapped_column(ForeignKey("repair_records.id"),
+                                           nullable=False, index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("repair_items.id"),
+                                         nullable=False, index=True)
+    item_name: Mapped[str] = mapped_column(String(50), default="")
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+
+    record: Mapped["RepairRecord"] = relationship(back_populates="usages")
+
+    @property
+    def amount(self):
+        return float(self.unit_price or 0) * (self.quantity or 0)
+
+    def to_dict(self):
+        return {
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "quantity": self.quantity,
+            "unit_price": float(self.unit_price or 0),
+            "amount": round(self.amount, 2),
+        }
+
+
 class SystemConfig(Base):
     """系统配置（M-09）。
 

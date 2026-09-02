@@ -21,7 +21,8 @@ if hasattr(sys.stdout, "buffer"):
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
 from app.models import (Appointment, Base, House, HouseImage,  # noqa: E402
-                        Notice, Repair, User)
+                        Notice, Repair, RepairItem, RepairItemUsage,
+                        RepairRecord, RepairWorker, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -212,16 +213,82 @@ def main():
             ("客厅灯泡坏了，不急，有空再换", "电路", "可延后", "电工"),
             ("卧室门锁打不开", "门窗", "紧急", "门窗维修师傅"),
         ]
+        made = []
         for content, category, urgency, assignee in samples:
             house = random.choice(houses)
             tenant = random.choice(tenants)
-            session.add(Repair(
+            repair = Repair(
                 house_id=house.id, tenant_id=tenant.id,
                 contact_name=tenant.real_name, contact_phone=tenant.phone,
                 content=content, category=category, urgency=urgency,
                 assignee=assignee,
                 analysis="由报修智能体自动分类",
-                status="pending"))
+                status="pending")
+            session.add(repair)
+            made.append(repair)
+
+        # 让同一套房出现三次报修，「报修最多的房源」那张表才有东西可看——
+        # 这正是这份统计要暴露的问题：反复报修往往说明上次没修好。
+        trouble = houses[0]
+        for content, category in [("厨房下水道又堵了", "水暖"),
+                                  ("下水道还是不通", "水暖")]:
+            tenant = random.choice(tenants)
+            repair = Repair(
+                house_id=trouble.id, tenant_id=tenant.id,
+                contact_name=tenant.real_name, contact_phone=tenant.phone,
+                content=content, category=category, urgency="一般",
+                assignee="水暖工", analysis="由报修智能体自动分类",
+                status="pending")
+            session.add(repair)
+            made.append(repair)
+
+        print("生成维修人员与物品 ...")
+        workers = [
+            RepairWorker(name="张建国", phone="13701010001", skill="水暖"),
+            RepairWorker(name="李维民", phone="13701010002", skill="电路"),
+            RepairWorker(name="王海涛", phone="13701010003", skill="家电"),
+            RepairWorker(name="赵文斌", phone="13701010004", skill="门窗"),
+        ]
+        items = [
+            RepairItem(name="水龙头", unit="个", unit_price=45, stock=30),
+            RepairItem(name="角阀", unit="个", unit_price=18, stock=50),
+            RepairItem(name="LED 灯泡", unit="个", unit_price=12, stock=80),
+            RepairItem(name="门锁芯", unit="套", unit_price=95, stock=15),
+            RepairItem(name="下水软管", unit="米", unit_price=9, stock=60),
+            RepairItem(name="空调滤网", unit="片", unit_price=35, stock=20),
+        ]
+        session.add_all(workers + items)
+        session.flush()
+
+        print("结案部分工单，生成维修记录 ...")
+        # 结掉前三张，留下几张待处理，看板上「待处理」才不是 0
+        plans = [
+            (0, 0, 1.5, 80, [(0, 1), (1, 2)]),
+            (1, 2, 2.0, 120, [(5, 1)]),
+            (2, 1, 0.5, 40, [(2, 2)]),
+        ]
+        for repair_index, worker_index, hours, labor, uses in plans:
+            repair = made[repair_index]
+            record = RepairRecord(
+                repair_id=repair.id, worker_id=workers[worker_index].id,
+                hours=hours, labor_cost=labor,
+                finished_at=datetime.now() - timedelta(days=repair_index + 1),
+                note="已完成并回访确认")
+            session.add(record)
+            session.flush()
+
+            cost = 0.0
+            for item_index, quantity in uses:
+                item = items[item_index]
+                price = float(item.unit_price)
+                session.add(RepairItemUsage(
+                    record_id=record.id, item_id=item.id,
+                    item_name=item.name, quantity=quantity,
+                    unit_price=price))
+                item.stock -= quantity
+                cost += price * quantity
+            record.item_cost = round(cost, 2)
+            repair.status = "done"
 
         print("生成租约与账单 ...")
         # 挑几套房签成在租状态，让演示时能看到完整的交易链
@@ -281,8 +348,10 @@ def main():
         print("  用户 %d 个（管理员 1、房东 %d、租客 %d）"
               % (1 + len(landlords) + len(tenants), len(landlords), len(tenants)))
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
-        print("  看房预约 %d 条，报修工单 %d 条" % (len(used), len(samples)))
+        print("  看房预约 %d 条，报修工单 %d 条（已结案 %d 条）"
+              % (len(used), len(made), len(plans)))
         print("  租约 %d 份，公告 %d 条" % (signed, len(notices)))
+        print("  维修人员 %d 人，维修物品 %d 种" % (len(workers), len(items)))
         print("  房源图片 %d 张，每套 3 张" % len(photos))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")

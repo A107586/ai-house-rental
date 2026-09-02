@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ConfigPanel from './ConfigPanel'
+import RepairDataPanel from './RepairDataPanel'
 import LogPanel from './LogPanel'
 import ReportPanel from './ReportPanel'
 
@@ -102,6 +103,7 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'orders', label: '订单总览', n: contracts.length },
     { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'notices', label: '公告', n: notices.length },
+    { key: 'repairdata', label: '维修数据' },
     { key: 'logs', label: '操作日志' },
     { key: 'config', label: '系统配置' },
   ]
@@ -131,6 +133,9 @@ export default function AdminPanel({ user, onClose }) {
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
+
+        {/* ---------------- 维修数据（F-09） ---------------- */}
+        {tab === 'repairdata' && <RepairDataPanel />}
 
         {/* ---------------- 系统配置（M-09） ---------------- */}
         {tab === 'config' && <ConfigPanel />}

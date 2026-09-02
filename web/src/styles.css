@@ -2461,3 +2461,101 @@ textarea {
   font-size: 12px;
   text-align: center;
 }
+
+
+/* ============================================================
+   F-09 维修数据
+   ============================================================ */
+.tabs.sub {
+  margin-bottom: 14px;
+}
+
+.rd-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 18px;
+}
+
+.rd-sec h5 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--brand);
+}
+
+.rd-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.rd-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rd-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.rd-bar-k {
+  width: 68px;
+  flex-shrink: 0;
+  color: var(--ink-2);
+}
+
+.rd-bar-track {
+  flex: 1;
+  height: 14px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rd-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: 3px;
+}
+
+.rd-bar-v {
+  width: 32px;
+  text-align: right;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rd-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.rd-form input {
+  flex: 1;
+  min-width: 110px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.rd-form input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.rd-price {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+td.accent {
+  color: var(--accent);
+}

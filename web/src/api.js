@@ -200,6 +200,25 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // F-09 维修数据
+  repairWorkers: () => request('/api/repair-workers'),
+  createWorker: (payload) =>
+    request('/api/repair-workers', { method: 'POST', body: JSON.stringify(payload) }),
+  updateWorker: (id, payload) =>
+    request(`/api/repair-workers/${id}`,
+      { method: 'PATCH', body: JSON.stringify(payload) }),
+  repairItems: () => request('/api/repair-items'),
+  createItem: (payload) =>
+    request('/api/repair-items', { method: 'POST', body: JSON.stringify(payload) }),
+  updateItem: (id, payload) =>
+    request(`/api/repair-items/${id}`,
+      { method: 'PATCH', body: JSON.stringify(payload) }),
+  repairRecords: () => request('/api/repair-records'),
+  repairStats: () => request('/api/repair-stats'),
+  closeRepair: (repairId, payload) =>
+    request(`/api/repairs/${repairId}/record`,
+      { method: 'POST', body: JSON.stringify(payload) }),
+
   // M-09 系统配置
   publicConfig: () => request('/api/config'),
   adminConfig: () => request('/api/admin/config'),
