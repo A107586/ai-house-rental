@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import CloseRepairDialog from './CloseRepairDialog'
+import ContractCard from './ContractCard'
 import ImageUploader from './ImageUploader'
+import SignContractDialog from './SignContractDialog'
 
 const HOUSE_STATUS = {
   available: { label: '在租中', cls: 'status-confirmed' },
@@ -48,6 +50,11 @@ export default function LandlordPanel({ user, onClose }) {
   // 正在登记结案的工单。走对话框而不是直接改状态，
   // 否则人、物、工时一概不记，维修统计会漏算
   const [closing, setClosing] = useState(null)
+  // 出租合同。原先房东只能在「个人中心」看到自己的合同，
+  // 而签约根本没有界面入口——唯一办法是去调接口文档。
+  // 经营动作该集中在工作台，所以搬到这里并补上发起签约。
+  const [contracts, setContracts] = useState([])
+  const [signing, setSigning] = useState(false)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -55,16 +62,18 @@ export default function LandlordPanel({ user, onClose }) {
   async function load() {
     setError('')
     try {
-      const [d, h, r, t] = await Promise.all([
+      const [d, h, r, t, c] = await Promise.all([
         api.landlordDashboard(),
         api.landlordHouses(),
         api.listRepairs(),
         api.landlordTenants(),
+        api.myContracts(),
       ])
       setDash(d)
       setHouses(h.list || [])
       setRepairs(r.list || [])
       setTenants(t.list || [])
+      setContracts(c.list || [])
     } catch (err) {
       setError(err.message)
     }
@@ -190,6 +199,8 @@ export default function LandlordPanel({ user, onClose }) {
     { key: 'dashboard', label: '工作台' },
     { key: 'houses', label: '我的房源', n: houses.length },
     { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
+    { key: 'contracts', label: '出租合同',
+      n: contracts.filter((c) => c.status === 'pending').length },
     { key: 'tenants', label: '租客', n: tenants.length },
     { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
   ]
@@ -425,6 +436,34 @@ export default function LandlordPanel({ user, onClose }) {
           ))}
 
         {/* ---------------- 租客档案 ---------------- */}
+        {tab === 'contracts' && (
+          <>
+            <div className="record-actions" style={{ marginBottom: 12 }}>
+              <button className="btn small" onClick={() => setSigning(true)}>
+                发起签约
+              </button>
+            </div>
+
+            {contracts.length === 0 ? (
+              <p className="desc">
+                还没有出租合同。看房满意后可以为租客发起签约，
+                合同需要租客确认才生效。
+              </p>
+            ) : (
+              <ul className="record-list">
+                {contracts.map((contract) => (
+                  <ContractCard
+                    key={contract.contract_no}
+                    contract={contract}
+                    role={user.role}
+                    onChanged={load}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
         {tab === 'tenants' &&
           (tenants.length === 0 ? (
             <p className="desc">还没有签约租客。</p>
@@ -614,6 +653,18 @@ export default function LandlordPanel({ user, onClose }) {
           </p>
         )}
       </aside>
+
+      {signing && (
+        <SignContractDialog
+          houses={houses}
+          onClose={() => setSigning(false)}
+          onDone={() => {
+            setSigning(false)
+            setOk('合同已生成，等待租客确认后生效。')
+            load()
+          }}
+        />
+      )}
 
       {closing && (
         <CloseRepairDialog
