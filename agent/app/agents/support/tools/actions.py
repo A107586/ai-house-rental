@@ -96,7 +96,9 @@ ACTION_KEYWORDS = [
                   "把账单交", "缴租金", "交一下房租"]),
     ("cancel_viewing", ["取消预约", "取消看房", "别去看了", "不看了",
                         "把预约取消"]),
-    ("book_viewing", ["约看房", "预约看房", "帮我约", "安排看房", "想去看"]),
+    ("book_viewing", ["约看房", "预约看房", "帮我约", "安排看房", "想去看",
+                      "我要看房", "要看房", "想看房", "看房第", "约一下看房",
+                      "去看看这套", "预约看"]),
     ("submit_repair", ["报修", "报个修", "提交报修", "报一下修", "叫维修",
                        "叫师傅"]),
     ("renew_contract", ["续租", "续签", "接着租", "再租"]),
@@ -157,6 +159,16 @@ _SOFT_ASKING = ["吗", "什么", "哪", "呢", "算不算", "属于"]
 #
 # 共现只要求两类词都出现在同一句里，不管顺序、不管中间隔多远，
 # 这才是中文口语的常态。
+# **强共现**：这两类词凑在一起，意思已经足够明确，不需要再要求祈使语气。
+#
+# 「预约明天上午看房第三套」里没有「帮我」，但没人会用这种句式提问。
+# 普通共现规则要求祈使词托底，是为了防「房租什么时候交」被当成要交钱；
+# 而「预约 × 看房」不存在这种歧义——真要问规则，句子里会带
+# 「怎么」「吗」，那两层否决先拦下了。
+STRONG_PAIRS = [
+    ("book_viewing", ["预约", "约", "要看", "想看"], ["看房", "看一下房"]),
+]
+
 ACTION_PAIRS = [
     ("pay_bill", ["交", "缴", "付", "支付", "结清"],
      ["房租", "租金", "账单", "费用", "这个月"]),
@@ -194,6 +206,10 @@ def detect(text):
 
     for name, keywords in ACTION_KEYWORDS:
         if any(kw in raw for kw in keywords):
+            return name
+
+    for name, verbs, objects in STRONG_PAIRS:
+        if any(v in raw for v in verbs) and any(o in raw for o in objects):
             return name
 
     # 共现规则需要祈使语气托底。少了这个约束，「账单还有 2 笔没交」
@@ -246,6 +262,13 @@ _ORDINALS = {
 }
 
 
+# 「都可以」「随便」——用户把选择权交回来了，取第一个。
+# 不处理的话会一直卡在追问上：助手问、用户说都行、助手再问一遍，
+# 死循环。第一个选项通常也是最近／最相关的那个。
+_ANY_OF_THEM = ["都可以", "都行", "随便", "都成", "你定", "你看着办",
+                "无所谓", "哪个都行", "都方便"]
+
+
 def pick_option(text, options):
     """把用户这句话对应到某个选项，返回选项的 value 或空串。
 
@@ -258,6 +281,9 @@ def pick_option(text, options):
     raw = (text or "").strip()
     if not raw or not options:
         return ""
+
+    if any(word in raw for word in _ANY_OF_THEM):
+        return options[0]["value"]
 
     for option in options:
         if option["value"] and option["value"] in raw:

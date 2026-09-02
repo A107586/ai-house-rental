@@ -64,11 +64,38 @@ def contracts(backend, token):
 
     active = [c for c in rows if c.get("status") in ("active", "生效中")]
     current = active[0] if active else rows[0]
-    message = ("你当前的租约是 %s，租期 %s 至 %s，状态：%s。"
-               % (current.get("contract_no", ""),
-                  current.get("start_date", ""), current.get("end_date", ""),
-                  current.get("status", "")))
-    return message, {"list": rows[:5], "current": current}
+    # 先说总数再说详情。「我租了几套房」问的就是数量，
+    # 只报一份合同号答非所问。
+    head = "你名下共 %d 份租约" % len(rows)
+    if active:
+        head += "，其中 %d 份在租期内" % len(active)
+    ended = len(rows) - len(active)
+    if ended:
+        head += "、%d 份已结束" % ended
+    message = ("%s。当前生效的是 %s（%s），租期 %s 至 %s。"
+               % (head, current.get("house_no") or current.get("contract_no", ""),
+                  current.get("contract_no", ""),
+                  current.get("start_date", ""), current.get("end_date", "")))
+    return message, {"list": rows[:5], "current": current, "total": len(rows)}
+
+
+# 后端存的是状态码，用户看的得是中文。
+# 「当前状态：pending」这种句子出现在客服回答里，比不回答更露怯。
+STATUS_TEXT = {
+    "pending": "待处理", "processing": "处理中", "done": "已完成",
+    "closed": "已关闭", "active": "生效中", "ended": "已结束",
+    "terminated": "已终止", "confirmed": "已确认", "cancelled": "已取消",
+    "rejected": "已拒绝", "paid": "已缴清", "unpaid": "待缴",
+    "available": "在租中", "rented": "已出租", "offline": "已下架",
+    "replied": "已回复",
+}
+
+
+def status_text(value, default=""):
+    """状态码翻成中文。认不出的原样返回——总比丢掉信息强。"""
+    if not value:
+        return default
+    return STATUS_TEXT.get(value, value)
 
 
 def repairs(backend, token):
@@ -85,7 +112,7 @@ def repairs(backend, token):
     first = open_rows[0]
     message = ("你有 %d 条报修在处理中。最近一条是「%s」，当前状态：%s。"
                % (len(open_rows), (first.get("content") or "")[:20],
-                  first.get("status", "待受理")))
+                  status_text(first.get("status"), "待受理")))
     return message, {"list": open_rows[:5]}
 
 
@@ -103,7 +130,8 @@ def bookings(backend, token):
     else:
         first = rows[0]
         message = ("你最近一条预约是 %s，状态：%s。"
-                   % (first.get("viewing_time", ""), first.get("status", "")))
+                   % (first.get("viewing_time", ""),
+                      status_text(first.get("status"))))
     return message, {"list": rows[:5]}
 
 

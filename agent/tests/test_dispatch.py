@@ -27,7 +27,35 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.support import agent as support  # noqa: E402
+from app.llm.base import LLMProvider, LLMUnavailable  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
+from unittest import mock  # noqa: E402
+
+
+class _FakeRouterProvider(LLMProvider):
+    """只用来驱动统一路由的假大模型：路由那一问返回 payload，其余一律不可用。
+
+    `complete` 保持不可用，是为了让链路的其余部分（组织回答、润色）
+    仍旧走规则——这条测试要验的是路由接得上，不是文案好不好看。
+    """
+
+    available = True
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def complete_json(self, system, prompt, max_tokens=None):
+        if "路由" in system:
+            return self.payload
+        raise LLMUnavailable("这条测试只放行路由")
+
+    def complete(self, system, prompt, max_tokens=None):
+        raise LLMUnavailable("这条测试只放行路由")
+
+
+def patched_provider(payload):
+    """把 main 里的全局 provider 临时换成假的。"""
+    return mock.patch("app.main.provider", _FakeRouterProvider(payload))
 
 
 def ask(text, house_no="", **kwargs):
@@ -144,16 +172,59 @@ class TestChatDispatch(unittest.TestCase):
         self.assertEqual(result["status"], "need_content")
         self.assertIn("我的租约", result["message"])
 
+    def test_llm_routed_service_reaches_the_recommend_agent(self):
+        """路由判成「推荐房源」时，统一入口要真的走 AI-07，不是回一句客套话。
+
+        规则模式下路由永远给不出 service，所以这条必须用假大模型走一遍——
+        否则「模型能选，但选了没人接」这类断链没有任何测试拦得住。
+        """
+        with patched_provider({"kind": "service", "name": "recommend_house"}):
+            result = ask("有什么合适的房子推荐吗")
+        self.assert_shape(result)
+        self.assertEqual(result["intent"], "recommend")
+
+    def test_llm_routed_search_falls_through_to_the_search_branch(self):
+        """search_house 不自己处理，要交回找房分支——历史槽位只有那里有。"""
+        with patched_provider({"kind": "service", "name": "search_house"}):
+            result = ask("中山区两室一厅")
+        self.assert_shape(result)
+        self.assertEqual(result["intent"], "search")
+
+    def test_pending_action_outranks_the_router(self):
+        """代办没做完时，「都可以」这种半句话要回到代办层，不能被路由劫走。"""
+        with patched_provider({"kind": "service", "name": "search_house"}):
+            result = ask("都可以", pending={"action": "pay_bill",
+                                            "slot": "bill_no", "slots": {}})
+        self.assert_shape(result)
+        self.assertNotEqual(result["intent"], "search")
+
+    def test_vague_search_still_answers_with_something(self):
+        """一个条件都没说时不能只回一句「说得具体一点」。
+
+        用户正是因为说不具体才来问的。没登录也就没有画像，推荐给不出结果，
+        那时回退到找房提示才算合理——但话术里至少要给一条能照着说的例子。
+        """
+        result = ask("有什么合适的房源推荐吗")
+        self.assert_shape(result)
+        self.assertTrue(result.get("items") or "中山区" in result["message"])
+
     def test_repair_intent_previews_without_submitting(self):
         """统一入口只做分析预览，落库要走 /agent/repair 并带房源编号。"""
         result = ask("厨房水管漏水了")
         self.assert_shape(result)
         self.assertEqual(result["intent"], "repair")
 
-    def test_booking_intent_does_not_crash(self):
+    def test_booking_request_goes_to_the_action_layer(self):
+        """预约请求要走代办层出确认卡片，不再交给旧的 booking 子智能体。
+
+        旧 agent 只会解析时间然后回一句「请到具体房源页面点预约看房」——
+        用户明明是来让助手代办的，却被打发回页面上自己点。
+        """
         result = ask("预约这周六下午看房")
         self.assert_shape(result)
-        self.assertEqual(result["intent"], "booking")
+        self.assertEqual(result["intent"], "support")
+        self.assertEqual(result["retrieval"].get("mode"), "action")
+        self.assertEqual(result["retrieval"].get("action"), "book_viewing")
 
     def test_transactional_question_without_token_asks_login(self):
         """「我的账单还差多少」要走查库，未登录时引导登录，

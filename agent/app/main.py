@@ -18,6 +18,7 @@ from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
+from app.agents.support.tools import router as support_router
 from app.agents.support.tools import actions as support_actions
 from app.backend import client as backend_client
 from app.config import settings
@@ -338,10 +339,65 @@ def agent_chat(payload: ChatRequest):
     return result
 
 
+# 「你看着办」型的找房请求。这类话里一个可解析的条件都没有，
+# 走找房只会回一句「说得具体一点」——而用户正是因为说不具体才来问的。
+# 该给的是 AI-07 的推荐。
+_WANT_RECOMMEND = ("推荐", "有什么合适", "有合适的", "帮我挑", "帮我选",
+                   "给我挑", "有没有好的", "有啥好", "介绍几套", "看看有什么")
+
+
+def _wants_recommendation(text):
+    return any(word in (text or "") for word in _WANT_RECOMMEND)
+
+
+def _recommend(payload, routed, slots, feats):
+    """给一份推荐。给不出（没登录、足迹太少）时返回 None，交回原来的话术。"""
+    picked = recommend.run(token=payload.token, limit=6, backend=backend_client)
+    if picked.get("status") != "ok":
+        return None
+    picked["route"] = routed
+    picked.setdefault("alternatives", [])
+    picked["context_text"] = memory.describe(slots, feats)
+    return picked
+
+
+# 合同审阅要正文，而统一入口只拿得到一句话。引导到合同页是唯一诚实的回答——
+# 编一段「你的合同没什么问题」比不回答更糟。
+_CONTRACT_REDIRECT = ("这个得看你那份合同的正文。请到「我的租约」里打开合同，"
+                      "点「智能审阅」，我会把关键条款和风险点列出来。")
+
+
+def _serve(decision, payload, routed):
+    """执行一项服务型能力。返回 None 表示「交回上面按意图走」。"""
+    name = decision["name"]
+
+    if name == "contract_review":
+        return {
+            "intent": "contract", "status": "need_content", "ok": False,
+            "route": routed, "alternatives": [],
+            "route_source": decision["source"],
+            "message": _CONTRACT_REDIRECT,
+        }
+
+    if name == "recommend_house":
+        # AI-07。推荐读的是「这个人」的足迹与收藏，没令牌就没画像，
+        # 此时 recommend.run 自己会返回 fallback 文案，不用在这里判。
+        result = recommend.run(token=payload.token, limit=6,
+                               backend=backend_client)
+        result["route"] = routed
+        result["route_source"] = decision["source"]
+        result.setdefault("alternatives", [])
+        return result
+
+    # search_house 交回去走原来的找房分支：那里要合并历史槽位
+    # （「三千以内的」得接上上一轮的「中山区两室一厅」），这份上下文只有那里有。
+    return None
+
+
 def _dispatch(payload, routed, intent, slots, feats):
     text = payload.text
 
-    # ---- 代办优先于意图路由 ----
+    # ---- 统一工具路由优先于意图分类 ----
     #
     # supervisor 会把「报修」判成 repair、「预约看房」判成 booking，
     # 各自路由到专门的子智能体。可那些子智能体只会分析与追问，
@@ -355,17 +411,41 @@ def _dispatch(payload, routed, intent, slots, feats):
     # 房源编号在这里就要解析好——「第一套帮我预约看房」里的「第一套」
     # 只有结合上一轮的搜索结果才还原得出来，而代办层拿不到那份上下文。
     resolved_house = memory.resolve_house(text, payload.last_house_nos)
-    if actions.detect(text) or (payload.pending or {}).get("action"):
+    decision = support_router.route(text, provider=provider,
+                                    history=list(payload.history or []),
+                                    pending=payload.pending)
+
+    # 上一轮的代办还没做完时，这一句多半是在回答助手的追问（「都可以」
+    # 「第二笔」），一律先交回代办层，别让它被当成一次新的请求。
+    pending_action = (payload.pending or {}).get("action")
+
+    # 服务型能力：找房 / 推荐 / 合同审阅。这三项不是一次取数，而是整条子链路，
+    # 所以不进客服层，直接交给对应的子智能体。
+    #
+    # 放在代办层之前：「帮我看看合同有没有坑」既像审阅又像「查我的租约」，
+    # 先认出审阅，才不会答出一份合同清单。
+    if not pending_action and decision["kind"] == support_router.KIND_SERVICE:
+        served = _serve(decision, payload, routed)
+        if served is not None:
+            return served
+        # search_house：路由改了意图，继续往下走原来的找房分支
+        intent = "search"
+        routed = dict(routed, intent="search", carried_over=False,
+                      reason="统一工具路由判为找房")
+
+    if (decision["kind"] in (support_router.KIND_ACTION,
+                             support_router.KIND_QUERY) or pending_action):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
                              settings=settings, house_no=resolved_house,
-                             pending=payload.pending)
-        # 代办层认领了这句话（出卡片、追问、要登录、已取消）才返回；
-        # 它自己也没辙时（status 是 refused / answered 之类）继续按意图走，
+                             pending=payload.pending, routing=decision)
+        # 代办层认领了这句话（出卡片、追问、要登录、查到了数据、已取消）
+        # 才返回；它自己也没辙时（status 是 refused 之类）继续按意图走，
         # 免得把一句普通问题堵死在代办分支里
         if result.get("status") in ("confirm", "need_slot", "need_login",
-                                    "cancelled", "escalate", "failed"):
+                                    "cancelled", "escalate", "failed",
+                                    "account"):
             result["route"] = routed
             if resolved_house:
                 result["house_no"] = resolved_house
@@ -388,6 +468,13 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = property_finder.run(text, provider=provider,
                                      filters=merged, features=features,
                                      source=source)
+
+        # 一个条件都没说、而话里又在要推荐 —— 给推荐，别把问题推回去。
+        if result.get("status") == "unparsed" and _wants_recommendation(text):
+            picked = _recommend(payload, routed, slots, feats)
+            if picked is not None:
+                return picked
+
         result["route"] = routed
         result["context"] = merged
         result["context_text"] = memory.describe(merged, features)
@@ -417,7 +504,11 @@ def _dispatch(payload, routed, intent, slots, feats):
                              provider=provider, backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              pending=payload.pending)
-        if result.get("status") == "answered":
+        # **「查我目前的租约」曾被支去点「智能审阅」。**
+        # 那句话走到这里返回的是 account（查库成功），而这里只认 answered，
+        # 于是掉进了下面的兜底。查库和检索都算答上了。
+        if result.get("status") in ("answered", "account", "confirm",
+                                    "need_slot", "need_login"):
             result["route"] = routed
             return result
         return {
@@ -473,6 +564,12 @@ def _dispatch(payload, routed, intent, slots, feats):
                              pending=payload.pending)
         result["route"] = routed
         if result.get("status") == "refused":
+            # 「帮我推荐几套」这类话一个强特征词都不命中，意图分类给不出结果，
+            # 检索也没依据。但它的意思是清楚的，别用一句「没太理解」打发掉。
+            if _wants_recommendation(text):
+                picked = _recommend(payload, routed, slots, feats)
+                if picked is not None:
+                    return picked
             # 连检索都没依据，这才是真的没听懂。此时把找房与预约的
             # 例句一并给出——用户多半是想用这两个功能但没说对话。
             result["message"] = (

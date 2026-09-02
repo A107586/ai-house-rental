@@ -3477,3 +3477,60 @@ td.accent {
   font-size: 12px;
   font-family: ui-monospace, Consolas, monospace;
 }
+
+
+/* 查库结果的小卡片。「你还有 35 笔待缴账单」看得见，
+   但看不见是哪几笔——把最要紧的两三个字段摆出来。 */
+.account-card {
+  margin-top: 10px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #f0f2f5;
+  font-size: 13px;
+}
+
+.account-row:last-child { border-bottom: none; }
+.account-main { font-weight: 600; }
+.account-sub { color: #6b7280; font-size: 12px; flex: none; }
+.account-row.alert { color: #b42318; background: #fef3f2; }
+
+/* 房源行可以点开。做成 button 而不是给 div 绑 onClick，
+   是为了键盘也能走到——回车与点击等价，读屏软件也认。 */
+button.account-row {
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #f0f2f5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.account-row:hover { background: #f7f9fc; }
+
+.account-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.account-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.account-cell:nth-child(odd) { border-right: 1px solid #f0f2f5; }
+.account-cell:nth-last-child(-n+2) { border-bottom: none; }
+.account-cell-v { font-weight: 600; font-size: 14px; }
+.account-cell-k { color: #6b7280; font-size: 12px; }

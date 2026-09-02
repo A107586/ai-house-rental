@@ -9,6 +9,40 @@ import { api, getToken } from '../api'
  * 说过的话带给智能体——换设备记不住，但当前这轮对话照样是多轮的。
  */
 const SESSION_KEY = 'rental_chat_session'
+// 整段对话与未完成的代办也要存下来。
+//
+// 原先只存了会话编号，消息本身放在组件 state 里——**抽屉一关组件就卸载，
+// 聊到一半的内容、正在等确认的卡片、追问到一半的槽位全没了**，
+// 回来只剩一句开场白。用户反馈「不要退出后消失的 bug」说的就是这个。
+//
+// 登录用户的对话后端也存了一份，但那份只有文字，没有卡片与待办状态，
+// 而且未登录用户根本没有。所以这里另存一份完整的。
+const DRAFT_KEY = 'rental_chat_draft'
+// 只留最近这些轮。存太多既没意义，也可能撑爆 localStorage 的配额
+const DRAFT_LIMIT = 40
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const draft = JSON.parse(raw)
+    if (!Array.isArray(draft.messages) || !draft.messages.length) return null
+    return draft
+  } catch {
+    // 存的内容坏了就当没有，重新开始，别让一段坏 JSON 把面板打不开
+    return null
+  }
+}
+
+function saveDraft(messages, pending) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      messages: messages.slice(-DRAFT_LIMIT), pending,
+    }))
+  } catch {
+    // 隐私模式或配额满了都会抛。存不下不影响这一轮对话，忽略即可
+  }
+}
 
 function loadSessionId() {
   try {
@@ -35,15 +69,166 @@ const OPENING = {
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
 
+// 状态码 -> 中文。卡片里直接显示 available / pending 等同于没显示。
+const STATUS_TEXT = {
+  available: '在租中', rented: '已出租', offline: '已下架',
+  pending: '待处理', processing: '处理中', done: '已完成',
+  active: '生效中', ended: '已结束', terminated: '已终止',
+  confirmed: '已确认', cancelled: '已取消', rejected: '已拒绝',
+  paid: '已缴清', unpaid: '待缴', overdue: '已逾期',
+  replied: '已回复', open: '待处理',
+}
+
+const statusText = (value) => STATUS_TEXT[value] || value || ''
+
+const money = (value) => `${Math.round(Number(value) || 0)}`
+
+/** 房源类的卡片行都长一样：标题在上，编号与租金在下。 */
+const houseRow = (item) => ({
+  key: item.house_no,
+  main: item.title || item.community || item.house_no,
+  sub: `${item.house_no || ''}${item.rent_price ? ` · ${money(item.rent_price)} 元/月` : ''}`,
+  house: item,
+})
+
+// 每一类查询结果怎么摆成几行。**这张表和智能体那边的工具清单是一一对应的**——
+// 后端 `tools/account.py` 里 HANDLERS 有几项，这里就该有几项，
+// 少一项就意味着那个工具查到了数据却只回一句话、什么都看不见。
+const ACCOUNT_ROWS = {
+  bill: (data) => (data.unpaid || []).map((bill) => ({
+    key: bill.bill_no,
+    main: `${bill.bill_type || '租金'} ${money(bill.amount)} 元`,
+    sub: bill.due_date ? `${bill.due_date} 到期` : '',
+  })),
+  contract: (data) => (data.list || []).map((item) => ({
+    key: item.contract_no,
+    main: `${item.house_no || ''} ${item.contract_no}`,
+    sub: `${item.start_date} 至 ${item.end_date} · ${statusText(item.status)}`,
+  })),
+  booking: (data) => (data.list || []).map((item) => ({
+    key: item.id,
+    main: item.house_title || item.house_no,
+    sub: `${(item.viewing_time || '').slice(0, 16)} · ${statusText(item.status)}`,
+  })),
+  repair: (data) => (data.list || []).map((item) => ({
+    key: item.id,
+    main: (item.content || '').slice(0, 24),
+    sub: `${item.house_no || ''} · ${statusText(item.status)}`,
+  })),
+  favorite: (data) => (data.list || []).map(houseRow),
+  history: (data) => (data.list || []).map(houseRow),
+  house: (data) => (data.list || []).map((item) => ({
+    ...houseRow(item),
+    sub: `${item.house_no || ''} · ${statusText(item.status)}`,
+  })),
+  message: (data) => (data.list || []).map((item) => ({
+    key: item.id,
+    main: item.title,
+    sub: item.created_at,
+  })),
+  review: (data) => (data.list || []).map((item) => ({
+    key: item.contract_no,
+    main: `${item.house_no || ''} ${item.contract_no}`,
+    sub: `${item.start_date} 至 ${item.end_date} · 待评价`,
+  })),
+  handoff: (data) => (data.list || []).map((item) => ({
+    key: item.id,
+    main: (item.question || '').slice(0, 24),
+    sub: `${item.created_at || ''} · ${statusText(item.status)}`,
+  })),
+  tenant: (data) => (data.list || []).map((item) => ({
+    key: item.id,
+    main: item.username || item.name || '',
+    sub: item.overdue_count
+      ? `逾期 ${item.overdue_count} 笔 · 欠 ${money(item.unpaid_total)} 元`
+      : `在租 ${item.active_count || 0} 套`,
+  })),
+  profile: (data) => {
+    const me = data.profile || {}
+    if (!me.username) return []
+    const role = { tenant: '租客', landlord: '房东', admin: '管理员' }
+    return [
+      { key: 'username', main: me.username, sub: role[me.role] || me.role },
+      me.phone ? { key: 'phone', main: '手机号', sub: me.phone } : null,
+    ].filter(Boolean)
+  },
+}
+
+/** 经营数据是四个数字，摆成行不如摆成格子。 */
+function IncomeCard({ data }) {
+  const cells = [
+    { label: '本月已收', value: `${money(data.month_income)} 元` },
+    { label: '待收', value: `${money(data.income_pending)} 元` },
+    { label: '出租率', value: `${data.occupancy_rate || 0}%` },
+    { label: '已出租', value: `${data.house_rented || 0}/${data.house_total || 0} 套` },
+  ]
+  return (
+    <div className="account-card">
+      <div className="account-grid">
+        {cells.map((cell) => (
+          <div className="account-cell" key={cell.label}>
+            <span className="account-cell-v">{cell.value}</span>
+            <span className="account-cell-k">{cell.label}</span>
+          </div>
+        ))}
+      </div>
+      {data.overdue_count > 0 && (
+        <div className="account-row alert">
+          <span className="account-main">{data.overdue_count} 笔账单已逾期</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 查库结果的小卡片。
+ *
+ * 「你还有 35 笔待缴账单」看得见，但看不见是哪几笔——助手查到的东西
+ * 应当**摆在对话里**，而不是只留一句话让用户自己再去页面上找一遍。
+ * 房源类的行可以点开，点了就跳到那套房，省掉「回列表里翻」这一步。
+ */
+function AccountCard({ topic, data, onOpenHouse }) {
+  if (!topic || !data) return null
+  if (topic === 'income') return <IncomeCard data={data} />
+
+  const build = ACCOUNT_ROWS[topic]
+  if (!build) return null
+  const rows = build(data).slice(0, 4)
+  if (!rows.length) return null
+
+  return (
+    <div className="account-card">
+      {rows.map((row) => (
+        row.house && onOpenHouse ? (
+          <button
+            className="account-row link"
+            key={row.key}
+            onClick={() => onOpenHouse(row.house)}
+          >
+            <span className="account-main">{row.main}</span>
+            {row.sub && <span className="account-sub">{row.sub}</span>}
+          </button>
+        ) : (
+          <div className="account-row" key={row.key}>
+            <span className="account-main">{row.main}</span>
+            {row.sub && <span className="account-sub">{row.sub}</span>}
+          </div>
+        )
+      ))}
+    </div>
+  )
+}
+
 export default function ChatPanel({ user, onOpenHouse, onClose }) {
   const [sessionId] = useState(loadSessionId)
-  const [messages, setMessages] = useState([OPENING])
+  // 优先恢复上次没聊完的，没有才从开场白开始
+  const [messages, setMessages] = useState(() => loadDraft()?.messages || [OPENING])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
-  const [pending, setPending] = useState(null)
+  const [pending, setPending] = useState(() => loadDraft()?.pending || null)
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
 
@@ -51,6 +236,9 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
   useEffect(() => {
     if (!getToken()) return
     let alive = true
+    // 本地草稿比后端历史更完整——后端只存文字，没有确认卡片与待办状态。
+    // 已经从草稿恢复过就别再覆盖，否则聊到一半的卡片会被纯文本冲掉。
+    if (loadDraft()) return undefined
     api
       .chatHistory(sessionId)
       .then((data) => {
@@ -66,6 +254,12 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages, busy])
+
+  // 消息或待办一变就落盘。抽屉关掉、页面刷新、甚至换个标签页回来，
+  // 都还在上次那个位置。
+  useEffect(() => {
+    saveDraft(messages, pending)
+  }, [messages, pending])
 
   // 未登录时的上下文兜底：把用户自己说过的话再带回去
   function localHistory() {
@@ -136,6 +330,9 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         acted: '',
         // 可点选项。让用户点，而不是猜该怎么打字
         options: res.options || [],
+        // 查库结果。有它就渲染成一张小卡片，而不是只留一句话——
+        // 「你还有 35 笔待缴账单」看得见，但看不见是哪几笔。
+        account: res.account || null,
         logId: res.log_id || null,
         status: res.status || '',
         feedback: 0,
@@ -231,6 +428,11 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
     setContext('')
     setError('')
     setPending(null)
+    try {
+      localStorage.removeItem(DRAFT_KEY)
+    } catch {
+      // 清不掉也不拦着用户重新开始
+    }
     if (getToken()) {
       try {
         await api.clearChat(sessionId)
@@ -275,6 +477,14 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
                     <span className="note" key={note}>{note}</span>
                   ))}
                 </div>
+              )}
+
+              {message.account?.data && (
+                <AccountCard
+                  topic={message.account.tool || message.account.topic}
+                  data={message.account.data}
+                  onOpenHouse={onOpenHouse}
+                />
               )}
 
               {message.options?.length > 0 && (

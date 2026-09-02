@@ -451,6 +451,31 @@ class TestAccountTools(unittest.TestCase):
             self.assertIn(number, message)
         self.assertIn("逾期", message)
 
+    def test_status_codes_are_translated_in_the_answer(self):
+        """「当前状态：pending」出现在客服回答里，比不回答更露怯。"""
+        backend = self.FakeBackend({"/api/repairs": {"list": [
+            {"id": 1, "content": "卧室门锁打不开", "status": "pending"},
+        ]}})
+        status, message, _ = account.lookup(backend, "tok", "repair")
+        self.assertEqual(status, "ok")
+        self.assertIn("待处理", message)
+        self.assertNotIn("pending", message)
+
+    def test_contract_answer_leads_with_the_count(self):
+        """「我租了几套房」问的就是数量，只报一份合同号是答非所问。"""
+        rows = [
+            {"contract_no": "HT1", "house_no": "DL0005", "status": "active",
+             "start_date": "2026-09-01", "end_date": "2027-08-31"},
+            {"contract_no": "HT2", "house_no": "DL0006", "status": "ended",
+             "start_date": "2025-01-01", "end_date": "2025-12-31"},
+        ]
+        backend = self.FakeBackend({"/api/contracts/mine": {"list": rows}})
+        status, message, data = account.lookup(backend, "tok", "contract")
+        self.assertEqual(status, "ok")
+        self.assertIn("2 份租约", message)
+        self.assertIn("1 份在租期内", message)
+        self.assertEqual(data["total"], 2)
+
     def test_landlord_only_topic_explains_permission_to_tenant(self):
         """租客问「我的房源」，后端会拒。要说清楚是身份问题，
         而不是丢一句「数据取不到」让人反复重试。"""

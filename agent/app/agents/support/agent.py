@@ -24,7 +24,7 @@ import time
 from app.agents.support import corpus
 from app.agents.support.tools import (actions, answer as answer_tool,
                                       classify_ask, gate, house as house_tool,
-                                      toolcall)
+                                      router, toolcall)
 from app.backend import BackendError
 from app.retrieval.embed import VectorCache, build_embedder
 from app.retrieval.index import KnowledgeIndex
@@ -347,13 +347,17 @@ def _action_result(name, status, message, card, ask, slots, shaped):
 
 
 def run(text, token="", history=None, provider=None, backend=None,
-        settings=None, house_no="", pending=None):
+        settings=None, house_no="", pending=None, routing=None):
     """回答一个客服问题。
 
     `pending` 是上一轮没做完的代办：问了哪个槽、已经填了什么、
     或者已经摆出的确认卡片。它**不存在服务端**——随响应发给前端、
     下一轮再带回来，与确认卡片同一个理由：无状态就没有
     「接的是上一条还是上上条」的竞态。
+
+    `routing` 是调用方已经算好的路由结论（`tools/router.route()` 的返回）。
+    统一入口 `/agent/chat` 会先路由一次来决定要不要交给客服处理，
+    传进来可以省掉第二次大模型调用。
     """
     started = time.time()
     raw = (text or "").strip()
@@ -391,23 +395,28 @@ def run(text, token="", history=None, provider=None, backend=None,
                       "好的，我把你的问题转给管理员，稍后会通过站内消息回复你。",
                       handoff={"question": raw, "reason": "用户主动要求转人工"})
 
-    # ③ 代办请求：生成确认卡片，**不执行**。
+    # ③ 统一路由：这句话是要**做事**、**查自己的数据**、还是**问规则**。
     #
-    # 必须排在事务型查询前面。「帮我把房租交了」里有「房租」，
-    # 放到后面会被 bill 当成查询，回一句「你还有 35 笔待缴」——
-    # 用户要的是把它交掉，不是再看一遍余额。
+    # 以前这里是两段独立的关键词判断（先 actions.detect、再 classify_ask），
+    # 表写得再全也追不上口语——「我要看房第一个」「预约明天上午看房第三套」
+    # 一条都没命中，用户被丢回旧的子智能体，得到一句
+    # 「请到具体房源页面点预约看房」。在一个号称能代办的助手里，
+    # 这是最伤人的一种回答。
     #
-    # 这一步只读后端（查出要操作的是哪一笔），绝不写。真正的执行在
-    # `/agent/support/confirm`，必须由用户点过确认之后才会被调用。
-    action_name = actions.detect(raw)
-    if action_name:
+    # 现在把能力清单交给大模型去选，规则退居参考答案与护栏。
+    # 大模型不可用时结论就是规则的结论，整条链路照常工作（N-07）。
+    decision = routing or router.route(raw, provider=provider,
+                                       history=history, pending=pending)
+
+    if decision["kind"] == router.KIND_ACTION:
         status, message, card, ask = actions.propose(
-            action_name, raw, token, backend, context={"house_no": house_no})
-        result = _action_result(action_name, status, message, card, ask,
+            decision["name"], raw, token, backend,
+            context={"house_no": house_no})
+        result = _action_result(decision["name"], status, message, card, ask,
                                 {"house_no": house_no} if house_no else {},
                                 shaped)
-        # NOT_APPLICABLE 且没话可说时 result 为 None，继续往下走检索
         if result is not None:
+            result.setdefault("retrieval", {})["route_source"] = decision["source"]
             return result
 
     # ③.5 关于「这一套房」的提问：定向取房源详情，不走检索。
@@ -433,18 +442,18 @@ def run(text, token="", history=None, provider=None, backend=None,
                       retrieval={"mode": "flow", "note": "签约由房东发起，"
                                                         "智能体无此接口"})
 
-    # ④ 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
-    # 返回 knowledge 表示「这不是个人数据问题」，继续往下走检索。
-    status, message, asked = toolcall.run(
-        raw, token, backend, provider=provider)
-    if status != "knowledge":
-        return shaped(
-            status, message,
-            account=asked,
-            retrieval={"mode": "account", "tool": asked.get("tool"),
-                       "select_source": asked.get("select_source"),
-                       "answer_source": asked.get("answer_source"),
-                       "note": "事务型问题：查后端真实数据，未使用知识检索"})
+    # ④ 查用户自己的数据：调后端受控接口取真实数据，再由大模型照着数据回答。
+    if decision["kind"] == router.KIND_QUERY:
+        status, message, detail = toolcall.run(
+            raw, token, backend, provider=provider, tool=decision["name"])
+        if status != "knowledge":
+            return shaped(
+                status, message, account=detail,
+                retrieval={"mode": "account", "tool": detail.get("tool"),
+                           "select_source": detail.get("select_source"),
+                           "route_source": decision["source"],
+                           "answer_source": detail.get("answer_source"),
+                           "note": "事务型问题：查后端真实数据，未使用知识检索"})
 
     kb = knowledge_base(backend=backend, settings=settings)
     index = kb.refresh()

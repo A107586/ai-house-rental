@@ -165,9 +165,16 @@ def compose(provider, question, topic, data, fallback):
     return message, "llm", ""
 
 
-def run(question, token, backend, provider=None):
-    """事务型问答的完整链路。返回 ``(status, message, detail)``。"""
-    tool, source, rule_tool = select_tool(question, provider=provider)
+def run(question, token, backend, provider=None, tool=None):
+    """事务型问答的完整链路。返回 ``(status, message, detail)``。
+
+    `tool` 由统一路由（`tools/router.py`）算好传进来时直接用，
+    省掉一次重复的大模型调用——路由那一步已经在全部能力里挑过一遍了。
+    """
+    if tool:
+        source, rule_tool = "router", tool
+    else:
+        tool, source, rule_tool = select_tool(question, provider=provider)
     detail = {"tool": tool, "rule_tool": rule_tool, "select_source": source}
 
     if tool == "none":
