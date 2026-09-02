@@ -41,6 +41,9 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [context, setContext] = useState('')
+  // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
+  // 服务端不存会话态，这份状态由前端带着走。
+  const [pending, setPending] = useState(null)
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
 
@@ -92,8 +95,30 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
     setError('')
 
     try {
-      const res = await api.agentChat(content, sessionId, history, houseNos)
+      const res = await api.agentChat(content, sessionId, history, houseNos, pending)
       setContext(res.context_text || '')
+      // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
+      // 被硬塞进上一轮的槽位里
+      setPending(res.pending || null)
+      // 用户口头说了「好的」，且这一步不是高风险——直接替他执行，
+      // 不必再让他去点一次按钮。高风险的仍然要求点，见 agent 里的说明。
+      if (res.auto_confirm && res.action) {
+        setMessages((prev) => [...prev, {
+          role: 'assistant', content: res.message, ok: true,
+        }])
+        try {
+          const done = await api.supportConfirm(res.action.name, res.action.params)
+          setMessages((prev) => [...prev, {
+            role: 'assistant', content: done.message, ok: done.ok,
+          }])
+        } catch (err) {
+          setError(err.message)
+        }
+        setPending(null)
+        setBusy(false)
+        return
+      }
+
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: res.message || '（没有返回内容）',
@@ -109,6 +134,8 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         // 在用户点确认之前，后端什么都还没做。
         action: res.action || null,
         acted: '',
+        // 可点选项。让用户点，而不是猜该怎么打字
+        options: res.options || [],
         logId: res.log_id || null,
         status: res.status || '',
         feedback: 0,
@@ -183,6 +210,7 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         content: res.message,
         ok: res.ok,
       }])
+      setPending(null)
     } catch (err) {
       setError(err.message)
       setMessages((prev) => prev.map((m, i) => (
@@ -195,12 +223,14 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
   function cancelAction(index) {
     setMessages((prev) => prev.map((m, i) => (
       i === index ? { ...m, acted: 'cancelled' } : m)))
+    setPending(null)
   }
 
   async function restart() {
     setMessages([OPENING])
     setContext('')
     setError('')
+    setPending(null)
     if (getToken()) {
       try {
         await api.clearChat(sessionId)
@@ -243,6 +273,21 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
                 <div className="bubble-notes">
                   {message.notes.map((note) => (
                     <span className="note" key={note}>{note}</span>
+                  ))}
+                </div>
+              )}
+
+              {message.options?.length > 0 && (
+                <div className="bubble-options">
+                  {message.options.map((option) => (
+                    <button
+                      className="chip-btn"
+                      key={option.value}
+                      disabled={busy}
+                      onClick={() => send(null, option.value)}
+                    >
+                      {option.label}
+                    </button>
                   ))}
                 </div>
               )}

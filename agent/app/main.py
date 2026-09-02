@@ -49,6 +49,8 @@ class SearchRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str
+    # 客服代办的待办状态，见 SupportRequest.pending
+    pending: dict | None = None
     # AI-09 多轮会话。登录用户的历史存在后端，用 session_id 取；
     # 未登录用户由前端把自己说过的话带上来，换设备记不住而已。
     session_id: str = ""
@@ -60,6 +62,9 @@ class ChatRequest(BaseModel):
 
 class SupportRequest(BaseModel):
     text: str
+    # 上一轮没做完的代办：问了哪个槽、已填了什么、或已摆出的确认卡片。
+    # **服务端不存会话态**，它随响应发给前端、下一轮再带回来。
+    pending: dict | None = None
     # 事务型问题（「我还欠多少房租」）要拿令牌去后端查这个人自己的数据
     token: str = ""
     session_id: str = ""
@@ -211,7 +216,7 @@ def agent_support(payload: SupportRequest):
     result = support.run(payload.text, token=payload.token,
                          history=payload.history, provider=provider,
                          backend=backend_client, settings=settings,
-                         house_no=payload.house_no)
+                         house_no=payload.house_no, pending=payload.pending)
     # 日志写在接口层而不是智能体里：`run()` 保持无副作用，方便测试
     log_id = support.record(result, backend_client, token=payload.token,
                             session_id=payload.session_id)
@@ -379,7 +384,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
-                             settings=settings)
+                             settings=settings, pending=payload.pending)
         if result.get("status") == "answered":
             result["route"] = routed
             return result
@@ -432,7 +437,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
-                             settings=settings)
+                             settings=settings, pending=payload.pending)
         result["route"] = routed
         if result.get("status") == "refused":
             # 连检索都没依据，这才是真的没听懂。此时把找房与预约的

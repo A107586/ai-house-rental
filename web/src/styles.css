@@ -3452,3 +3452,14 @@ td.accent {
   font-size: 13px;
   color: #6b7280;
 }
+
+
+/* 追问时的可点选项。
+   「你有 6 条预约，要取消哪一条」后面跟一串纯文本，用户只能猜格式；
+   做成按钮，点一下就等于把值填进槽位。 */
+.bubble-options {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -23,6 +23,27 @@
 所以这里不做会话态、不存待确认队列——无状态实现少一整类
 「确认的是上一条还是上上条」的竞态问题。
 
+## 多轮槽位填充：助手问了问题，就得接得住答案
+
+实测下来「不好用」的根源不是识别不准，是**每一轮都是孤立的**：
+
+    用户：帮我约看房
+    助手：想看哪一套？
+    用户：周六下午两点        ← 上一轮的问题整个丢了，跑去查 FAQ
+
+参考拼多多、美团那类客服的做法，缺三样东西：
+
+1. **待办状态**（`pending`）：问了什么、已经填了哪些槽、还缺哪个，
+   一路带着走。用户补一句就能接上，不必把整句话重说一遍。
+2. **选项可点**（`options`）：「你有 6 条预约，要取消哪一条」后面跟一串
+   纯文本，用户只能猜格式。改成结构化选项，前端渲染成按钮，
+   点一下等于把值填进槽位。
+3. **口头确认**：卡片出来以后用户说「好的」，那就是确认。
+   只认按钮不认人话，是把交互做回了表单。
+
+待办状态**不存在服务端**，随响应发给前端、下一轮再带回来——
+与确认卡片同一个理由：无状态就没有「接的是上一条还是上上条」的竞态。
+
 ## 风险分级决定措辞，不决定要不要确认
 
     low     收藏、标记已读——做错了随手能撤
@@ -186,6 +207,86 @@ def detect(text):
     return ""
 
 
+
+# ---------------------------------------------------------------- 多轮槽位
+
+# 肯定与否定。用户对着确认卡片说「好的」，那就是确认——
+# 只认按钮不认人话，等于把对话做回了表单。
+AFFIRM = ["好", "好的", "行", "可以", "确认", "对", "是的", "嗯", "没问题",
+          "就这个", "就它", "同意", "ok", "OK", "yes", "执行", "去吧", "麻烦了"]
+DENY = ["不", "不用", "算了", "取消", "先不", "再想想", "不要", "no", "等等"]
+
+
+def is_affirm(text):
+    """用户是不是在肯定上一张确认卡片。
+
+    要求整句话短——「好的」是确认，「好的，那退租要打扫吗」是新问题。
+    长句里出现「好」大概率只是语气词，不能当确认用。
+    """
+    raw = (text or "").strip().strip("，。！,.!~ ")
+    if not raw or len(raw) > 8:
+        return False
+    return any(raw == word or raw.startswith(word) for word in AFFIRM)
+
+
+def is_deny(text):
+    raw = (text or "").strip().strip("，。！,.!~ ")
+    if not raw or len(raw) > 8:
+        return False
+    return any(raw == word or raw.startswith(word) for word in DENY)
+
+
+# 序数词 -> 下标。用户看到一串选项，最自然的回答就是「第一个」。
+_ORDINALS = {
+    "第一": 0, "第1": 0, "第一个": 0, "第一条": 0, "1": 0, "一": 0,
+    "第二": 1, "第2": 1, "第二个": 1, "第二条": 1, "2": 1, "二": 1,
+    "第三": 2, "第3": 2, "第三个": 2, "第三条": 2, "3": 2, "三": 2,
+    "第四": 3, "第4": 3, "第四个": 3, "4": 3, "四": 3,
+    "第五": 4, "第5": 4, "第五个": 4, "5": 4, "五": 4,
+}
+
+
+def pick_option(text, options):
+    """把用户这句话对应到某个选项，返回选项的 value 或空串。
+
+    三种命中方式，按可靠性排序：
+
+    1. 直接说出了值（房源编号、合同号）——最可靠
+    2. 说了标签里的一段（「桂林街那套」）
+    3. 说了序数（「第一个」）——最省事，也最容易错位，所以放最后
+    """
+    raw = (text or "").strip()
+    if not raw or not options:
+        return ""
+
+    for option in options:
+        if option["value"] and option["value"] in raw:
+            return option["value"]
+
+    for option in options:
+        label = option.get("label") or ""
+        # 标签里挑一段有区分度的来比对，整条标签太长不可能被原样说出来
+        for piece in label.replace("　", " ").split():
+            if len(piece) >= 3 and piece in raw:
+                return option["value"]
+
+    compact = raw.strip("，。 ")
+    for word, index in _ORDINALS.items():
+        if compact == word or compact.startswith(word):
+            if index < len(options):
+                return options[index]["value"]
+    return ""
+
+
+def _option(value, label):
+    return {"value": value, "label": label}
+
+
+def _ask(slot, question, options=None):
+    """一次追问：缺哪个槽、问什么、有哪些可点的选项。"""
+    return {"slot": slot, "question": question, "options": options or []}
+
+
 # ---------------------------------------------------------------- 提议
 
 def _card(name, label, summary, risk, params, detail=None, warning=""):
@@ -210,7 +311,7 @@ def _propose_pay_bill(text, token, backend, context):
     rows = _rows(backend.get("/api/bills/mine", token=token))
     unpaid = [b for b in rows if b.get("status") != "paid"]
     if not unpaid:
-        return NOT_APPLICABLE, "你的账单都结清了，没有需要缴的。", None
+        return NOT_APPLICABLE, "你的账单都结清了，没有需要缴的。", None, None
 
     # 多笔待缴时选最早到期的那一笔，并在卡片上说明还有几笔。
     # 不自作主张一次全交——那是一笔大得多的钱，必须由用户逐笔决定。
@@ -240,45 +341,76 @@ def _propose_cancel_viewing(text, token, backend, context):
     pending = [r for r in rows if r.get("status") in ("pending", "confirmed",
                                                       "待审核", "已确认")]
     if not pending:
-        return NOT_APPLICABLE, "你没有可以取消的预约。", None
-    if len(pending) > 1:
-        options = "；".join(
-            "%s %s" % (r.get("viewing_time", ""), r.get("house_no", ""))
-            for r in pending[:5])
-        return (NEED_SLOT,
-                "你有 %d 条预约，要取消哪一条？%s" % (len(pending), options), None)
+        return NOT_APPLICABLE, "你没有可以取消的预约。", None, None
+
+    options = [_option(str(r.get("id")),
+                       "%s %s" % (r.get("viewing_time", ""), r.get("house_no", "")))
+               for r in pending]
+    chosen = context.get("appointment_id") or ""
+    if not chosen and len(pending) > 1:
+        return (NEED_SLOT, "你有 %d 条预约，要取消哪一条？" % len(pending), None,
+                _ask("appointment_id", "要取消哪一条预约？", options))
 
     target = pending[0]
+    if chosen:
+        for row in pending:
+            if str(row.get("id")) == str(chosen):
+                target = row
+                break
+
     return CONFIRM, "", _card(
         "cancel_viewing", "取消预约",
         "取消 %s 对 %s 的看房预约"
         % (target.get("viewing_time", ""), target.get("house_no", "")),
         RISK_MEDIUM,
         {"appointment_id": target.get("id"), "status": "cancelled"},
-        detail=target)
+        detail=target), None
 
 
 def _propose_book_viewing(text, token, backend, context):
-    house_no = (context or {}).get("house_no") or ""
+    house_no = context.get("house_no") or ""
     if not house_no:
-        return (NEED_SLOT,
-                "想看哪一套？在房源详情页里跟我说，或者直接告诉我房源编号。",
-                None)
+        # 没有指定房源时，从收藏与浏览足迹里挑几套给用户点。
+        #
+        # 原先直接回一句「在房源详情页里跟我说」，等于把用户赶出对话框——
+        # 他本来就是不想翻页面才来问的。收藏和最近看过的，
+        # 多半就是他想约的那几套。
+        options = []
+        for path in ("/api/favorites", "/api/history"):
+            for row in _rows(backend.get(path, token=token)):
+                no = row.get("house_no")
+                if no and not any(o["value"] == no for o in options):
+                    options.append(_option(
+                        no, "%s %s" % (no, (row.get("title") or "")[:18])))
+            if len(options) >= 5:
+                break
+        question = ("想看哪一套？" if options
+                    else "想看哪一套？先去房源列表挑一套，或者直接告诉我房源编号。")
+        return NEED_SLOT, question, None, _ask("house_no", question, options[:5])
 
     # `parse_datetime` 返回的是 dict 而不是 datetime——它要同时表达
     # 「明确的某一天某一刻」和「最近三天都行」这类模糊范围，
     # 一个 datetime 装不下。这里只接受明确到时刻的表达。
-    parsed = parse_datetime(text) or {}
+    parsed = parse_datetime(context.get("viewing_time") or text) or {}
     day, clock = parsed.get("date"), parsed.get("time")
     if not day:
-        return (NEED_SLOT,
-                "你想什么时候去看？比如「这周六下午两点」。", None)
+        return (NEED_SLOT, "你想什么时候去看？比如「这周六下午两点」。", None,
+                _ask("viewing_time", "你想什么时候去看？", [
+                    _option("明天下午三点", "明天下午三点"),
+                    _option("这周六上午十点", "本周六上午十点"),
+                    _option("这周六下午两点", "本周六下午两点"),
+                    _option("这周日下午三点", "本周日下午三点")]))
     if not clock:
         # 只说了哪天没说几点。平台可约时段是 9:00–18:00，
-        # 与其替用户猜一个，不如问清楚——约错时间要重新走一遍确认。
+        # 与其替用户猜一个，不如给几个常用时段让他点。
+        stamp = day.strftime("%Y-%m-%d")
         return (NEED_SLOT,
                 "%s 哪个时间点方便？平台可约时段是 9:00 到 18:00。"
-                % day.strftime("%m 月 %d 日"), None)
+                % day.strftime("%m 月 %d 日"), None,
+                _ask("viewing_time", "哪个时间点方便？", [
+                    _option("%s 10:00" % stamp, "上午 10:00"),
+                    _option("%s 14:00" % stamp, "下午 14:00"),
+                    _option("%s 16:00" % stamp, "下午 16:00")]))
 
     when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
     return CONFIRM, "", _card(
@@ -286,7 +418,7 @@ def _propose_book_viewing(text, token, backend, context):
         "预约 %s 看房源 %s" % (when, house_no), RISK_MEDIUM,
         {"house_no": house_no, "viewing_time": when},
         detail={"house_no": house_no, "viewing_time": when},
-        warning="提交后要等房东确认，结果会通过站内消息通知你。")
+        warning="提交后要等房东确认，结果会通过站内消息通知你。"), None
 
 
 def _propose_submit_repair(text, token, backend, context):
@@ -310,7 +442,7 @@ def _propose_submit_repair(text, token, backend, context):
         content = content.replace(word, "")
     content = content.strip("，。,. ")
     if len(content) < 4:
-        return NEED_SLOT, "哪里出问题了？描述一下，比如「厨房水管漏水」。", None
+        return NEED_SLOT, "哪里出问题了？描述一下，比如「厨房水管漏水」。", None, None
 
     return CONFIRM, "", _card(
         "submit_repair", "提交报修",
@@ -324,7 +456,7 @@ def _propose_renew_contract(text, token, backend, context):
     rows = _rows(backend.get("/api/contracts/mine", token=token))
     active = [c for c in rows if c.get("status") in ("active", "生效中")]
     if not active:
-        return NOT_APPLICABLE, "你名下没有生效中的租约。", None
+        return NOT_APPLICABLE, "你名下没有生效中的租约。", None, None
 
     target = active[0]
     months = 12
@@ -351,7 +483,7 @@ def _propose_end_contract(text, token, backend, context):
     rows = _rows(backend.get("/api/contracts/mine", token=token))
     active = [c for c in rows if c.get("status") in ("active", "生效中")]
     if not active:
-        return NOT_APPLICABLE, "你名下没有生效中的租约。", None
+        return NOT_APPLICABLE, "你名下没有生效中的租约。", None, None
 
     target = active[0]
     return CONFIRM, "", _card(
@@ -366,7 +498,7 @@ def _propose_end_contract(text, token, backend, context):
 def _propose_favorite(text, token, backend, context):
     house_no = (context or {}).get("house_no") or ""
     if not house_no:
-        return NEED_SLOT, "要收藏哪一套？在房源详情页里跟我说。", None
+        return NEED_SLOT, "要收藏哪一套？在房源详情页里跟我说。", None, None
     return CONFIRM, "", _card(
         "favorite_house", "收藏房源",
         "把房源 %s 加入收藏" % house_no, RISK_LOW, {"house_no": house_no})
@@ -375,7 +507,7 @@ def _propose_favorite(text, token, backend, context):
 def _propose_unfavorite(text, token, backend, context):
     house_no = (context or {}).get("house_no") or ""
     if not house_no:
-        return NEED_SLOT, "要取消收藏哪一套？", None
+        return NEED_SLOT, "要取消收藏哪一套？", None, None
     return CONFIRM, "", _card(
         "unfavorite_house", "取消收藏",
         "把房源 %s 移出收藏" % house_no, RISK_LOW, {"house_no": house_no})
@@ -385,7 +517,7 @@ def _propose_read_all(text, token, backend, context):
     data = backend.get("/api/messages", token=token)
     unread = data.get("unread", 0) if isinstance(data, dict) else 0
     if not unread:
-        return NOT_APPLICABLE, "你没有未读消息。", None
+        return NOT_APPLICABLE, "你没有未读消息。", None, None
     return CONFIRM, "", _card(
         "read_all_messages", "消息全部已读",
         "把 %d 条未读消息标记为已读" % unread, RISK_LOW, {})
@@ -403,7 +535,7 @@ def _propose_toggle_house(text, token, backend, context):
     if not house_no:
         rows = _rows(backend.get("/api/landlord/houses", token=token))
         if not rows:
-            return NOT_APPLICABLE, "你名下还没有房源。", None
+            return NOT_APPLICABLE, "你名下还没有房源。", None, None
         if len(rows) > 1:
             return (NEED_SLOT,
                     "你名下有 %d 套房源，要操作哪一套？告诉我房源编号。"
@@ -423,7 +555,7 @@ def _propose_toggle_house(text, token, backend, context):
 def _propose_submit_review(text, token, backend, context):
     rows = _rows(backend.get("/api/reviews/pending", token=token))
     if not rows:
-        return NOT_APPLICABLE, "你没有待评价的租约。", None
+        return NOT_APPLICABLE, "你没有待评价的租约。", None, None
     if len(rows) > 1:
         options = "；".join(r.get("contract_no", "") for r in rows[:5])
         return (NEED_SLOT,
@@ -455,7 +587,7 @@ def _propose_handle_appointment(text, token, backend, context):
     rows = _rows(backend.get("/api/appointments", token=token))
     pending = [r for r in rows if r.get("status") in ("pending", "待审核")]
     if not pending:
-        return NOT_APPLICABLE, "没有待处理的看房预约。", None
+        return NOT_APPLICABLE, "没有待处理的看房预约。", None, None
 
     reject = "拒绝" in text or "驳回" in text
     if len(pending) > 1:
@@ -485,7 +617,7 @@ def _propose_update_repair(text, token, backend, context):
     open_rows = [r for r in rows
                  if r.get("status") not in ("done", "已完成", "closed")]
     if not open_rows:
-        return NOT_APPLICABLE, "没有处理中的工单。", None
+        return NOT_APPLICABLE, "没有处理中的工单。", None, None
     if len(open_rows) > 1:
         options = "；".join(
             "#%s %s" % (r.get("id"), (r.get("content") or "")[:12])
@@ -524,19 +656,33 @@ PROPOSERS = {
 def propose(name, text, token, backend, context=None):
     """生成确认卡片。**保证不产生任何副作用**——只读后端，不写。
 
-    返回 ``(status, message, card)``。
+    返回 ``(status, message, card, ask)``：
+
+    - `card` 是确认卡片，只有 `status == CONFIRM` 时非空
+    - `ask` 是一次追问，只有 `status == NEED_SLOT` 时非空，
+      形如 ``{"slot", "question", "options"}``。`options` 让前端渲染成
+      可点按钮——用户点一下就等于把值填进槽位，不用猜该怎么打字。
+
+    `context` 里既有页面上下文（当前打开的房源），也有前几轮已经填好的槽位，
+    两者合流。对 proposer 来说「这个值哪来的」不重要，有就行。
+
+    各个 proposer 返回三元组或四元组都可以，这里统一补齐——
+    多数操作不需要追问，让它们为此多写一个 `None` 是噪声。
     """
     if not token:
-        return NEED_LOGIN, "这个操作要用你的账号来做，先登录一下。", None
+        return NEED_LOGIN, "这个操作要用你的账号来做，先登录一下。", None, None
     proposer = PROPOSERS.get(name)
     if proposer is None:
-        return NOT_APPLICABLE, "", None
+        return NOT_APPLICABLE, "", None, None
     try:
-        return proposer(text, token, backend, context or {})
+        result = proposer(text, token, backend, context or {})
     except BackendError:
-        return FAILED, "查你的数据时没连上后端，稍后再试。", None
+        return FAILED, "查你的数据时没连上后端，稍后再试。", None, None
     except Exception:
-        return FAILED, "准备这个操作时出了点问题，稍后再试。", None
+        return FAILED, "准备这个操作时出了点问题，稍后再试。", None, None
+
+    return tuple(result) + (None,) if len(result) == 3 else tuple(result)
+
 
 
 # ---------------------------------------------------------------- 执行

@@ -171,6 +171,10 @@ def _shape(status, message, **extra):
         "message": message,
         "citations": [],
         "alternatives": [],
+        # 可点选项与未完成的代办。前端把 pending 原样带回来，
+        # 下一轮就能接上——服务端不存会话态。
+        "options": [],
+        "pending": None,
         "retrieval": {},
     }
     payload.update(extra)
@@ -230,9 +234,126 @@ def _citation(index, chunk_id):
     }
 
 
+
+# ---------------------------------------------------------------- 多轮代办
+
+def _fill_slot(ask, text):
+    """把用户这一轮说的话填进上一轮问的那个槽。
+
+    有选项就先按选项匹配（用户多半是点了按钮或说了「第一个」），
+    没选项就把整句话当值——时间这类槽本来就得靠解析器去读原话。
+    """
+    if not ask:
+        return ""
+    options = ask.get("options") or []
+    if options:
+        picked = actions.pick_option(text, options)
+        if picked:
+            return picked
+        # 有选项但一个都没对上：可能用户输入的是选项之外的值（比如直接
+        # 报了个房源编号），仍然收下，交给后端去判断合不合法
+    return (text or "").strip()
+
+
+def _resume(raw, pending, token, backend, house_no, shaped):
+    """承接上一轮没做完的代办。返回结果字典，或 None 表示接不上、走正常流程。
+
+    **「接不上就放手」是这里最重要的一条。** 用户问到一半改主意去问别的
+    很常见，如果硬把新的一句话往旧槽位里塞，就会出现
+    「你问押金怎么退，我却把它当成了房源编号」这种荒唐事。
+    所以只有在能明确接上时才继续，其余一律放弃 pending。
+    """
+    name = pending.get("action")
+    if not name:
+        return None
+
+    # ---- 用户在回应确认卡片 ----
+    card = pending.get("card")
+    if card:
+        if actions.is_deny(raw):
+            return shaped("cancelled", "好，那就不做了。")
+        if actions.is_affirm(raw):
+            # 高风险操作不接受口头确认。「好的」两个字太容易脱口而出，
+            # 而这一类是花钱或不可逆的——多点一下按钮不算麻烦。
+            if card.get("risk") == actions.RISK_HIGH:
+                return shaped(
+                    "confirm",
+                    "这一步涉及金额或不可撤销，请点一下「确认执行」我再动手。",
+                    action=card, pending={"action": name, "card": card},
+                    retrieval={"mode": "action", "action": name,
+                               "note": "高风险操作不接受口头确认"})
+            return shaped("confirm", "好，这就去办。", action=card,
+                          auto_confirm=True,
+                          retrieval={"mode": "action", "action": name,
+                                     "note": "用户口头确认，前端可直接执行"})
+        # 既不肯定也不否定，说明改话题了，放弃这张卡片
+        return None
+
+    # ---- 用户在回答上一轮的追问 ----
+    ask = pending.get("ask")
+    if not ask:
+        return None
+
+    # **否定要先于填槽判断。** 漏了这一条会出大问题：
+    # 「取消预约」→「要取消哪一条？」→ 用户说「算了」，
+    # 「算了」被当成了槽位值填进去，反而生成了一张取消预约的确认卡片——
+    # 用户明明在喊停，系统却把事情往前推了一步。
+    if actions.is_deny(raw):
+        return shaped("cancelled", "好，那就先不弄了。")
+
+    # 用户中途改口去做别的事，就别再往旧槽里塞
+    if actions.detect(raw) and actions.detect(raw) != name:
+        return None
+
+    value = _fill_slot(ask, raw)
+    if not value:
+        return None
+
+    slots = dict(pending.get("slots") or {})
+    slots[ask["slot"]] = value
+    context = dict(slots)
+    context.setdefault("house_no", house_no)
+
+    status, message, new_card, new_ask = actions.propose(
+        name, raw, token, backend, context=context)
+    return _action_result(name, status, message, new_card, new_ask, slots, shaped)
+
+
+def _action_result(name, status, message, card, ask, slots, shaped):
+    """把提议的结果整理成统一的返回形状。"""
+    if status == actions.CONFIRM:
+        return shaped("confirm", "要我帮你%s吗？" % card["summary"],
+                      action=card,
+                      pending={"action": name, "card": card},
+                      retrieval={"mode": "action", "action": name,
+                                 "risk": card["risk"],
+                                 "note": "已生成确认卡片，等待用户确认后才执行"})
+    if status == actions.NEED_SLOT:
+        return shaped("need_slot", message,
+                      options=(ask or {}).get("options", []),
+                      pending={"action": name, "slots": slots, "ask": ask},
+                      retrieval={"mode": "action", "action": name,
+                                 "note": "缺少 %s，已追问"
+                                         % (ask or {}).get("slot", "信息")})
+    if status in (actions.NEED_LOGIN, actions.FAILED):
+        return shaped(
+            "need_login" if status == actions.NEED_LOGIN else status, message,
+            retrieval={"mode": "action", "action": name, "note": message})
+    if message:
+        return shaped("answered", message,
+                      retrieval={"mode": "action", "action": name})
+    return None
+
+
 def run(text, token="", history=None, provider=None, backend=None,
-        settings=None, house_no=""):
-    """回答一个客服问题。"""
+        settings=None, house_no="", pending=None):
+    """回答一个客服问题。
+
+    `pending` 是上一轮没做完的代办：问了哪个槽、已经填了什么、
+    或者已经摆出的确认卡片。它**不存在服务端**——随响应发给前端、
+    下一轮再带回来，与确认卡片同一个理由：无状态就没有
+    「接的是上一条还是上上条」的竞态。
+    """
     started = time.time()
     raw = (text or "").strip()
     if not raw:
@@ -243,13 +364,33 @@ def run(text, token="", history=None, provider=None, backend=None,
         extra.setdefault("question", raw)
         return _shape(status, message, **extra)
 
-    # ① 明确要转人工，不必先检索一遍
+    # ⓪ 先看这一句是不是在接上一轮没做完的事：回答追问，或者对着
+    # 确认卡片说「好的」。接得上就继续，接不上就当新话题往下走。
+    if pending:
+        resumed = _resume(raw, pending, token, backend, house_no, shaped)
+        if resumed is not None:
+            return resumed
+
+    # ① 孤零零一句「好的」「算了」，前面却没有待办。
+    # 不拦的话会一路走到检索，回一句「暂时没有查到相关规定」——
+    # 用户只是应了一声，却被告知知识库里查不到，莫名其妙。
+    #
+    # **必须先排除这句话本身是个指令。** 否定词「取消」与动作词
+    # 「取消预约」是撞的——不加这一层，用户说「取消预约」会被当成
+    # 一句「算了」应付掉，整个取消功能就废了。实测踩过。
+    if (not actions.detect(raw)
+            and (actions.is_affirm(raw) or actions.is_deny(raw))):
+        return shaped("answered",
+                      "嗯，还有什么要我帮忙的吗？可以问平台规则，"
+                      "也可以让我帮你交房租、约看房、报修。")
+
+    # ② 明确要转人工，不必先检索一遍
     if classify_ask.wants_handoff(raw):
         return shaped("escalate",
                       "好的，我把你的问题转给管理员，稍后会通过站内消息回复你。",
                       handoff={"question": raw, "reason": "用户主动要求转人工"})
 
-    # ② 代办请求：生成确认卡片，**不执行**。
+    # ③ 代办请求：生成确认卡片，**不执行**。
     #
     # 必须排在事务型查询前面。「帮我把房租交了」里有「房租」，
     # 放到后面会被 bill 当成查询，回一句「你还有 35 笔待缴」——
@@ -259,27 +400,16 @@ def run(text, token="", history=None, provider=None, backend=None,
     # `/agent/support/confirm`，必须由用户点过确认之后才会被调用。
     action_name = actions.detect(raw)
     if action_name:
-        status, message, card = actions.propose(
+        status, message, card, ask = actions.propose(
             action_name, raw, token, backend, context={"house_no": house_no})
-        if status == actions.CONFIRM:
-            return shaped("confirm", "要我帮你%s吗？" % card["summary"],
-                          action=card,
-                          retrieval={"mode": "action", "action": action_name,
-                                     "risk": card["risk"],
-                                     "note": "已生成确认卡片，等待用户确认后才执行"})
-        if status in (actions.NEED_SLOT, actions.NEED_LOGIN, actions.FAILED):
-            return shaped(
-                "need_login" if status == actions.NEED_LOGIN else status,
-                message,
-                retrieval={"mode": "action", "action": action_name,
-                           "note": message})
-        # NOT_APPLICABLE：没什么可操作的（比如账单已结清），
-        # 把后端给出的那句话直接说了，不必再去检索 FAQ
-        if message:
-            return shaped("answered", message,
-                          retrieval={"mode": "action", "action": action_name})
+        result = _action_result(action_name, status, message, card, ask,
+                                {"house_no": house_no} if house_no else {},
+                                shaped)
+        # NOT_APPLICABLE 且没话可说时 result 为 None，继续往下走检索
+        if result is not None:
+            return result
 
-    # ③ 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
+    # ④ 事务型问题：大模型在白名单工具里选一个，查真实数据后照着数据回答。
     # 返回 knowledge 表示「这不是个人数据问题」，继续往下走检索。
     status, message, asked = toolcall.run(
         raw, token, backend, provider=provider)
