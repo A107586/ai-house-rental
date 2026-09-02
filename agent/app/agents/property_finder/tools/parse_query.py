@@ -69,6 +69,13 @@ _NUM = r"(?:\d+(?:\.\d+)?|[" + CN_NUM_CHARS + r"]+)"
 _PRICE_RANGE = re.compile(
     r"(" + _NUM + r")\s*(万|千)?\s*(?:元|块|块钱|米)?\s*(?:到|至|-|~|—)\s*"
     r"(" + _NUM + r")\s*(万|千)?\s*(?:元|块|块钱)?"
+    # 两道断言缺一不可：
+    #   (?!\d)  数字必须整个吃掉。少了它，正则会回溯成「60到9」——
+    #           后面跟的是「0」而不是「平」，下面那条前瞻就被绕过去了
+    #   后一条  跟着面积单位的不是价格。「面积60到90平」原先被当成
+    #           租金 60–90 元，那样的条件一套房也搜不出来
+    r"(?!\d)"
+    r"(?!\s*(?:平方米|平米|平|㎡))"
 )
 _PRICE_MAX = re.compile(
     r"(?:预算|租金|房租|价格|价位)?\s*(?:不超过|不高于|最多|最高|低于|少于)?\s*"
@@ -173,6 +180,9 @@ def parse_query(text):
             matched.append("租价区间")
             price_done = True
     if not price_done:
+        # 上限与下限**各自独立判断**。原先这两段用 `if not price_done`
+        # 串在一起，匹配到上限就再也不看下限了——于是「两千以上三千以下」
+        # 只能解析出上限，下限被整段跳过。一句话里同时给出两者很常见。
         for pattern in (_PRICE_MAX, _PRICE_MAX2):
             m = pattern.search(raw)
             if m:
@@ -180,15 +190,20 @@ def parse_query(text):
                 if value:
                     filters["zujia_max"] = int(value)
                     matched.append("租价上限")
-                    price_done = True
                     break
-    if not price_done:
+
         m = _PRICE_MIN.search(raw)
         if m:
             value = parse_amount(m.group(1), m.group(2))
             if value:
                 filters["zujia_min"] = int(value)
                 matched.append("租价下限")
+
+        # 上下限都拿到时校正一次顺序：「三千以下两千以上」这种倒装
+        # 说法也要能用，不能因为写反了就给出一个空区间
+        low, high = filters.get("zujia_min"), filters.get("zujia_max")
+        if low and high and low > high:
+            filters["zujia_min"], filters["zujia_max"] = high, low
 
     # ---------- 面积 ----------
     m = _AREA_RANGE.search(raw)
@@ -212,6 +227,19 @@ def parse_query(text):
                 if value:
                     filters["mianji_max"] = int(value)
                     matched.append("面积上限")
+            else:
+                # 光说「80平」没说以上还是以下。_AREA_EQ 这条正则原先
+                # 定义了却从没被用过，于是这类说法什么也解析不出来。
+                #
+                # 按「大约 80 平」理解，取上下各 15% 的区间：说 80 平的人
+                # 不会因为一套 78 平就不看了，但按下限 80 处理会把它排除。
+                m = _AREA_EQ.search(raw)
+                if m:
+                    value = _token_to_number(m.group(1))
+                    if value:
+                        filters["mianji_min"] = int(value * 0.85)
+                        filters["mianji_max"] = int(value * 1.15)
+                        matched.append("面积约值")
 
     # ---------- 房源类型 ----------
     for name, words in ROOM_TYPES.items():

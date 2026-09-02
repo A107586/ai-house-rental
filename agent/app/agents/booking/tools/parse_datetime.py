@@ -27,14 +27,23 @@ _WEEKDAY = re.compile(r"(这|本|下|下个|上)?\s*(?:周|星期|礼拜)\s*([�
 
 # ---------------------------------------------------------------- 相对日
 
+# 顺序有讲究：长的写在前面，否则「大后天」会先被「后天」吃掉。
+# 「明早」「明晚」这类合成词也要列出来——口语里说「明早九点」的
+# 比说「明天早上九点」的多，只认后者等于漏掉一半说法。
 _RELATIVE_DAYS = [
     ("大后天", 3),
     ("后天", 2),
     ("明天", 1),
+    ("明早", 1),
+    ("明晚", 1),
     ("明儿", 1),
     ("今天", 0),
+    ("今晚", 0),
     ("今儿", 0),
 ]
+
+# 合成词里隐含的时段：「明早」= 明天 + 早上
+_DAY_PERIOD_HINT = {"明早": "早上", "明晚": "晚上", "今晚": "晚上"}
 
 # ---------------------------------------------------------------- 绝对日期
 
@@ -48,6 +57,12 @@ _PERIODS = [
     ("中午", 12), ("下午", 14), ("傍晚", 17), ("晚上", 19), ("晚间", 19),
 ]
 _CLOCK = re.compile(r"([" + CN_NUM_CHARS + r"\d]{1,3})\s*[点时](\s*半|\s*[\d一二三四五]{1,2}\s*分)?")
+# 「14:00」「9:30」这种写法。手机上打冒号比打「点」快，实际用得不少，
+# 而只认「点」的正则完全匹配不到。
+# 不能用 \b 做边界：Python 的 \b 认的是「单词字符与非单词字符的交界」，
+# 而中文汉字也算单词字符，「明天14:00」里「天」和「1」之间根本没有边界，
+# 整条正则就永远匹配不上。改用「前面不是数字」这种显式断言。
+_COLON_CLOCK = re.compile(r"(?<!\d)([01]?\d|2[0-3])\s*[:：]\s*([0-5]\d)(?!\d)")
 
 # ---------------------------------------------------------------- 时间范围
 
@@ -84,7 +99,12 @@ def _next_weekday(base, target, modifier):
 
 
 def _parse_clock(text):
-    """解析「两点」「下午三点半」，返回 `time` 或 None。"""
+    """解析「两点」「下午三点半」「14:00」，返回 `time` 或 None。"""
+    # 冒号写法是无歧义的 24 小时制，先判掉，不用再考虑上下午换算
+    colon = _COLON_CLOCK.search(text)
+    if colon:
+        return time(int(colon.group(1)), int(colon.group(2)))
+
     period_hour = None
     period_name = None
     for name, hour in _PERIODS:
@@ -92,6 +112,14 @@ def _parse_clock(text):
             period_hour = hour
             period_name = name
             break
+
+    # 「明早九点」里的时段藏在合成词里，单独找一遍
+    if period_name is None:
+        for word, period in _DAY_PERIOD_HINT.items():
+            if word in text:
+                period_name = period
+                period_hour = dict(_PERIODS)[period]
+                break
 
     match = _CLOCK.search(text)
     if not match:
