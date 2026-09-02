@@ -24,6 +24,11 @@ const EMPTY_FORM = {
 
 const DISTRICTS = ['中山区', '西岗区', '沙河口区', '甘井子区', '旅顺口区', '金州区']
 const LAYOUTS = ['一室', '一室一厅', '两室一厅', '两室两厅', '三室一厅', '三室两厅']
+// 朝向。表单原先没有这一栏，却在提交时默认写「朝南」——
+// 等于替房东填了他没填的数据。补成可选。
+const ORIENTATIONS = ['朝南', '朝东', '朝西', '朝北',
+  '东南', '西南', '东北', '西北', '南北通透']
+
 const RENT_TYPES = ['整租', '合租', '公寓']
 const ALL_TAGS = ['电梯', '地铁', '近学校', '近医院', '有阳台', '可做饭',
   '有家具', '可养宠物', '采光好']
@@ -545,6 +550,13 @@ export default function LandlordPanel({ user, onClose }) {
                 <input value={form.floor} onChange={set('floor')} placeholder="如 11/33层" />
               </label>
             </div>
+
+            <label className="fld">
+              <span>朝向</span>
+              <select value={form.orientation} onChange={set('orientation')}>
+                {ORIENTATIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </label>
 
             <label className="fld">
               <span>房源特色</span>

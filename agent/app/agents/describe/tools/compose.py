@@ -99,8 +99,10 @@ def compose(house):
         second.append(floor if "/" in floor else "楼层%s" % floor)
         used.append("floor")
     if orientation:
-        second.append(ORIENTATION_PHRASES.get(orientation,
-                                              "%s向" % orientation))
+        # 前端存的是「朝南」，短语表的键是「南」。不归一化的话会退化成
+        # 「朝南向」这种病句。
+        key = orientation.lstrip("朝").rstrip("向")
+        second.append(ORIENTATION_PHRASES.get(key, "朝%s" % key))
         used.append("orientation")
     if second:
         sentences.append("，".join(second) + "。")
