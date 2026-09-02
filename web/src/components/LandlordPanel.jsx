@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ImageUploader from './ImageUploader'
 
 const HOUSE_STATUS = {
   available: { label: '在租中', cls: 'status-confirmed' },
@@ -474,6 +475,19 @@ export default function LandlordPanel({ user, onClose }) {
               {busy === 'form' ? '提交中…' : editing ? '保存修改' : '提交发布'}
             </button>
           </form>
+        )}
+
+        {/* 相册管理只在编辑已有房源时出现：图片要挂到某个 house_no 上，
+            新房源还没提交，没有编号可挂。 */}
+        {tab === 'publish' && editing && (
+          <ImageUploader mode="house" houseNo={editing} onChanged={load} />
+        )}
+
+        {tab === 'publish' && !editing && (
+          <p className="desc">
+            房源图片在提交发布之后、到「我的房源」里点「编辑」来上传——
+            图片要挂到房源编号上，新房源还没有编号。
+          </p>
         )}
       </aside>
     </>

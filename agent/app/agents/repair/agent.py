@@ -105,7 +105,7 @@ def run(text, house_no=None, applicant=None, provider=None, backend=None,
 
     applicant = applicant or {}
     try:
-        backend.create_repair(
+        created = backend.create_repair(
             house_no=house_no,
             content=text.strip(),
             category=result["category"],
@@ -122,6 +122,8 @@ def run(text, house_no=None, applicant=None, provider=None, backend=None,
         }
 
     payload["status"] = "created"
+    # 把工单编号带回去，前端才能给刚提交的报修补照片
+    payload["repair_id"] = (created or {}).get("repair", {}).get("id")
     payload["message"] = ("报修已提交。识别为「%s」故障，紧急程度「%s」，"
                           "已派单给%s。" % (result["category"], result["urgency"],
                                            result["assignee"]))

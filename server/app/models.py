@@ -599,6 +599,23 @@ class OperationLog(Base):
         }
 
 
+class RepairImage(Base):
+    """报修照片（F-08）。
+
+    单开一张表而不是往 repairs 里加一列。SQLite 的 create_all 只会补建
+    缺失的表、不会给已有的表加列——加列会让组员手上的旧库悄悄少一个字段，
+    加表则拉下代码就能用。
+    """
+
+    __tablename__ = "repair_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repair_id: Mapped[int] = mapped_column(ForeignKey("repairs.id"),
+                                           nullable=False, index=True)
+    url: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class RepairWorker(Base):
     """维修人员档案（F-09）。"""
 

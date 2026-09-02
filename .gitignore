@@ -53,3 +53,7 @@ server/rental.db
 # ===== 前端 =====
 web/node_modules/
 web/dist/
+
+# 用户上传的图片不入库。是运行期数据，不是源码；
+# 也可能包含真实的房源与报修照片。
+server/static/uploads/

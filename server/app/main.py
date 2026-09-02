@@ -8,7 +8,7 @@
 import os
 from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -21,10 +21,10 @@ from app import db as db_module
 from app.db import get_session, init_db
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         Contract, Favorite, House, HouseImage, Message,
-                        Notice, OperationLog, Payment, Repair, RepairItem,
-                        RepairItemUsage, RepairRecord, RepairWorker, Review,
-                        SystemConfig, User)
-from app import config_store, oplog
+                        Notice, OperationLog, Payment, Repair, RepairImage,
+                        RepairItem, RepairItemUsage, RepairRecord,
+                        RepairWorker, Review, SystemConfig, User)
+from app import config_store, oplog, uploads
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -32,6 +32,10 @@ app = FastAPI(
     description="房源、预约、报修、收藏、用户的增删改查接口",
     version="0.2.0",
 )
+
+# 静态资源根目录。上传接口与文件末尾的静态挂载都要用。
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1573,6 +1577,190 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
     return {"ok": True, "deleted": len(rows)}
 
 
+# ------------------------------------------------------------------ 图片上传
+#
+# python-multipart 不是本项目原有的依赖，组员拉下新代码却没重装依赖时，
+# 带 File(...) 的路由会在**注册阶段**就抛异常，整个后端都起不来。
+# 所以这里做成条件注册：缺依赖时退化成一个说明清楚的 503，
+# 其余功能照常可用（对应非功能需求 N-07 的降级要求）。
+
+try:
+    from fastapi import File, UploadFile
+    import multipart  # noqa: F401  仅用于探测依赖是否就位
+
+    HAS_UPLOAD = True
+except ImportError:
+    HAS_UPLOAD = False
+
+
+def _house_or_404(session, house_no):
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    return house
+
+
+def _require_house_owner(user, house):
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能管理自己的房源")
+
+
+if HAS_UPLOAD:
+
+    @app.post("/api/upload")
+    async def upload_image(file: UploadFile = File(...),
+                           user: User = Depends(require_login)):
+        """上传一张图片，返回可直接引用的 URL。
+
+        必须登录才能传——匿名上传等于把服务器磁盘开放给全网。
+        类型判断只看文件头，不看扩展名，理由见 app/uploads.py。
+        """
+        data = await file.read()
+        ok, result = uploads.validate(data)
+        if not ok:
+            raise HTTPException(status_code=400, detail=result)
+        return {"ok": True, "url": uploads.save(STATIC_DIR, data, result)}
+
+else:
+
+    @app.post("/api/upload")
+    def upload_unavailable():
+        raise HTTPException(
+            status_code=503,
+            detail="图片上传需要 python-multipart，请执行 "
+                   "pip install -r requirements.txt 后重启后端")
+
+
+@app.post("/api/houses/{house_no}/images")
+def add_house_image(house_no: str, url: str = Body(embed=True),
+                    caption: str = Body(default="", embed=True),
+                    user: User = Depends(require_staff),
+                    session: Session = Depends(get_session)):
+    """把已上传的图片挂到房源上。
+
+    只接受本系统上传出来的地址。放开成任意 URL 的话，房东可以把图片指向
+    外部站点，那个站点就能拿到每个访客的 IP 与访问时间。
+    """
+    house = _house_or_404(session, house_no)
+    _require_house_owner(user, house)
+    if not uploads.is_managed(url):
+        raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+
+    has_cover = session.scalar(select(HouseImage).where(
+        HouseImage.house_id == house.id, HouseImage.is_cover.is_(True)))
+    image = HouseImage(house_id=house.id, url=url, caption=caption[:100],
+                       sort_order=len(house.images or []),
+                       # 第一张自动做封面，免得房东传完发现列表页还是空图
+                       is_cover=not has_cover)
+    session.add(image)
+    session.commit()
+    session.refresh(image)
+    return {"ok": True, "image": {"id": image.id, "url": image.url,
+                                  "caption": image.caption,
+                                  "is_cover": image.is_cover}}
+
+
+@app.delete("/api/houses/{house_no}/images/{image_id}")
+def delete_house_image(house_no: str, image_id: int,
+                       user: User = Depends(require_staff),
+                       session: Session = Depends(get_session)):
+    house = _house_or_404(session, house_no)
+    _require_house_owner(user, house)
+    image = session.get(HouseImage, image_id)
+    if not image or image.house_id != house.id:
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    was_cover = image.is_cover
+    url = image.url
+    session.delete(image)
+    session.flush()
+
+    if was_cover:
+        # 封面被删掉就顺位提一张，否则列表页会留一个空图位
+        nxt = session.scalar(select(HouseImage)
+                             .where(HouseImage.house_id == house.id)
+                             .order_by(HouseImage.sort_order))
+        if nxt:
+            nxt.is_cover = True
+    session.commit()
+    uploads.remove(STATIC_DIR, url)
+    return {"ok": True}
+
+
+@app.get("/api/houses/{house_no}/images")
+def list_house_images(house_no: str, session: Session = Depends(get_session)):
+    """房源相册的完整信息。
+
+    房源详情里的 images 只有 URL 字符串，够列表页展示，但房东要管理
+    相册就得知道每张的 id 与是不是封面，所以单开一个接口。
+    """
+    house = _house_or_404(session, house_no)
+    rows = sorted(house.images or [], key=lambda i: (not i.is_cover, i.sort_order))
+    return {"total": len(rows), "list": [
+        {"id": r.id, "url": r.url, "caption": r.caption,
+         "is_cover": r.is_cover} for r in rows]}
+
+
+@app.post("/api/houses/{house_no}/images/{image_id}/cover")
+def set_cover(house_no: str, image_id: int,
+              user: User = Depends(require_staff),
+              session: Session = Depends(get_session)):
+    house = _house_or_404(session, house_no)
+    _require_house_owner(user, house)
+    image = session.get(HouseImage, image_id)
+    if not image or image.house_id != house.id:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    for other in session.scalars(select(HouseImage).where(
+            HouseImage.house_id == house.id)).all():
+        other.is_cover = other.id == image.id
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/repairs/{repair_id}/images")
+def add_repair_image(repair_id: int, url: str = Body(embed=True),
+                     user: User = Depends(require_login),
+                     session: Session = Depends(get_session)):
+    """给报修单补一张照片。
+
+    「哪里坏了」用文字往往说不清，一张照片能省掉一轮来回沟通。
+    只有报修人本人、该房源的房东或管理员能加。
+    """
+    repair = session.get(Repair, repair_id)
+    if not repair:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    allowed = (user.role == "admin"
+               or repair.tenant_id == user.id
+               or (repair.house and repair.house.landlord_id == user.id))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="无权操作该工单")
+    if not uploads.is_managed(url):
+        raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+
+    image = RepairImage(repair_id=repair.id, url=url)
+    session.add(image)
+    session.commit()
+    return {"ok": True, "id": image.id, "url": image.url}
+
+
+@app.get("/api/repairs/{repair_id}/images")
+def list_repair_images(repair_id: int, user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    repair = session.get(Repair, repair_id)
+    if not repair:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    allowed = (user.role == "admin"
+               or repair.tenant_id == user.id
+               or (repair.house and repair.house.landlord_id == user.id))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="无权查看该工单")
+    rows = session.scalars(select(RepairImage)
+                           .where(RepairImage.repair_id == repair.id)
+                           .order_by(RepairImage.id)).all()
+    return {"total": len(rows),
+            "list": [{"id": r.id, "url": r.url} for r in rows]}
+
+
 # ------------------------------------------------------------------ 维修数据
 
 class WorkerCreate(BaseModel):
@@ -1969,8 +2157,8 @@ def log_actions(user: User = Depends(require_login),
 # 不需要额外启动前端开发服务器。
 
 # 房源图片等静态资源。必须挂在 web 之前，否则会被 "/" 的挂载吞掉。
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "static")
+# STATIC_DIR 的定义在文件靠前处——上传接口要用它，不能等到这里才定义。
+os.makedirs(os.path.join(STATIC_DIR, uploads.UPLOAD_DIRNAME), exist_ok=True)
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

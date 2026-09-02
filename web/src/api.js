@@ -200,6 +200,47 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // 图片上传。走 FormData，不能带 Content-Type——
+  // 分隔符由浏览器生成，手动设了反而会让后端解不出来。
+  uploadImage: async (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    const headers = {}
+    const token = getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    let response
+    try {
+      response = await fetch('/api/upload', { method: 'POST', headers, body: form })
+    } catch {
+      throw new Error('连不上服务器，请确认三个服务都已启动')
+    }
+    if (!response.ok) {
+      let detail = ''
+      try {
+        detail = (await response.json()).detail || ''
+      } catch {
+        detail = ''
+      }
+      throw new Error(detail || `上传失败（${response.status}）`)
+    }
+    return response.json()
+  },
+
+  houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
+  addHouseImage: (houseNo, url, caption = '') =>
+    request(`/api/houses/${houseNo}/images`,
+      { method: 'POST', body: JSON.stringify({ url, caption }) }),
+  deleteHouseImage: (houseNo, id) =>
+    request(`/api/houses/${houseNo}/images/${id}`, { method: 'DELETE' }),
+  setHouseCover: (houseNo, id) =>
+    request(`/api/houses/${houseNo}/images/${id}/cover`, { method: 'POST' }),
+
+  repairImages: (repairId) => request(`/api/repairs/${repairId}/images`),
+  addRepairImage: (repairId, url) =>
+    request(`/api/repairs/${repairId}/images`,
+      { method: 'POST', body: JSON.stringify({ url }) }),
+
   // F-09 维修数据
   repairWorkers: () => request('/api/repair-workers'),
   createWorker: (payload) =>

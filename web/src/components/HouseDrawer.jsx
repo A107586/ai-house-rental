@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ImageUploader from './ImageUploader'
 import { api } from '../api'
 
 // 智能体返回的 status 与展示样式的对应关系。
@@ -316,6 +317,12 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
               </div>
             )}
           </div>
+        )}
+
+        {/* 报修提交成功后才让传图：照片要挂到工单上，没有工单号无处可挂。
+            登录用户才有权限，未登录时不显示以免点了才报错。 */}
+        {tab === 'repair' && reply?.repair_id && user && (
+          <ImageUploader mode="repair" repairId={reply.repair_id} />
         )}
       </aside>
     </>
