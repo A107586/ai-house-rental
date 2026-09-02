@@ -3499,23 +3499,37 @@ td.accent {
 }
 
 .account-row:last-child { border-bottom: none; }
-.account-main { font-weight: 600; }
+/* 标题超长就截断，别让一行变两行——抽屉本来就窄，
+   四行卡片撑成八行会把下面的内容全顶出视野。 */
+.account-main {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .account-sub { color: #6b7280; font-size: 12px; flex: none; }
 .account-row.alert { color: #b42318; background: #fef3f2; }
 
 /* 房源行可以点开。做成 button 而不是给 div 绑 onClick，
-   是为了键盘也能走到——回车与点击等价，读屏软件也认。 */
+   是为了键盘也能走到——回车与点击等价，读屏软件也认。
+   不用 .link 那套下划线：整行都是热区，画成一段链接文字反而误导，
+   而且它的 padding 会把行挤扁。 */
 button.account-row {
   width: 100%;
   background: none;
   border: none;
   border-bottom: 1px solid #f0f2f5;
+  border-radius: 0;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
+button.account-row .account-main { color: var(--brand); }
 button.account-row:hover { background: #f7f9fc; }
+button.account-row:last-child { border-bottom: none; }
 
 .account-grid {
   display: grid;

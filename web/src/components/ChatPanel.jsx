@@ -201,7 +201,7 @@ function AccountCard({ topic, data, onOpenHouse }) {
       {rows.map((row) => (
         row.house && onOpenHouse ? (
           <button
-            className="account-row link"
+            className="account-row clickable"
             key={row.key}
             onClick={() => onOpenHouse(row.house)}
           >
