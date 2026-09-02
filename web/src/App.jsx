@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
+import ChatPanel from './components/ChatPanel'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
@@ -54,6 +55,7 @@ export default function App() {
   const [favorites, setFavorites] = useState([])
   const [filters, setFilters] = useState({})
   const [compare, setCompare] = useState([])
+  const [showChat, setShowChat] = useState(false)
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -338,6 +340,27 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* 悬浮入口。对比栏在底部居中，这个放右下角，两者不重叠 */}
+      <button
+        className="chat-fab"
+        onClick={() => setShowChat(true)}
+        title="打开租房助手"
+      >
+        <span className="fab-dot" />
+        租房助手
+      </button>
+
+      {showChat && (
+        <ChatPanel
+          user={user}
+          onOpenHouse={(house) => {
+            setShowChat(false)
+            setSelected(house)
+          }}
+          onClose={() => setShowChat(false)}
+        />
+      )}
 
       <CompareBar
         items={compare}

@@ -109,6 +109,33 @@ class BackendClient(object):
     def stats(self):
         return self.get("/api/stats")
 
+    # ------------------------------------------------------------ 会话记忆
+
+    def list_chat(self, session_id, token, limit=30):
+        """读取会话记录。未登录、或后端不可用时退回空列表——
+        记不住上下文只是体验降级，不该让整轮对话失败。"""
+        if not token or not session_id:
+            return []
+        try:
+            body = self.get("/api/chat-messages",
+                            {"session_id": session_id, "limit": limit},
+                            token=token)
+            return body.get("list") or []
+        except BackendError:
+            return []
+
+    def log_chat(self, session_id, role, content, token, intent=""):
+        """落库一轮对话。失败静默——记录写不进去不该拖垮回答。"""
+        if not token or not session_id:
+            return False
+        try:
+            self.post("/api/chat-messages",
+                      {"session_id": session_id, "role": role,
+                       "content": content, "intent": intent}, token=token)
+            return True
+        except BackendError:
+            return False
+
     # ------------------------------------------------------------ 房源
 
     def list_properties(self, params):

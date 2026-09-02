@@ -1810,3 +1810,201 @@ textarea {
   font-size: 12px;
   line-height: 1.8;
 }
+
+/* ============================================================
+   AI-09 多轮对话面板
+   ============================================================ */
+.chat-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 20px -6px rgba(15, 111, 104, 0.6);
+}
+
+.chat-fab:hover {
+  filter: brightness(1.08);
+}
+
+.fab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7fe3d6;
+}
+
+.drawer.chat {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 「当前记住了什么」必须一直可见——多轮对话最容易让人失去掌控感的
+   就是不知道系统到底记了什么，出错时也无从纠正。 */
+.chat-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--brand-soft);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--brand);
+}
+
+.chat-context-k {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 12px;
+}
+
+.chat-context .btn {
+  margin-left: auto;
+}
+
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 10px;
+  min-height: 200px;
+}
+
+.bubble {
+  max-width: 88%;
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--brand);
+  color: #fff;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.bubble-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* 「预算上限下调到 2400 元」这类说明——用户要能看见系统改了什么 */
+.note {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
+.bubble-items {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mini-house {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mini-house:hover {
+  border-color: var(--brand);
+}
+
+/* 序号要显眼：用户说「第二套」时靠它对上号 */
+.mini-no {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mini-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.mini-price {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mini-more {
+  color: var(--muted);
+  font-size: 12px;
+  padding-left: 4px;
+}
+
+.chat-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: var(--brand);
+}

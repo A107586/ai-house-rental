@@ -211,11 +211,11 @@ class ReviewCreate(BaseModel):
 
 
 class ChatLog(BaseModel):
-    session_id: str
+    # 刻意没有 user_id：身份只能来自令牌，见 log_chat 的说明
+    session_id: str = Field(min_length=8, max_length=64)
     role: str
-    content: str
+    content: str = Field(max_length=1000)
     intent: str = ""
-    user_id: int | None = None
 
 
 # ------------------------------------------------------------------ 通用
@@ -1436,11 +1436,25 @@ def create_notice(payload: NoticeCreate, user: User = Depends(require_login),
 
 # ------------------------------------------------------------------ 对话记录
 
+ALLOWED_CHAT_ROLES = ("user", "assistant")
+
+
 @app.post("/api/chat-messages")
-def log_chat(payload: ChatLog, session: Session = Depends(get_session)):
-    """保存智能体对话记录，供多轮上下文与后续分析使用。"""
+def log_chat(payload: ChatLog, user: User = Depends(require_login),
+             session: Session = Depends(get_session)):
+    """保存智能体对话记录，供 AI-09 多轮上下文使用。
+
+    身份一律取自令牌，**不接受请求体里的 user_id**——否则任何人都能
+    伪造成他人的对话记录，既污染别人的上下文，也污染分析数据。
+
+    未登录用户不落库：服务端无从判断一个匿名 session_id 属于谁，
+    存了就等于把对话摆在一个只靠猜编号保护的地方。匿名用户的多轮
+    上下文由前端自己带着走，换设备记不住是可接受的代价。
+    """
+    if payload.role not in ALLOWED_CHAT_ROLES:
+        raise HTTPException(status_code=400, detail="role 只能是 user 或 assistant")
     message = ChatMessage(
-        session_id=payload.session_id, user_id=payload.user_id,
+        session_id=payload.session_id, user_id=user.id,
         role=payload.role, content=payload.content, intent=payload.intent)
     session.add(message)
     session.commit()
@@ -1449,14 +1463,35 @@ def log_chat(payload: ChatLog, session: Session = Depends(get_session)):
 
 @app.get("/api/chat-messages")
 def list_chat(session_id: str, limit: int = Query(50, ge=1, le=200),
+              user: User = Depends(require_login),
               session: Session = Depends(get_session)):
+    """读取自己的对话记录。
+
+    必须同时按 user_id 过滤：只按 session_id 查的话，猜到或撞到别人的
+    会话编号就能读走整段对话——里面有预算、找房意图，报修场景还带电话。
+    """
     rows = session.scalars(
-        select(ChatMessage).where(ChatMessage.session_id == session_id)
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id,
+               ChatMessage.user_id == user.id)
         .order_by(ChatMessage.created_at.desc()).limit(limit)).all()
     return {"total": len(rows), "list": [
         {"role": m.role, "content": m.content, "intent": m.intent,
          "created_at": m.created_at.strftime("%Y-%m-%d %H:%M:%S")}
         for m in reversed(rows)]}
+
+
+@app.delete("/api/chat-messages")
+def clear_chat(session_id: str, user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    """清空自己某个会话的记录，对应界面上的「重新开始」。"""
+    rows = session.scalars(select(ChatMessage).where(
+        ChatMessage.session_id == session_id,
+        ChatMessage.user_id == user.id)).all()
+    for record in rows:
+        session.delete(record)
+    session.commit()
+    return {"ok": True, "deleted": len(rows)}
 
 
 # ------------------------------------------------------------------ 前端托管

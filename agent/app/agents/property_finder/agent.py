@@ -92,12 +92,22 @@ def understand(text, provider=None):
     return filters, features, "llm"
 
 
-def run(text, page=1, limit=10, provider=None, backend=None):
+def run(text, page=1, limit=10, provider=None, backend=None,
+        filters=None, features=None, source=None):
     """房源智能体入口。
 
     返回结构固定，便于前端统一渲染；任何一步失败都不抛异常给调用方。
+
+    :param filters: 已经解析并合并好的条件。多轮会话会把历史轮次的槽位
+                    合并进来（见 ``app.memory``），此时不能再按本轮原文
+                    重新解析——那样「再便宜点」只会解析出一片空白。
     """
-    filters, features, source = understand(text, provider=provider)
+    if filters is None and features is None:
+        filters, features, source = understand(text, provider=provider)
+    else:
+        filters = filters or {}
+        features = features or []
+        source = source or "rules"
 
     if not filters and not features:
         return {

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import supervisor
+from app import memory, supervisor
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.property_finder import agent as property_finder
@@ -46,6 +46,13 @@ class SearchRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str
+    # AI-09 多轮会话。登录用户的历史存在后端，用 session_id 取；
+    # 未登录用户由前端把自己说过的话带上来，换设备记不住而已。
+    session_id: str = ""
+    token: str = ""
+    history: list[str] = []
+    # 上一轮结果的房源编号，用于消解「第二套」「那套」这类指代
+    last_house_nos: list[str] = []
 
 
 class RepairRequest(BaseModel):
@@ -161,16 +168,68 @@ def agent_report():
 
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
-    """统一入口：先判意图，再路由到对应子智能体。
+    """统一入口：先取上下文，再判意图，最后路由到对应子智能体。
 
-    尚未实现的子智能体先返回占位说明，方便前端提前联调。
+    上下文的来源有两条，优先用后端存的（跨设备、可追溯），
+    拿不到就用前端带上来的——未登录用户走的就是这条。
     """
+    stored = backend_client.list_chat(payload.session_id, payload.token)
+    if stored:
+        past = [m["content"] for m in stored if m.get("role") == "user"]
+    else:
+        past = list(payload.history or [])
+
+    # 历史槽位一律用规则重放，不为了重建上下文再调一遍大模型
+    slots, feats = memory.replay(past)
+
     routed = supervisor.classify(payload.text, provider=provider)
     intent = routed["intent"]
 
+    # 承接上文：已经在找房的会话里，「三千以内的」「再便宜点」这类
+    # 半句话单独分类必然是 unknown，只有结合上文才讲得通。
+    if intent == "unknown" and slots and memory.continues_search(payload.text):
+        intent = "search"
+        routed = dict(routed, intent="search", carried_over=True,
+                      reason="承接上文的找房需求")
+
+    result = _dispatch(payload, routed, intent, slots, feats)
+
+    # 非找房的轮次也要把上下文带回去，否则界面上「当前记住」会被
+    # 一句「帮我报修」清空，用户以为条件丢了
+    result.setdefault("context_text", memory.describe(slots, feats))
+
+    # 记录这一轮。写失败不影响回答，见 backend.log_chat
+    if payload.session_id and payload.token:
+        backend_client.log_chat(payload.session_id, "user", payload.text,
+                                payload.token, intent=intent)
+        backend_client.log_chat(payload.session_id, "assistant",
+                                result.get("message", ""), payload.token,
+                                intent=intent)
+    return result
+
+
+def _dispatch(payload, routed, intent, slots, feats):
+    text = payload.text
+
     if intent == "search":
-        result = property_finder.run(payload.text, provider=provider)
+        # 本轮仍走完整的「规则优先、大模型兜底」解析，
+        # 再把结果合并到历史槽位上——只有本轮值得为它调大模型。
+        cur_filters, cur_features, source = property_finder.understand(
+            text, provider=provider)
+        merged, features, notes = memory.apply_turn(
+            slots, feats, text, filters=cur_filters, feats=cur_features)
+
+        result = property_finder.run(text, provider=provider,
+                                     filters=merged, features=features,
+                                     source=source)
         result["route"] = routed
+        result["context"] = merged
+        result["context_text"] = memory.describe(merged, features)
+        result["notes"] = notes
+        # 承接了上文才说明，免得单轮对话也啰嗦一句「已记住」
+        if slots and merged != cur_filters:
+            result["message"] = "（延续上文：%s）%s" % (
+                result["context_text"], result.get("message", ""))
         return result
 
     if intent == "contract":
@@ -183,16 +242,21 @@ def agent_chat(payload: ChatRequest):
 
     if intent == "repair":
         # 统一入口只做分析预览，落库要走 /agent/repair 并带上 house_no
-        result = repair.run(payload.text, provider=provider, submit=False)
+        result = repair.run(text, provider=provider, submit=False)
         result["route"] = routed
         result["alternatives"] = []
         return result
 
     if intent == "booking":
-        # 统一入口拿不到房源编号，只做时间解析与时段建议，
-        # 真正落库要走 /agent/booking 并带上 house_no
-        result = booking.run(payload.text, house_no=None, taken=[])
+        # 统一入口本来拿不到房源编号，多轮会话下可以从「第二套」
+        # 这类指代里还原出来，省掉用户回头去翻列表的一步
+        house_no = memory.resolve_house(text, payload.last_house_nos)
+        result = booking.run(text, house_no=house_no, taken=[])
         result["route"] = routed
+        if house_no:
+            result["house_no"] = house_no
+            result["message"] = "（你说的是 %s）%s" % (
+                house_no, result.get("message", ""))
         return result
 
     # 返回结构与各子智能体保持一致，前端只需处理一种形状

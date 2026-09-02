@@ -235,6 +235,23 @@ export const api = {
   // AI-05 经营分析报告
   agentReport: () => post(agentUrl('/agent/report'), {}),
 
+  // AI-09 多轮对话。history 是未登录时的兜底：
+  // 登录用户的上下文存在后端，未登录用户由前端自己带着走。
+  agentChat: (text, sessionId, history = [], lastHouseNos = []) =>
+    post(agentUrl('/agent/chat'), {
+      text,
+      session_id: sessionId,
+      token: getToken(),
+      history,
+      last_house_nos: lastHouseNos,
+    }),
+
+  chatHistory: (sessionId) =>
+    request(`/api/chat-messages?${toQuery({ session_id: sessionId })}`),
+  clearChat: (sessionId) =>
+    request(`/api/chat-messages?${toQuery({ session_id: sessionId })}`,
+      { method: 'DELETE' }),
+
   // 只做意图识别，用于展示智能体的决策过程
   agentRoute: (text) => post(agentUrl('/agent/route'), { text }),
 }
