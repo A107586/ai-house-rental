@@ -13,6 +13,9 @@
 """
 
 import json
+import time
+import socket
+import random
 import urllib.error
 import urllib.request
 
@@ -36,6 +39,52 @@ class OpenAICompatibleProvider(LLMProvider):
         self._timeout = timeout
         self._max_tokens = max_tokens
 
+    # 可重试的 HTTP 状态：限流与网关侧的临时故障。
+    #
+    # 400/401/403 不重试——请求本身有问题或密钥不对，重试多少次都一样，
+    # 只会白白拖长响应时间。**区分「暂时不行」和「根本不行」是重试的
+    # 全部意义所在**，不分就成了固定放大三倍延迟。
+    RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+    MAX_ATTEMPTS = 3
+    # 退避基数。429 时服务端往往还在过载，立刻重试只会加剧
+    BACKOFF_SECONDS = 0.6
+
+    def _post_with_retry(self, request):
+        """发请求，遇到瞬时故障时重试。
+
+        原先任何一次失败都直接降级到纯规则。但**超时与限流是可重试的
+        瞬时故障**，一次失败就放弃过于保守——尤其限流，等半秒往往就好了。
+
+        重试仍然有上限：三次之内不成功就老实降级，不能让用户干等。
+        """
+        last = "未知错误"
+        for attempt in range(self.MAX_ATTEMPTS):
+            try:
+                with urllib.request.urlopen(
+                        request, timeout=self._timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                # 不要把响应体原样抛出，其中可能回显密钥
+                last = "大模型接口返回 HTTP %s" % exc.code
+                if exc.code not in self.RETRYABLE_STATUS:
+                    break
+            except socket.timeout:
+                last = "大模型接口超时"
+            except urllib.error.URLError as exc:
+                # 连不上：网络抖动或 DNS 临时失败，值得再试
+                last = "大模型接口连接失败：%s" % type(exc.reason).__name__
+            except Exception as exc:
+                # 解析异常之类不是瞬时故障，重试没有意义
+                last = "大模型接口调用失败：%s" % type(exc).__name__
+                break
+
+            if attempt < self.MAX_ATTEMPTS - 1:
+                # 指数退避：0.6s、1.2s。加一点点随机避免多个请求同时重试
+                time.sleep(self.BACKOFF_SECONDS * (2 ** attempt)
+                           * (0.8 + random.random() * 0.4))
+
+        raise LLMUnavailable(last)
+
     def complete(self, system_prompt, user_prompt, max_tokens=None):
         payload = {
             "model": self._model,
@@ -56,14 +105,7 @@ class OpenAICompatibleProvider(LLMProvider):
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            # 不要把响应体原样抛出，其中可能回显密钥
-            raise LLMUnavailable("大模型接口返回 HTTP %s" % exc.code)
-        except Exception as exc:
-            raise LLMUnavailable("大模型接口调用失败：%s" % type(exc).__name__)
+        body = self._post_with_retry(request)
 
         try:
             return body["choices"][0]["message"]["content"]

@@ -4,7 +4,7 @@
 意图判断在 Supervisor，取数在后端，本层只做编排。
 """
 
-from app import fusion
+from app import fusion, trace as tracing
 from app.config import settings
 from app.llm.base import LLMUnavailable
 from app.agents.property_finder.tools.parse_query import FEATURES, parse_query
@@ -94,7 +94,7 @@ def _sanitize_features(features):
     return clean[:5]
 
 
-def understand(text, provider=None):
+def understand(text, provider=None, trace=None):
     """把自然语言变成筛选条件，返回 ``(filters, features, source, divergence)``。
 
     **规则与大模型同时参与**：规则先完整解析一遍，结论作为「参考答案」
@@ -106,7 +106,12 @@ def understand(text, provider=None):
 
     大模型不可用时直接采用规则结论——这是需求 N-07 的要求，不是可选项。
     """
-    rule_result = parse_query(text)
+    with (trace.step("规则解析") if trace else _noop()) as step:
+        rule_result = parse_query(text)
+        if trace:
+            step.says("命中 %d 个字段，置信度 %.2f"
+                      % (len(rule_result["filters"]),
+                         rule_result["confidence"]))
     rule_payload = {
         "filters": dict(rule_result["filters"]),
         "features": list(rule_result["features"]),
@@ -133,9 +138,22 @@ def understand(text, provider=None):
         rule_payload, provider, _PARSE_SYSTEM,
         _PARSE_PROMPT.format(text=text, reference=reference),
         sanitize, guards=(_keep_rule_district,),
-        enabled=settings.fusion_enabled)
+        enabled=settings.fusion_enabled, trace=trace)
 
     return final["filters"], final["features"], source, divergence
+
+
+class _noop(object):
+    """不传 trace 时的空步骤，见 fusion._NullStep 的同一理由。"""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def says(self, detail):
+        return self
 
 
 def _keep_rule_district(rule_payload, fused):
@@ -164,9 +182,11 @@ def run(text, page=1, limit=10, provider=None, backend=None,
                     合并进来（见 ``app.memory``），此时不能再按本轮原文
                     重新解析——那样「再便宜点」只会解析出一片空白。
     """
+    trace = tracing.Trace("search")
     divergence = []
     if filters is None and features is None:
-        filters, features, source, divergence = understand(text, provider=provider)
+        filters, features, source, divergence = understand(
+            text, provider=provider, trace=trace)
     else:
         filters = filters or {}
         features = features or []
@@ -184,10 +204,14 @@ def run(text, page=1, limit=10, provider=None, backend=None,
             "message": "没听懂你的找房需求，可以说得具体一点，"
                        "比如「中山区两室一厅，租金三千以内」。",
             "ok": False,
+            # 失败路径尤其要带 trace——真正需要排查的就是这几次
+            "trace": trace.dump(),
         }
 
-    result = search_properties(filters, features=features, page=page,
-                               limit=limit, backend=backend)
+    with trace.step("查询房源") as step:
+        result = search_properties(filters, features=features, page=page,
+                                   limit=limit, backend=backend)
+        step.says("命中 %d 套" % (result.get("total") or 0))
 
     if not result["ok"]:
         return {
@@ -201,6 +225,7 @@ def run(text, page=1, limit=10, provider=None, backend=None,
             "message": "房源服务暂时不可用，请稍后再试。",
             "ok": False,
             "error": result["error"],
+            "trace": trace.dump(),
         }
 
     return {
@@ -213,4 +238,5 @@ def run(text, page=1, limit=10, provider=None, backend=None,
         "total": result["total"],
         "message": summarize(result["items"], result["total"], filters, features),
         "ok": True,
+        "trace": trace.dump(),
     }

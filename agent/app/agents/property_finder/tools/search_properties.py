@@ -88,7 +88,15 @@ def search_properties(filters, features=None, page=1, limit=10, backend=None):
             items = result.get("list") or []
             total = result.get("total") or len(items)
     except BackendError as exc:
-        return {"ok": False, "items": [], "total": 0, "params": params, "error": str(exc)}
+        return {"ok": False, "items": [], "total": 0, "params": params,
+                "error": str(exc)}
+    except Exception as exc:
+        # BackendError 之外的意外同样要降级。原先只捕获 BackendError，
+        # 后端返回了非预期结构、或注入进来的客户端实现自己抛了异常，
+        # 都会**直接把整个智能体请求打崩**——用户看到的是 500，
+        # 而不是「房源服务暂时不可用」。
+        return {"ok": False, "items": [], "total": 0, "params": params,
+                "error": "房源服务异常：%s" % type(exc).__name__}
 
     return {
         "ok": True,

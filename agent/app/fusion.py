@@ -44,6 +44,23 @@ def describe_source(source):
     }.get(source, source)
 
 
+class _NullStep(object):
+    """不传 trace 时的空实现。
+
+    这样上面的代码只写一份，不用到处 `if trace:`——散落的判空是
+    最容易漏掉一处的写法。
+    """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def says(self, detail):
+        return self
+
+
 def _diff(rule_result, final):
     """列出大模型改动了哪些字段，供界面展示与答辩说明。"""
     changes = []
@@ -61,7 +78,7 @@ def _diff(rule_result, final):
 
 
 def fuse(rule_result, provider, system, prompt, sanitize,
-         guards=(), enabled=True):
+         guards=(), enabled=True, trace=None):
     """执行一次融合。
 
     :param rule_result: 规则算出的结构化结果（dict）
@@ -74,31 +91,40 @@ def fuse(rule_result, provider, system, prompt, sanitize,
     :param guards:      ``[fn(rule_result, fused) -> (fused, note|None)]``，
                         硬性规则的兜底，在采用融合结果之前逐个执行
     :param enabled:     置 False 可强制走纯规则，便于对照测试
+    :param trace:       可选的 `app.trace.Trace`，记下大模型这一步的耗时
+                        与结果。**失败也记**——真正要查的恰恰是出问题那次
 
     :returns: ``(final, source, divergence)``
     """
     if not enabled or provider is None or not getattr(provider, "available", False):
         return dict(rule_result), SOURCE_RULES, []
 
-    try:
-        raw = provider.complete_json(system, prompt)
-    except LLMUnavailable:
-        return dict(rule_result), SOURCE_FALLBACK, []
-    except Exception:
-        # 提供方实现里的任何意外都不该把整条请求带崩
-        return dict(rule_result), SOURCE_FALLBACK, []
+    step = trace.step("大模型融合") if trace else _NullStep()
+    with step:
+        try:
+            raw = provider.complete_json(system, prompt)
+        except LLMUnavailable as exc:
+            step.says("不可用：%s" % exc)
+            return dict(rule_result), SOURCE_FALLBACK, []
+        except Exception as exc:
+            # 提供方实现里的任何意外都不该把整条请求带崩
+            step.says("异常：%s" % type(exc).__name__)
+            return dict(rule_result), SOURCE_FALLBACK, []
 
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except (ValueError, TypeError):
+            step.says("输出不是合法 JSON，已退回规则")
             return dict(rule_result), SOURCE_FALLBACK, []
 
     if not isinstance(raw, dict):
+        step.says("输出不是对象，已退回规则")
         return dict(rule_result), SOURCE_FALLBACK, []
 
     cleaned = sanitize(raw)
     if not cleaned:
+        step.says("输出未通过校验，已退回规则")
         return dict(rule_result), SOURCE_FALLBACK, []
 
     divergence = _diff(rule_result, cleaned)
@@ -110,6 +136,7 @@ def fuse(rule_result, provider, system, prompt, sanitize,
         if note:
             divergence.append(note)
 
+    step.says("改动 %d 处" % len(divergence) if divergence else "与规则一致")
     return cleaned, SOURCE_FUSED, divergence
 
 

@@ -7,6 +7,8 @@
 
 import json
 import os
+import time
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Literal
@@ -57,6 +59,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 慢请求的判定线。超过它就打一条日志。
+#
+# 500ms 是拍出来的，但有依据：需求 N-01 要求 100 并发下 1 秒以内，
+# 单请求超过半秒说明离那条线已经不远了，值得看一眼。
+SLOW_REQUEST_MS = int(os.environ.get("SLOW_REQUEST_MS") or 500)
+
+_slow_logger = logging.getLogger("rental.slow")
+
+
+@app.middleware("http")
+async def log_slow_requests(request, call_next):
+    """记录慢请求。
+
+    出问题时只能靠压测复现，是排障最耗时的一种情况——线上慢了，
+    本地怎么都跑不出来。有这条日志至少知道**是哪个接口、慢到什么程度**。
+
+    只打日志不做别的：既不告警也不熔断。那是运维系统的事，
+    在这里做只会把一个诊断工具变成新的故障点。
+    """
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+
+    if elapsed_ms >= SLOW_REQUEST_MS and request.url.path.startswith("/api/"):
+        _slow_logger.warning(
+            "慢请求 %.0fms %s %s -> %s",
+            elapsed_ms, request.method, request.url.path,
+            response.status_code)
+    return response
+
 
 @app.middleware("http")
 async def record_operation(request, call_next):
