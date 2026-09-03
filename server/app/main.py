@@ -9,12 +9,14 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
+from typing import Literal
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 
@@ -25,7 +27,7 @@ from app.db import get_session, init_db
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         Faq, SupportHandoff, SupportLog,
                         ContentFlag, Contract, Favorite, House, HouseImage,
-                        Message, Notice, OperationLog, Payment, Repair,
+                        Message, Notice, OperationLog, Payment, Refund, Repair,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
@@ -215,7 +217,8 @@ class ContractRenew(BaseModel):
 
 
 class PayRequest(BaseModel):
-    method: str = "alipay"
+    method: Literal["alipay", "wechat", "bank"] = "alipay"
+    idempotency_key: str = Field(default="", max_length=64)
 
 
 class NoticeCreate(BaseModel):
@@ -1648,14 +1651,53 @@ def pay_bill(bill_no: str, payload: PayRequest,
     if user.role != "admin" and (not contract or user.id != contract.tenant_id):
         raise HTTPException(status_code=403, detail="只有承租方可以缴费")
 
+    if payload.idempotency_key:
+        previous = session.scalar(select(Payment).where(
+            Payment.idempotency_key == payload.idempotency_key))
+        if previous:
+            if previous.bill_id != bill.id:
+                raise HTTPException(status_code=409, detail="支付请求号已被其它账单使用")
+            return {"ok": True, "bill": previous.bill.to_dict(),
+                    "payment": previous.to_dict(), "idempotent": True}
+
     try:
-        payment = leasing.pay_bill(session, bill, user, method=payload.method)
+        payment = leasing.pay_bill(
+            session, bill, user, method=payload.method,
+            idempotency_key=payload.idempotency_key or None)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="该账单正在支付或已经支付，请勿重复提交")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-
-    session.commit()
     session.refresh(bill)
     return {"ok": True, "bill": bill.to_dict(), "payment": payment.to_dict()}
+
+
+@app.get("/api/payments/{trade_no}")
+def payment_receipt(trade_no: str, user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    payment = session.scalar(select(Payment).where(Payment.trade_no == trade_no))
+    if not payment:
+        raise HTTPException(status_code=404, detail="缴费流水不存在")
+    contract = payment.bill.contract
+    allowed = (user.role == "admin" or
+               (contract and user.id in (contract.tenant_id, contract.landlord_id)))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="无权查看该缴费凭证")
+    return {"payment": payment.to_dict(), "bill": payment.bill.to_dict()}
+
+
+@app.get("/api/refunds/mine")
+def my_refunds(user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    stmt = select(Refund).join(Contract, Refund.contract_id == Contract.id)
+    if user.role == "tenant":
+        stmt = stmt.where(Contract.tenant_id == user.id)
+    elif user.role == "landlord":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    rows = session.scalars(stmt.order_by(Refund.refunded_at.desc())).all()
+    return {"total": len(rows), "list": [row.to_dict() for row in rows]}
 
 
 # ------------------------------------------------------------------ 站内消息

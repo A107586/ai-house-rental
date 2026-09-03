@@ -659,6 +659,53 @@ textarea {
   text-align: center;
 }
 
+/* ---------------- 模拟收银台与缴费凭证 ---------------- */
+.modal-mask.payment-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 35, 42, .52);
+}
+
+.payment-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .22);
+}
+
+.payment-dialog label {
+  display: block;
+  margin: 14px 0 6px;
+  color: #526772;
+  font-size: 13px;
+}
+
+.payment-summary {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #dbe6e9;
+  border-radius: 10px;
+  background: #f7fafb;
+}
+
+.payment-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.payment-summary span { color: #70848d; }
+.payment-summary strong { text-align: right; overflow-wrap: anywhere; }
+.receipt-ok { color: #11796f; font-size: 18px; font-weight: 700; }
+
 .link {
   border: none;
   background: transparent;

@@ -29,6 +29,9 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
   const [pending, setPending] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  const [checkout, setCheckout] = useState(null)
+  const [payMethod, setPayMethod] = useState('alipay')
+  const [receipt, setReceipt] = useState(null)
 
   const isStaff = user.role === 'landlord' || user.role === 'admin'
 
@@ -77,6 +80,24 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
       await fn()
       await load()
     } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function submitPayment() {
+    if (!checkout || busy) return
+    const key = checkout.bill_no
+    setBusy(key)
+    setError('')
+    try {
+      const result = await api.payBill(key, payMethod)
+      setCheckout(null)
+      setReceipt({ bill: result.bill, payment: result.payment })
+      await load()
+    } catch (err) {
+      setCheckout(null)
       setError(err.message)
     } finally {
       setBusy('')
@@ -200,11 +221,21 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
                         <button
                           className="btn small"
                           disabled={busy === bill.bill_no}
-                          onClick={() =>
-                            run(bill.bill_no, () => api.payBill(bill.bill_no, 'alipay'))
-                          }
+                          onClick={() => {
+                            setError('')
+                            setPayMethod('alipay')
+                            setCheckout(bill)
+                          }}
                         >
                           {busy === bill.bill_no ? '支付中' : '立即缴费'}
+                        </button>
+                      </div>
+                    )}
+                    {bill.status === 'paid' && bill.payment && (
+                      <div className="record-actions">
+                        <button className="btn small ghost" onClick={() =>
+                          setReceipt({ bill, payment: bill.payment })}>
+                          查看缴费凭证
                         </button>
                       </div>
                     )}
@@ -413,6 +444,52 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
             </ul>
           ))}
       </aside>
+      {checkout && (
+        <div className="modal-mask payment-mask" onClick={() => !busy && setCheckout(null)}>
+          <div className="dialog payment-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>模拟收银台</h3>
+            <p className="desc">本功能仅用于课程项目演示，不会产生真实扣款。</p>
+            <div className="payment-summary">
+              <div><span>房源</span><strong>{checkout.house_no}</strong></div>
+              <div><span>账单</span><strong>{BILL_TYPE[checkout.type] || checkout.type}{checkout.period ? ` · ${checkout.period}` : ''}</strong></div>
+              <div><span>到期日</span><strong>{checkout.due_date}</strong></div>
+              <div><span>应付金额</span><strong className="amount">¥ {Number(checkout.amount).toFixed(2)}</strong></div>
+            </div>
+            <label>支付方式</label>
+            <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+              <option value="alipay">支付宝（模拟）</option>
+              <option value="wechat">微信支付（模拟）</option>
+              <option value="bank">银行卡（模拟）</option>
+            </select>
+            <div className="dialog-foot">
+              <button className="btn ghost" disabled={!!busy} onClick={() => setCheckout(null)}>暂不支付</button>
+              <button className="btn" disabled={!!busy} onClick={submitPayment}>
+                {busy ? '处理中…' : `确认支付 ¥${Number(checkout.amount).toFixed(2)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {receipt && (
+        <div className="modal-mask payment-mask" onClick={() => setReceipt(null)}>
+          <div className="dialog payment-dialog receipt" onClick={(e) => e.stopPropagation()}>
+            <h3>缴费凭证</h3>
+            <div className="receipt-ok">✓ 支付成功</div>
+            <div className="payment-summary">
+              <div><span>交易号</span><strong>{receipt.payment.trade_no}</strong></div>
+              <div><span>账单号</span><strong>{receipt.bill.bill_no}</strong></div>
+              <div><span>房源</span><strong>{receipt.bill.house_no}</strong></div>
+              <div><span>支付方式</span><strong>{{ alipay: '支付宝', wechat: '微信支付', bank: '银行卡' }[receipt.payment.method] || receipt.payment.method}</strong></div>
+              <div><span>支付时间</span><strong>{receipt.payment.paid_at}</strong></div>
+              <div><span>实付金额</span><strong className="amount">¥ {Number(receipt.payment.amount).toFixed(2)}</strong></div>
+            </div>
+            <div className="dialog-foot">
+              <button className="btn" onClick={() => setReceipt(null)}>完成</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

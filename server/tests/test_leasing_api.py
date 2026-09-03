@@ -181,6 +181,39 @@ class TestBills(ContractCase):
                                  headers=self.tenant, json={})
         self.assertEqual(again.status_code, 409)
 
+    def test_payment_method_is_validated(self):
+        self.active_contract()
+        bill_no = self.client.get("/api/bills/mine",
+                                  headers=self.tenant).json()["list"][0]["bill_no"]
+        response = self.client.post("/api/bills/%s/pay" % bill_no,
+                                    headers=self.tenant, json={"method": "abc123"})
+        self.assertEqual(response.status_code, 422)
+
+    def test_idempotent_payment_returns_same_trade(self):
+        self.active_contract()
+        bill_no = self.client.get("/api/bills/mine",
+                                  headers=self.tenant).json()["list"][0]["bill_no"]
+        payload = {"idempotency_key": "same-click-001"}
+        first = self.client.post("/api/bills/%s/pay" % bill_no,
+                                 headers=self.tenant, json=payload).json()
+        second = self.client.post("/api/bills/%s/pay" % bill_no,
+                                  headers=self.tenant, json=payload).json()
+        self.assertEqual(first["payment"]["trade_no"],
+                         second["payment"]["trade_no"])
+        self.assertTrue(second["idempotent"])
+
+    def test_paid_bill_contains_receipt(self):
+        self.active_contract()
+        bill_no = self.client.get("/api/bills/mine",
+                                  headers=self.tenant).json()["list"][0]["bill_no"]
+        paid = self.client.post("/api/bills/%s/pay" % bill_no,
+                                headers=self.tenant, json={}).json()
+        trade_no = paid["payment"]["trade_no"]
+        receipt = self.client.get("/api/payments/%s" % trade_no,
+                                  headers=self.tenant)
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual(receipt.json()["bill"]["bill_no"], bill_no)
+
     def test_landlord_cannot_pay(self):
         """房东不能替租客缴费。"""
         self.active_contract()
@@ -226,6 +259,10 @@ class TestEndAndRenew(ContractCase):
         response = self.client.post("/api/contracts/%s/end" % no,
                                     headers=self.landlord, json={"deduct": 500})
         self.assertEqual(response.json()["refund"], 2300.0)
+        refunds = self.client.get("/api/refunds/mine",
+                                  headers=self.tenant).json()
+        self.assertEqual(refunds["total"], 1)
+        self.assertEqual(refunds["list"][0]["deduct_amount"], 500.0)
 
     def test_deduct_over_deposit_rejected(self):
         no = self.active_contract()

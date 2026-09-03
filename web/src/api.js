@@ -147,7 +147,13 @@ export const api = {
 
   // ---------------- 账单 ----------------
   myBills: (status = '') => request(`/api/bills/mine?${toQuery({ status })}`),
-  payBill: (no, method = 'alipay') => post(`/api/bills/${no}/pay`, { method }),
+  payBill: (no, method = 'alipay', idempotencyKey = '') =>
+    post(`/api/bills/${no}/pay`, {
+      method,
+      idempotency_key: idempotencyKey || `web-${no}-${Date.now()}`,
+    }),
+  paymentReceipt: (tradeNo) => request(`/api/payments/${tradeNo}`),
+  myRefunds: () => request('/api/refunds/mine'),
 
   // ---------------- 消息 ----------------
   listMessages: (unreadOnly = false) =>

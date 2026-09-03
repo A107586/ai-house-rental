@@ -226,6 +226,13 @@ class TestChatDispatch(unittest.TestCase):
         self.assertEqual(result["retrieval"].get("mode"), "action")
         self.assertEqual(result["retrieval"].get("action"), "book_viewing")
 
+    def test_booking_choices_stay_with_previous_search_results(self):
+        """A follow-up booking request must not introduce unrelated houses."""
+        shown = ["DL0007", "DL0008", "DL0009"]
+        result = ask("预约看房", token="token", last_house_nos=shown)
+        self.assertEqual(result["status"], "need_slot")
+        self.assertEqual([option["value"] for option in result["options"]], shown)
+
     def test_transactional_question_without_token_asks_login(self):
         """「我的账单还差多少」要走查库，未登录时引导登录，
         绝不能拿 FAQ 编一个听起来合理的金额。"""
@@ -268,6 +275,17 @@ class TestActionFirstRouting(unittest.TestCase):
     def test_booking_request_goes_through_the_action_layer(self):
         result = ask("帮我预约看房", token="")
         self.assertEqual(result["retrieval"].get("mode"), "action")
+
+    def test_new_search_interrupts_pending_booking(self):
+        pending = {
+            "action": "book_viewing",
+            "slots": {"house_no": "DL0007"},
+            "ask": {"slot": "viewing_time", "question": "什么时候去看？"},
+        }
+        result = ask("帮我找中山区两室一厅", token="token", pending=pending)
+        self.assertEqual(result["intent"], "search")
+        self.assertIn("items", result)
+        self.assertIsNone(result.get("pending"))
 
     def test_plain_search_still_goes_to_the_finder(self):
         """代办优先不能把普通找房也抢走。"""

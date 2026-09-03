@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from app.models import Bill, Contract, House, Message, Payment
+from app.models import Bill, Contract, House, Message, Payment, Refund
 
 
 def _serial(prefix):
@@ -220,7 +220,7 @@ def generate_bills(session, contract):
     return bills
 
 
-def pay_bill(session, bill, user=None, method="alipay"):
+def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
     """缴费。重复缴费直接拒绝，不能产生两条流水。"""
     if bill.status == "paid":
         raise ValueError("该账单已缴清")
@@ -236,6 +236,7 @@ def pay_bill(session, bill, user=None, method="alipay"):
         user_id=user.id if user else None,
         amount=bill.amount,
         method=method,
+        idempotency_key=idempotency_key,
     )
     session.add(payment)
     session.flush()
@@ -279,6 +280,17 @@ def end_contract(session, contract, reason="", deduct=0):
     contract.end_reason = reason
     contract.deposit_refund = deposit - deduct
 
+    deposit_bill = next((b for b in contract.bills
+                         if b.type == "deposit" and b.status == "paid"), None)
+    refund = Refund(
+        refund_no=_serial("TK"), contract_id=contract.id,
+        payment_id=(deposit_bill.payment.id
+                    if deposit_bill and deposit_bill.payment else None),
+        original_amount=deposit, deduct_amount=deduct,
+        refund_amount=deposit - deduct, reason=reason or "退租押金结算",
+    )
+    session.add(refund)
+
     house = session.get(House, contract.house_id)
     if house and house.status == "rented":
         house.status = "available"
@@ -289,7 +301,9 @@ def end_contract(session, contract, reason="", deduct=0):
            % (contract.contract_no, int(deposit - deduct),
               ("，扣款 %d 元" % int(deduct)) if deduct else ""),
            contract.contract_no)
-    return {"cancelled_bills": cancelled, "refund": float(deposit - deduct)}
+    session.flush()
+    return {"cancelled_bills": cancelled, "refund": float(deposit - deduct),
+            "refund_record": refund.to_dict()}
 
 
 def renew_contract(session, contract, months=12):

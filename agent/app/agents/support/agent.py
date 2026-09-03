@@ -347,7 +347,7 @@ def _action_result(name, status, message, card, ask, slots, shaped):
 
 
 def run(text, token="", history=None, provider=None, backend=None,
-        settings=None, house_no="", pending=None, routing=None):
+        settings=None, house_no="", house_nos=None, pending=None, routing=None):
     """回答一个客服问题。
 
     `pending` 是上一轮没做完的代办：问了哪个槽、已经填了什么、
@@ -411,7 +411,7 @@ def run(text, token="", history=None, provider=None, backend=None,
     if decision["kind"] == router.KIND_ACTION:
         status, message, card, ask = actions.propose(
             decision["name"], raw, token, backend,
-            context={"house_no": house_no})
+            context={"house_no": house_no, "house_nos": house_nos or []})
         result = _action_result(decision["name"], status, message, card, ask,
                                 {"house_no": house_no} if house_no else {},
                                 shaped)

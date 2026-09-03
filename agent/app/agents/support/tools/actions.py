@@ -359,9 +359,22 @@ def _propose_pay_bill(text, token, backend, context):
     # 多笔待缴时选最早到期的那一笔，并在卡片上说明还有几笔。
     # 不自作主张一次全交——那是一笔大得多的钱，必须由用户逐笔决定。
     unpaid.sort(key=lambda b: b.get("due_date") or "")
-    target = unpaid[0]
+    chosen = str((context or {}).get("bill_no") or "")
+    target = next((b for b in unpaid if str(b.get("bill_no")) == chosen), None)
+    wants_choice = any(word in (text or "") for word in
+                       ("选择账单", "选一笔", "哪一笔", "哪笔"))
+    if len(unpaid) > 1 and target is None and wants_choice:
+        options = []
+        for bill in unpaid[:5]:
+            kind = bill.get("bill_type") or bill.get("type") or "租金"
+            label = "%s · %s 元 · %s到期" % (
+                kind, _money(bill.get("amount")), bill.get("due_date") or "待定")
+            options.append(_option(bill.get("bill_no"), label))
+        question = "你有 %d 笔待缴账单，要支付哪一笔？" % len(unpaid)
+        return NEED_SLOT, question, None, _ask("bill_no", question, options)
+    target = target or unpaid[0]
     amount = _money(target.get("amount"))
-    kind = target.get("bill_type") or "租金"
+    kind = target.get("bill_type") or target.get("type") or "租金"
     due = target.get("due_date") or ""
 
     summary = "缴纳%s %s 元" % (kind, amount)
@@ -413,6 +426,25 @@ def _propose_cancel_viewing(text, token, backend, context):
 def _propose_book_viewing(text, token, backend, context):
     house_no = context.get("house_no") or ""
     if not house_no:
+        # Prefer the houses shown by the immediately preceding search.  Falling
+        # back to favorites/history here can otherwise make a new, unrelated
+        # house suddenly appear after the user says only "预约看房".
+        options = []
+        for no in (context.get("house_nos") or [])[:5]:
+            if not no or any(o["value"] == no for o in options):
+                continue
+            title = ""
+            try:
+                row = backend.get("/api/houses/%s" % no)
+                title = (row.get("title") or "")[:18]
+            except Exception:
+                pass
+            options.append(_option(no, "%s %s" % (no, title)))
+        if options:
+            question = "想看哪一套？"
+            return (NEED_SLOT, question, None,
+                    _ask("house_no", question, options))
+
         # 没有指定房源时，从收藏与浏览足迹里挑几套给用户点。
         #
         # 原先直接回一句「在房源详情页里跟我说」，等于把用户赶出对话框——

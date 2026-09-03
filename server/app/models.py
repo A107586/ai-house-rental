@@ -412,6 +412,8 @@ class Bill(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     contract: Mapped["Contract"] = relationship(back_populates="bills")
+    payment: Mapped["Payment | None"] = relationship(
+        back_populates="bill", uselist=False)
 
     @property
     def overdue(self):
@@ -435,6 +437,7 @@ class Bill(Base):
             "overdue": self.overdue,
             "paid_at": self.paid_at.strftime("%Y-%m-%d %H:%M") if self.paid_at else "",
             "remark": self.remark,
+            "payment": self.payment.to_dict() if self.payment else None,
         }
 
 
@@ -449,13 +452,20 @@ class Payment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trade_no: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
-    bill_id: Mapped[int] = mapped_column(ForeignKey("bills.id"), nullable=False, index=True)
+    bill_id: Mapped[int] = mapped_column(ForeignKey("bills.id"), nullable=False,
+                                         unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     # 课程项目不接真实支付，method 仅作展示：alipay / wechat / bank / offline
     method: Mapped[str] = mapped_column(String(20), default="alipay")
+    status: Mapped[str] = mapped_column(String(20), default="succeeded", index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True,
+                                                        nullable=True)
+    failure_reason: Mapped[str] = mapped_column(String(200), default="")
     paid_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    bill: Mapped["Bill"] = relationship(back_populates="payment")
 
     def to_dict(self):
         return {
@@ -464,7 +474,42 @@ class Payment(Base):
             "bill_id": self.bill_id,
             "amount": float(self.amount),
             "method": self.method,
+            "status": self.status,
+            "idempotency_key": self.idempotency_key or "",
+            "failure_reason": self.failure_reason,
             "paid_at": self.paid_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
+class Refund(Base):
+    """押金退款流水；课程项目中记录模拟退款，不调用真实支付渠道。"""
+
+    __tablename__ = "refunds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    refund_no: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"),
+                                             nullable=False, index=True)
+    payment_id: Mapped[int | None] = mapped_column(ForeignKey("payments.id"),
+                                                   nullable=True)
+    original_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    deduct_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    refund_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(20), default="succeeded", index=True)
+    refunded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "refund_no": self.refund_no,
+            "contract_id": self.contract_id,
+            "payment_id": self.payment_id,
+            "original_amount": float(self.original_amount),
+            "deduct_amount": float(self.deduct_amount),
+            "refund_amount": float(self.refund_amount),
+            "reason": self.reason,
+            "status": self.status,
+            "refunded_at": self.refunded_at.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
 

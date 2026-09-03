@@ -4,6 +4,8 @@
 《需求分析说明书》第 6 节。
 """
 
+import re
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -420,13 +422,24 @@ def _dispatch(payload, routed, intent, slots, feats):
     # 上一轮的代办还没做完时，这一句多半是在回答助手的追问（「都可以」
     # 「第二笔」），一律先交回代办层，别让它被当成一次新的请求。
     pending_action = (payload.pending or {}).get("action")
+    explicit_search = bool(
+        re.search(r"找房|房源|租.{0,3}(?:房|一套)|(?:中山|西岗|沙河口|甘井子|旅顺口|金州)区|"
+                  r"[一二三四五六七八九两三]\s*室", text))
+    interrupts_pending = bool(
+        pending_action and intent == "search" and explicit_search)
+    if interrupts_pending:
+        pending_action = None
 
     # 服务型能力：找房 / 推荐 / 合同审阅。这三项不是一次取数，而是整条子链路，
     # 所以不进客服层，直接交给对应的子智能体。
     #
     # 放在代办层之前：「帮我看看合同有没有坑」既像审阅又像「查我的租约」，
     # 先认出审阅，才不会答出一份合同清单。
-    if not pending_action and decision["kind"] == support_router.KIND_SERVICE:
+    # 明确的新服务请求应当打断旧待办。例如助手正在追问预约时间时，
+    # 用户改口说“帮我找中山区两室一厅”，必须重新找房，不能把整句
+    # 当作 viewing_time 填进上一笔预约。
+    if (not pending_action or interrupts_pending) and \
+            decision["kind"] == support_router.KIND_SERVICE:
         served = _serve(decision, payload, routed)
         if served is not None:
             return served
@@ -435,12 +448,14 @@ def _dispatch(payload, routed, intent, slots, feats):
         routed = dict(routed, intent="search", carried_over=False,
                       reason="统一工具路由判为找房")
 
-    if (decision["kind"] in (support_router.KIND_ACTION,
-                             support_router.KIND_QUERY) or pending_action):
+    if (not interrupts_pending and
+            (decision["kind"] in (support_router.KIND_ACTION,
+                                  support_router.KIND_QUERY) or pending_action)):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
                              provider=provider, backend=backend_client,
                              settings=settings, house_no=resolved_house,
+                             house_nos=payload.last_house_nos,
                              pending=payload.pending, routing=decision)
         # 代办层认领了这句话（出卡片、追问、要登录、查到了数据、已取消）
         # 才返回；它自己也没辙时（status 是 refused 之类）继续按意图走，

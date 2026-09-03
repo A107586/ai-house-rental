@@ -81,6 +81,25 @@ def _upgrade_sqlite_schema():
             "CREATE INDEX IF NOT EXISTS ix_users_id_card_hash "
             "ON users (id_card_hash)"))
 
+        payment_columns = {
+            column["name"] for column in inspect(engine).get_columns("payments")
+        }
+        payment_additions = {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'succeeded'",
+            "idempotency_key": "VARCHAR(64)",
+            "failure_reason": "VARCHAR(200) NOT NULL DEFAULT ''",
+        }
+        for name, definition in payment_additions.items():
+            if name not in payment_columns:
+                connection.execute(text(
+                    f"ALTER TABLE payments ADD COLUMN {name} {definition}"))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_bill_id "
+            "ON payments (bill_id)"))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_idempotency_key "
+            "ON payments (idempotency_key) WHERE idempotency_key IS NOT NULL"))
+
 
 def get_session():
     """FastAPI 依赖：每个请求一个会话，用完即关。"""
