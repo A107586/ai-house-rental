@@ -46,7 +46,11 @@ QQ_RE = re.compile(r"(?:qq|扣扣|企鹅)[号:]?\s*(\d{5,12})")
 WECHAT_RE = re.compile(r"(?:微信|weixin|wx|vx|v信)[号:]?\s*([a-z0-9_-]{5,20})")
 
 # 对哪些场景做联系方式拦截。报修不在其中，理由见模块文档。
-CONTACT_SCENES = ("house", "review", "notice")
+#
+# chat 是租客与房东的私聊（C-1）。**这才是这类内容真正高发的地方**——
+# 平台上线后第一件事就是有人在聊天里发微信号绕过平台，或者骗子发链接。
+# 只审房源和评价而不审私聊，等于把门锁在了没人走的那道。
+CONTACT_SCENES = ("house", "review", "notice", "chat")
 
 LEVEL_PASS = "pass"
 LEVEL_FLAG = "flag"

@@ -25,7 +25,8 @@ from app import leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
-from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
+from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
+                        ChatMessage, Conversation,
                         Faq, SupportHandoff, SupportLog,
                         ContentFlag, Contract, Favorite, House, HouseImage,
                         Message, Notice, OperationLog, Payment, Refund, Repair,
@@ -609,6 +610,93 @@ def get_house(house_no: str, user: User = Depends(current_user),
 
     session.commit()
     return house.to_dict()
+
+
+@app.get("/api/houses/{house_no}/landlord")
+def house_landlord(house_no: str, session: Session = Depends(get_session)):
+    """房源的房东概要（A-5）。
+
+    租客决定要不要约看房时，很在意「这个房东靠不靠谱」——在租几套、
+    平均多久回应、租客怎么评价。这些信息系统里都有，只是从没露出来过。
+
+    **刻意不返回联系方式。** 平台的价值就在于居间，把手机号直接摆出来
+    等于鼓励双方绕过平台私下成交。姓名也只留姓氏。
+    """
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house or not house.landlord:
+        raise HTTPException(status_code=404, detail="房源不存在")
+
+    landlord = house.landlord
+    raw = landlord.real_name or landlord.username
+    masked = raw[0] + "*" * max(len(raw) - 1, 1)
+
+    listed = session.scalar(select(func.count(House.id)).where(
+        House.landlord_id == landlord.id,
+        House.status.in_(("available", "rented")))) or 0
+    rented = session.scalar(select(func.count(House.id)).where(
+        House.landlord_id == landlord.id, House.status == "rented")) or 0
+
+    # 评价按房东名下所有房源汇总，单套房的评价太少，说明不了什么
+    ratings = session.scalars(select(Review.rating_landlord).join(
+        House, Review.house_id == House.id).where(
+        House.landlord_id == landlord.id,
+        Review.rating_landlord > 0)).all()
+
+    # 处理速度用「已结案工单的平均耗时」衡量。这是租客最关心的一项——
+    # 房子出问题时，房东多久会管
+    records = session.scalars(select(RepairRecord).join(
+        Repair, RepairRecord.repair_id == Repair.id).join(
+        House, Repair.house_id == House.id).where(
+        House.landlord_id == landlord.id)).all()
+    spans = [(r.finished_at - r.repair.created_at).total_seconds() / 3600
+             for r in records if r.repair and r.finished_at]
+
+    return {
+        "name": masked,
+        "verified": bool(landlord.id_card_hash),
+        "listed_count": listed,
+        "rented_count": rented,
+        "review_count": len(ratings),
+        "rating": round(sum(ratings) / len(ratings), 1) if ratings else 0,
+        # 小时数取整到 0.5，精确到分钟既没意义也显得可疑
+        "avg_repair_hours": (round(sum(spans) / len(spans) * 2) / 2
+                             if spans else None),
+        "joined_at": landlord.created_at.strftime("%Y-%m"),
+    }
+
+
+@app.get("/api/houses/{house_no}/similar")
+def similar_houses(house_no: str, limit: int = Query(4, ge=1, le=12),
+                   session: Session = Depends(get_session)):
+    """相似房源（A-5）。
+
+    用户看完一套不满意就得退回列表重搜，这是最没必要的一次往返。
+
+    相似的判据：同区域 + 租金上下 20% + 同户型。三条都放宽到「或」会
+    推出一堆不相干的，所以区域是硬条件，租金与户型用来排序——
+    **宁可少推几套，也不推一套明显不像的**。
+    """
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+
+    price = float(house.rent_price)
+    candidates = session.scalars(select(House).where(
+        House.id != house.id,
+        House.status == "available",
+        House.district == house.district,
+        House.rent_price >= price * 0.8,
+        House.rent_price <= price * 1.2,
+    )).all()
+
+    def closeness(other):
+        # 户型相同的排前面，其次按租金接近程度
+        return (0 if other.layout == house.layout else 1,
+                abs(float(other.rent_price) - price))
+
+    candidates.sort(key=closeness)
+    return {"total": len(candidates),
+            "list": [h.to_dict() for h in candidates[:limit]]}
 
 
 @app.post("/api/houses")
@@ -1217,6 +1305,23 @@ def create_appointment(payload: AppointmentCreate,
         raise HTTPException(
             status_code=429,
             detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
+
+    # 并发下的时段冲突（B-3）。
+    #
+    # 「先查冲突再插入」在两个请求同时进来时会双双通过检查、双双插入。
+    # 这里对该房源加一把行级锁：后来的请求会阻塞到前一个提交完，
+    # 再查冲突时就能看到那条记录。
+    #
+    # 为什么不用 UNIQUE(house_id, viewing_time)：models.py 里有原注释——
+    # 那个约束既太严（取消掉的预约会永久占住时段），又太松（管不了
+    # 「一次看房占用一小时」的重叠判断）。这个判断至今成立。
+    #
+    # **SQLite 上这行是空操作**：它是库级写锁，反而天然不会出这个问题。
+    # 真正生效是在 MySQL 上——这正是「本地 SQLite、部署 MySQL」这个
+    # 架构选择需要付出的代价之一：两边的并发行为并不完全一样。
+    if session.bind and session.bind.dialect.name != "sqlite":
+        session.execute(
+            select(House.id).where(House.id == house.id).with_for_update())
 
     window = timedelta(minutes=config_store.get_int(
         session, "viewing_minutes", VIEWING_MINUTES))
@@ -2616,6 +2721,171 @@ def repair_stats(user: User = Depends(require_login),
         "top_houses": sorted(by_house.values(),
                              key=lambda row: -row["count"])[:8],
     }
+
+
+# ------------------------------------------------------------------ 会话
+
+class ConversationStart(BaseModel):
+    house_no: str
+
+
+class LineCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=500)
+
+
+def _my_conversation(session, conversation_id, user):
+    """取出会话并校验：只有当事双方与管理员能碰。
+
+    **每个会话接口都必须过这一关。** 少一处，改个 id 就能读走别人的
+    私聊——这类越权本项目已经修过两次（工单列表、对话记录），
+    是同一类错误。
+    """
+    conversation = session.get(Conversation, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if user.role != "admin" and user.id not in (conversation.tenant_id,
+                                                conversation.landlord_id):
+        raise HTTPException(status_code=403, detail="无权查看该会话")
+    return conversation
+
+
+@app.post("/api/conversations")
+def start_conversation(payload: ConversationStart,
+                       user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """开启与房东的会话。
+
+    **幂等**：同一租客同一房源只有一个会话，重复点「咨询房东」返回原有的。
+    数据库上有 UNIQUE(house_id, tenant_id) 兜底。
+    """
+    house = session.scalar(
+        select(House).where(House.house_no == payload.house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if house.landlord_id == user.id:
+        raise HTTPException(status_code=400, detail="不能和自己的房源发起咨询")
+
+    existing = session.scalar(select(Conversation).where(
+        Conversation.house_id == house.id,
+        Conversation.tenant_id == user.id))
+    if existing:
+        return {"ok": True, "conversation": existing.to_dict(user.id)}
+
+    conversation = Conversation(house_id=house.id, tenant_id=user.id,
+                                landlord_id=house.landlord_id)
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    return {"ok": True, "conversation": conversation.to_dict(user.id)}
+
+
+@app.get("/api/conversations")
+def list_conversations(user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """我的会话列表，最近有消息的排前面。"""
+    rows = session.scalars(select(Conversation).where(
+        or_(Conversation.tenant_id == user.id,
+            Conversation.landlord_id == user.id)
+    ).order_by(Conversation.last_at.desc())).all()
+    unread = sum((c.landlord_unread if c.landlord_id == user.id
+                  else c.tenant_unread) for c in rows)
+    return {"total": len(rows), "unread": unread,
+            "list": [c.to_dict(user.id) for c in rows]}
+
+
+@app.get("/api/conversations/{conversation_id}/lines")
+def list_lines(conversation_id: int, after_id: int = 0,
+               limit: int = Query(50, ge=1, le=200),
+               user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    """消息明细。
+
+    `after_id` 用于轮询增量：面板打开时每十秒问一次「比这条新的有吗」，
+    而不是每次把整段对话重拉一遍。
+    """
+    conversation = _my_conversation(session, conversation_id, user)
+    stmt = select(ChatLine).where(
+        ChatLine.conversation_id == conversation.id)
+    if after_id:
+        stmt = stmt.where(ChatLine.id > after_id)
+    rows = session.scalars(
+        stmt.order_by(ChatLine.id).limit(limit)).all()
+    return {"total": len(rows),
+            "list": [line.to_dict(user.id) for line in rows]}
+
+
+@app.post("/api/conversations/{conversation_id}/lines")
+def send_line(conversation_id: int, payload: LineCreate,
+              user: User = Depends(require_login),
+              session: Session = Depends(get_session)):
+    """发一条消息。
+
+    **发出去之前先过内容审核。** 平台上线后第一件事就是有人在聊天里发
+    微信号绕过平台，或者骗子发链接。M-08 的审核模块本来只审房源与评价，
+    而私聊才是这类内容真正高发的地方。
+    """
+    conversation = _my_conversation(session, conversation_id, user)
+    if conversation.status != "active":
+        raise HTTPException(status_code=409, detail="该会话已关闭")
+
+    verdict = moderation.check(payload.content, scene="chat")
+    if verdict["level"] == moderation.LEVEL_BLOCK:
+        raise HTTPException(
+            status_code=400,
+            detail="为保障双方权益，请在平台内沟通：" + (
+                verdict["reasons"][0] if verdict["reasons"] else "内容不合规"))
+    # flag 级别放行但留痕，交人工复核——存疑的内容直接拒发误伤太大
+    if verdict["level"] == moderation.LEVEL_FLAG:
+        session.add(ContentFlag(
+            scene="chat", target_id=conversation.id,
+            target_key=(conversation.house.house_no
+                        if conversation.house else ""),
+            author_id=user.id,
+            author_name=user.real_name or user.username,
+            excerpt=payload.content.strip()[:300],
+            categories="、".join(verdict["categories"]),
+            reasons="；".join(verdict["reasons"])))
+
+    line = ChatLine(conversation_id=conversation.id, sender_id=user.id,
+                    content=payload.content.strip())
+    session.add(line)
+
+    # 冗余字段同步更新，会话列表才不用回查明细表
+    conversation.last_message = payload.content.strip()[:100]
+    conversation.last_at = datetime.now()
+    if user.id == conversation.tenant_id:
+        conversation.landlord_unread += 1
+        peer_id = conversation.landlord_id
+    else:
+        conversation.tenant_unread += 1
+        peer_id = conversation.tenant_id
+
+    # 顺手写一条站内通知：对方没开着会话面板时，靠消息中心的红点提醒。
+    # 会话与通知是两件事——通知要的是「未读清零」，会话要的是
+    # 「对方读到哪了」——所以各存各的，只在这里联动一次。
+    leasing.notify(
+        session, peer_id, "system", "收到一条新消息",
+        "%s：%s" % (conversation.house.house_no if conversation.house else "",
+                    payload.content.strip()[:40]),
+        conversation.house.house_no if conversation.house else "")
+
+    session.commit()
+    session.refresh(line)
+    return {"ok": True, "line": line.to_dict(user.id)}
+
+
+@app.post("/api/conversations/{conversation_id}/read")
+def mark_conversation_read(conversation_id: int,
+                           user: User = Depends(require_login),
+                           session: Session = Depends(get_session)):
+    """把自己这一侧的未读清零。"""
+    conversation = _my_conversation(session, conversation_id, user)
+    if user.id == conversation.tenant_id:
+        conversation.tenant_unread = 0
+    elif user.id == conversation.landlord_id:
+        conversation.landlord_unread = 0
+    session.commit()
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ 系统配置

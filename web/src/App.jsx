@@ -3,6 +3,7 @@ import { api, getToken, setToken } from './api'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
 import ChatPanel from './components/ChatPanel'
+import ChatWithLandlord from './components/ChatWithLandlord'
 import ErrorBoundary from './components/ErrorBoundary'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
@@ -63,6 +64,8 @@ export default function App() {
   const [compare, setCompare] = useState([])
   const [showChat, setShowChat] = useState(false)
   const [showMap, setShowMap] = useState(false)
+  const [showTalk, setShowTalk] = useState(false)
+  const [talkId, setTalkId] = useState(0)
   // 已经搜过的那句话。翻页要用它重新请求，
   // 不能用输入框里的当前内容——用户可能已经改了半句还没提交
   const [searched, setSearched] = useState('')
@@ -244,6 +247,9 @@ export default function App() {
                     {user.role === 'admin' ? '管理后台' : '工作台'}
                   </button>
                 )}
+                <button className="btn ghost small" onClick={() => setShowTalk(true)}>
+                  咨询
+                </button>
                 <button className="btn ghost small" onClick={() => setShowMine(true)}>
                   {user.real_name || user.username}
                 </button>
@@ -427,6 +433,21 @@ export default function App() {
       </button>
       )}
 
+      {showTalk && (
+        <ChatWithLandlord
+          initialId={talkId}
+          onClose={() => { setShowTalk(false); setTalkId(0) }}
+          onOpenHouse={async (no) => {
+            try {
+              setShowTalk(false)
+              setSelected(await api.getHouse(no))
+            } catch {
+              setError('这套房源已下架或不存在。')
+            }
+          }}
+        />
+      )}
+
       {showChat && (
         <ChatPanel
           user={user}
@@ -452,6 +473,13 @@ export default function App() {
 
       {selected && (
         <HouseDrawer
+          onOpenHouse={setSelected}
+          onTalk={(id) => {
+            // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
+            setSelected(null)
+            setTalkId(id)
+            setShowTalk(true)
+          }}
           house={selected}
           user={user}
           favorited={favorites.includes(selected.house_no)}

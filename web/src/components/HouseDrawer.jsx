@@ -18,7 +18,8 @@ const TABS = [
   { key: 'repair', label: '报修' },
 ]
 
-export default function HouseDrawer({ house, user, favorited, onToggleFavorite, onClose }) {
+export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
+                                     onClose, onOpenHouse, onTalk }) {
   const [tab, setTab] = useState('booking')
   const [booked, setBooked] = useState([])
   const [repairs, setRepairs] = useState([])
@@ -29,6 +30,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
   const [reply, setReply] = useState(null)
   const [busy, setBusy] = useState(false)
   const [shot, setShot] = useState(0)
+  // A-5：房东概要与相似房源。两者都是「锦上添花」，
+  // 取不到就不显示，不能拖累详情页本身
+  const [landlord, setLandlord] = useState(null)
+  const [similar, setSimilar] = useState([])
+  const [talking, setTalking] = useState(false)
 
   const photos = house.images && house.images.length
     ? house.images
@@ -41,6 +47,12 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
     // 而 AI-07 房源推荐正是靠足迹工作的。
     // 失败不影响抽屉展示，所以单独 catch。
     api.getHouse(house.house_no).catch(() => {})
+
+    // 这两块失败就静默略过——房东概要拉不到不该让整个详情页报错
+    api.houseLandlord(house.house_no).then(setLandlord).catch(() => setLandlord(null))
+    api.similarHouses(house.house_no)
+      .then((d) => setSimilar(d.list || []))
+      .catch(() => setSimilar([]))
 
     try {
       const [appointments, tickets, rated] = await Promise.all([
@@ -159,12 +171,60 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
           {house.district} · {house.community} · {house.address}
         </div>
 
-        <button
-          className={`btn ghost small ${favorited ? 'active' : ''}`}
-          onClick={() => onToggleFavorite(house.house_no)}
-        >
-          {favorited ? '★ 已收藏' : '☆ 收藏'}
-        </button>
+        <div className="record-actions">
+          <button
+            className={`btn ghost small ${favorited ? 'active' : ''}`}
+            onClick={() => onToggleFavorite(house.house_no)}
+          >
+            {favorited ? '★ 已收藏' : '☆ 收藏'}
+          </button>
+
+          {/* 咨询入口放在这里，是因为**用户正在看这套房时才会想问**。
+              放个人中心里等他想起来去翻，等于没有 */}
+          <button
+            className="btn small"
+            disabled={talking}
+            onClick={async () => {
+              if (!user) {
+                setReply({ status: 'error', message: '请先登录后再咨询房东',
+                           alternatives: [] })
+                return
+              }
+              setTalking(true)
+              try {
+                const data = await api.startConversation(house.house_no)
+                onTalk && onTalk(data.conversation.id)
+              } catch (err) {
+                setReply({ status: 'error', message: err.message,
+                           alternatives: [] })
+              } finally {
+                setTalking(false)
+              }
+            }}
+          >
+            {talking ? '打开中…' : '咨询房东'}
+          </button>
+        </div>
+
+        {/* ---------- 房东概要（A-5） ---------- */}
+        {landlord && (
+          <div className="ld-card">
+            <div className="ld-head">
+              <b>{landlord.name}</b>
+              {landlord.verified && <span className="pill">已实名</span>}
+              <span className="muted-note">{landlord.joined_at} 加入</span>
+            </div>
+            <div className="ld-facts">
+              <span>在租 {landlord.listed_count} 套</span>
+              {landlord.rented_count > 0 &&
+                <span>已出租 {landlord.rented_count} 套</span>}
+              {landlord.review_count > 0 &&
+                <span>评分 {landlord.rating}（{landlord.review_count} 条）</span>}
+              {landlord.avg_repair_hours !== null &&
+                <span>报修平均 {landlord.avg_repair_hours} 小时处理</span>}
+            </div>
+          </div>
+        )}
 
         <div className="facts" style={{ marginTop: 16 }}>
           <dl className="fact">
@@ -345,6 +405,40 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
             登录用户才有权限，未登录时不显示以免点了才报错。 */}
         {tab === 'repair' && reply?.repair_id && user && (
           <ImageUploader mode="repair" repairId={reply.repair_id} />
+        )}
+
+        {/* ---------- 相似房源（A-5） ----------
+            看完一套不满意就得退回列表重搜，是最没必要的一次往返。
+            同区域 + 租金上下 20%，户型相同的排前面。 */}
+        {similar.length > 0 && (
+          <section className="cd-sec">
+            <h5>看了这套的人还在看</h5>
+            <ul className="sim-list">
+              {similar.map((item) => (
+                <li key={item.house_no}>
+                  <button
+                    className="sim-item"
+                    onClick={() => onOpenHouse && onOpenHouse(item)}
+                  >
+                    {item.cover_image ? (
+                      <img src={item.cover_image} alt={item.title} loading="lazy" />
+                    ) : (
+                      <span className="sim-none">暂无图</span>
+                    )}
+                    <span className="sim-body">
+                      <span className="sim-title">{item.title}</span>
+                      <span className="muted-note">
+                        {item.layout} · {Math.round(item.area)} 平米
+                      </span>
+                      <span className="sim-price">
+                        {Math.round(item.rent_price)} 元/月
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </aside>
     </>

@@ -706,7 +706,7 @@ class ContentFlag(Base):
     __tablename__ = "content_flags"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # house / review / notice
+    # house / review / notice / chat
     scene: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     target_id: Mapped[int] = mapped_column(Integer, nullable=False)
     target_key: Mapped[str] = mapped_column(String(64), default="")
@@ -722,7 +722,8 @@ class ContentFlag(Base):
                                                  index=True)
     handled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
-    SCENE_LABEL = {"house": "房源", "review": "评价", "notice": "公告"}
+    SCENE_LABEL = {"house": "房源", "review": "评价", "notice": "公告",
+                   "chat": "私聊"}
 
     def to_dict(self):
         return {
@@ -1060,6 +1061,106 @@ class SupportHandoff(Base):
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
             "replied_at": (self.replied_at.strftime("%Y-%m-%d %H:%M")
                            if self.replied_at else ""),
+        }
+
+
+class Conversation(Base):
+    """租客与房东围绕某套房源的会话（C-1）。
+
+    系统里 AI 对话有两套（AI-09 助手、AI-03 客服），但**人与人之间不能
+    聊**。现有的人际沟通只有三个孤立触点，每个都只能来回一次：预约的
+    备注与回复、转人工的提问与回复、以及单向的站内通知。租客看中一套房
+    想问「能不能养猫」「几月能入住」，没有地方问。
+
+    **会话锚定在「房源 + 租客」上，不是锚定在人上。** 租客同时看十套房，
+    问的都是「能养猫吗」，按人聚合会混成一团；房东手里二十套房，也需要
+    一眼知道对方问的是哪套。会话天然带上下文，进来就显示房源卡片，
+    双方不用先对暗号。
+    """
+
+    __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint("house_id", "tenant_id", name="uq_house_tenant"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"),
+                                          nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                           nullable=False, index=True)
+    landlord_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                             nullable=False, index=True)
+
+    # last_message 与两个未读数都是**刻意冗余**的。会话列表要显示
+    # 「最后一句 + 未读数」，不冗余就得对每个会话再查一次明细表——
+    # 十个会话十次查询。代价是写入时要同步更新。
+    last_message: Mapped[str] = mapped_column(String(100), default="")
+    last_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                              index=True)
+    # 必须分两个字段：同一条消息，对发送方是已读、对接收方是未读
+    tenant_unread: Mapped[int] = mapped_column(Integer, default=0)
+    landlord_unread: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    house: Mapped["House"] = relationship()
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id])
+    landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id])
+
+    def to_dict(self, viewer_id=None):
+        """会话摘要。
+
+        未读数按**查看者**给：同一个会话，租客和房东看到的未读数不同。
+        对方姓名只露姓氏——会话列表不是通讯录。
+        """
+        def masked(user):
+            if not user:
+                return ""
+            raw = user.real_name or user.username
+            return raw[0] + "*" * max(len(raw) - 1, 1)
+
+        is_landlord = viewer_id == self.landlord_id
+        return {
+            "id": self.id,
+            "house_no": self.house.house_no if self.house else "",
+            "house_title": self.house.title if self.house else "",
+            "cover_image": self.house.cover_image if self.house else "",
+            "rent_price": float(self.house.rent_price) if self.house else 0,
+            "peer_name": masked(self.tenant if is_landlord else self.landlord),
+            "peer_role": "租客" if is_landlord else "房东",
+            "last_message": self.last_message,
+            "last_at": self.last_at.strftime("%Y-%m-%d %H:%M"),
+            "unread": (self.landlord_unread if is_landlord
+                       else self.tenant_unread),
+            "status": self.status,
+        }
+
+
+class ChatLine(Base):
+    """会话里的一条消息。"""
+
+    __tablename__ = "chat_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id"), nullable=False, index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                           nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 将来要发图片或房源卡片时靠它区分，现在只有 text
+    kind: Mapped[str] = mapped_column(String(10), default="text")
+    created_at: Mapped[datetime] = mapped_column(DateTime,
+                                                 default=datetime.now)
+
+    sender: Mapped["User"] = relationship()
+
+    def to_dict(self, viewer_id=None):
+        return {
+            "id": self.id,
+            "content": self.content,
+            "kind": self.kind,
+            "mine": self.sender_id == viewer_id,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
         }
 
 

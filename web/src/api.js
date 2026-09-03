@@ -293,6 +293,26 @@ export const api = {
   adminLogs: (params) => request(`/api/admin/logs?${toQuery(params)}`),
   adminLogActions: () => request('/api/admin/logs/actions'),
 
+  // C-1 租客与房东会话
+  startConversation: (houseNo) =>
+    request('/api/conversations', {
+      method: 'POST', body: JSON.stringify({ house_no: houseNo }),
+    }),
+  conversations: () => request('/api/conversations'),
+  // after_id 用于轮询增量，不传就是整段重拉
+  conversationLines: (id, afterId = 0) =>
+    request(`/api/conversations/${id}/lines?${toQuery({ after_id: afterId })}`),
+  sendLine: (id, content) =>
+    request(`/api/conversations/${id}/lines`, {
+      method: 'POST', body: JSON.stringify({ content }),
+    }),
+  readConversation: (id) =>
+    request(`/api/conversations/${id}/read`, { method: 'POST' }),
+
+  // A-5 房源详情的补充信息
+  houseLandlord: (houseNo) => request(`/api/houses/${houseNo}/landlord`),
+  similarHouses: (houseNo) => request(`/api/houses/${houseNo}/similar`),
+
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
   agentSearch: (text, limit = 12, page = 1) =>

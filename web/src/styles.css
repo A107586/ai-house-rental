@@ -3714,3 +3714,213 @@ button.account-row:last-child { border-bottom: none; }
   color: var(--ink-2);
   font-size: 13px;
 }
+
+/* ============================================================
+   A-5 房东概要与相似房源
+   ============================================================ */
+.ld-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.ld-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.ld-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--ink-2);
+}
+
+.sim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sim-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+  align-items: center;
+}
+
+.sim-item:hover {
+  border-color: var(--brand);
+}
+
+.sim-item img {
+  width: 76px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sim-none {
+  width: 76px;
+  height: 56px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sim-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sim-title {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-price {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ============================================================
+   C-1 会话面板
+   ============================================================ */
+.cw-body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.cw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.cw-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cw-item.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.cw-house {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cw-title {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-last {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 未读数压在右上角，扫一眼就能找到哪个会话有新消息 */
+.cw-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+
+.cw-thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 380px;
+}
+
+.cw-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+
+.cw-lines {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  padding-bottom: 10px;
+}
+
+.cw-at {
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 3px;
+}
+
+@media (max-width: 720px) {
+  .cw-body {
+    grid-template-columns: 1fr;
+  }
+  .cw-list {
+    max-height: 160px;
+  }
+}
