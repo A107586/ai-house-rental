@@ -1,18 +1,28 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import useHashRoute from './useHashRoute'
-import AdminPanel from './components/AdminPanel'
-import AuthDialog from './components/AuthDialog'
-import ChatPanel from './components/ChatPanel'
-import ChatWithLandlord from './components/ChatWithLandlord'
+
+// 代码分割：整包原先 303 KB，管理后台、房东工作台这些**租客永远用不到的
+// 面板**也一起下载，而租客占访问量的绝大多数。
+//
+// 拆分的判据是「租客首次打开页面会不会立刻看到它」——首屏要的（房源卡片、
+// 筛选栏、公告、推荐）保持静态引入，点开才用的抽屉与面板按需加载。
+//
+// 每块外面都要包 Suspense，否则加载那一瞬间会抛错。fallback 给的是空节点
+// 而不是转圈：这些块只有几十 KB，本地几乎瞬间到位，闪一下加载动画
+// 反而更晃眼。
+const AdminPanel = lazy(() => import('./components/AdminPanel'))
+const LandlordPanel = lazy(() => import('./components/LandlordPanel'))
+const MyPanel = lazy(() => import('./components/MyPanel'))
+const HouseDrawer = lazy(() => import('./components/HouseDrawer'))
+const ChatPanel = lazy(() => import('./components/ChatPanel'))
+const ChatWithLandlord = lazy(() => import('./components/ChatWithLandlord'))
+const MapFinder = lazy(() => import('./components/MapFinder'))
+const AuthDialog = lazy(() => import('./components/AuthDialog'))
 import ErrorBoundary from './components/ErrorBoundary'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
-import HouseDrawer from './components/HouseDrawer'
-import LandlordPanel from './components/LandlordPanel'
-import MapFinder from './components/MapFinder'
-import MyPanel from './components/MyPanel'
 import NoticeBar from './components/NoticeBar'
 import RecommendStrip from './components/RecommendStrip'
 
@@ -251,6 +261,7 @@ export default function App() {
   const hasMore = houses.length < total
 
   return (
+    <Suspense fallback={null}>
     <>
       <header className="topbar">
         <div className="topbar-inner">
@@ -563,5 +574,6 @@ export default function App() {
         />
       )}
     </>
+    </Suspense>
   )
 }
