@@ -123,6 +123,40 @@ class TestLLMGuards(unittest.TestCase):
         got = router.route("帮我退租", provider=provider)
         self.assertEqual(got["kind"], router.KIND_ACTION)
 
+    def test_none_from_the_llm_does_not_erase_a_clear_rule_hit(self):
+        """**模型说「都不是」，不能把规则的明确结论抹掉。**
+
+        实测撞出来的：规则把「帮我把这个月房租交了」判成 pay_bill，
+        模型回 none，这句话就掉进知识检索，答成
+        「暂时没有查到相关规定，这个我不敢乱说」——一条明确的指令
+        被答成了查不到，而且用户看不出为什么。
+        """
+        provider = FakeProvider({"kind": "none", "name": "none"})
+        got = router.route("帮我把这个月房租交了", provider=provider)
+        self.assertEqual(got["kind"], router.KIND_ACTION)
+        self.assertEqual(got["name"], "pay_bill")
+        self.assertEqual(got["source"], "llm_kept_rule")
+
+    def test_the_same_protection_covers_queries(self):
+        provider = FakeProvider({"kind": "none", "name": "none"})
+        got = router.route("我还欠多少房租", provider=provider)
+        self.assertEqual(got["kind"], router.KIND_QUERY)
+        self.assertEqual(got["source"], "llm_kept_rule")
+
+    def test_none_is_still_accepted_when_the_rules_have_nothing(self):
+        """规则本来就没结论时，none 照常采纳——护栏只保护「有结论」的那种。"""
+        provider = FakeProvider({"kind": "none", "name": "none"})
+        got = router.route("押金怎么退", provider=provider)
+        self.assertEqual(got["kind"], router.KIND_KNOWLEDGE)
+        self.assertEqual(got["source"], "llm")
+
+    def test_the_llm_can_still_change_its_mind_about_which_tool(self):
+        """不能降级成「没听懂」，但改判成另一个工具仍然允许。"""
+        provider = FakeProvider({"kind": "query", "name": "bill"})
+        got = router.route("帮我把这个月房租交了", provider=provider)
+        self.assertEqual(got["kind"], router.KIND_QUERY)
+        self.assertEqual(got["source"], "llm")
+
     def test_invented_tool_name_falls_back_to_rules(self):
         provider = FakeProvider({"kind": "action", "name": "teleport_user"})
         got = router.route("帮我交房租", provider=provider)
