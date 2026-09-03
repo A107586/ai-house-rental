@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContractCard from './ContractCard'
+import ContractDetail from './ContractDetail'
 import ProfileForm from './ProfileForm'
 import ReviewForm from './ReviewForm'
 
@@ -38,6 +39,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
   const [history, setHistory] = useState([])
   const [pending, setPending] = useState([])
   const [repairs, setRepairs] = useState([])
+  const [detailNo, setDetailNo] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [checkout, setCheckout] = useState(null)
@@ -181,6 +183,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
               {contracts.map((contract) => (
                 <ContractCard
                   onOpenHouse={openHouseByNo}
+                  onOpenDetail={setDetailNo}
                   key={contract.contract_no}
                   contract={contract}
                   role={user.role}
@@ -582,6 +585,18 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
             </div>
           </div>
         </div>
+      )}
+
+      {detailNo && (
+        <ContractDetail
+          contractNo={detailNo}
+          onClose={() => setDetailNo('')}
+          onOpenHouse={(no) => {
+            // 档案里点房源：先收掉档案再开房源抽屉，免得三层叠在一起
+            setDetailNo('')
+            openHouseByNo(no)
+          }}
+        />
       )}
     </>
   )

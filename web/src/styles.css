@@ -3647,3 +3647,70 @@ button.account-row:last-child { border-bottom: none; }
   background: var(--danger-soft);
   color: var(--danger);
 }
+
+/* ============================================================
+   合同档案（A-4）
+   ============================================================ */
+.cd-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.cd-sec h5 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--brand);
+}
+
+/* 数据格里的小字号数值：日期这类文本放不下大号数字 */
+.dcell .dv.small {
+  font-size: 15px;
+}
+
+/* 状态时间线。用左侧竖线串起来，比一行行罗列更容易看出先后 */
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line);
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 14px 14px;
+}
+
+.timeline li:last-child {
+  padding-bottom: 0;
+}
+
+/* 节点圆点压在竖线上 */
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: -21px;
+  top: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--brand);
+  border: 2px solid var(--surface);
+}
+
+.tl-at {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tl-body b {
+  display: block;
+  font-size: 14px;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+.tl-body span {
+  color: var(--ink-2);
+  font-size: 13px;
+}

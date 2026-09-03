@@ -226,6 +226,17 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
         raise ValueError("该账单已缴清")
     if bill.status == "cancelled":
         raise ValueError("该账单已作废")
+    # 合同已经结束或作废的，不能再收钱。
+    #
+    # 原先这里只看账单状态：退租时只会作废「未到期的租金」账单，
+    # 押金和已到期未缴的租金仍是 unpaid，于是**合同都结束了还能继续缴费**。
+    # 收进来的钱既没有对应的租约，也不会再产生任何权利义务——
+    # 退租结算已经做过了，这笔钱只能靠人工退回去。
+    #
+    # 遗留欠款要收，正确做法是走催缴与追偿，而不是让一个已终止的
+    # 合同继续走缴费通道。
+    if bill.contract and bill.contract.status in ("ended", "cancelled"):
+        raise ValueError("该合同已结束，无法继续缴费；如有欠款请联系房东处理")
 
     bill.status = "paid"
     bill.paid_at = datetime.now()

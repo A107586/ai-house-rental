@@ -135,6 +135,11 @@ export const api = {
   listRepairs: (params = {}) => request(`/api/repairs?${toQuery(params)}`),
 
   // ---------------- 合同 ----------------
+  // 合同档案：账单 + 租期内报修 + 状态时间线。三块一次取回——
+  // 它们在界面上同时出现，分三次请求会出现「账单好了、报修还在转」的割裂
+  contractDetail: (contractNo) =>
+    request(`/api/contracts/${contractNo}/detail`),
+
   myContracts: (status = '') =>
     request(`/api/contracts/mine?${toQuery({ status })}`),
   getContract: (no) => request(`/api/contracts/${no}`),

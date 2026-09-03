@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import CloseRepairDialog from './CloseRepairDialog'
 import ContractCard from './ContractCard'
+import ContractDetail from './ContractDetail'
 import ImageUploader from './ImageUploader'
 import SignContractDialog from './SignContractDialog'
 
@@ -55,6 +56,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
   // 经营动作该集中在工作台，所以搬到这里并补上发起签约。
   const [contracts, setContracts] = useState([])
   const [signing, setSigning] = useState(false)
+  const [detailNo, setDetailNo] = useState('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -464,6 +466,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
                 {contracts.map((contract) => (
                   <ContractCard
                     onOpenHouse={openHouseByNo}
+                    onOpenDetail={setDetailNo}
                     key={contract.contract_no}
                     contract={contract}
                     role={user.role}
@@ -664,6 +667,17 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
           </p>
         )}
       </aside>
+
+      {detailNo && (
+        <ContractDetail
+          contractNo={detailNo}
+          onClose={() => setDetailNo('')}
+          onOpenHouse={(no) => {
+            setDetailNo('')
+            openHouseByNo(no)
+          }}
+        />
+      )}
 
       {signing && (
         <SignContractDialog

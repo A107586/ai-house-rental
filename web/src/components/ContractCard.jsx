@@ -8,7 +8,8 @@ const STATUS = {
   cancelled: { label: '已取消', cls: 'status-rejected' },
 }
 
-export default function ContractCard({ contract, role, onChanged, onOpenHouse }) {
+export default function ContractCard({ contract, role, onChanged, onOpenHouse,
+                                      onOpenDetail }) {
   const [showText, setShowText] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -122,6 +123,15 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse })
       {error && <div className="reply failed">{error}</div>}
 
       <div className="record-actions">
+        {onOpenDetail && (
+          <button
+            className="btn ghost small"
+            onClick={() => onOpenDetail(contract.contract_no)}
+          >
+            查看档案
+          </button>
+        )}
+
         <button className="btn ghost small" onClick={() => setShowText(!showText)}>
           {showText ? '收起合同' : '查看合同'}
         </button>

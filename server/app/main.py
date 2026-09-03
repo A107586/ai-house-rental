@@ -1612,10 +1612,90 @@ def save_review_result(contract_no: str, payload: ReviewResultIn,
 
 # ------------------------------------------------------------------ 账单
 
+@app.get("/api/contracts/{contract_no}/detail")
+def contract_detail(contract_no: str, user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """一份合同的完整档案：账单、报修、状态时间线。
+
+    做成一个接口而不是让前端拉三次：这三块在界面上是同时出现的，
+    分三次请求既慢，也会出现「账单加载好了、报修还在转」的割裂感。
+
+    时间线不需要新表——signed_at / ended_at / created_at 拼得出来。
+    """
+    contract = session.scalar(
+        select(Contract).where(Contract.contract_no == contract_no))
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    if user.role != "admin" and user.id not in (contract.tenant_id,
+                                                contract.landlord_id):
+        raise HTTPException(status_code=403, detail="只能查看自己的合同")
+
+    bills = sorted(contract.bills, key=lambda b: (b.due_date, b.id))
+    paid = [b for b in bills if b.status == "paid"]
+    unpaid = [b for b in bills if b.status == "unpaid"]
+
+    # 报修按房源查，但只取这份合同存续期间的——这套房在别人租的时候报过
+    # 的修，与本合同无关，摆进来只会让人以为是自己惹的。
+    #
+    # 起点取**合同创建时间**而不是起租日：签约与起租之间常有几天间隔，
+    # 这期间租客已经拿到钥匙看房验房，报的修属于这份合同，
+    # 按起租日算会把它们漏掉。
+    repairs = session.scalars(select(Repair).where(
+        Repair.house_id == contract.house_id,
+        Repair.created_at >= contract.created_at,
+    ).order_by(Repair.created_at.desc())).all()
+    if contract.ended_at:
+        repairs = [r for r in repairs if r.created_at <= contract.ended_at]
+
+    timeline = [{"at": contract.created_at.strftime("%Y-%m-%d %H:%M"),
+                 "title": "合同创建", "detail": "由房东发起，等待租客确认"}]
+    if contract.signed_at:
+        timeline.append({"at": contract.signed_at.strftime("%Y-%m-%d %H:%M"),
+                         "title": "租客确认，合同生效",
+                         "detail": "已排出整个租期的账单"})
+    for bill in paid:
+        if bill.paid_at:
+            timeline.append({
+                "at": bill.paid_at.strftime("%Y-%m-%d %H:%M"),
+                "title": "缴纳%s" % ("押金" if bill.type == "deposit" else "租金"),
+                "detail": "%s · %d 元" % (bill.bill_no, round(float(bill.amount)))})
+    if contract.ended_at:
+        refunded = contract.deposit_refund
+        timeline.append({
+            "at": contract.ended_at.strftime("%Y-%m-%d %H:%M"),
+            "title": "合同结束",
+            "detail": "%s%s" % (
+                contract.end_reason or "退租",
+                ("，退还押金 %d 元" % round(float(refunded)))
+                if refunded is not None else "")})
+    timeline.sort(key=lambda item: item["at"])
+
+    return {
+        "contract": contract.to_dict(),
+        "bills": [b.to_dict() for b in bills],
+        "summary": {
+            "total_periods": len(bills),
+            "paid_count": len(paid),
+            "unpaid_count": len(unpaid),
+            "paid_amount": round(sum(float(b.amount) for b in paid), 2),
+            "unpaid_amount": round(sum(float(b.amount) for b in unpaid), 2),
+            "overdue_count": sum(1 for b in unpaid if b.overdue),
+        },
+        "repairs": [r.to_dict() for r in repairs],
+        "timeline": timeline,
+    }
+
+
 @app.get("/api/bills/mine")
-def my_bills(status: str = "", user: User = Depends(require_login),
+def my_bills(status: str = "", contract_no: str = "",
+             user: User = Depends(require_login),
              session: Session = Depends(get_session)):
-    """我的账单。租客看自己要交的，房东看自己该收的。"""
+    """我的账单。租客看自己要交的，房东看自己该收的。
+
+    `contract_no` 用于合同详情页——只看这一份合同排了哪些账单。
+    它**不放宽可见范围**：下面按角色算出来的 contract_ids 仍然生效，
+    传别人的合同号只会得到空列表。
+    """
     if user.role == "admin":
         stmt = select(Bill)
     else:
@@ -1626,6 +1706,12 @@ def my_bills(status: str = "", user: User = Depends(require_login),
         stmt = select(Bill).where(Bill.contract_id.in_(contract_ids or [-1]))
     if status:
         stmt = stmt.where(Bill.status == status)
+    if contract_no:
+        target = session.scalar(
+            select(Contract).where(Contract.contract_no == contract_no))
+        # 合同不存在时给一个不可能命中的条件，而不是忽略这个参数——
+        # 忽略会把「查某份合同」变成「查全部」，是最坏的一种失败
+        stmt = stmt.where(Bill.contract_id == (target.id if target else -1))
 
     rows = session.scalars(stmt.order_by(Bill.due_date)).all()
     unpaid = [b for b in rows if b.status == "unpaid"]

@@ -412,3 +412,54 @@ class TestStatsIncome(ContractCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestNoPaymentAfterEnd(ContractCase):
+    """合同结束之后不能再缴费。
+
+    退租只会作废「未到期的租金」账单，押金与已到期未缴的租金仍是 unpaid。
+    原先 pay_bill 只看账单状态、不看合同状态，于是**合同都结束了还能继续
+    缴费**——收进来的钱既没有对应租约，也不会再产生任何权利义务，
+    退租结算早就做完了，这笔钱只能靠人工退回去。
+
+    这个洞是做合同档案时发现的：时间线上「缴纳押金」排在「合同结束」
+    之后，一眼就看出顺序不对。
+    """
+
+    def test_cannot_pay_after_contract_ended(self):
+        no = self.active_contract()
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        deposit = next(b for b in bills["list"]
+                       if b["type"] == "deposit" and b["status"] == "unpaid")
+
+        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                         json={"reason": "提前退租"})
+
+        r = self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
+                             headers=self.tenant, json={"method": "alipay"})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("已结束", r.json()["detail"])
+
+    def test_bill_stays_unpaid_after_rejection(self):
+        """被拒之后账单状态不能被改动，更不能产生流水。"""
+        no = self.active_contract()
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        deposit = next(b for b in bills["list"]
+                       if b["type"] == "deposit" and b["status"] == "unpaid")
+        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                         json={"reason": "提前退租"})
+        self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
+                         headers=self.tenant, json={"method": "alipay"})
+
+        after = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        same = next(b for b in after["list"]
+                    if b["bill_no"] == deposit["bill_no"])
+        self.assertEqual(same["status"], "unpaid")
+        self.assertIsNone(same.get("payment"))
+
+    def test_paying_before_ending_still_works(self):
+        """正常路径不能被误伤。"""
+        no = self.active_contract()
+        self.pay_deposit(no)
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        deposit = next(b for b in bills["list"] if b["type"] == "deposit")
+        self.assertEqual(deposit["status"], "paid")
