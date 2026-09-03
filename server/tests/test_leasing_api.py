@@ -36,6 +36,21 @@ class ContractCase(ApiTestCase):
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
         return no
 
+    def pay_deposit(self, contract_no):
+        """把这份合同的押金账单缴掉，返回账单号。
+
+        `active_contract` 只是让合同生效，**押金并没有真的收到**。
+        涉及退款的用例必须先走这一步——押金没收过却期待退款记录，
+        测的就不是真实业务了。
+        """
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        deposit = next(b for b in bills["list"]
+                       if b["type"] == "deposit" and b["house_no"] == "DL0001"
+                       and b["status"] == "unpaid")
+        self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
+                         headers=self.tenant, json={"method": "alipay"})
+        return deposit["bill_no"]
+
 
 class TestCreateContract(ContractCase):
 
@@ -256,6 +271,7 @@ class TestEndAndRenew(ContractCase):
 
     def test_landlord_deducts(self):
         no = self.active_contract()
+        self.pay_deposit(no)
         response = self.client.post("/api/contracts/%s/end" % no,
                                     headers=self.landlord, json={"deduct": 500})
         self.assertEqual(response.json()["refund"], 2300.0)
@@ -263,6 +279,37 @@ class TestEndAndRenew(ContractCase):
                                   headers=self.tenant).json()
         self.assertEqual(refunds["total"], 1)
         self.assertEqual(refunds["list"][0]["deduct_amount"], 500.0)
+
+    def test_no_refund_record_when_deposit_never_paid(self):
+        """**回归**：押金一分钱没收，不能凭空生成一笔退款记录。
+
+        原先 Refund 是无条件创建的，押金账单没付过时只把 payment_id 置空，
+        记录照样生成——账上凭空多出一笔「已退 2800 元」的支出，对账对不平。
+        那不是记录不准，是造了一笔没发生过的资金流动。
+        """
+        no = self.active_contract()
+        response = self.client.post("/api/contracts/%s/end" % no,
+                                    headers=self.landlord, json={"deduct": 0})
+        self.assertEqual(response.status_code, 200)
+        # 「应退金额」照常算得出来，那是结算结论
+        self.assertEqual(response.json()["refund"], 2800.0)
+        # 但「实际退款流水」不该有
+        self.assertIsNone(response.json()["refund_record"])
+        refunds = self.client.get("/api/refunds/mine",
+                                  headers=self.tenant).json()
+        self.assertEqual(refunds["total"], 0, "押金没收到就不该有退款记录")
+
+    def test_notice_does_not_claim_a_refund_that_never_happened(self):
+        """押金没收过却通知租客「退还押金 2800 元」，会直接引出
+        「钱退哪去了」的质问。"""
+        no = self.active_contract()
+        self.client.post("/api/contracts/%s/end" % no,
+                         headers=self.landlord, json={"deduct": 0})
+        messages = self.client.get("/api/messages", headers=self.tenant).json()
+        ended = [m for m in messages["list"] if m["title"] == "合同已结束"]
+        self.assertTrue(ended)
+        self.assertIn("未曾缴纳", ended[0]["content"])
+        self.assertNotIn("退还押金", ended[0]["content"])
 
     def test_deduct_over_deposit_rejected(self):
         no = self.active_contract()

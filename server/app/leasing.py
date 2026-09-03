@@ -280,30 +280,51 @@ def end_contract(session, contract, reason="", deduct=0):
     contract.end_reason = reason
     contract.deposit_refund = deposit - deduct
 
+    # 押金退款：**只有真的收到过押金才生成退款记录**。
+    #
+    # 原先这段是无条件创建的，押金账单没付过时只把 payment_id 置空，
+    # 退款记录照样生成——于是一分钱没收，账上却挂着一笔「已退 3000 元」。
+    # 那不是记录不准，是凭空造了一笔支出，对账时对不平。
+    #
+    # 押金没收到时也不需要「退 0 元」的记录：没有发生的资金流动不该留痕，
+    # 留了反而让对账的人以为退过。合同上的 deposit_refund 仍照常写，
+    # 那是「应退多少」的结算结论，与「实际退了多少」是两回事。
     deposit_bill = next((b for b in contract.bills
                          if b.type == "deposit" and b.status == "paid"), None)
-    refund = Refund(
-        refund_no=_serial("TK"), contract_id=contract.id,
-        payment_id=(deposit_bill.payment.id
-                    if deposit_bill and deposit_bill.payment else None),
-        original_amount=deposit, deduct_amount=deduct,
-        refund_amount=deposit - deduct, reason=reason or "退租押金结算",
-    )
-    session.add(refund)
+    refund = None
+    if deposit_bill:
+        refund = Refund(
+            refund_no=_serial("TK"), contract_id=contract.id,
+            payment_id=(deposit_bill.payment.id
+                        if deposit_bill.payment else None),
+            original_amount=deposit, deduct_amount=deduct,
+            refund_amount=deposit - deduct, reason=reason or "退租押金结算",
+        )
+        session.add(refund)
+        # 押金账单本身也要标记已退，否则重复退租会再退一次
+        deposit_bill.remark = (deposit_bill.remark + " · 已退款").strip(" ·")
 
     house = session.get(House, contract.house_id)
     if house and house.status == "rented":
         house.status = "available"
 
-    notify(session, contract.tenant_id, "contract",
-           "合同已结束",
-           "合同 %s 已结束，退还押金 %d 元%s。"
-           % (contract.contract_no, int(deposit - deduct),
-              ("，扣款 %d 元" % int(deduct)) if deduct else ""),
+    # 通知文案要与实际资金流动一致。押金从没收到过却告诉租客
+    # 「退还押金 3000 元」，会直接引出「钱退哪去了」的质问。
+    if refund:
+        detail = "退还押金 %d 元%s。" % (
+            int(deposit - deduct),
+            ("，扣款 %d 元" % int(deduct)) if deduct else "")
+    else:
+        detail = "本合同的押金未曾缴纳，无需退款。"
+    notify(session, contract.tenant_id, "contract", "合同已结束",
+           "合同 %s 已结束，%s" % (contract.contract_no, detail),
            contract.contract_no)
     session.flush()
-    return {"cancelled_bills": cancelled, "refund": float(deposit - deduct),
-            "refund_record": refund.to_dict()}
+    return {"cancelled_bills": cancelled,
+            # refund 是「应退金额」的结算结论，无论押金收没收到都算得出来；
+            # refund_record 是「实际退款流水」，没收到押金就没有这条。
+            "refund": float(deposit - deduct),
+            "refund_record": refund.to_dict() if refund else None}
 
 
 def renew_contract(session, contract, months=12):
