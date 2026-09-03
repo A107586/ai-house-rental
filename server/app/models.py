@@ -236,6 +236,10 @@ class Repair(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     house: Mapped["House"] = relationship()
+    # 结案登记。uselist=False 是因为 repair_id 上有唯一约束——
+    # 一张工单只能结案一次
+    record: Mapped["RepairRecord | None"] = relationship(
+        back_populates="repair", uselist=False)
 
     def to_dict(self):
         return {
@@ -251,6 +255,15 @@ class Repair(Base):
             "analysis": self.analysis,
             "status": self.status,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+            # 处理结果。**刻意不含费用**：维修花了多少是房东的成本，
+            # 租客只需要知道谁来修的、修了什么、什么时候完成。
+            # 费用要看得走 /api/repair-records（仅房东与管理员）。
+            "result": {
+                "worker_name": (self.record.worker.name
+                                if self.record.worker else "维修人员"),
+                "note": self.record.note,
+                "finished_at": self.record.finished_at.strftime("%Y-%m-%d %H:%M"),
+            } if self.record else None,
         }
 
 
@@ -809,7 +822,7 @@ class RepairRecord(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     finished_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    repair: Mapped["Repair"] = relationship()
+    repair: Mapped["Repair"] = relationship(back_populates="record")
     worker: Mapped["RepairWorker"] = relationship()
     usages: Mapped[list["RepairItemUsage"]] = relationship(
         back_populates="record", cascade="all, delete-orphan")

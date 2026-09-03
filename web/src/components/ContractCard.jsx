@@ -8,7 +8,7 @@ const STATUS = {
   cancelled: { label: '已取消', cls: 'status-rejected' },
 }
 
-export default function ContractCard({ contract, role, onChanged }) {
+export default function ContractCard({ contract, role, onChanged, onOpenHouse }) {
   const [showText, setShowText] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -82,7 +82,18 @@ export default function ContractCard({ contract, role, onChanged }) {
   return (
     <li>
       <div className="record-head">
-        <strong>{contract.house_title || contract.house_no}</strong>
+        {/* 房源名可点。没传 onOpenHouse 的地方退回纯文本，
+            不至于渲染出一个点了没反应的按钮 */}
+        {onOpenHouse ? (
+          <button
+            className="link-title"
+            onClick={() => onOpenHouse(contract.house_no)}
+          >
+            {contract.house_title || contract.house_no}
+          </button>
+        ) : (
+          <strong>{contract.house_title || contract.house_no}</strong>
+        )}
         <span className={`pill ${status.cls}`}>{status.label}</span>
       </div>
 

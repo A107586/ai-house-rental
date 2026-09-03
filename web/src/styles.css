@@ -3609,3 +3609,41 @@ button.account-row:last-child { border-bottom: none; }
 .account-cell:nth-last-child(-n+2) { border-bottom: none; }
 .account-cell-v { font-weight: 600; font-size: 14px; }
 .account-cell-k { color: #6b7280; font-size: 12px; }
+
+/* ============================================================
+   列表里可点的房源名
+   看起来像标题，行为像链接——不做成按钮的样子，否则一行里
+   两三个按钮会把「这是标题」这件事冲淡。
+   ============================================================ */
+.link-title {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-title:hover {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 我的报修：已完成与进行中的两种补充说明 */
+.done-note {
+  color: var(--brand);
+}
+
+.muted-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 紧急工单的标签。三档都染色等于都没染，只给「紧急」上色 */
+.pill.urgent {
+  background: var(--danger-soft);
+  color: var(--danger);
+}

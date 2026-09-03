@@ -36,7 +36,7 @@ const RENT_TYPES = ['整租', '合租', '公寓']
 const ALL_TAGS = ['电梯', '地铁', '近学校', '近医院', '有阳台', '可做饭',
   '有家具', '可养宠物', '采光好']
 
-export default function LandlordPanel({ user, onClose }) {
+export default function LandlordPanel({ user, onClose, onOpenHouse}) {
   const [tab, setTab] = useState('dashboard')
   const [dash, setDash] = useState(null)
   const [houses, setHouses] = useState([])
@@ -58,6 +58,16 @@ export default function LandlordPanel({ user, onClose }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
+
+  // 合同列表里只有 house_no，抽屉要完整对象，点开时先取一次详情
+  async function openHouseByNo(houseNo) {
+    if (!houseNo || !onOpenHouse) return
+    try {
+      onOpenHouse(await api.getHouse(houseNo))
+    } catch {
+      setError('这套房源已下架或不存在，看不到详情了。')
+    }
+  }
 
   async function load() {
     setError('')
@@ -453,6 +463,7 @@ export default function LandlordPanel({ user, onClose }) {
               <ul className="record-list">
                 {contracts.map((contract) => (
                   <ContractCard
+                    onOpenHouse={openHouseByNo}
                     key={contract.contract_no}
                     contract={contract}
                     role={user.role}

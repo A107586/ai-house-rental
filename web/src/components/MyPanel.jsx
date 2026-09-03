@@ -18,6 +18,16 @@ const BILL_TYPE = {
   other: '其它',
 }
 
+const REPAIR_STATUS = {
+  pending: { label: '待处理', cls: 'status-pending' },
+  processing: { label: '处理中', cls: 'status-pending' },
+  done: { label: '已完成', cls: 'status-confirmed' },
+}
+
+// 紧急程度只给「紧急」上色。三档都染色等于都没染，
+// 真正需要一眼看到的只有紧急那一档。
+const URGENCY_CLS = { 紧急: 'urgent' }
+
 export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onLogout }) {
   const [tab, setTab] = useState('contracts')
   const [appointments, setAppointments] = useState([])
@@ -27,6 +37,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
   const [messages, setMessages] = useState({ list: [], unread: 0 })
   const [history, setHistory] = useState([])
   const [pending, setPending] = useState([])
+  const [repairs, setRepairs] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [checkout, setCheckout] = useState(null)
@@ -39,7 +50,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     setError('')
     try {
       // 一次性拉齐，切标签时不再等待
-      const [mine, myContracts, myBills, favs, msgs, hist, pend] =
+      const [mine, myContracts, myBills, favs, msgs, hist, pend, myRepairs] =
         await Promise.all([
           api.myAppointments(),
           api.myContracts(),
@@ -48,6 +59,8 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
           api.listMessages(),
           api.history(),
           api.pendingReviews(),
+          // 不带 house_no 时后端按角色过滤：租客只拿到自己提交的工单
+          api.listRepairs(),
         ])
       setAppointments(mine.list || [])
       setContracts(myContracts.list || [])
@@ -56,6 +69,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
       setMessages(msgs)
       setHistory(hist.list || [])
       setPending(pend.list || [])
+      setRepairs(myRepairs.list || [])
     } catch (err) {
       setError(err.message)
     }
@@ -71,6 +85,18 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // 预约、租约、报修这些列表里只有 house_no，抽屉需要完整房源对象，
+  // 所以点开时先取一次详情。取不到就提示，而不是静默无反应——
+  // 房源被下架、被删都可能让这一步失败。
+  async function openHouseByNo(houseNo) {
+    if (!houseNo || !onOpenHouse) return
+    try {
+      onOpenHouse(await api.getHouse(houseNo))
+    } catch {
+      setError('这套房源已下架或不存在，看不到详情了。')
+    }
+  }
 
   async function run(key, fn) {
     if (busy) return
@@ -111,6 +137,8 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
     { key: 'history', label: '足迹', n: history.length },
+    { key: 'repairs', label: isStaff ? '工单' : '我的报修',
+      n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'reviews', label: '待评价', n: pending.length },
     { key: 'profile', label: '账号设置' },
   ]
@@ -152,6 +180,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
             <ul className="record-list">
               {contracts.map((contract) => (
                 <ContractCard
+                  onOpenHouse={openHouseByNo}
                   key={contract.contract_no}
                   contract={contract}
                   role={user.role}
@@ -255,7 +284,14 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
               {appointments.map((item) => (
                 <li key={item.id}>
                   <div className="record-head">
-                    <strong>{item.house_title || item.house_no}</strong>
+                    {/* 房源名可点。原先是死文字，想再看一眼自己约的那套房
+                        只能回首页重新搜一遍 */}
+                    <button
+                      className="link-title"
+                      onClick={() => openHouseByNo(item.house_no)}
+                    >
+                      {item.house_title || item.house_no}
+                    </button>
                     <span className={`pill status-${item.status}`}>
                       {APPOINTMENT_STATUS[item.status] || item.status}
                     </span>
@@ -394,6 +430,63 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
         )}
 
         {/* ---------------- 待评价 ---------------- */}
+        {/* ---------------- 我的报修 ---------------- */}
+        {tab === 'repairs' &&
+          (repairs.length === 0 ? (
+            <p className="desc">
+              还没有报修记录。房子有问题可以在房源详情页提交，
+              也可以直接跟租房助手说。
+            </p>
+          ) : (
+            <ul className="record-list">
+              {repairs.map((item) => {
+                const st = REPAIR_STATUS[item.status]
+                  || { label: item.status, cls: '' }
+                return (
+                  <li key={item.id} className={item.status !== 'done' ? 'unread' : ''}>
+                    <div className="record-head">
+                      <button
+                        className="link-title"
+                        onClick={() => openHouseByNo(item.house_no)}
+                      >
+                        {item.house_no}
+                      </button>
+                      {item.category && (
+                        <span className="pill">{item.category}</span>
+                      )}
+                      {item.urgency && (
+                        <span className={`pill ${URGENCY_CLS[item.urgency] || ''}`}>
+                          {item.urgency}
+                        </span>
+                      )}
+                      <span className={`pill ${st.cls}`}>{st.label}</span>
+                    </div>
+
+                    <div className="record-body">{item.content}</div>
+
+                    {item.analysis && (
+                      <div className="record-body ai-note">{item.analysis}</div>
+                    )}
+
+                    {/* 完成的工单要说清楚「谁修的、修了什么」。
+                        只显示到这里为止——维修花了多少钱是房东的成本 */}
+                    {item.result ? (
+                      <div className="record-body done-note">
+                        {item.result.finished_at} 由 {item.result.worker_name} 处理完成
+                        {item.result.note && `：${item.result.note}`}
+                      </div>
+                    ) : (
+                      <div className="record-body muted-note">
+                        提交于 {item.created_at}
+                        {item.assignee && ` · 建议派单：${item.assignee}`}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          ))}
+
         {tab === 'reviews' && (
           pending.length === 0 ? (
             <p className="desc">没有待评价的租约。租约结束后可以对房源与房东评分。</p>

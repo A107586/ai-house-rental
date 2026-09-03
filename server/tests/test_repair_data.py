@@ -254,3 +254,58 @@ class TestRepairStats(RepairDataCase):
         self.assertEqual(
             self.client.get("/api/repair-stats", headers=self.landlord).status_code,
             403)
+
+class TestTenantSeesOwnRepairs(RepairDataCase):
+    """A-1：租客要能查到自己提交的工单与处理结果。
+
+    原先租客提交报修之后就再也看不到它了——不知道有没有人接单、
+    修没修好。后端本来就按角色过滤，缺的只是把结果暴露完整。
+    """
+
+    def test_tenant_lists_only_own_repairs(self):
+        self.new_repair()
+        mine = self.client.get("/api/repairs", headers=self.tenant).json()
+        self.assertEqual(mine["total"], 1)
+
+        # 另一个租客看不到
+        self.client.post("/api/auth/register", json={
+            "username": "other2", "password": "test123", "role": "tenant"})
+        other = auth_header(self.client, "other2", "test123")
+        self.assertEqual(
+            self.client.get("/api/repairs", headers=other).json()["total"], 0)
+
+    def test_result_appears_after_closing(self):
+        worker = self.new_worker(name="张建国")
+        repair = self.new_repair()
+
+        before = self.client.get("/api/repairs", headers=self.tenant).json()
+        self.assertIsNone(before["list"][0]["result"], "没结案时不该有处理结果")
+
+        self.close(repair["id"], worker_id=worker["id"], labor_cost=80,
+                   note="换了新水龙头")
+        after = self.client.get("/api/repairs", headers=self.tenant).json()
+        result = after["list"][0]["result"]
+        self.assertEqual(result["worker_name"], "张建国")
+        self.assertEqual(result["note"], "换了新水龙头")
+        self.assertTrue(result["finished_at"])
+
+    def test_result_hides_cost_from_tenant(self):
+        """维修花了多少是房东的成本，不该露给租客。"""
+        worker = self.new_worker()
+        item = self.new_item(price=45, stock=10)
+        repair = self.new_repair()
+        self.close(repair["id"], worker_id=worker["id"], labor_cost=80,
+                   items=[{"item_id": item["id"], "quantity": 2}])
+
+        body = self.client.get("/api/repairs", headers=self.tenant).json()
+        dump = str(body)
+        self.assertNotIn("labor_cost", dump)
+        self.assertNotIn("item_cost", dump)
+        self.assertNotIn("total_cost", dump)
+
+    def test_unassigned_worker_shows_placeholder(self):
+        """没指派维修人员时不能显示成空白。"""
+        repair = self.new_repair()
+        self.close(repair["id"], labor_cost=50)
+        body = self.client.get("/api/repairs", headers=self.tenant).json()
+        self.assertEqual(body["list"][0]["result"]["worker_name"], "维修人员")

@@ -473,7 +473,16 @@ export default function App() {
 
       {showWork && user?.role === 'landlord' && (
         <ErrorBoundary label="工作台">
-          <LandlordPanel user={user} onClose={() => setShowWork(false)} />
+          <LandlordPanel
+            user={user}
+            onClose={() => setShowWork(false)}
+            onOpenHouse={(house) => {
+              // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
+              // 所以先关掉工作台再打开房源
+              setShowWork(false)
+              setSelected(house)
+            }}
+          />
         </ErrorBoundary>
       )}
 
