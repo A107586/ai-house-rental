@@ -57,6 +57,18 @@ if ($LASTEXITCODE -ne 0) {
     & $python -m pip install -r (Join-Path $root "server\requirements.txt")
 }
 
+# ---------- 检查智能体依赖 ----------
+# **这一段是补出来的，起因是组员那边「智能助手不弹窗」。**
+# 智能体是独立服务，有自己的 requirements.txt，里面的 python-dotenv
+# 不在后端清单里。而 README 原先只教了装后端依赖，于是智能体一启动就
+# ImportError 退出——界面上的表现是聊天回一句「智能体暂时联系不上」，
+# 看起来像功能没做，其实是那个服务压根没起来。
+& $python -c "import dotenv" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "正在安装智能体依赖 ..." -ForegroundColor Cyan
+    & $python -m pip install -r (Join-Path $root "agent\requirements.txt")
+}
+
 # ---------- 首次运行自动建库 ----------
 if (-not (Test-Path (Join-Path $root "server\rental.db"))) {
     Write-Host "首次运行，正在生成演示数据 ..." -ForegroundColor Cyan

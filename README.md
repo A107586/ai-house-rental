@@ -35,10 +35,15 @@
 
 ```
 pip install -r server/requirements.txt
+pip install -r agent/requirements.txt
 cd web && npm install && npm run build
 cd server && python seed.py
 powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 ```
+
+**两个 requirements.txt 都要装。** 智能体是独立服务，依赖清单也独立，
+少装它的话智能体起不来，聊天里问什么都只回「智能体暂时联系不上」，
+确认卡片自然也弹不出来。用 `start-all.ps1` 启动会自动检查补装。
 
 打开 **<http://localhost:8080>** 就是完整网站——业务后端直接托管前端构建产物，
 不需要单独启动前端服务。

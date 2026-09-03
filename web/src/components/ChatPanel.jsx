@@ -354,7 +354,12 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
       setError(err.message)
       setMessages((prev) => [...prev, {
         role: 'assistant',
-        content: '智能体暂时联系不上，稍后再试。',
+        // 这句话组员看了两次都没看出问题在哪，所以把排查方向直接写进去。
+        // 「联系不上」最常见的原因不是网络，是 8000 端口那个服务压根没起来——
+        // 智能体有自己的 requirements.txt，只装后端依赖的话它启动即退出。
+        content: '智能体服务没连上，聊天暂时用不了。'
+          + '如果是在本地跑：确认 8000 端口的智能体窗口还开着，'
+          + '它的依赖要单独装（pip install -r agent/requirements.txt）。',
         ok: false,
       }])
     } finally {
