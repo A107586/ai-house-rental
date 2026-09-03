@@ -3512,6 +3512,20 @@ td.accent {
 .account-sub { color: #6b7280; font-size: 12px; flex: none; }
 .account-row.alert { color: #b42318; background: #fef3f2; }
 
+/* 从后端拉回来的历史对话。它只有文字——卡片、选项、查库小卡片都不在里面，
+   不标出来的话，用户会以为那些功能根本没做。 */
+.bubble.history { opacity: 0.62; }
+
+.chat-divider {
+  margin: 14px 4px 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #d8dce3;
+  color: #8a93a0;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
 /* 房源行可以点开。做成 button 而不是给 div 绑 onClick，
    是为了键盘也能走到——回车与点击等价，读屏软件也认。
    不用 .link 那套下划线：整行都是热区，画成一段链接文字反而误导，

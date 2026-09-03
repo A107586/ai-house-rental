@@ -2823,5 +2823,49 @@ os.makedirs(os.path.join(STATIC_DIR, uploads.UPLOAD_DIRNAME), exist_ok=True)
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+class SpaFiles(StaticFiles):
+    """带缓存策略的前端托管。
+
+    **不加这一层会出一种很难查的问题：改了前端，用户看不到。**
+
+    `StaticFiles` 只发 ETag 和 Last-Modified，不发 Cache-Control。
+    浏览器对这种响应会启用「启发式缓存」——按 Last-Modified 距今时间的
+    十分之一估一个新鲜期，于是 `index.html` 在几小时内根本不回源问一句。
+    而 Vite 打出来的 JS/CSS 文件名带哈希，**新文件名只写在 index.html 里**，
+    index.html 不更新，新代码就永远到不了浏览器。
+
+    实测就撞上了：重新构建之后，页面加载的仍是上一版的
+    `index-b7560a6a.js`，界面上的新功能一个都看不见，
+    看上去像是「代码没生效」，其实是浏览器压根没去拿新的。
+
+    所以分成两类：
+
+    - `index.html`：`no-cache`。不是不缓存，是**每次都回来问一句**，
+      没变就回 304，代价只有一个来回的头。
+    - `/assets/*`：文件名带内容哈希，内容一变文件名就变，
+      可以放心地长期缓存。
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+
+        # **别按 path 的字符串前缀去判。** StaticFiles 交进来的 path 已经过
+        # `os.path.normpath`：Windows 上是 `assets\index-xxx.js` 这种反斜杠形式，
+        # 而根路径「/」会被规范成一个孤零零的「.」。第一版就是这么写的，
+        # 结果两条分支全落空，头一个都没发出去，看起来像没生效。
+        #
+        # 响应自己的 content-type 跨平台一致，用它判 HTML 最稳；
+        # 资源目录改成按路径段匹配，正反斜杠都认。
+        kind = response.headers.get("content-type", "")
+        parts = (path or "").replace("\\", "/").split("/")
+
+        if kind.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif "assets" in parts:
+            response.headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable")
+        return response
+
+
 if HAS_WEB:
-    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")
+    app.mount("/", SpaFiles(directory=WEB_DIST, html=True), name="web")

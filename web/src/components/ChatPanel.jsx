@@ -243,9 +243,22 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
       .chatHistory(sessionId)
       .then((data) => {
         if (!alive || !data.list?.length) return
-        setMessages([OPENING, ...data.list.map((m) => ({
-          role: m.role, content: m.content,
-        }))])
+        // 后端存的是**纯文字**，卡片、可点选项、查库小卡片一个都没有。
+        // 直接当成普通气泡铺出来，用户看到的是一屏白底黑字，
+        // 里面还夹着「要取消收藏哪一套？」这种问到一半、却点不动的句子——
+        // 看上去就像这些功能根本没做。所以明确标成「以前的记录」，
+        // 并在末尾画一条线，把历史和这一轮分开。
+        setMessages([
+          OPENING,
+          ...data.list.map((m) => ({
+            role: m.role, content: m.content, history: true,
+          })),
+          {
+            role: 'assistant', kind: 'divider',
+            content: '以上是之前聊过的记录，只存了文字。'
+              + '卡片和可点选项不会保留，想接着办的话重新说一句就行。',
+          },
+        ])
       })
       .catch(() => {})
     return () => { alive = false }
@@ -468,7 +481,13 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
 
         <div className="chat-log">
           {messages.map((message, index) => (
-            <div className={`bubble ${message.role}`} key={index}>
+            message.kind === 'divider' ? (
+              <div className="chat-divider" key={index}>{message.content}</div>
+            ) : (
+            <div
+              className={`bubble ${message.role}${message.history ? ' history' : ''}`}
+              key={index}
+            >
               <div className="bubble-text">{message.content}</div>
 
               {message.notes?.length > 0 && (
@@ -621,6 +640,7 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
                 </div>
               )}
             </div>
+            )
           ))}
 
           {busy && <div className="bubble assistant"><div className="bubble-text">思考中…</div></div>}
