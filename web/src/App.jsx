@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
+import useHashRoute from './useHashRoute'
 import AdminPanel from './components/AdminPanel'
 import AuthDialog from './components/AuthDialog'
 import ChatPanel from './components/ChatPanel'
@@ -53,6 +54,9 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
+  // C-3：地址栏要能表达「现在看的是哪套房」，否则详情分享不出去、
+  // 刷新回首页、前进后退也不可用
+  const { route, go, back } = useHashRoute()
   const [online, setOnline] = useState(null)
 
   const [user, setUser] = useState(null)
@@ -84,6 +88,32 @@ export default function App() {
       setFavorites([])
     }
   }, [])
+
+  // URL 决定开哪套房的详情，而不是反过来。
+  //
+  // 这样三件事同时成立：分享链接能直接打开那套房、刷新不丢、
+  // 浏览器前进后退可用。任何一处代码想打开详情，改 URL 即可。
+  useEffect(() => {
+    if (route.name !== 'house' || !route.param) {
+      setSelected(null)
+      return
+    }
+    // 已经是这套就不用再取一次——避免前进后退时反复请求
+    if (selected?.house_no === route.param) return
+    let alive = true
+    api
+      .getHouse(route.param)
+      .then((house) => alive && setSelected(house))
+      .catch(() => {
+        if (!alive) return
+        // 链接里的房号已下架或不存在。退回首页而不是留一个空抽屉，
+        // 从分享链接进来的人至少还能看到别的房子
+        setError('这套房源已下架或不存在。')
+        go('home', '', true)
+      })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.name, route.param])
 
   // 首屏：恢复登录状态并展示最新房源
   useEffect(() => {
@@ -337,7 +367,7 @@ export default function App() {
             user={user}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
-            onOpen={setSelected}
+            onOpen={(house) => go('house', house.house_no)}
           />
         )}
 
@@ -391,7 +421,7 @@ export default function App() {
                   onToggleFavorite={toggleFavorite}
                   compared={compare.some((h) => h.house_no === house.house_no)}
                   onToggleCompare={toggleCompare}
-                  onClick={setSelected}
+                  onClick={(house) => go('house', house.house_no)}
                 />
               ))}
             </div>
@@ -440,7 +470,7 @@ export default function App() {
           onOpenHouse={async (no) => {
             try {
               setShowTalk(false)
-              setSelected(await api.getHouse(no))
+              go('house', no)
             } catch {
               setError('这套房源已下架或不存在。')
             }
@@ -453,7 +483,7 @@ export default function App() {
           user={user}
           onOpenHouse={(house) => {
             setShowChat(false)
-            setSelected(house)
+            go('house', house.house_no)
           }}
           onClose={() => setShowChat(false)}
         />
@@ -473,10 +503,10 @@ export default function App() {
 
       {selected && (
         <HouseDrawer
-          onOpenHouse={setSelected}
+          onOpenHouse={(house) => go('house', house.house_no)}
           onTalk={(id) => {
             // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
-            setSelected(null)
+            go('home', '', true)
             setTalkId(id)
             setShowTalk(true)
           }}
@@ -484,7 +514,7 @@ export default function App() {
           user={user}
           favorited={favorites.includes(selected.house_no)}
           onToggleFavorite={toggleFavorite}
-          onClose={() => setSelected(null)}
+          onClose={back}
         />
       )}
 
@@ -508,7 +538,7 @@ export default function App() {
               // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
               // 所以先关掉工作台再打开房源
               setShowWork(false)
-              setSelected(house)
+              go('house', house.house_no)
             }}
           />
         </ErrorBoundary>
@@ -528,7 +558,7 @@ export default function App() {
           onClose={() => setShowMine(false)}
           onOpenHouse={(house) => {
             setShowMine(false)
-            setSelected(house)
+            go('house', house.house_no)
           }}
         />
       )}
