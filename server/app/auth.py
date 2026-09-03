@@ -45,11 +45,23 @@ def _sign(payload_b64):
 
 
 def create_token(user):
-    """为用户签发令牌。"""
+    """为用户签发令牌。
+
+    `iat`（签发时刻）是令牌吊销的基础：改密码或禁用账号时，会把用户的
+    `token_valid_after` 设为当时，之后凡是 `iat` 早于它的令牌一律失效。
+
+    这样既保留了无状态令牌「服务端不存会话」的好处，又能在需要时立刻
+    作废旧令牌——比维护一张黑名单表轻得多，也不用每次请求查缓存，
+    因为鉴权本来就要查一次 User。
+    """
     payload = {
         "uid": user.id,
         "username": user.username,
         "role": user.role,
+        # 带小数：吊销基线是 datetime，精确到微秒。iat 若只存整秒，
+        # 「同一秒内签发又吊销」会因为 1000 < 1000 不成立而漏掉，
+        # 改完密码立刻用旧令牌仍然能访问。
+        "iat": time.time(),
         "exp": int(time.time()) + TTL_SECONDS,
     }
     payload_b64 = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))

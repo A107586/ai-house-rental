@@ -40,6 +40,24 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
     }
   }
 
+  async function logoutEverywhere() {
+    if (busy) return
+    setBusy('logout')
+    setMsg(null)
+    try {
+      await api.logoutAll()
+      setMsg({ ok: true, text: '所有设备已登出，请重新登录' })
+      // 当前这条令牌也在作废之列，留在页面上只会一路 401
+      setTimeout(() => {
+        setToken('')
+        onLogout()
+      }, 1200)
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+      setBusy('')
+    }
+  }
+
   async function changePassword(e) {
     e.preventDefault()
     if (busy) return
@@ -51,10 +69,10 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
     setMsg(null)
     try {
       await api.changePassword(pwd.old_password, pwd.new_password)
-      setMsg({ ok: true, text: '密码已修改，请重新登录' })
+      setMsg({ ok: true, text: '密码已修改，其他设备已被登出，请重新登录' })
       setPwd({ old_password: '', new_password: '', confirm: '' })
-      // 令牌是无状态的，改密后旧令牌技术上仍有效。
-      // 主动登出，避免用户误以为旧会话已经失效。
+      // 改密码会把此前签发的令牌全部作废（含当前这条），
+      // 所以这里必须主动登出——继续留在页面上只会一路 401。
       setTimeout(() => {
         setToken('')
         onLogout()
@@ -151,6 +169,20 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
           {busy === 'pwd' ? '提交中…' : '修改密码'}
         </button>
       </form>
+
+      <div className="section-title">登录设备</div>
+      <p className="desc">
+        手机丢了、或者在别人的电脑上登录过忘了退出，可以把所有设备
+        一次性登出。<b>不需要改密码</b>——只想下线的人不该被迫换掉
+        自己记得住的密码。
+      </p>
+      <button
+        className="btn ghost block"
+        disabled={busy === 'logout'}
+        onClick={logoutEverywhere}
+      >
+        {busy === 'logout' ? '处理中…' : '退出所有设备'}
+      </button>
     </>
   )
 }

@@ -95,6 +95,9 @@ export const api = {
   me: () => request('/api/auth/me'),
   updateProfile: (payload) =>
     request('/api/auth/profile', { method: 'PUT', body: JSON.stringify(payload) }),
+  // 退出所有设备：把令牌失效基线推到当前，之前签发的一律作废
+  logoutAll: () => request('/api/auth/logout-all', { method: 'POST' }),
+
   changePassword: (oldPassword, newPassword) =>
     post('/api/auth/password', {
       old_password: oldPassword,

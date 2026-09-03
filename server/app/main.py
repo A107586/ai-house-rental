@@ -11,7 +11,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
+                     Request)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -32,6 +33,7 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
 from app import (config_store, idcard, moderation, oplog, pricing,
+                 ratelimit,
                  uploads)
 from app.security import hash_password, verify_password
 
@@ -121,7 +123,25 @@ def current_user(authorization: str = Header(default=""),
     if not payload:
         return None
     user = session.get(User, payload["uid"])
-    return user if user and user.status == "active" else None
+    if not user or user.status != "active":
+        return None
+
+    # 令牌吊销（B-2）：签发时刻早于失效基线的一律作废。
+    #
+    # 少了这一步，用户改完密码、管理员禁用账号之后，**旧令牌还能继续用
+    # 满 7 天**——「改密码」在用户心里等于「把别人踢下去」，
+    # 而实际上什么都没发生。
+    #
+    # 两边都用带小数的时间戳比较。iat 若只精确到秒，「同一秒内签发又
+    # 吊销」就会漏掉——改完密码立刻拿旧令牌访问仍然通得过。
+    #
+    # 老令牌没有 iat 字段，一律当作「早于任何基线」：加这个字段之前
+    # 签发的令牌本来就该在第一次吊销时失效。
+    if user.token_valid_after:
+        issued = payload.get("iat")
+        if issued is None or issued < user.token_valid_after.timestamp():
+            return None
+    return user
 
 
 def require_login(user: User = Depends(current_user)):
@@ -368,19 +388,52 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)):
 
 
 @app.post("/api/auth/login")
-def login(payload: LoginRequest, session: Session = Depends(get_session)):
+def login(payload: LoginRequest, request: Request,
+          session: Session = Depends(get_session)):
+    """登录。带失败限流（B-1）。
+
+    限流按 IP 而不按用户名：按用户名看着更精准，实际上是**给攻击者提供
+    了锁死他人账号的手段**——拿一个已知用户名连错八次，本人就登不上了。
+    """
+    ip = ratelimit.client_ip(request)
+    allowed, wait = ratelimit.check(ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过于频繁，请 %d 秒后再试" % wait)
+
     username = payload.username.strip()
+    # 参数没填不算失败尝试——那是手滑，不是在猜密码
     if not username:
         raise HTTPException(status_code=422, detail="请输入用户名")
     if not payload.password:
         raise HTTPException(status_code=422, detail="请输入密码")
+
     user = session.scalar(select(User).where(User.username == username))
     # 用户不存在与密码错误返回同一句提示，避免暴露账号是否存在
     if not user or not verify_password(payload.password, user.password_hash):
+        ratelimit.record_failure(ip)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if user.status != "active":
         raise HTTPException(status_code=403, detail="账号已被禁用")
+
+    # 本人已经证明身份，之前的手误不该继续记账
+    ratelimit.record_success(ip)
     return {"ok": True, "token": create_token(user), "user": user.to_dict()}
+
+
+@app.post("/api/auth/logout-all")
+def logout_all(user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    """退出所有设备（B-2）。
+
+    手机丢了、在网吧登录过忘了退——这时用户需要的是一个「把所有地方都
+    踢下线」的按钮，而不是逐台设备去点退出。改密码也能达到同样效果，
+    但不该强迫一个只想下线的人换掉自己记得住的密码。
+    """
+    user.token_valid_after = datetime.now()
+    session.commit()
+    return {"ok": True, "relogin": True}
 
 
 @app.get("/api/auth/me")
@@ -433,9 +486,14 @@ def change_password(payload: PasswordChange, user: User = Depends(require_login)
         raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
 
     user.password_hash = hash_password(payload.new_password)
+    # 改密码即吊销此前签发的全部令牌（B-2）。
+    #
+    # 「改密码」在用户心里等于「把别人踢下去」——如果旧令牌还能用满
+    # 七天，那这个动作实际上什么都没做。密码泄露后改密码是第一反应，
+    # 也正是这一步必须真的生效的时候。
+    user.token_valid_after = datetime.now()
     session.commit()
-    # 令牌是无状态的，改密后旧令牌仍然有效。课程项目不做令牌吊销，
-    # 但前端会主动要求重新登录，避免用户误以为旧会话已失效。
+    # 当前这条令牌也一并作废了，所以要求前端重新登录
     return {"ok": True, "relogin": True}
 
 
@@ -893,14 +951,29 @@ def admin_update_user(user_id: int, payload: UserUpdate,
         # 管理员把自己禁用或降级会直接锁死后台，必须挡住
         raise HTTPException(status_code=409, detail="不能修改自己的账号状态")
 
+    # 禁用账号与调整角色都要吊销对方已签发的令牌（B-2）。
+    #
+    # 禁用：current_user 虽然会拦住 status != active，但那要等到下一次
+    # 请求；把基线一并推上去，语义上更干净。
+    # 降级：角色**写在令牌里**，不吊销的话一个刚被降为租客的人，
+    # 拿着旧令牌还能以房东身份操作满七天——这才是更危险的那半。
+    revoke = False
+
     if payload.status is not None:
         if payload.status not in ("active", "disabled"):
             raise HTTPException(status_code=400, detail="状态值不合法")
+        if target.status != payload.status:
+            revoke = True
         target.status = payload.status
     if payload.role is not None:
         if payload.role not in ("tenant", "landlord", "admin"):
             raise HTTPException(status_code=400, detail="角色值不合法")
+        if target.role != payload.role:
+            revoke = True
         target.role = payload.role
+
+    if revoke:
+        target.token_valid_after = datetime.now()
 
     session.commit()
     session.refresh(target)

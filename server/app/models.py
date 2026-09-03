@@ -41,6 +41,10 @@ class User(Base):
     # 身份证号（R-02）。**只存哈希与掩码，原文从不落库**——
     # 系统对它的全部需求就是「展示」与「查重」，两者都不需要还原，
     # 那就不该保留还原的可能。详见 app/idcard.py。
+    # 令牌失效基线（B-2）。改密码、禁用账号、退出所有设备时设为当时，
+    # 之后凡是签发时刻早于它的令牌一律失效。
+    # 为空表示从未吊销过——绝大多数用户都是这种情况。
+    token_valid_after: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     id_card_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
     id_card_masked: Mapped[str] = mapped_column(String(32), default="")
     # tenant 租客 / landlord 房东 / admin 管理员

@@ -96,6 +96,9 @@ def _upgrade_sqlite_schema():
     additions = {
         "id_card_hash": "VARCHAR(64) NOT NULL DEFAULT ''",
         "id_card_masked": "VARCHAR(32) NOT NULL DEFAULT ''",
+        # 令牌失效基线（B-2）。允许为空——空表示从未吊销过，
+        # 存量用户的令牌不该因为加了这个字段就集体失效。
+        "token_valid_after": "DATETIME",
     }
     with engine.begin() as connection:
         for name, definition in additions.items():
