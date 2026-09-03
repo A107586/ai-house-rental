@@ -484,5 +484,198 @@ class TestMultiTurn(unittest.TestCase):
                          "对话过程中写了后端：%s" % self.backend.writes)
 
 
+class TestEveryAskCanBeAnswered(unittest.TestCase):
+    """**助手问出去的问题，自己必须接得住。**
+
+    追问要带 `ask`（问的是哪个槽、有哪些可点选项）。少了它，
+    `_resume` 那句 `if not ask: return None` 会直接放手，
+    用户的回答落到知识检索上——实测过的两种表现：
+
+        取消收藏 →「要取消收藏哪一套？」→ 用户答「DL0007」
+                 → 「这个我没查到相关规定」
+        确认预约 →「要处理哪一条？」   → 用户答「第一条」
+                 → 「带身份证件即可，平台不收任何看房费用」
+
+    第二种尤其糟：不是听不懂，是**答了一个毫不相干的问题**。
+    这条测试对所有动作一起断言，就是为了不再一个一个地漏。
+    """
+
+    # 每个动作在「什么上下文都没有」时需要读到的数据。给全了才走得到追问，
+    # 给不全会提前返回 NOT_APPLICABLE（「你没有待评价的租约」），
+    # 那条路不是这里要测的。
+    PAYLOADS = {
+        "/api/bills/mine": {"list": [
+            {"bill_no": "ZD001", "amount": 2200, "status": "unpaid",
+             "bill_type": "租金", "due_date": "2026-09-01"},
+            {"bill_no": "ZD002", "amount": 1800, "status": "unpaid",
+             "bill_type": "水电", "due_date": "2026-09-10"}]},
+        "/api/contracts/mine": {"list": [
+            {"contract_no": "HT001", "status": "active", "house_no": "DL0001",
+             "start_date": "2026-01-01", "end_date": "2026-12-31"},
+            {"contract_no": "HT002", "status": "active", "house_no": "DL0002",
+             "start_date": "2026-02-01", "end_date": "2027-01-31"}]},
+        "/api/favorites": {"list": [
+            {"house_no": "DL0007", "title": "中山区青泥洼桥 两室一厅"},
+            {"house_no": "DL0008", "title": "中山区桂林街 两室一厅"}]},
+        "/api/history": {"list": [
+            {"house_no": "DL0009", "title": "西岗区北京街 两室一厅"},
+            {"house_no": "DL0010", "title": "中山区海军广场 两室"}]},
+        "/api/appointments/mine": {"list": [
+            {"id": 1, "house_no": "DL0007", "status": "pending",
+             "viewing_time": "2026-09-05 14:00:00"},
+            {"id": 2, "house_no": "DL0008", "status": "pending",
+             "viewing_time": "2026-09-06 10:00:00"}]},
+        "/api/appointments": {"list": [
+            {"id": 11, "house_no": "DL0101", "status": "pending",
+             "viewing_time": "2026-09-05 14:00:00"},
+            {"id": 12, "house_no": "DL0102", "status": "pending",
+             "viewing_time": "2026-09-06 10:00:00"}]},
+        "/api/repairs": {"list": [
+            {"id": 21, "content": "卧室门锁打不开", "status": "pending"},
+            {"id": 22, "content": "厨房水管漏水", "status": "processing"}]},
+        "/api/reviews/pending": {"list": [
+            {"contract_no": "HT900", "house_no": "DL0201",
+             "start_date": "2025-01-01", "end_date": "2025-12-31"},
+            {"contract_no": "HT901", "house_no": "DL0202",
+             "start_date": "2025-03-01", "end_date": "2026-02-28"}]},
+        "/api/landlord/houses": {"list": [
+            {"house_no": "DL0101", "title": "中山区人民路 三室",
+             "status": "available"},
+            {"house_no": "DL0102", "title": "西岗区北京街 两室",
+             "status": "offline"}]},
+        "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}],
+                          "unread": 1},
+    }
+
+    # 动作 -> 一句「什么都没指定」的说法
+    BARE = {
+        "pay_bill": "帮我交房租",
+        "cancel_viewing": "帮我取消预约",
+        "book_viewing": "帮我约看房",
+        "submit_repair": "帮我报修",
+        "renew_contract": "帮我续租",
+        "end_contract": "帮我退租",
+        "favorite_house": "帮我收藏",
+        "unfavorite_house": "取消收藏",
+        "read_all_messages": "全部已读",
+        "clear_history": "清空浏览足迹",
+        "submit_review": "帮我评价",
+        "handle_appointment": "确认预约",
+        "update_repair": "关闭工单",
+        "toggle_house": "把房源下架",
+    }
+
+    def test_every_action_is_covered_by_this_test(self):
+        """新增动作时别忘了补一句说法，否则这条保护会悄悄漏掉它。"""
+        self.assertEqual(set(self.BARE), set(actions.PROPOSERS))
+
+    def test_need_slot_always_carries_an_ask(self):
+        for name, text in self.BARE.items():
+            with self.subTest(action=name):
+                backend = RecordingBackend(self.PAYLOADS)
+                status, message, card, ask = actions.propose(
+                    name, text, "tok", backend, context={})
+                if status != actions.NEED_SLOT:
+                    continue
+                self.assertIsNotNone(
+                    ask, "%s 追问了「%s」却没带 ask，用户答什么都接不住"
+                         % (name, message))
+                self.assertTrue(ask.get("slot"), "%s 的 ask 没有槽位名" % name)
+
+    def test_choices_are_clickable_not_crammed_into_the_sentence(self):
+        """有多个候选时要给可点选项，而不是把编号拼进一句话让用户照着打。"""
+        for name in ("unfavorite_house", "favorite_house", "submit_review",
+                     "handle_appointment", "update_repair", "toggle_house"):
+            with self.subTest(action=name):
+                backend = RecordingBackend(self.PAYLOADS)
+                status, message, _, ask = actions.propose(
+                    name, self.BARE[name], "tok", backend, context={})
+                self.assertEqual(status, actions.NEED_SLOT, name)
+                self.assertTrue(ask["options"], "%s 没给可点选项" % name)
+                self.assertNotIn("；", message,
+                                 "%s 把选项拼进了句子里" % name)
+
+    def test_the_answer_to_that_question_produces_a_card(self):
+        """回答追问之后要拿到确认卡片——这是这条链真正闭环的地方。"""
+        cases = [
+            ("unfavorite_house", "取消收藏", "house_no", "DL0007"),
+            ("submit_review", "帮我评价", "contract_no", "HT901"),
+            ("handle_appointment", "确认预约", "appointment_id", "12"),
+            ("update_repair", "关闭工单", "repair_id", "22"),
+            ("toggle_house", "把房源下架", "house_no", "DL0101"),
+        ]
+        for name, text, slot, value in cases:
+            with self.subTest(action=name):
+                backend = RecordingBackend(self.PAYLOADS)
+                status, message, card, _ = actions.propose(
+                    name, text, "tok", backend, context={slot: value})
+                self.assertEqual(status, actions.CONFIRM,
+                                 "%s 填了 %s 仍然没出卡片：%s"
+                                 % (name, slot, message))
+                self.assertEqual(card["name"], name)
+                self.assertFalse(backend.writes, "提议阶段写了后端")
+
+    def test_picked_option_is_the_one_that_ends_up_on_the_card(self):
+        """点了第二条就得是第二条。选项与卡片对不上比不给选项更危险。"""
+        backend = RecordingBackend(self.PAYLOADS)
+        _, _, card, _ = actions.propose(
+            "update_repair", "关闭工单", "tok", backend,
+            context={"repair_id": "22"})
+        self.assertEqual(str(card["params"]["repair_id"]), "22")
+        self.assertIn("厨房水管漏水", card["summary"])
+
+        backend = RecordingBackend(self.PAYLOADS)
+        _, _, card, _ = actions.propose(
+            "handle_appointment", "确认预约", "tok", backend,
+            context={"appointment_id": "12"})
+        self.assertEqual(str(card["params"]["appointment_id"]), "12")
+        self.assertIn("DL0102", card["summary"])
+
+
+class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
+    """**同一个词既是动作名也是查询主题时，祈使句要判成动作。**
+
+    「收藏」「评价」「工单」「预约」这些词在两张表里都出现。规则的顺序是
+    先动作后查询，所以只要动作词表漏了一种祈使说法，那句话就会被
+    查询接走——用户说「帮我收藏」，助手回一句「你收藏了 2 套房源」。
+    不是听不懂，是**答成了另一件事**，比听不懂更让人以为系统坏了。
+
+    反过来也要守住：动作词表不能只写一个「收藏」，否则「我的收藏」
+    也会变成要收藏。所以每一条都配一句必须仍然判成查询的对照。
+    """
+
+    IMPERATIVE = [
+        ("帮我收藏", "favorite_house"),
+        ("收藏这套", "favorite_house"),
+        ("把它收藏起来", "favorite_house"),
+        ("取消收藏", "unfavorite_house"),
+        ("帮我评价", "submit_review"),
+        ("给个好评", "submit_review"),
+        ("帮我报修", "submit_repair"),
+        ("帮我交房租", "pay_bill"),
+        ("把站内消息都标记成已读", "read_all_messages"),
+        ("清空我的浏览足迹", "clear_history"),
+        ("把这条工单标记为已完成", "update_repair"),
+        ("把房源下架", "toggle_house"),
+    ]
+
+    # 说法很像、但问的是「有哪些」「到哪一步」——必须仍然是查询
+    STILL_A_QUESTION = [
+        "我的收藏", "我收藏了哪些房子", "我有哪些租约没评价",
+        "我的报修到哪一步了", "我有几条未读消息", "浏览记录能删掉吗",
+        "我的账单还差多少没交", "我预约的看房通过了吗",
+    ]
+
+    def test_imperative_phrasings_are_actions(self):
+        for text, name in self.IMPERATIVE:
+            with self.subTest(text=text):
+                self.assertEqual(actions.detect(text), name, text)
+
+    def test_questions_are_not_actions(self):
+        for text in self.STILL_A_QUESTION:
+            with self.subTest(text=text):
+                self.assertEqual(actions.detect(text), "", text)
+
+
 if __name__ == "__main__":
     unittest.main()

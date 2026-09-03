@@ -103,13 +103,19 @@ ACTION_KEYWORDS = [
                        "叫师傅"]),
     ("renew_contract", ["续租", "续签", "接着租", "再租"]),
     ("end_contract", ["退租", "解约", "不租了", "退房"]),
-    ("unfavorite_house", ["取消收藏", "不收藏了"]),
-    ("favorite_house", ["收藏这套", "收藏一下", "加收藏", "收藏它"]),
+    ("unfavorite_house", ["取消收藏", "不收藏了", "别收藏了", "移出收藏"]),
+    # **不能只写一个「收藏」。** 那样「我的收藏」「我收藏了哪些房子」
+    # 都会被当成要收藏——它们是查询。所以这里只收明确的祈使说法，
+    # 剩下的交给查询路由。「评价」同理。
+    ("favorite_house", ["收藏这套", "收藏一下", "加收藏", "收藏它",
+                        "帮我收藏", "收藏起来", "加入收藏", "把它收藏",
+                        "收藏这个", "收藏那套"]),
     ("read_all_messages", ["消息全部已读", "全部已读", "标记已读",
                            "消息都已读"]),
     ("clear_history", ["清空浏览", "清除足迹", "清空足迹", "删掉浏览记录"]),
     ("submit_review", ["评价一下", "给个好评", "打分", "评个", "写评价",
-                       "提交评价"]),
+                       "提交评价", "帮我评价", "帮我评", "去评价",
+                       "评价租约", "评价一下房东"]),
     ("handle_appointment", ["同意预约", "确认预约", "通过预约", "拒绝预约",
                             "驳回预约"]),
     ("update_repair", ["工单完成", "维修完成", "修好了", "关闭工单",
@@ -167,6 +173,17 @@ _SOFT_ASKING = ["吗", "什么", "哪", "呢", "算不算", "属于"]
 # 「怎么」「吗」，那两层否决先拦下了。
 STRONG_PAIRS = [
     ("book_viewing", ["预约", "约", "要看", "想看"], ["看房", "看一下房"]),
+    # 「把站内消息都标记成已读」——原先的词表要求「标记已读」四个字连着，
+    # 中间多一个「成」就不认了。「已读」这个词除了这件事没别的用法。
+    ("read_all_messages", ["标记", "设为", "设成", "改成", "全部", "都"],
+     ["已读"]),
+    # 「清空我的浏览足迹」——中间夹了「我的」，「清空浏览」就断开了。
+    # 清空／清除／删掉本身就是祈使，不需要再要求「帮我」托底。
+    ("clear_history", ["清空", "清除", "删掉", "删除"],
+     ["浏览", "足迹", "浏览记录"]),
+    # 「把这条工单标记为已完成」
+    ("update_repair", ["标记", "改成", "设为", "置为", "关掉"],
+     ["完成", "已完成", "修好"]),
 ]
 
 ACTION_PAIRS = [
@@ -468,7 +485,14 @@ def _propose_submit_repair(text, token, backend, context):
         content = content.replace(word, "")
     content = content.strip("，。,. ")
     if len(content) < 4:
-        return NEED_SLOT, "哪里出问题了？描述一下，比如「厨房水管漏水」。", None, None
+        # 追问必须带 ask，否则用户答的那句「厨房水管漏水」会被当成一次
+        # 全新的提问，落到知识检索上——助手问了个自己听不懂的问题。
+        question = "哪里出问题了？描述一下，比如「厨房水管漏水」。"
+        return NEED_SLOT, question, None, _ask("content", question, [
+            _option("厨房水管漏水", "厨房水管漏水"),
+            _option("卫生间马桶堵了", "卫生间马桶堵了"),
+            _option("空调不制冷", "空调不制冷"),
+            _option("跳闸停电了", "跳闸停电了")])
 
     return CONFIRM, "", _card(
         "submit_repair", "提交报修",
@@ -521,10 +545,35 @@ def _propose_end_contract(text, token, backend, context):
                 "违约金，未到期账单会作废，押金在结清后 7 个工作日内退还。")
 
 
+def _house_options(rows, limit=5, label=None):
+    """把一组房源摆成可点选项，按房源编号去重。"""
+    options = []
+    for row in rows:
+        no = row.get("house_no")
+        if not no or any(o["value"] == no for o in options):
+            continue
+        text = label(row) if label else "%s %s" % (
+            no, (row.get("title") or row.get("community") or "")[:18])
+        options.append(_option(no, text))
+        if len(options) >= limit:
+            break
+    return options
+
+
 def _propose_favorite(text, token, backend, context):
     house_no = (context or {}).get("house_no") or ""
     if not house_no:
-        return NEED_SLOT, "要收藏哪一套？在房源详情页里跟我说。", None, None
+        # 「在房源详情页里跟我说」是把用户赶出对话框——他本来就是
+        # 不想翻页面才来问的。最近看过的那几套，多半就是他想收藏的。
+        favorited = {row.get("house_no")
+                     for row in _rows(backend.get("/api/favorites", token=token))}
+        options = _house_options(
+            [row for row in _rows(backend.get("/api/history", token=token))
+             if row.get("house_no") not in favorited])
+        question = ("要收藏哪一套？" if options
+                    else "要收藏哪一套？告诉我房源编号，或者在房源详情页里跟我说。")
+        return NEED_SLOT, question, None, _ask("house_no", question, options)
+
     return CONFIRM, "", _card(
         "favorite_house", "收藏房源",
         "把房源 %s 加入收藏" % house_no, RISK_LOW, {"house_no": house_no})
@@ -533,7 +582,13 @@ def _propose_favorite(text, token, backend, context):
 def _propose_unfavorite(text, token, backend, context):
     house_no = (context or {}).get("house_no") or ""
     if not house_no:
-        return NEED_SLOT, "要取消收藏哪一套？", None, None
+        rows = _rows(backend.get("/api/favorites", token=token))
+        if not rows:
+            return NOT_APPLICABLE, "你还没有收藏任何房源。", None, None
+        options = _house_options(rows)
+        question = "要取消收藏哪一套？"
+        return NEED_SLOT, question, None, _ask("house_no", question, options)
+
     return CONFIRM, "", _card(
         "unfavorite_house", "取消收藏",
         "把房源 %s 移出收藏" % house_no, RISK_LOW, {"house_no": house_no})
@@ -563,9 +618,17 @@ def _propose_toggle_house(text, token, backend, context):
         if not rows:
             return NOT_APPLICABLE, "你名下还没有房源。", None, None
         if len(rows) > 1:
-            return (NEED_SLOT,
-                    "你名下有 %d 套房源，要操作哪一套？告诉我房源编号。"
-                    % len(rows), None)
+            offline = "下架" in text
+            # 要下架就只列在租的，要上架就只列已下架的——把不可能的选项
+            # 摆出来，用户点了才发现做不成，等于让他白点一次。
+            candidates = [r for r in rows
+                          if (r.get("status") == "available") == offline]
+            options = _house_options(candidates or rows, label=lambda r:
+                                     "%s %s" % (r.get("house_no"),
+                                                (r.get("title") or "")[:16]))
+            question = "你名下有 %d 套房源，要操作哪一套？" % len(rows)
+            return NEED_SLOT, question, None, _ask("house_no", question,
+                                                   options)
         house_no = rows[0].get("house_no")
 
     offline = "下架" in text
@@ -582,12 +645,19 @@ def _propose_submit_review(text, token, backend, context):
     rows = _rows(backend.get("/api/reviews/pending", token=token))
     if not rows:
         return NOT_APPLICABLE, "你没有待评价的租约。", None, None
-    if len(rows) > 1:
-        options = "；".join(r.get("contract_no", "") for r in rows[:5])
-        return (NEED_SLOT,
-                "你有 %d 份租约待评价，要评哪一份？%s" % (len(rows), options), None)
+    picked = (context or {}).get("contract_no") or ""
+    target = next((r for r in rows if r.get("contract_no") == picked), None)
+    if target is None and len(rows) > 1:
+        # 把选项摆成可点的，而不是拼进一句话里让用户照着打字。
+        # 追问不带 ask，下一轮就接不住用户的回答——助手问了个自己听不懂的问题。
+        options = [_option(r.get("contract_no", ""),
+                           "%s %s" % (r.get("house_no") or "",
+                                      r.get("contract_no", "")))
+                   for r in rows[:5]]
+        question = "你有 %d 份租约待评价，要评哪一份？" % len(rows)
+        return NEED_SLOT, question, None, _ask("contract_no", question, options)
 
-    target = rows[0]
+    target = target or rows[0]
     rating = 5
     for score in (5, 4, 3, 2, 1):
         if "%d星" % score in text or "%d 星" % score in text or "%d分" % score in text:
@@ -616,15 +686,18 @@ def _propose_handle_appointment(text, token, backend, context):
         return NOT_APPLICABLE, "没有待处理的看房预约。", None, None
 
     reject = "拒绝" in text or "驳回" in text
-    if len(pending) > 1:
-        options = "；".join(
-            "%s %s" % (r.get("viewing_time", ""), r.get("house_no", ""))
-            for r in pending[:5])
-        return (NEED_SLOT,
-                "有 %d 条待处理预约，要处理哪一条？%s" % (len(pending), options),
-                None)
+    picked = str((context or {}).get("appointment_id") or "")
+    target = next((r for r in pending if str(r.get("id")) == picked), None)
+    if target is None and len(pending) > 1:
+        options = [_option(str(r.get("id")),
+                           "%s %s" % ((r.get("viewing_time") or "")[:16],
+                                      r.get("house_no", "")))
+                   for r in pending[:5]]
+        question = "有 %d 条待处理预约，要处理哪一条？" % len(pending)
+        return NEED_SLOT, question, None, _ask("appointment_id", question,
+                                               options)
 
-    target = pending[0]
+    target = target or pending[0]
     status = "rejected" if reject else "confirmed"
     return CONFIRM, "", _card(
         "handle_appointment", "处理看房预约",
@@ -644,15 +717,17 @@ def _propose_update_repair(text, token, backend, context):
                  if r.get("status") not in ("done", "已完成", "closed")]
     if not open_rows:
         return NOT_APPLICABLE, "没有处理中的工单。", None, None
-    if len(open_rows) > 1:
-        options = "；".join(
-            "#%s %s" % (r.get("id"), (r.get("content") or "")[:12])
-            for r in open_rows[:5])
-        return (NEED_SLOT,
-                "有 %d 条工单在处理中，要关闭哪一条？%s"
-                % (len(open_rows), options), None)
+    picked = str((context or {}).get("repair_id") or "")
+    target = next((r for r in open_rows if str(r.get("id")) == picked), None)
+    if target is None and len(open_rows) > 1:
+        options = [_option(str(r.get("id")),
+                           "#%s %s" % (r.get("id"),
+                                       (r.get("content") or "")[:14]))
+                   for r in open_rows[:5]]
+        question = "有 %d 条工单在处理中，要关闭哪一条？" % len(open_rows)
+        return NEED_SLOT, question, None, _ask("repair_id", question, options)
 
-    target = open_rows[0]
+    target = target or open_rows[0]
     return CONFIRM, "", _card(
         "update_repair", "关闭工单",
         "把工单「%s」标记为已完成" % (target.get("content") or "")[:24],
