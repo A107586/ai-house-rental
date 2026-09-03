@@ -21,7 +21,32 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or DEFAULT_SQLITE
 # SQLite 默认禁止跨线程共享连接，而 FastAPI 的同步接口跑在线程池里
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True)
+# 连接池。**默认值在 100 并发下会直接把服务打垮**——
+# SQLAlchemy 默认 pool_size=5 + max_overflow=10，上限只有 15 条连接，
+# pool_timeout 是 30 秒。实测 100 并发时 85 个请求排队等满 30 秒后失败，
+# 成功率一度只有 1/100，而需求 N-01 要求「100 并发下响应 < 1s」。
+#
+# pool_timeout 特意压到 5 秒：**排队 30 秒才失败是最糟的结果**——
+# 用户早就走了，连接还占着不放。快速失败反而让系统更健康，
+# 前端也能及时给出「服务繁忙」而不是干等着转圈。
+#
+# pool_pre_ping 防的是另一件事：MySQL 会掐掉空闲太久的连接，
+# 池子里留着的就成了死连接，取出来第一次用才报错。
+#
+# 注意这些参数**不能无条件传**：内存库（测试用的 sqlite://）走的是
+# SingletonThreadPool，它压根不接受 max_overflow / pool_timeout，
+# 传了会在 create_engine 阶段直接抛 TypeError，整套测试都跑不起来。
+_pool_options = {}
+if DATABASE_URL != "sqlite://" and not DATABASE_URL.endswith(":memory:"):
+    _pool_options = {
+        "pool_size": 20,
+        "max_overflow": 40,
+        "pool_timeout": 5,
+        "pool_pre_ping": True,
+    }
+
+engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True,
+                       **_pool_options)
 
 
 if DATABASE_URL.startswith("sqlite") and not DATABASE_URL.endswith(":memory:") \

@@ -463,3 +463,84 @@ class TestNoPaymentAfterEnd(ContractCase):
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
         deposit = next(b for b in bills["list"] if b["type"] == "deposit")
         self.assertEqual(deposit["status"], "paid")
+
+class TestStatsAggregationParity(ContractCase):
+    """/api/stats 改成 SQL 聚合之后，数字必须与逐行统计**完全一致**。
+
+    原先这个接口把五张表全量拉进内存再用 Python 循环数数，
+    100 并发时 p50 到了 1114ms（需求 N-01 要求 1 秒以内）。
+    改成 COUNT / SUM / GROUP BY 之后快了，但**快而算错是更坏的结果**，
+    所以这里拿同一份数据两种算法对一遍。
+
+    尤其是逾期：Bill.overdue 是 Python 侧的属性，SQL 里得重写一遍判定，
+    两处只要改一处就会悄悄对不上。
+    """
+
+    def test_counts_match_row_by_row(self):
+        no = self.active_contract()
+        self.pay_deposit(no)
+
+        stats = self.client.get("/api/stats").json()
+
+        import app.db as db
+        from app.models import Bill, Contract, House
+        session = db.SessionLocal()
+        try:
+            houses = session.query(House).all()
+            bills = session.query(Bill).all()
+            contracts = session.query(Contract).all()
+
+            self.assertEqual(stats["house_total"], len(houses))
+            self.assertEqual(stats["house_available"],
+                             sum(1 for h in houses if h.status == "available"))
+            self.assertEqual(stats["house_rented"],
+                             sum(1 for h in houses if h.status == "rented"))
+            self.assertEqual(stats["contract_active"],
+                             sum(1 for c in contracts if c.status == "active"))
+
+            paid = [b for b in bills if b.status == "paid"]
+            unpaid = [b for b in bills if b.status == "unpaid"]
+            self.assertAlmostEqual(
+                stats["income_received"],
+                round(sum(float(b.amount) for b in paid), 2), places=2)
+            self.assertAlmostEqual(
+                stats["income_pending"],
+                round(sum(float(b.amount) for b in unpaid), 2), places=2)
+
+            # 关键：SQL 的逾期判定要与 Bill.overdue 属性一致
+            self.assertEqual(stats["overdue_count"],
+                             sum(1 for b in unpaid if b.overdue))
+        finally:
+            session.close()
+
+    def test_district_grouping_matches(self):
+        stats = self.client.get("/api/stats").json()
+        import app.db as db
+        from app.models import House
+        session = db.SessionLocal()
+        try:
+            available = [h for h in session.query(House).all()
+                         if h.status == "available"]
+            expected = {}
+            for house in available:
+                row = expected.setdefault(house.district, [])
+                row.append(float(house.rent_price))
+
+            got = {row["district"]: row for row in stats["by_district"]}
+            self.assertEqual(set(got), set(expected))
+            for district, prices in expected.items():
+                self.assertEqual(got[district]["count"], len(prices))
+                self.assertAlmostEqual(got[district]["avg_rent"],
+                                       round(sum(prices) / len(prices), 2),
+                                       places=2)
+        finally:
+            session.close()
+
+    def test_monthly_income_only_counts_paid_rent(self):
+        """按月收租只统计**已缴的租金**，押金与未缴的不能混进去。"""
+        no = self.active_contract()
+        self.pay_deposit(no)
+        stats = self.client.get("/api/stats").json()
+        total = sum(m["amount"] for m in stats["monthly_income"])
+        # 刚才只缴了押金，租金一期没缴，月度收租应当为 0
+        self.assertEqual(total, 0)

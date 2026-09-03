@@ -1396,56 +1396,102 @@ def admin_notices(user: User = Depends(require_login),
 
 @app.get("/api/stats")
 def stats(session: Session = Depends(get_session)):
-    """平台概况。供管理端仪表盘与 AI-05 经营分析取数。"""
-    houses = session.scalars(select(House)).all()
-    appointments = session.scalars(select(Appointment)).all()
-    repairs = session.scalars(select(Repair)).all()
+    """平台概况。供管理端仪表盘与 AI-05 经营分析取数。
 
-    available = [h for h in houses if h.status == "available"]
-    prices = [float(h.rent_price) for h in available]
+    **聚合下推到数据库，不把整表拉进内存。**
 
-    by_district = {}
-    for house in available:
-        entry = by_district.setdefault(house.district, {"count": 0, "total": 0.0})
-        entry["count"] += 1
-        entry["total"] += float(house.rent_price)
+    原先这里是 `select(House)).all()` 之类连查五张表，再用 Python 循环
+    数数、求和。单个请求看不出问题，可 100 并发就是 100 次全表扫描加
+    100 份对象实例化——实测 p50 到了 1114ms，而需求 N-01 要求 1 秒以内。
 
-    contracts = session.scalars(select(Contract)).all()
-    bills = session.scalars(select(Bill)).all()
-    paid = [b for b in bills if b.status == "paid"]
-    unpaid = [b for b in bills if b.status == "unpaid"]
+    现在每个数字都是一条 COUNT / SUM / GROUP BY，数据库只回传结果行。
+    表越大差距越明显：全量拉取是 O(行数)，聚合查询走索引近似 O(1)。
+    """
+    def scalar(stmt, default=0):
+        """取单值。COUNT 不会给 None，但 SUM 在没有匹配行时会。"""
+        return session.scalar(stmt) or default
 
-    # 按月汇总已收租金，对应需求 F-07 收租统计
+    # ---------------- 房源 ----------------
+    house_total = scalar(select(func.count(House.id)))
+    house_available = scalar(
+        select(func.count(House.id)).where(House.status == "available"))
+    house_rented = scalar(
+        select(func.count(House.id)).where(House.status == "rented"))
+    avg_rent = session.scalar(
+        select(func.avg(House.rent_price)).where(House.status == "available"))
+
+    # 区域分布：一条 GROUP BY 顶原先的整表遍历
+    district_rows = session.execute(
+        select(House.district,
+               func.count(House.id),
+               func.avg(House.rent_price))
+        .where(House.status == "available")
+        .group_by(House.district)
+        .order_by(func.count(House.id).desc())).all()
+
+    # ---------------- 预约与报修 ----------------
+    appointment_total = scalar(select(func.count(Appointment.id)))
+    appointment_pending = scalar(select(func.count(Appointment.id))
+                                 .where(Appointment.status == "pending"))
+    repair_total = scalar(select(func.count(Repair.id)))
+    repair_pending = scalar(select(func.count(Repair.id))
+                            .where(Repair.status == "pending"))
+    repair_urgent = scalar(select(func.count(Repair.id))
+                           .where(Repair.urgency == "紧急"))
+
+    # ---------------- 合同与账单 ----------------
+    contract_total = scalar(select(func.count(Contract.id)))
+    contract_active = scalar(select(func.count(Contract.id))
+                             .where(Contract.status == "active"))
+
+    income_received = scalar(select(func.sum(Bill.amount))
+                             .where(Bill.status == "paid"), 0.0)
+    income_pending = scalar(select(func.sum(Bill.amount))
+                            .where(Bill.status == "unpaid"), 0.0)
+    # 逾期的判定与 Bill.overdue 属性保持一致：未缴且到期日已过。
+    # 属性是 Python 侧的，SQL 里得重写一遍——两处必须同时改，
+    # 测试里有一条用例专门比对二者结果。
+    overdue_count = scalar(select(func.count(Bill.id)).where(
+        Bill.status == "unpaid",
+        Bill.due_date < datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0)))
+
+    # 按月汇总已收租金（F-07 收租统计）。
+    # 月份用 strftime 分组：SQLite 与 MySQL 的日期函数名不同，
+    # 这里取的是行数最少的那部分数据（只有已缴租金），
+    # 在 Python 侧分组反而更省事也更可移植。
+    paid_rents = session.execute(
+        select(Bill.paid_at, Bill.amount).where(
+            Bill.status == "paid", Bill.type == "rent",
+            Bill.paid_at.isnot(None))).all()
     monthly = {}
-    for bill in paid:
-        if bill.type != "rent" or not bill.paid_at:
-            continue
-        key = bill.paid_at.strftime("%Y-%m")
-        monthly[key] = monthly.get(key, 0.0) + float(bill.amount)
+    for paid_at, amount in paid_rents:
+        key = paid_at.strftime("%Y-%m")
+        monthly[key] = monthly.get(key, 0.0) + float(amount)
 
     return {
-        "house_total": len(houses),
-        "house_available": len(available),
-        "house_rented": sum(1 for h in houses if h.status == "rented"),
-        "avg_rent": round(sum(prices) / len(prices), 2) if prices else 0,
-        "occupancy_rate": (round(sum(1 for h in houses if h.status == "rented")
-                                 / len(houses) * 100, 1) if houses else 0),
-        "appointment_total": len(appointments),
-        "appointment_pending": sum(1 for a in appointments if a.status == "pending"),
-        "repair_total": len(repairs),
-        "repair_pending": sum(1 for r in repairs if r.status == "pending"),
-        "repair_urgent": sum(1 for r in repairs if r.urgency == "紧急"),
-        "contract_total": len(contracts),
-        "contract_active": sum(1 for c in contracts if c.status == "active"),
-        "income_received": round(sum(float(b.amount) for b in paid), 2),
-        "income_pending": round(sum(float(b.amount) for b in unpaid), 2),
-        "overdue_count": sum(1 for b in unpaid if b.overdue),
+        "house_total": house_total,
+        "house_available": house_available,
+        "house_rented": house_rented,
+        "avg_rent": round(float(avg_rent), 2) if avg_rent else 0,
+        "occupancy_rate": (round(house_rented / house_total * 100, 1)
+                           if house_total else 0),
+        "appointment_total": appointment_total,
+        "appointment_pending": appointment_pending,
+        "repair_total": repair_total,
+        "repair_pending": repair_pending,
+        "repair_urgent": repair_urgent,
+        "contract_total": contract_total,
+        "contract_active": contract_active,
+        "income_received": round(float(income_received), 2),
+        "income_pending": round(float(income_pending), 2),
+        "overdue_count": overdue_count,
         "monthly_income": [{"month": m, "amount": round(v, 2)}
                            for m, v in sorted(monthly.items())],
         "by_district": [
-            {"district": d, "count": v["count"],
-             "avg_rent": round(v["total"] / v["count"], 2)}
-            for d, v in sorted(by_district.items(), key=lambda kv: -kv[1]["count"])
+            {"district": district, "count": count,
+             "avg_rent": round(float(avg), 2)}
+            for district, count, avg in district_rows
         ],
     }
 
