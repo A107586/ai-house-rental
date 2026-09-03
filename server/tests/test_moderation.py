@@ -229,3 +229,68 @@ class TestModerationInNotices(ModerationApiCase):
         r = self.client.post("/api/notices", headers=self.admin, json={
             "title": "系统维护通知", "content": "本周六凌晨维护两小时。"})
         self.assertEqual(r.status_code, 200)
+
+
+class TestReviewSoftDelete(ModerationApiCase):
+    """审核下架评价必须是**软删除**（C-5）。
+
+    审核会误判——「微信联系管家」这种正常表述就可能被拦。误判之后要能
+    恢复，用户申诉时也得拿得出原文。真删了就什么都没有了。
+    """
+
+    def test_removed_review_is_hidden_but_kept(self):
+        import app.db as db
+        from app.models import Review
+        session = db.SessionLocal()
+        try:
+            review = Review(contract_id=1, house_id=1, tenant_id=1,
+                            rating=5, content="很好的房子")
+            session.add(review)
+            session.commit()
+            review_id = review.id
+        finally:
+            session.close()
+
+        # 前台看得到
+        before = self.client.get("/api/houses/DL0001/reviews").json()
+        self.assertTrue(any(r["id"] == review_id for r in before["list"]))
+
+        # 软删除
+        session = db.SessionLocal()
+        try:
+            from datetime import datetime
+            session.get(Review, review_id).deleted_at = datetime.now()
+            session.commit()
+        finally:
+            session.close()
+
+        # 前台看不到了……
+        after = self.client.get("/api/houses/DL0001/reviews").json()
+        self.assertFalse(any(r["id"] == review_id for r in after["list"]))
+
+        # ……但记录还在，能恢复
+        session = db.SessionLocal()
+        try:
+            self.assertIsNotNone(session.get(Review, review_id))
+            self.assertEqual(session.get(Review, review_id).content, "很好的房子")
+        finally:
+            session.close()
+
+    def test_deleted_review_excluded_from_rating(self):
+        """被下架的评价不能再影响房源评分——否则下架了还在拉低分数。"""
+        import app.db as db
+        from datetime import datetime
+        from app.models import Review
+        session = db.SessionLocal()
+        try:
+            session.add(Review(contract_id=1, house_id=1, tenant_id=1,
+                               rating=5, content="好"))
+            session.add(Review(contract_id=2, house_id=1, tenant_id=1,
+                               rating=1, content="差", deleted_at=datetime.now()))
+            session.commit()
+        finally:
+            session.close()
+
+        house = self.client.get("/api/houses/DL0001").json()
+        self.assertEqual(house["rating"], 5.0)
+        self.assertEqual(house["review_count"], 1)

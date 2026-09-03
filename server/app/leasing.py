@@ -21,7 +21,8 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from app.models import Bill, Contract, House, Message, Payment, Refund
+from app import notifier
+from app.models import Bill, Contract, House, Message, Payment, Refund, User
 
 
 def _serial(prefix):
@@ -360,11 +361,29 @@ def renew_contract(session, contract, months=12):
 
 # ---------------------------------------------------------------- 消息
 
+# 需要往外推的通知类型（C-2）。
+#
+# **不是所有站内信都值得发邮件。** 每条消息都推一封，用户很快就会把
+# 整个域名拉黑，真正要紧的那封反而看不见了。这里只留三类「错过了会
+# 有实际损失」的：账单到期、合同状态变化、工单进度。
+EXTERNAL_TYPES = ("bill", "contract", "repair")
+
+
 def notify(session, user_id, type_, title, content="", link_no=""):
-    """写一条站内消息。用户不存在时静默跳过，不影响主流程。"""
+    """写一条站内消息，必要时同步推到外部通道。
+
+    站内信是**必达**的那一条，直接落库；邮件是尽力而为的补充，
+    发不出去只当没发——合同已经生效、账单已经生成，不能因为邮件
+    服务器连不上就把整个请求回滚，那会让用户以为操作失败又点一遍。
+    """
     if not user_id:
         return None
     message = Message(user_id=user_id, type=type_, title=title,
                       content=content, link_no=link_no)
     session.add(message)
+
+    if type_ in EXTERNAL_TYPES:
+        user = session.get(User, user_id)
+        if user:
+            notifier.notify_external(user, title, content)
     return message

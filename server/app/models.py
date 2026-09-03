@@ -134,15 +134,17 @@ class House(Base):
             "view_count": self.view_count,
             "landlord_name": self.landlord.real_name if self.landlord else "",
             "rating": self.avg_rating,
-            "review_count": len(self.reviews),
+            "review_count": len([r for r in self.reviews
+                                 if not r.deleted_at]),
         }
 
     @property
     def avg_rating(self):
         """平均评分。没有评价时返回 0，前端据此显示「暂无评价」。"""
-        if not self.reviews:
+        alive = [r for r in self.reviews if not r.deleted_at]
+        if not alive:
             return 0
-        return round(sum(r.rating for r in self.reviews) / len(self.reviews), 1)
+        return round(sum(r.rating for r in alive) / len(alive), 1)
 
 
 class Appointment(Base):
@@ -634,6 +636,9 @@ class Review(Base):
     rating_landlord: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    # 软删除（C-5）。审核下架的评价不能真删——误判之后无法恢复，
+    # 用户申诉时也拿不出原文。前台查询一律过滤掉非空的记录。
+    deleted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     tenant: Mapped["User"] = relationship()
 

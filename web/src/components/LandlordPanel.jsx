@@ -418,6 +418,13 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
                       {item.contact_name} {item.contact_phone} · {item.created_at}
                       {item.assignee && ` · 建议派单：${item.assignee}`}
                     </div>
+                    {/* 超时标记（C-4）。原先判定为紧急之后就没有下文了，
+                        没人处理也不会催 */}
+                    {item.overdue && (
+                      <div className="record-body overdue-note">
+                        已挂 {item.waited_hours} 小时，超过 {item.sla_hours} 小时时限
+                      </div>
+                    )}
                     {item.analysis && (
                       <div className="record-body ai-note">{item.analysis}</div>
                     )}

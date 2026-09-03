@@ -11,6 +11,7 @@ import os
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
 
+from app import migrations
 from app.models import Base
 
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(
@@ -83,50 +84,17 @@ def init_db():
 
 
 def _upgrade_sqlite_schema():
-    """Apply small, backwards-compatible upgrades to existing SQLite databases.
+    """把已有的本地库升到最新结构。
 
-    ``create_all`` creates missing tables but does not add columns to tables that
-    already exist.  Keep the local demo database usable after pulling a newer
-    version of the project without deleting the user's test data.
+    `create_all` 只建缺失的表，**不会给已存在的表加列**——组员拉了新代码
+    之后要么删库重建（丢掉本地测试数据），要么手工补 ALTER TABLE。
+    本项目已经因此让全组删过一次库。
+
+    具体步骤见 `app/migrations.py`，那里有版本记录、只跑一次、且每步
+    自身幂等。**本该用 Alembic**，但这台机器 pip 到不了任何可用的源，
+    所以先自己实现了它的三个核心性质；联网环境下应当换回 Alembic。
     """
-    if not DATABASE_URL.startswith("sqlite"):
-        return
-
-    columns = {column["name"] for column in inspect(engine).get_columns("users")}
-    additions = {
-        "id_card_hash": "VARCHAR(64) NOT NULL DEFAULT ''",
-        "id_card_masked": "VARCHAR(32) NOT NULL DEFAULT ''",
-        # 令牌失效基线（B-2）。允许为空——空表示从未吊销过，
-        # 存量用户的令牌不该因为加了这个字段就集体失效。
-        "token_valid_after": "DATETIME",
-    }
-    with engine.begin() as connection:
-        for name, definition in additions.items():
-            if name not in columns:
-                connection.execute(
-                    text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
-        connection.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_users_id_card_hash "
-            "ON users (id_card_hash)"))
-
-        payment_columns = {
-            column["name"] for column in inspect(engine).get_columns("payments")
-        }
-        payment_additions = {
-            "status": "VARCHAR(20) NOT NULL DEFAULT 'succeeded'",
-            "idempotency_key": "VARCHAR(64)",
-            "failure_reason": "VARCHAR(200) NOT NULL DEFAULT ''",
-        }
-        for name, definition in payment_additions.items():
-            if name not in payment_columns:
-                connection.execute(text(
-                    f"ALTER TABLE payments ADD COLUMN {name} {definition}"))
-        connection.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_bill_id "
-            "ON payments (bill_id)"))
-        connection.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_idempotency_key "
-            "ON payments (idempotency_key) WHERE idempotency_key IS NOT NULL"))
+    migrations.upgrade(engine, DATABASE_URL)
 
 
 def get_session():

@@ -467,6 +467,12 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
 
                     <div className="record-body">{item.content}</div>
 
+                    {item.overdue && (
+                      <div className="record-body overdue-note">
+                        已等待 {item.waited_hours} 小时，超过承诺时限
+                      </div>
+                    )}
+
                     {item.analysis && (
                       <div className="record-body ai-note">{item.analysis}</div>
                     )}

@@ -309,3 +309,93 @@ class TestTenantSeesOwnRepairs(RepairDataCase):
         self.close(repair["id"], labor_cost=50)
         body = self.client.get("/api/repairs", headers=self.tenant).json()
         self.assertEqual(body["list"][0]["result"]["worker_name"], "维修人员")
+
+
+class TestRepairSla(RepairDataCase):
+    """工单超时判定（C-4）。
+
+    报修判定为「紧急」之后原先就没有下文了——没人处理也不会催。
+    时限做成可配置（M-09），因为不同规模的团队标准不一样。
+
+    **只标记不自动升级**：自动改优先级会让「紧急」这一档失去意义
+    ——挂久了的都变紧急，等于没有紧急。该被催的是人，不是数据。
+    """
+
+    def set_sla(self, urgent=4, normal=48):
+        return self.client.patch("/api/admin/config", headers=self.admin, json={
+            "items": {"repair_sla_urgent_hours": str(urgent),
+                      "repair_sla_normal_hours": str(normal)}})
+
+    def age(self, repair_id, hours):
+        """把工单的创建时间往前挪，等价于「过了这么久」。"""
+        import app.db as db
+        from datetime import datetime, timedelta
+        from app.models import Repair
+        session = db.SessionLocal()
+        try:
+            row = session.get(Repair, repair_id)
+            row.created_at = datetime.now() - timedelta(hours=hours)
+            session.commit()
+        finally:
+            session.close()
+
+    def test_fresh_ticket_is_not_overdue(self):
+        self.new_repair()
+        body = self.client.get("/api/repairs", headers=self.admin).json()
+        self.assertFalse(body["list"][0]["overdue"])
+        self.assertEqual(body["overdue_count"], 0)
+
+    def test_normal_ticket_overdue_after_limit(self):
+        self.set_sla(normal=48)
+        repair = self.new_repair()
+        self.age(repair["id"], 50)
+        body = self.client.get("/api/repairs", headers=self.admin).json()
+        self.assertTrue(body["list"][0]["overdue"])
+        self.assertEqual(body["overdue_count"], 1)
+
+    def test_urgent_has_a_tighter_limit(self):
+        """同样挂了 6 小时，紧急的算超时，一般的不算。"""
+        self.set_sla(urgent=4, normal=48)
+        urgent = self.client.post("/api/repairs", headers=self.tenant, json={
+            "house_no": "DL0001", "content": "厨房漏水",
+            "contact_name": "租客甲", "contact_phone": "13900005678",
+            "category": "水暖", "urgency": "紧急"}).json()["repair"]
+        normal = self.new_repair()
+        self.age(urgent["id"], 6)
+        self.age(normal["id"], 6)
+
+        body = self.client.get("/api/repairs", headers=self.admin).json()
+        by_id = {r["id"]: r for r in body["list"]}
+        self.assertTrue(by_id[urgent["id"]]["overdue"])
+        self.assertFalse(by_id[normal["id"]]["overdue"])
+
+    def test_done_ticket_is_never_overdue(self):
+        """已经处理完的不该再被算作超时——它已经不需要人管了。"""
+        repair = self.new_repair()
+        self.age(repair["id"], 999)
+        self.close(repair["id"], labor_cost=50)
+        body = self.client.get("/api/repairs", headers=self.admin).json()
+        self.assertFalse(body["list"][0]["overdue"])
+        self.assertEqual(body["overdue_count"], 0)
+
+    def test_config_change_takes_effect(self):
+        """时限是可配置的，改了立刻生效。"""
+        repair = self.new_repair()
+        self.age(repair["id"], 10)
+
+        self.set_sla(normal=48)
+        self.assertFalse(self.client.get(
+            "/api/repairs", headers=self.admin).json()["list"][0]["overdue"])
+
+        self.set_sla(normal=8)
+        self.assertTrue(self.client.get(
+            "/api/repairs", headers=self.admin).json()["list"][0]["overdue"])
+
+    def test_urgency_is_not_auto_escalated(self):
+        """超时只标记，不改优先级——挂久了都变紧急，等于没有紧急。"""
+        self.set_sla(normal=1)
+        repair = self.new_repair()
+        self.age(repair["id"], 100)
+        body = self.client.get("/api/repairs", headers=self.admin).json()
+        self.assertTrue(body["list"][0]["overdue"])
+        self.assertNotEqual(body["list"][0]["urgency"], "紧急")

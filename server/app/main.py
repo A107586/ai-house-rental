@@ -1107,7 +1107,8 @@ def list_reviews(house_no: str, session: Session = Depends(get_session)):
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
     rows = session.scalars(
-        select(Review).where(Review.house_id == house.id)
+        select(Review).where(Review.house_id == house.id,
+                             Review.deleted_at.is_(None))
         .order_by(Review.created_at.desc())).all()
     return {
         "total": len(rows),
@@ -1143,7 +1144,8 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
             detail="退租超过 %d 天，已过评价有效期" % window_days)
 
     exists = session.scalar(
-        select(Review).where(Review.contract_id == contract.id))
+        select(Review).where(Review.contract_id == contract.id,
+                             Review.deleted_at.is_(None)))
     if exists:
         raise HTTPException(status_code=409, detail="该租约已评价过")
 
@@ -1415,7 +1417,36 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
         stmt = stmt.where(Repair.urgency == urgency)
 
     rows = session.scalars(stmt.order_by(Repair.created_at.desc())).all()
-    return {"total": len(rows), "list": [r.to_dict() for r in rows]}
+
+    # 工单 SLA（C-4）：超时未处理的要能被看见。
+    #
+    # 判定为「紧急」之后就没有下文了——没人处理也不会催，这是原先最大的
+    # 问题。时限做成可配置（M-09），因为不同规模的团队标准不一样。
+    #
+    # 只标记不自动升级：自动改优先级会让「紧急」这一档失去意义——
+    # 挂久了都变紧急，等于没有紧急。**该被催的是人，不是数据**。
+    urgent_hours = config_store.get_int(session, "repair_sla_urgent_hours")
+    normal_hours = config_store.get_int(session, "repair_sla_normal_hours")
+    now = datetime.now()
+
+    result = []
+    for repair in rows:
+        item = repair.to_dict()
+        if repair.status == "done" or not repair.created_at:
+            item["overdue"] = False
+            item["waited_hours"] = 0
+        else:
+            waited = (now - repair.created_at).total_seconds() / 3600
+            limit = (urgent_hours if repair.urgency == "紧急"
+                     else normal_hours)
+            item["overdue"] = waited > limit
+            item["waited_hours"] = round(waited, 1)
+            item["sla_hours"] = limit
+        result.append(item)
+
+    return {"total": len(result),
+            "overdue_count": sum(1 for r in result if r.get("overdue")),
+            "list": result}
 
 
 @app.post("/api/repairs")
@@ -2242,7 +2273,9 @@ def handle_flag(flag_id: int, action: str,
         elif flag.scene == "review":
             review = session.get(Review, flag.target_id)
             if review:
-                session.delete(review)
+                # 软删除而非真删（C-5）。审核会误判，误判之后要能恢复；
+                # 用户申诉时也得拿得出原文。前台查询已经过滤掉了。
+                review.deleted_at = datetime.now()
 
     flag.status = "approved" if action == "approve" else "removed"
     flag.handled_by = user.real_name or user.username

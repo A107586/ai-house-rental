@@ -13,6 +13,7 @@ appointment_daily_limit       每人每天最多提交多少条预约
 house_auto_approve            房东发布的房源是否免审核直接上架
 deposit_months                创建合同时押金的默认月数
 review_window_days            退租后多少天内还能评价
+repair_sla_*_hours            工单超时判定，超时的会在管理端标红并计数
 ===========================  ==================================================
 
 读取策略是每次从库里查，不做进程内缓存。配置表只有个位数行、且带唯一索引，
@@ -43,6 +44,11 @@ DEFAULTS = (
      "创建合同时押金的默认值，按月租金的倍数计算。", "交易", False),
     ("review_window_days", "30", "int", "评价有效期（天）",
      "退租后超过这个天数就不能再评价了。", "交易", False),
+
+    ("repair_sla_urgent_hours", "4", "int", "紧急工单处理时限（小时）",
+     "紧急报修超过这个时长仍未处理，会在管理端标记为超时。", "报修", False),
+    ("repair_sla_normal_hours", "48", "int", "一般工单处理时限（小时）",
+     "一般报修超过这个时长仍未处理，会在管理端标记为超时。", "报修", False),
 )
 
 _DEFAULT_MAP = {item[0]: item for item in DEFAULTS}

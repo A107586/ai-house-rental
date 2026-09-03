@@ -3924,3 +3924,9 @@ button.account-row:last-child { border-bottom: none; }
     max-height: 160px;
   }
 }
+
+/* 工单超时提示（C-4） */
+.overdue-note {
+  color: var(--danger);
+  font-weight: 600;
+}
