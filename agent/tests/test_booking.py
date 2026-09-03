@@ -129,10 +129,11 @@ class FakeBackend(object):
     def list_viewings(self, house_no):
         return self.taken
 
-    def create_viewing(self, house_no, moment, applicant):
+    def create_viewing(self, house_no, moment, applicant, token=None):
         if self.fail_create:
             raise RuntimeError("模拟写入失败")
-        self.created = {"house_no": house_no, "moment": moment, "applicant": applicant}
+        self.created = {"house_no": house_no, "moment": moment,
+                        "applicant": applicant, "token": token}
         return {"ok": True}
 
 

@@ -8,7 +8,7 @@
 
 import os
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base
@@ -54,6 +54,32 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
 def init_db():
     """建表。已存在的表不会被改动。"""
     Base.metadata.create_all(engine)
+    _upgrade_sqlite_schema()
+
+
+def _upgrade_sqlite_schema():
+    """Apply small, backwards-compatible upgrades to existing SQLite databases.
+
+    ``create_all`` creates missing tables but does not add columns to tables that
+    already exist.  Keep the local demo database usable after pulling a newer
+    version of the project without deleting the user's test data.
+    """
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+
+    columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    additions = {
+        "id_card_hash": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "id_card_masked": "VARCHAR(32) NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.execute(
+                    text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_users_id_card_hash "
+            "ON users (id_card_hash)"))
 
 
 def get_session():

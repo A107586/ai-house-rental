@@ -1111,7 +1111,7 @@ def my_appointments(user: User = Depends(require_login),
 
 @app.post("/api/appointments")
 def create_appointment(payload: AppointmentCreate,
-                       user: User = Depends(current_user),
+                       user: User = Depends(require_login),
                        session: Session = Depends(get_session)):
     """提交看房预约。
 
@@ -1126,18 +1126,21 @@ def create_appointment(payload: AppointmentCreate,
     if payload.viewing_time <= datetime.now():
         raise HTTPException(status_code=400, detail="看房时间必须晚于当前时间")
 
+    contact_phone = (payload.contact_phone or user.phone or "").strip()
+    if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
+        raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
+
     # 每人每日预约上限，防止刷单占位（M-09 可配）
     daily_limit = config_store.get_int(session, "appointment_daily_limit")
-    if user:
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        used = len(session.scalars(select(Appointment).where(
-            Appointment.tenant_id == user.id,
-            Appointment.created_at >= today,
-            Appointment.status.in_(["pending", "confirmed"]))).all())
-        if used >= daily_limit:
-            raise HTTPException(
-                status_code=429,
-                detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    used = len(session.scalars(select(Appointment).where(
+        Appointment.tenant_id == user.id,
+        Appointment.created_at >= today,
+        Appointment.status.in_(["pending", "confirmed"]))).all())
+    if used >= daily_limit:
+        raise HTTPException(
+            status_code=429,
+            detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
 
     window = timedelta(minutes=config_store.get_int(
         session, "viewing_minutes", VIEWING_MINUTES))
@@ -1153,9 +1156,9 @@ def create_appointment(payload: AppointmentCreate,
 
     appointment = Appointment(
         house_id=house.id,
-        tenant_id=user.id if user else None,
-        contact_name=payload.contact_name or (user.real_name if user else ""),
-        contact_phone=payload.contact_phone or (user.phone if user else ""),
+        tenant_id=user.id,
+        contact_name=payload.contact_name or user.real_name,
+        contact_phone=contact_phone,
         viewing_time=payload.viewing_time,
         remark=payload.remark,
         status="pending",

@@ -289,6 +289,7 @@ export const api = {
     post(agentUrl('/agent/booking'), {
       text,
       house_no: houseNo,
+      token: getToken(),
       xingming: applicant.name || '',
       shouji: applicant.phone || '',
     }),

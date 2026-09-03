@@ -82,9 +82,18 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
     const content = (useText ?? text).trim()
     if (!content || busy) return
 
+    if (tab === 'booking' && !user) {
+      setReply({ status: 'error', message: '请先登录后再预约看房', alternatives: [] })
+      return
+    }
+    if (tab === 'booking' && !/^1[3-9]\d{9}$/.test(phone.trim())) {
+      setReply({ status: 'error', message: '请输入正确的 11 位手机号', alternatives: [] })
+      return
+    }
+
     setBusy(true)
     try {
-      const applicant = { name, phone }
+      const applicant = { name: name.trim(), phone: phone.trim() }
       const result =
         tab === 'booking'
           ? await api.agentBooking(content, house.house_no, applicant)
@@ -279,6 +288,8 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite, 
               placeholder="手机号"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              inputMode="numeric"
+              maxLength={11}
             />
           </div>
           <div className="field">

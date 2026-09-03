@@ -22,7 +22,8 @@ def _format_list(slots):
     return "、".join(format_slot(s) for s in slots)
 
 
-def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None):
+def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None,
+        token=None):
     """预约看房智能体入口。
 
     :param taken: 该房源已有的预约时刻列表；传入 ``None`` 时向后端查询。
@@ -41,7 +42,7 @@ def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None)
         moment = datetime.combine(parsed["date"], parsed["time"])
         verdict = check_slot(moment, taken, now=now)
         if verdict["ok"]:
-            return _create(moment, house_no, applicant, backend)
+            return _create(moment, house_no, applicant, backend, token=token)
 
         message = {
             "past": "%s 已经过去了，请选择将来的时间。" % format_slot(moment),
@@ -103,7 +104,7 @@ def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None)
     }
 
 
-def _create(moment, house_no, applicant, backend):
+def _create(moment, house_no, applicant, backend, token=None):
     """写入看房申请。"""
     applicant = applicant or {}
     if backend is None or not house_no:
@@ -120,6 +121,7 @@ def _create(moment, house_no, applicant, backend):
             house_no=house_no,
             moment=moment,
             applicant=applicant,
+            token=token,
         )
     except Exception:
         return _fail("预约提交失败，请稍后再试。")

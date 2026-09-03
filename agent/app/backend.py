@@ -109,6 +109,13 @@ class BackendClient(object):
     def stats(self):
         return self.get("/api/stats")
 
+    # ------------------------------------------------------------ 客服知识库
+
+    def list_notices(self):
+        """读取当前已发布公告，作为 AI-03 的受控知识库。"""
+        body = self.get("/api/notices")
+        return body.get("list") or []
+
     # ------------------------------------------------------------ 会话记忆
 
     def list_chat(self, session_id, token, limit=30):
@@ -157,7 +164,7 @@ class BackendClient(object):
                 moments.append(parsed)
         return moments
 
-    def create_viewing(self, house_no, moment, applicant):
+    def create_viewing(self, house_no, moment, applicant, token=None):
         """提交看房预约。"""
         applicant = applicant or {}
         return self.post("/api/appointments", {
@@ -166,7 +173,7 @@ class BackendClient(object):
             "contact_name": applicant.get("xingming") or applicant.get("contact_name") or "",
             "contact_phone": applicant.get("shouji") or applicant.get("contact_phone") or "",
             "remark": applicant.get("beizhu") or "",
-        })
+        }, token=token)
 
     # ------------------------------------------------------------ 报修
 

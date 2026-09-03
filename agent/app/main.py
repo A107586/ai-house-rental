@@ -95,6 +95,7 @@ class ContractRequest(BaseModel):
 class BookingRequest(BaseModel):
     text: str
     house_no: str
+    token: str = ""
     zhanghao: str = ""
     xingming: str = ""
     shouji: str = ""
@@ -141,6 +142,7 @@ def agent_booking(payload: BookingRequest):
         applicant={"zhanghao": payload.zhanghao,
                    "xingming": payload.xingming,
                    "shouji": payload.shouji},
+        token=payload.token,
         backend=backend_client,
     )
 
