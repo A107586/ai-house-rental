@@ -104,11 +104,16 @@ class House(Base):
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     published_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    landlord: Mapped["User"] = relationship(back_populates="houses")
+    # lazy="selectin"：列表接口一次查 12 套房，若按默认的懒加载，
+    # to_dict 里每读一次 landlord 就发一条 SQL——实测 12 套房发了 32 条。
+    # selectin 会把这一批的关联对象用一条 IN 查询取回来。
+    landlord: Mapped["User"] = relationship(back_populates="houses",
+                                            lazy="selectin")
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="house")
     images: Mapped[list["HouseImage"]] = relationship(
-        back_populates="house", order_by="HouseImage.sort_order")
-    reviews: Mapped[list["Review"]] = relationship()
+        back_populates="house", order_by="HouseImage.sort_order",
+        lazy="selectin")
+    reviews: Mapped[list["Review"]] = relationship(lazy="selectin")
 
     def to_dict(self):
         return {
@@ -174,7 +179,7 @@ class Appointment(Base):
     reply: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    house: Mapped["House"] = relationship(back_populates="appointments")
+    house: Mapped["House"] = relationship(back_populates="appointments", lazy="selectin")
 
     def to_dict(self):
         return {
@@ -241,11 +246,10 @@ class Repair(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    house: Mapped["House"] = relationship()
+    house: Mapped["House"] = relationship(lazy="selectin")
     # 结案登记。uselist=False 是因为 repair_id 上有唯一约束——
     # 一张工单只能结案一次
-    record: Mapped["RepairRecord | None"] = relationship(
-        back_populates="repair", uselist=False)
+    record: Mapped["RepairRecord | None"] = relationship(back_populates="repair", uselist=False, lazy="selectin")
 
     def to_dict(self):
         return {
@@ -358,7 +362,7 @@ class Contract(Base):
     deposit_refund: Mapped[float] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    house: Mapped["House"] = relationship()
+    house: Mapped["House"] = relationship(lazy="selectin")
     bills: Mapped[list["Bill"]] = relationship(back_populates="contract")
 
     @property
@@ -430,9 +434,8 @@ class Bill(Base):
     remark: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    contract: Mapped["Contract"] = relationship(back_populates="bills")
-    payment: Mapped["Payment | None"] = relationship(
-        back_populates="bill", uselist=False)
+    contract: Mapped["Contract"] = relationship(back_populates="bills", lazy="selectin")
+    payment: Mapped["Payment | None"] = relationship(back_populates="bill", uselist=False, lazy="selectin")
 
     @property
     def overdue(self):
@@ -640,7 +643,7 @@ class Review(Base):
     # 用户申诉时也拿不出原文。前台查询一律过滤掉非空的记录。
     deleted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
-    tenant: Mapped["User"] = relationship()
+    tenant: Mapped["User"] = relationship(lazy="selectin")
 
     def to_dict(self):
         name = ""
@@ -832,10 +835,9 @@ class RepairRecord(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     finished_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    repair: Mapped["Repair"] = relationship(back_populates="record")
-    worker: Mapped["RepairWorker"] = relationship()
-    usages: Mapped[list["RepairItemUsage"]] = relationship(
-        back_populates="record", cascade="all, delete-orphan")
+    repair: Mapped["Repair"] = relationship(back_populates="record", lazy="selectin")
+    worker: Mapped["RepairWorker"] = relationship(lazy="selectin")
+    usages: Mapped[list["RepairItemUsage"]] = relationship(back_populates="record", cascade="all, delete-orphan", lazy="selectin")
 
     @property
     def total_cost(self):
@@ -1108,9 +1110,9 @@ class Conversation(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    house: Mapped["House"] = relationship()
-    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id])
-    landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id])
+    house: Mapped["House"] = relationship(lazy="selectin")
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id], lazy="selectin")
+    landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id], lazy="selectin")
 
     def to_dict(self, viewer_id=None):
         """会话摘要。
@@ -1157,7 +1159,7 @@ class ChatLine(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime,
                                                  default=datetime.now)
 
-    sender: Mapped["User"] = relationship()
+    sender: Mapped["User"] = relationship(lazy="selectin")
 
     def to_dict(self, viewer_id=None):
         return {

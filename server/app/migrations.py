@@ -106,6 +106,52 @@ def _reviews_soft_delete(connection, engine):
     _add_column(connection, engine, "reviews", "deleted_at", "DATETIME")
 
 
+@step("0005", "复合索引：房源筛选、账单、会话消息")
+def _composite_indexes(connection, engine):
+    """把热点查询真正走上索引。
+
+    实测房源筛选的执行计划原先是：
+
+        SEARCH houses USING INDEX ix_houses_status (status=?)
+        USE TEMP B-TREE FOR ORDER BY
+
+    只用上了 status 单列索引，district / rent_price 全靠回表过滤，
+    排序还要另建一棵临时 B 树。单列索引在这种「多条件 + 排序」的查询里
+    基本只起到第一层筛选的作用。
+
+    列的顺序有讲究：**等值条件在前、范围条件在后、排序列最后**。
+    status 与 district 是等值匹配，rent_price 是区间，所以按这个顺序建；
+    反过来（把 rent_price 放前面）后面的等值条件就用不上索引了。
+    """
+    statements = [
+        # 房源筛选：区域 + 价格区间，最常用的一条路径
+        "CREATE INDEX IF NOT EXISTS ix_houses_filter "
+        "ON houses (status, district, rent_price)",
+        # 房源列表默认按发布时间倒序，单独给排序一条
+        "CREATE INDEX IF NOT EXISTS ix_houses_status_published "
+        "ON houses (status, published_at)",
+        # 账单：查「某合同的账单」与「未缴/逾期」都很频繁
+        "CREATE INDEX IF NOT EXISTS ix_bills_contract_status "
+        "ON bills (contract_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_bills_status_due "
+        "ON bills (status, due_date)",
+        # 工单按房源 + 状态查
+        "CREATE INDEX IF NOT EXISTS ix_repairs_house_status "
+        "ON repairs (house_id, status)",
+        # 会话消息的轮询查的是 WHERE conversation_id=? AND id>?。
+        # **这是会长得最快的表**，现在只有单列索引
+        "CREATE INDEX IF NOT EXISTS ix_chat_lines_conv_id "
+        "ON chat_lines (conversation_id, id)",
+        # 预约的时段冲突判断
+        "CREATE INDEX IF NOT EXISTS ix_appointments_house_time "
+        "ON appointments (house_id, viewing_time)",
+    ]
+    for statement in statements:
+        table = statement.split(" ON ")[1].split(" ")[0]
+        if _table_exists(engine, table):
+            connection.execute(text(statement))
+
+
 # ---------------------------------------------------------------- 执行
 
 def _applied(engine, connection):
