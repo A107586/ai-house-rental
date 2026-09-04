@@ -13,6 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 必须在导入 app.db 之前设置，否则会连到默认的 SQLite 文件
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+# 地理编码要打高德的接口。测试**一律不许联网**——联网的测试会在
+# 断网、限流、Key 过期时无缘无故变红，而它们本来测的不是地图服务
+os.environ.setdefault("MAP_GEOCODE_ENABLED", "false")
 
 import unittest  # noqa: E402
 
@@ -47,11 +50,16 @@ def seed(session):
         House(house_no="DL0001", title="中山区两室", landlord_id=landlord.id,
               district="中山区", community="青泥洼桥", rent_price=2800, area=70,
               layout="两室一厅", rent_type="整租", tags="电梯,地铁",
-              description="有电梯近地铁", status="available"),
+              description="有电梯近地铁", status="available",
+              # 标签里写着「电梯」，elevator 列就必须是 True。
+              # 两者不一致正是 K-04 要消灭的那种矛盾，装置里也不该留
+              elevator=True,
+              lng=121.6346, lat=38.9186, location_source="approximate"),
         House(house_no="DL0002", title="甘井子三室", landlord_id=landlord.id,
               district="甘井子区", community="泡崖", rent_price=4200, area=100,
               layout="三室一厅", rent_type="整租", tags="有阳台",
-              status="available"),
+              status="available", lng=121.5550, lat=38.9840,
+              location_source="approximate"),
         House(house_no="DL0003", title="已租房源", landlord_id=landlord.id,
               district="中山区", community="人民路", rent_price=3000, area=80,
               layout="两室一厅", rent_type="整租", status="rented"),

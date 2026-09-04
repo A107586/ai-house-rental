@@ -214,5 +214,45 @@ class TestDistricts(ApiTestCase):
         self.assertEqual(counts.get("中山区"), 1, "已租房源不应计入")
 
 
+class TestMapEndpoint(ApiTestCase):
+    """地图点位接口（/api/houses/map）。"""
+
+    def test_map_endpoint_filters_points_by_bounds(self):
+        """只返回视野矩形内的点。"""
+        data = self.client.get("/api/houses/map", params={
+            "west": 121.62, "south": 38.90,
+            "east": 121.65, "north": 38.93,
+        }).json()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["list"][0]["house_no"], "DL0001")
+        self.assertIn("lng", data["list"][0])
+        # 地图一次要画几百个点，房源描述这种大字段不能跟着下发
+        self.assertNotIn("description", data["list"][0])
+
+    def test_map_endpoint_shares_the_list_filters(self):
+        """**地图和列表必须用同一套筛选。**
+
+        各写一份的话，用户勾了「有电梯」，列表里那套没电梯的房子
+        消失了、地图上却还亮着——而他会以为是地图坏了。
+        """
+        data = self.client.get("/api/houses/map",
+                               params={"district": "中山区"}).json()
+        self.assertEqual([h["house_no"] for h in data["list"]], ["DL0001"])
+
+        # K-04/K-05 补的维度也要在地图上生效，不能只支持最早那几个
+        no_lift = self.client.get("/api/houses/map",
+                                  params={"elevator": "false"}).json()
+        self.assertNotIn("DL0001", [h["house_no"] for h in no_lift["list"]])
+
+    def test_map_skips_houses_without_coordinates(self):
+        """没定过位的房源不进地图。
+
+        硬塞一个默认坐标会让它们全堆在市中心某一点上，
+        比不显示更糟——用户会以为那里真有十几套房。
+        """
+        body = self.client.get("/api/houses/map").json()
+        self.assertTrue(all(h["lng"] and h["lat"] for h in body["list"]))
+
+
 if __name__ == "__main__":
     unittest.main()

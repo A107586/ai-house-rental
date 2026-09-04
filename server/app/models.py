@@ -142,10 +142,18 @@ class House(Base):
     # 而找房的人说的正是「青泥洼桥附近」这种商圈名
     business_area: Mapped[str] = mapped_column(String(30), default="", index=True)
 
-    # 经纬度。地图找房目前是手绘示意图（离线可用，见 MapFinder.jsx），
-    # 有了坐标就能在同一张示意图上按位置打点，仍然不需要联网取瓦片
-    lng: Mapped[float] = mapped_column(Float, nullable=True)
-    lat: Mapped[float] = mapped_column(Float, nullable=True)
+    # 经纬度（GCJ-02）。K-04 落库时的用途是「在离线示意图上按位置打点」，
+    # 接入高德之后它同时是真实地图的点位来源，两条路共用同一对字段。
+    lng: Mapped[float] = mapped_column(Float, nullable=True, index=True)
+    lat: Mapped[float] = mapped_column(Float, nullable=True, index=True)
+
+    # 这个坐标是怎么来的。**必须记，不能只存一对数字**——
+    # 地理编码出来的坐标能精确到门牌，而演示库里的门牌号是随机生成的，
+    # 只能按商圈中心做稳定偏移。两者精度差一个数量级，界面上要不要
+    # 画「大致位置」、要不要拿它算通勤距离，全看这个字段。
+    # geocoded / approximate / manual，空串表示还没定过位。
+    location_source: Mapped[str] = mapped_column(String(20), default="")
+    geocoded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     # ---------------------------------------------------------- K-04 房源核验
     #
@@ -230,6 +238,7 @@ class House(Base):
             "business_area": self.business_area,
             "lng": self.lng,
             "lat": self.lat,
+            "location_source": self.location_source,
             "verify_status": self.verify_status,
             "verify_no": self.verify_no,
             "verified_at": (self.verified_at.strftime("%Y-%m-%d")
@@ -256,6 +265,21 @@ class House(Base):
         "elevator", "decoration", "floor_level", "pay_plan",
         "verify_status", "maintained_at",
     )
+
+    # 地图点位需要的字段。比卡片还要窄——地图上一次要画几百个点，
+    # 而气泡里只放得下标题、价格、户型这几样。
+    MAP_FIELDS = ("house_no", "title", "district", "community", "address",
+                  "rent_price", "area", "layout", "rent_type", "cover_image",
+                  "lng", "lat", "location_source")
+
+    def to_map_dict(self):
+        """地图点位载荷，同样是 `to_dict()` 的子集。
+
+        和 `to_card_dict()` 一个道理：**不另写一份序列化**，
+        否则同一套房在列表、地图、详情三处会慢慢说出三种话。
+        """
+        full = self.to_dict()
+        return {key: full[key] for key in self.MAP_FIELDS if key in full}
 
     def to_card_dict(self):
         """列表卡片用的精简载荷，`to_dict()` 的子集。

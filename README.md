@@ -24,7 +24,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 前端 | React 18 · Vite |
+| 前端 | React 18 · Vite · 高德地图 JavaScript API 2.0 |
 | 后端 | Python · FastAPI · SQLAlchemy |
 | 智能体 | Python · FastAPI · DeepSeek API |
 | 数据库 | 开发用 SQLite，部署用 MySQL |
@@ -47,6 +47,11 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 
 打开 **<http://localhost:8080>** 就是完整网站——业务后端直接托管前端构建产物，
 不需要单独启动前端服务。
+
+真实地图要分别配置高德的 Web 端与 Web 服务两套凭据：把
+`web/.env.example` 复制成 `web/.env.local`、`server/.env.example` 复制成
+`server/.env`，填进各自的 Key。**没配也能跑**——地图会自动退回离线的
+行政区示意图，房源点位改用商圈中心的近似坐标，功能不缺，只是不精确。
 
 | 地址 | 说明 |
 |---|---|

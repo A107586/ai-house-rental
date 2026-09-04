@@ -37,7 +37,8 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User)
-from app import (config_store, idcard, moderation, oplog, pricing,
+from app import (config_store, idcard, map_service, moderation, oplog,
+                 pricing,
                  ratelimit,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
@@ -463,6 +464,71 @@ def list_houses(
     # 序列化一遍房源描述、整个相册数组和费用明细（见 House.to_card_dict）
     return {"total": total, "page": page, "limit": limit,
             "list": [h.to_card_dict() for h in rows]}
+
+
+@app.get("/api/houses/map")
+def map_houses(
+    district: str = "",
+    layout: str = "",
+    rent_type: str = "",
+    rent_price_min: float | None = None,
+    rent_price_max: float | None = None,
+    area_min: float | None = None,
+    area_max: float | None = None,
+    keyword: str = "",
+    orientation: str = "",
+    floor_level: str = "",
+    elevator: bool | None = None,
+    decoration: str = "",
+    heating: str = "",
+    lease_term: str = "",
+    available_days: int | None = None,
+    features: str = "",
+    west: float | None = None,
+    south: float | None = None,
+    east: float | None = None,
+    north: float | None = None,
+    limit: int = Query(500, ge=1, le=1000),
+    session: Session = Depends(get_session),
+):
+    """当前筛选条件 + 地图视口内的可租房源点位。
+
+    **必须声明在 `/api/houses/{house_no}` 之前**，否则 FastAPI 会把
+    `map` 当成一个房源编号去匹配那条路由，这个接口永远走不到。
+
+    筛选条件走 `house_query.apply_filters`，和列表接口同一套。
+    这一点不能省：地图和列表是同一次检索的两种看法，各写一份筛选的话，
+    用户勾了「有电梯」，列表里那套没电梯的房子消失了、地图上却还亮着——
+    而他会以为是地图坏了。同事那版只覆盖了 7 个维度，
+    K-04/K-05 补的朝向、楼层、电梯、装修、租期、可入住日全都漏在外面。
+
+    只返回有坐标的房源。没定过位的房子在地图上无处可画，
+    硬塞一个默认坐标会让它们全堆在市中心某一点上。
+    """
+    stmt = select(House).where(
+        House.status == "available",
+        House.lng.isnot(None),
+        House.lat.isnot(None),
+    )
+    stmt = house_query.apply_filters(stmt, {
+        "district": district, "layout": layout, "rent_type": rent_type,
+        "rent_price_min": rent_price_min, "rent_price_max": rent_price_max,
+        "area_min": area_min, "area_max": area_max, "keyword": keyword,
+        "orientation": orientation, "floor_level": floor_level,
+        "elevator": elevator, "decoration": decoration, "heating": heating,
+        "lease_term": lease_term, "available_days": available_days,
+        "features": features,
+    })
+
+    # 视野四个角要么齐全、要么当没传。只给两个角的半截参数
+    # 拿去过滤，结果是一片说不清对不对的点
+    if None not in (west, south, east, north):
+        stmt = stmt.where(House.lng >= west, House.lng <= east,
+                          House.lat >= south, House.lat <= north)
+
+    rows = session.scalars(
+        stmt.order_by(House.published_at.desc()).limit(limit)).all()
+    return {"total": len(rows), "list": [h.to_map_dict() for h in rows]}
 
 
 @app.get("/api/houses/{house_no}")

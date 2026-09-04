@@ -106,6 +106,8 @@ export const api = {
 
   // ---------------- 房源 ----------------
   listHouses: (params = {}) => request(`/api/houses?${toQuery(params)}`),
+  // 地图点位：同一套筛选条件 + 视野四角，返回比卡片更窄的载荷
+  mapHouses: (params = {}) => request(`/api/houses/map?${toQuery(params)}`),
   getHouse: (houseNo) => request(`/api/houses/${houseNo}`),
   listDistricts: () => request('/api/districts'),
   houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),

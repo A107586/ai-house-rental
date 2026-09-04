@@ -311,3 +311,34 @@ def _house_images_meta(connection, engine):
     connection.execute(text(
         "CREATE INDEX IF NOT EXISTS ix_house_images_hash "
         "ON house_images (hash)"))
+
+
+@step("0009", "房源表：坐标来源与地图边界索引（地图找房）")
+def _houses_location_source(connection, engine):
+    """接入高德之后补的两列，外加一条按视野取点的索引。
+
+    **经纬度本身在 0007 就加了**（K-04），这里只补「这坐标是怎么来的」。
+    地理编码出来的坐标能精确到门牌，而演示库的门牌号是随机生成的、
+    只能按商圈中心做稳定偏移——两者精度差一个数量级，界面上要不要
+    标「大致位置」、能不能拿它算通勤距离，全看这个字段。
+
+    **步骤号是 0009 而不是 0006。** 同事那版原本写的是 0006，
+    但 0006 已经被三段式支付（D-1）占了：`schema_migrations` 里一旦
+    记下 0006，这一步就会被当成执行过而**永远跳过**，坐标列建不出来，
+    地图接口在老库上直接 500。版本号一经发布不能重排，只能往后追加。
+
+    索引放 (status, lng, lat)：地图取点永远带着「只看可租的」这个前提，
+    等值条件在前、范围条件在后。
+    """
+    if not _table_exists(engine, "houses"):
+        return
+    _add_column(connection, engine, "houses", "location_source",
+                "VARCHAR(20) NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "houses", "geocoded_at", "DATETIME")
+    for statement in (
+        "CREATE INDEX IF NOT EXISTS ix_houses_map_bounds "
+        "ON houses (status, lng, lat)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_lng ON houses (lng)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_lat ON houses (lat)",
+    ):
+        connection.execute(text(statement))

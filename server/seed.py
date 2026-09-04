@@ -23,6 +23,7 @@ from sqlalchemy import select  # noqa: E402
 
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
+from app.map_service import approximate_coordinates  # noqa: E402
 from app.models import (Appointment, Base, BrowsingHistory,  # noqa: E402
                         Faq,
                         ContentFlag, Favorite, House, HouseImage, Notice,
@@ -71,16 +72,13 @@ HEATINGS = ["集中供暖", "集中供暖", "集中供暖", "自采暖"]
 PAY_PLANS = [(1, 1), (1, 1), (1, 1), (1, 3), (2, 1), (0, 1)]
 
 # 各区中心坐标，用于地图打点（K-04）。
-# 房源坐标 = 区中心 + 小幅抖动：真实小区坐标要逐个查，这里只需要
-# 「点落在正确的区里、彼此不重叠」，抖动就够了。
-DISTRICT_CENTER = {
-    "中山区": (121.6447, 38.9186),
-    "西岗区": (121.6123, 38.9147),
-    "沙河口区": (121.5806, 38.9046),
-    "甘井子区": (121.5657, 38.9530),
-    "旅顺口区": (121.2620, 38.8514),
-    "金州区": (121.7176, 39.1041),
-}
+# 房源坐标由 app/map_service.approximate_coordinates 生成：
+# 商圈中心 + 按房号哈希出来的稳定偏移。
+#
+# 原先这里是「区中心 + random.uniform 抖动」，换掉的理由有两个：
+# 商圈级比区级准一个数量级（青泥洼桥和海军广场同属中山区，
+# 实际差着好几公里）；而且哈希是**确定的**——重新 seed 一次，
+# 同一套房还在同一个点上，随机抖动则每次都飘，演示截图对不上。
 
 DESC_TEMPLATES = [
     "{community}成熟社区，{layout}，{orientation}，{area}平米。{tag_text}房源干净整洁，随时可看房。",
@@ -151,7 +149,10 @@ def build_house(index, landlord, district, layout_spec):
     # 押金按押付方式折算，和 houses.deposit 始终是同一个数（K-02）
     deposit = price * deposit_months
 
-    lng_c, lat_c = DISTRICT_CENTER[district]
+    # 坐标：商圈中心 + 按房号哈希的稳定偏移（见 map_service）
+    coordinates = approximate_coordinates(district, community,
+                                          "DL%04d" % index)
+    lng, lat = coordinates if coordinates else (None, None)
 
     # 核验状态：大部分已核验，留一部分待核验和未核验，
     # 好让详情页上的核验条三种样子都演示得出来
@@ -202,8 +203,12 @@ def build_house(index, landlord, district, layout_spec):
         service_fee=(round(price * 0.05 / 10) * 10
                      if random.random() < 0.35 else 0),
         business_area=community,
-        lng=round(lng_c + random.uniform(-0.012, 0.012), 6),
-        lat=round(lat_c + random.uniform(-0.010, 0.010), 6),
+        lng=lng,
+        lat=lat,
+        # 演示库的门牌号是随机生成的，坐标只能是「大致位置」。
+        # 如实记下来源，界面上才知道该不该标注这一点
+        location_source="approximate" if coordinates else "",
+        geocoded_at=datetime.now() if coordinates else None,
         verify_status=verify_status,
         verify_no=verify_no,
         verified_at=verified_at,

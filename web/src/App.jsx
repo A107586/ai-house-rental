@@ -17,7 +17,9 @@ const MyPanel = lazy(() => import('./components/MyPanel'))
 const HouseDrawer = lazy(() => import('./components/HouseDrawer'))
 const ChatPanel = lazy(() => import('./components/ChatPanel'))
 const ChatWithLandlord = lazy(() => import('./components/ChatWithLandlord'))
-const MapFinder = lazy(() => import('./components/MapFinder'))
+// 真实地图（高德）。没配 Key 或加载失败时它内部会退回
+// 离线的行政区示意图（MapFinder），所以这里只引这一个
+const MapFinder = lazy(() => import('./components/AmapFinder'))
 const AuthDialog = lazy(() => import('./components/AuthDialog'))
 import ErrorBoundary from './components/ErrorBoundary'
 import ActiveFilters from './components/ActiveFilters'
@@ -499,7 +501,12 @@ export default function App() {
         </div>
 
         {showMap && (
-          <MapFinder selected={filters.district || ''} onPick={pickDistrict} />
+          <MapFinder
+            selected={filters.district || ''}
+            filters={filters}
+            onPick={pickDistrict}
+            onOpen={(house) => go('house', house.house_no)}
+          />
         )}
 
         {/* 筛选栏不再对智能搜索隐藏。它改的就是智能体填进来的那份条件，

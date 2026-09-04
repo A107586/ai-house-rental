@@ -6,6 +6,7 @@
   --ink-2: #44586b;
   --muted: #7a8b9c;
   --line: #dfe5ec;
+  --agent: #0f6f68;
 
   --brand: #0f6f68;
   --brand-soft: #e3f1ef;
@@ -4330,3 +4331,140 @@ button.account-row:last-child { border-bottom: none; }
 .card-trust .maintained {
   margin-left: auto;
 }
+
+/* ---------------- 地图找房（高德） ---------------- */
+.amap-finder {
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.amap-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.amap-container {
+  width: 100%;
+  height: min(62vh, 560px);
+  min-height: 390px;
+}
+
+.amap-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: linear-gradient(160deg, #eef4f7, #e6eef3);
+}
+
+.map-legend {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.map-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.map-legend i.match {
+  background: var(--accent);
+}
+
+.map-price-marker {
+  position: relative;
+  border: 0;
+  border-radius: 18px;
+  padding: 6px 10px;
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 4px 12px rgba(30, 42, 50, 0.24);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.map-price-marker::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.map-price-marker:hover {
+  transform: translateY(-2px);
+}
+
+.map-house-popup {
+  display: grid;
+  gap: 7px;
+  min-width: 220px;
+  padding: 4px;
+  color: var(--ink);
+}
+
+.map-house-popup strong {
+  font-size: 15px;
+}
+
+.map-house-popup span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.map-house-popup em {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.map-house-popup b {
+  color: var(--accent);
+  font-size: 17px;
+}
+
+.map-fallback-note {
+  margin: 12px 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+  .amap-container {
+    height: 58vh;
+    min-height: 360px;
+  }
+
+  .map-legend {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
