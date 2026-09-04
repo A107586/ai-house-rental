@@ -342,3 +342,61 @@ def _houses_location_source(connection, engine):
         "CREATE INDEX IF NOT EXISTS ix_houses_lat ON houses (lat)",
     ):
         connection.execute(text(statement))
+
+
+@step("0010", "中介：委托、带看、佣金的查询索引（J 系列）")
+def _agent_indexes(connection, engine):
+    """四张新表本身由 create_all 建出来，这里只补索引。
+
+    为什么要单独一步：新表是 create_all 负责的，它只认「表在不在」，
+    不认索引；而这几条索引服务的都是工作台上会反复打的查询——
+    「我在托哪些房」「我近 30 天带了多少看」「谁还欠我佣金」。
+    没有它们，中介一多，工作台每开一次就是几次全表扫描。
+
+    列的顺序照 0005 那条的规矩：**等值条件在前、范围条件在后**。
+    """
+    pairs = (
+        # 「这套房现在有没有生效中的委托」——can_manage_house 每次鉴权都问
+        ("house_delegations",
+         "CREATE INDEX IF NOT EXISTS ix_delegations_house_status "
+         "ON house_delegations (house_id, status)"),
+        # 「我手上在托几套」「有哪些邀请等我确认」
+        ("house_delegations",
+         "CREATE INDEX IF NOT EXISTS ix_delegations_agent_status "
+         "ON house_delegations (agent_id, status)"),
+        ("house_delegations",
+         "CREATE INDEX IF NOT EXISTS ix_delegations_landlord_status "
+         "ON house_delegations (landlord_id, status)"),
+        # 近 30 天带看：agent 等值 + 时间范围
+        ("viewing_records",
+         "CREATE INDEX IF NOT EXISTS ix_viewings_agent_time "
+         "ON viewing_records (agent_id, created_at)"),
+        ("viewing_records",
+         "CREATE INDEX IF NOT EXISTS ix_viewings_house_time "
+         "ON viewing_records (house_id, created_at)"),
+        # 待结佣金
+        ("agent_commissions",
+         "CREATE INDEX IF NOT EXISTS ix_commissions_agent_status "
+         "ON agent_commissions (agent_id, status)"),
+        # 资质待审队列
+        ("agent_profiles",
+         "CREATE INDEX IF NOT EXISTS ix_agent_license_status "
+         "ON agent_profiles (license_status)"),
+    )
+    for table, statement in pairs:
+        if _table_exists(engine, table):
+            connection.execute(text(statement))
+
+
+@step("0011", "合同表：促成中介（J-06）")
+def _contracts_agent(connection, engine):
+    """合同上记一个促成中介，用于算佣金与「累计成交」。
+
+    **甲方仍然是房东**，中介不是合同的一方，所以这个字段不进合同正文，
+    也允许为空——房东自管的房源签出来的合同就是没有中介。
+    """
+    _add_column(connection, engine, "contracts", "agent_id", "INTEGER")
+    if _table_exists(engine, "contracts"):
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_contracts_agent "
+            "ON contracts (agent_id)"))

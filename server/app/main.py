@@ -28,7 +28,11 @@ from app import gateway, house_query, leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
-from app.deps import current_user, require_login, require_staff
+from app.deps import (current_user, require_house_manager,
+                      require_login, require_staff)
+from app.permissions import (active_delegation, can_manage_house,
+                             require_can_manage_house,
+                             responsible_user_id)
 from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
                         ChatMessage, Conversation,
                         Faq, SupportHandoff, SupportLog,
@@ -48,7 +52,7 @@ from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          PayRequest, ProfileUpdate, RegisterRequest,
                          RepairCreate, RepairUpdate, ReviewCreate,
                          UserUpdate)
-from app.routers import (account, conversation, password_reset,
+from app.routers import (account, agent, conversation, password_reset,
                          repair_data, reports, saved_search, support)
 from app.security import hash_password, verify_password
 
@@ -146,6 +150,7 @@ app.include_router(reports.router)
 app.include_router(saved_search.router)
 app.include_router(password_reset.router)
 app.include_router(account.router)
+app.include_router(agent.router)
 
 
 # 一次看房占用多久由系统配置决定（M-09），这里只是配置缺失时的兜底。
@@ -740,7 +745,7 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
 
 @app.patch("/api/houses/{house_no}/status")
 def update_house_status(house_no: str, status: str,
-                        user: User = Depends(require_staff),
+                        user: User = Depends(require_house_manager),
                         session: Session = Depends(get_session)):
     """上下架或审核房源。房东只能改自己的房源。"""
     if status not in ("available", "rented", "offline", "pending"):
@@ -749,8 +754,9 @@ def update_house_status(house_no: str, status: str,
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
-    if user.role != "admin" and house.landlord_id != user.id:
-        raise HTTPException(status_code=403, detail="只能修改自己发布的房源")
+    # 受托中介也管得了（J-02）。判断只写在 app/permissions 一处，
+    # 散着写就是这次改造要收拾的那种局面
+    require_can_manage_house(session, user, house)
 
     house.status = status
     session.commit()
@@ -771,7 +777,7 @@ def list_districts(session: Session = Depends(get_session)):
 
 @app.put("/api/houses/{house_no}")
 def update_house(house_no: str, payload: HouseUpdate,
-                 user: User = Depends(require_staff),
+                 user: User = Depends(require_house_manager),
                  session: Session = Depends(get_session)):
     """编辑房源内容。对应需求 F-01 此前缺失的「修改」。
 
@@ -781,8 +787,9 @@ def update_house(house_no: str, payload: HouseUpdate,
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
-    if user.role != "admin" and house.landlord_id != user.id:
-        raise HTTPException(status_code=403, detail="只能修改自己发布的房源")
+    # 受托中介也管得了（J-02）。判断只写在 app/permissions 一处，
+    # 散着写就是这次改造要收拾的那种局面
+    require_can_manage_house(session, user, house)
 
     fields = payload.model_dump(exclude_unset=True, exclude_none=True)
     tags = fields.pop("tags", None)
@@ -989,7 +996,7 @@ def _make_verify_no(house):
 
 
 @app.post("/api/houses/{house_no}/verify-request")
-def request_verify(house_no: str, user: User = Depends(require_staff),
+def request_verify(house_no: str, user: User = Depends(require_house_manager),
                    session: Session = Depends(get_session)):
     """房东提交核验申请。
 
@@ -999,8 +1006,8 @@ def request_verify(house_no: str, user: User = Depends(require_staff),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
-    if user.role != "admin" and house.landlord_id != user.id:
-        raise HTTPException(status_code=403, detail="只能为自己的房源申请核验")
+    # 房东可以把「提交核验材料」这件事一并委托出去（J-02）
+    require_can_manage_house(session, user, house)
     if house.verify_status not in VERIFY_SUBMITTABLE:
         raise HTTPException(
             status_code=409,
@@ -2455,7 +2462,7 @@ def clear_chat(session_id: str, user: User = Depends(require_login),
 
 @app.get("/api/pricing/suggest")
 def pricing_suggest(district: str, layout: str = "", area: float = 0,
-                    user: User = Depends(require_staff),
+                    user: User = Depends(require_house_manager),
                     session: Session = Depends(get_session)):
     """定价建议（L-10）。
 
@@ -2590,9 +2597,13 @@ def _house_or_404(session, house_no):
     return house
 
 
-def _require_house_owner(user, house):
-    if user.role != "admin" and house.landlord_id != user.id:
-        raise HTTPException(status_code=403, detail="只能管理自己的房源")
+def _require_house_owner(session, user, house):
+    """保留这个名字是为了少改调用点，实际判断在 app/permissions。
+
+    改造前它写死了「admin 或 landlord_id 相等」，中介一律 403。
+    现在受托中介也能过——但**只对他受托的那几套**（J-02）。
+    """
+    require_can_manage_house(session, user, house)
 
 
 if HAS_UPLOAD:
@@ -2633,7 +2644,7 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
                     height: int = Body(default=0, embed=True),
                     file_size: int = Body(default=0, embed=True),
                     hash: str = Body(default="", embed=True),
-                    user: User = Depends(require_staff),
+                    user: User = Depends(require_house_manager),
                     session: Session = Depends(get_session)):
     """把已上传的图片挂到房源上。
 
@@ -2641,7 +2652,7 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
     外部站点，那个站点就能拿到每个访客的 IP 与访问时间。
     """
     house = _house_or_404(session, house_no)
-    _require_house_owner(user, house)
+    _require_house_owner(session, user, house)
     if not uploads.is_managed(url):
         raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
 
@@ -2668,10 +2679,10 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
 
 @app.delete("/api/houses/{house_no}/images/{image_id}")
 def delete_house_image(house_no: str, image_id: int,
-                       user: User = Depends(require_staff),
+                       user: User = Depends(require_house_manager),
                        session: Session = Depends(get_session)):
     house = _house_or_404(session, house_no)
-    _require_house_owner(user, house)
+    _require_house_owner(session, user, house)
     image = session.get(HouseImage, image_id)
     if not image or image.house_id != house.id:
         raise HTTPException(status_code=404, detail="图片不存在")
@@ -2709,10 +2720,10 @@ def list_house_images(house_no: str, session: Session = Depends(get_session)):
 
 @app.post("/api/houses/{house_no}/images/{image_id}/cover")
 def set_cover(house_no: str, image_id: int,
-              user: User = Depends(require_staff),
+              user: User = Depends(require_house_manager),
               session: Session = Depends(get_session)):
     house = _house_or_404(session, house_no)
-    _require_house_owner(user, house)
+    _require_house_owner(session, user, house)
     image = session.get(HouseImage, image_id)
     if not image or image.house_id != house.id:
         raise HTTPException(status_code=404, detail="图片不存在")
