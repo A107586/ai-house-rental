@@ -12,6 +12,7 @@ import useHashRoute from './useHashRoute'
 // 而不是转圈：这些块只有几十 KB，本地几乎瞬间到位，闪一下加载动画
 // 反而更晃眼。
 const AdminPanel = lazy(() => import('./components/AdminPanel'))
+const AgentPanel = lazy(() => import('./components/AgentPanel'))
 const LandlordPanel = lazy(() => import('./components/LandlordPanel'))
 const MyPanel = lazy(() => import('./components/MyPanel'))
 const HouseDrawer = lazy(() => import('./components/HouseDrawer'))
@@ -360,7 +361,10 @@ export default function App() {
 
             {user ? (
               <>
-                {(user.role === 'landlord' || user.role === 'admin') && (
+                {/* 这里写死三个角色而不是 `role !== 'tenant'`：
+                    下面的渲染分支是按角色一个个列出来的，用「不等于租客」
+                    的话，将来加一个新角色就会得到一个点开全白的抽屉 */}
+                {['landlord', 'agent', 'admin'].includes(user.role) && (
                   <button className="btn ghost small" onClick={() => setShowWork(true)}>
                     {user.role === 'admin' ? '管理后台' : '工作台'}
                   </button>
@@ -666,6 +670,19 @@ export default function App() {
             onOpenHouse={(house) => {
               // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
               // 所以先关掉工作台再打开房源
+              setShowWork(false)
+              go('house', house.house_no)
+            }}
+          />
+        </ErrorBoundary>
+      )}
+
+      {showWork && user?.role === 'agent' && (
+        <ErrorBoundary label="中介工作台">
+          <AgentPanel
+            user={user}
+            onClose={() => setShowWork(false)}
+            onOpenHouse={(house) => {
               setShowWork(false)
               go('house', house.house_no)
             }}

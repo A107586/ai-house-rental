@@ -560,6 +560,11 @@ class Contract(Base):
     house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"), nullable=False, index=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     landlord_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    # 促成这单的中介（J-06）。**甲方仍然是房东**——中介不是合同的一方，
+    # 这个字段只用来算佣金和「累计成交」，不进合同正文；
+    # 房东自管的房源签出来的合同这里就是空的
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                          nullable=True, index=True)
 
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -903,9 +908,8 @@ class Review(Base):
     def to_dict(self):
         name = ""
         if self.tenant:
-            raw = self.tenant.real_name or self.tenant.username
             # 评价对所有人可见，只露姓氏，其余打码
-            name = raw[0] + "*" * max(len(raw) - 1, 1)
+            name = mask_name(self.tenant)
         return {
             "id": self.id,
             "rating": self.rating,
@@ -1369,31 +1373,49 @@ class Conversation(Base):
     tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id], lazy="selectin")
     landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id], lazy="selectin")
 
-    def to_dict(self, viewer_id=None):
+    def to_dict(self, viewer_id=None, responder=None):
         """会话摘要。
 
         未读数按**查看者**给：同一个会话，租客和房东看到的未读数不同。
         对方姓名只露姓氏——会话列表不是通讯录。
+
+        判断的是「**是不是租客那一侧**」，不是「是不是房东本人」。
+        委托期间受托中介也会来读这个会话（J-03），他站在房东一侧，
+        对面同样是租客。原来写成 `viewer_id == self.landlord_id`，
+        中介进来会被当成第三种人，看到的「对方」变成房东——
+        而他要联系的明明是租客。
+
+        `responder` 是当前负责答的那个 User（委托中即受托中介），
+        由路由层查好传进来。模型层拿不到 session，也不该为了显示
+        一个称谓去查委托。
         """
         def masked(user):
-            if not user:
-                return ""
-            raw = user.real_name or user.username
-            return raw[0] + "*" * max(len(raw) - 1, 1)
+            return mask_name(user)
 
-        is_landlord = viewer_id == self.landlord_id
+        is_tenant = viewer_id == self.tenant_id
+        if is_tenant:
+            # 租客看到的「对方」是当前负责答的人，称谓也随之变。
+            # 一直显示「房东」而实际由中介在回，租客会以为在和房东
+            # 直接谈价——那是会出纠纷的误导。
+            peer = responder or self.landlord
+            peer_role = "经纪人" if (responder
+                                 and responder.id != self.landlord_id)                 else "房东"
+        else:
+            peer = self.tenant
+            peer_role = "租客"
+
         return {
             "id": self.id,
             "house_no": self.house.house_no if self.house else "",
             "house_title": self.house.title if self.house else "",
             "cover_image": self.house.cover_image if self.house else "",
             "rent_price": float(self.house.rent_price) if self.house else 0,
-            "peer_name": masked(self.tenant if is_landlord else self.landlord),
-            "peer_role": "租客" if is_landlord else "房东",
+            "peer_name": masked(peer),
+            "peer_role": peer_role,
             "last_message": self.last_message,
             "last_at": self.last_at.strftime("%Y-%m-%d %H:%M"),
-            "unread": (self.landlord_unread if is_landlord
-                       else self.tenant_unread),
+            "unread": (self.tenant_unread if is_tenant
+                       else self.landlord_unread),
             "status": self.status,
         }
 
@@ -1416,14 +1438,50 @@ class ChatLine(Base):
 
     sender: Mapped["User"] = relationship(lazy="selectin")
 
-    def to_dict(self, viewer_id=None):
+    def to_dict(self, viewer_id=None, tenant_id=None, sender_label=""):
+        """一条消息。
+
+        `mine` 是**按「哪一侧」算的，不是按「谁发的」**。会话只有两侧，
+        气泡的左右表达的也是侧，不是人。委托期间中介进来看历史记录时，
+        如果按发送者算，房东此前回的那几句会跑到租客那一侧去——
+        中介会当场读错是谁说的。
+
+        代价是同一侧内部分不清是房东还是中介说的，所以补一个
+        `sender_label`：不是本人发的就标出来是谁。
+        """
+        if tenant_id is None:
+            mine = self.sender_id == viewer_id
+        else:
+            viewer_is_tenant = viewer_id == tenant_id
+            sender_is_tenant = self.sender_id == tenant_id
+            mine = viewer_is_tenant == sender_is_tenant
         return {
             "id": self.id,
             "content": self.content,
             "kind": self.kind,
-            "mine": self.sender_id == viewer_id,
+            "mine": mine,
+            # 同一侧里不是自己发的才标，否则每条都挂个名字很吵
+            "sender_label": (sender_label
+                             if mine and self.sender_id != viewer_id else ""),
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
         }
+
+
+def mask_name(user):
+    """姓名只露姓氏。
+
+    这个写法原本在评价、会话、带看三处各抄了一遍
+    （`raw[0] + "*" * ...`）。抽出来不是为了少写几个字符，
+    是为了「露几个字」这件事将来只需要改一处——
+    脱敏规则散在三个地方，改的时候必定漏掉一个。
+    """
+    if not user:
+        return ""
+    raw = (getattr(user, "real_name", "") or getattr(user, "username", "")
+           or "")
+    if not raw:
+        return ""
+    return raw[0] + "*" * max(len(raw) - 1, 1)
 
 
 def mask_phone(phone):
@@ -1593,3 +1651,271 @@ class PasswordReset(Base):
     def is_usable(self, now=None):
         now = now or datetime.now()
         return self.used_at is None and self.expires_at > now
+
+
+# ============================================================ J 系列 中介
+#
+# 设计依据见 docs/中介功能设计方案.md。四张表对应一条服务链：
+#
+#     房东委托 ──> 中介带看 ──> 促成签约 ──> 结算佣金
+#     delegations  viewing_records  contracts   commissions
+#
+# **一个统计字段都不存**（R-05）：在托量、带看量、成交量、好评率
+# 全部由这几张明细表实时聚合。存汇总的下场是它和明细对不上，
+# 而对不上的时候没人知道该信哪个。
+
+
+class AgentProfile(Base):
+    """中介档案（J-01）。
+
+    和 users 一对一。为什么不把这些列直接加到 users 上：这里绝大多数
+    字段只对 role 为 agent 的人有意义，加上去等于让每个租客都背着
+    一串永远为空的从业资质字段。
+    """
+
+    __tablename__ = "agent_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                         nullable=False, unique=True,
+                                         index=True)
+
+    # ---- 资质核验。状态机与 K-07 房源核验同构，刻意不另发明一套 ----
+    # unsubmitted 未提交 / pending 待审核 / approved 已通过 / rejected 未通过
+    license_status: Mapped[str] = mapped_column(String(20),
+                                                default="unsubmitted",
+                                                index=True)
+    license_no: Mapped[str] = mapped_column(String(40), default="")
+    license_images: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                             nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    reject_reason: Mapped[str] = mapped_column(String(200), default="")
+
+    # ---- 对外展示 ----
+    # 主营区域，逗号分隔（对标贝壳的「主营商圈」）
+    service_districts: Mapped[str] = mapped_column(String(120), default="")
+    intro: Mapped[str] = mapped_column(String(300), default="")
+    # 从业年限。**这是唯一允许自填的展示字段**，其余全部聚合得出
+    years: Mapped[int] = mapped_column(Integer, default=0)
+    # 休假或满负荷时关掉，关掉后不出现在派单候选里
+    accepting: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id],
+                                        lazy="selectin")
+
+    @property
+    def districts(self):
+        return [d for d in (self.service_districts or "").split(",") if d]
+
+    @property
+    def can_take_orders(self):
+        """能不能接单。
+
+        **未核验一律不许接单。** 这和 K-07「未核验不画成已核验的样子」
+        是同一条原则的两面：那边是不美化，这边是不放行——一个没验过
+        资质的人代表平台去见租客，风险比一条假房源大得多。
+        """
+        return self.license_status == "approved" and self.accepting
+
+    def to_dict(self, contact=False):
+        data = {
+            "user_id": self.user_id,
+            "username": self.user.username if self.user else "",
+            "name": self.user.real_name if self.user else "",
+            "license_status": self.license_status,
+            "license_no": self.license_no,
+            "districts": self.districts,
+            "intro": self.intro,
+            "years": self.years,
+            "accepting": self.accepting,
+            "can_take_orders": self.can_take_orders,
+            "reject_reason": self.reject_reason,
+            "reviewed_at": (self.reviewed_at.strftime("%Y-%m-%d")
+                            if self.reviewed_at else ""),
+        }
+        # 手机号只在明确需要联系时给，且仍然是掩码（R-02、J-07）。
+        # 平台的价值就在于居间，把号码摆出来等于鼓励绕过平台私下成交
+        if contact and self.user:
+            data["phone"] = mask_phone(self.user.phone)
+        return data
+
+
+class HouseDelegation(Base):
+    """房源委托（J-04）——中介这条链的核心表。
+
+    三条硬约束，都在业务层强制：
+
+    1. **双向确认才生效。** 房东可以邀请中介、中介也可以申请接单，
+       但都要另一方点头。单方面就能建立委托，等于允许中介给自己派活。
+    2. **一套房同时只能有一个 active 委托。** 两个中介同时在托，
+       带看归谁、佣金归谁就说不清了——这正是贝壳要用 ACN 那一整套
+       规则去解决的问题，而我们没有解决它的必要。
+    3. **房源下架或签约生效时自动结束**，不留悬空关系。
+    """
+
+    __tablename__ = "house_delegations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"),
+                                          nullable=False, index=True)
+    landlord_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                             nullable=False, index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                          nullable=False, index=True)
+
+    # pending 待确认 / active 生效中 / rejected 已拒绝 / ended 已结束
+    status: Mapped[str] = mapped_column(String(20), default="pending",
+                                        index=True)
+    # landlord 或 agent，决定该由谁来确认
+    initiated_by: Mapped[str] = mapped_column(String(10), default="landlord")
+
+    # 佣金比例，按月租金的百分比。50 表示半个月租金
+    commission_rate: Mapped[float] = mapped_column(Numeric(5, 2), default=50)
+
+    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    end_reason: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    house: Mapped["House"] = relationship(lazy="selectin")
+    agent: Mapped["User"] = relationship(foreign_keys=[agent_id],
+                                         lazy="selectin")
+    landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id],
+                                            lazy="selectin")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "house_no": self.house.house_no if self.house else "",
+            "house_title": self.house.title if self.house else "",
+            "district": self.house.district if self.house else "",
+            "rent_price": float(self.house.rent_price) if self.house else 0,
+            "agent_id": self.agent_id,
+            "agent_name": (self.agent.real_name or self.agent.username
+                           if self.agent else ""),
+            "landlord_id": self.landlord_id,
+            "landlord_name": (self.landlord.real_name or self.landlord.username
+                              if self.landlord else ""),
+            "status": self.status,
+            "initiated_by": self.initiated_by,
+            "commission_rate": float(self.commission_rate),
+            "end_reason": self.end_reason,
+            "start_at": (self.start_at.strftime("%Y-%m-%d")
+                         if self.start_at else ""),
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class ViewingRecord(Base):
+    """带看记录（J-05）。
+
+    贝壳把带看当成一等数据（ACN 里它直接参与分佣），我们也该如此。
+    改造前系统里只有「预约」，**没有「预约之后发生了什么」**——
+    房东看得到有人约，看不到有没有来、看了觉得怎么样。
+    而后者才是他把带看委托出去之后唯一想知道的事。
+    """
+
+    __tablename__ = "viewing_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"),
+                                                nullable=True, index=True)
+    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id"),
+                                          nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                           nullable=False, index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                          nullable=False, index=True)
+
+    # 租客有没有到场。放鸽子率是有意义的信号，但**要和中介的服务质量
+    # 区分开**——这个数高通常说明预约确认流程有问题，不是中介的错
+    showed_up: Mapped[bool] = mapped_column(Boolean, default=True)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    feedback: Mapped[str] = mapped_column(Text, default="")
+    # 结构化的关注点与异议，逗号分隔。同一套房被三个人嫌厨房小，
+    # 房东就该降价或在描述里说明了
+    concerns: Mapped[str] = mapped_column(String(200), default="")
+    # high 意向强 / medium 一般 / low 意向弱
+    intention: Mapped[str] = mapped_column(String(10), default="medium",
+                                           index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                 index=True)
+
+    house: Mapped["House"] = relationship(lazy="selectin")
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id],
+                                          lazy="selectin")
+
+    INTENTIONS = {"high": "意向强", "medium": "一般", "low": "意向弱"}
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "house_no": self.house.house_no if self.house else "",
+            "house_title": self.house.title if self.house else "",
+            "tenant_name": mask_name(self.tenant) if self.tenant else "租客",
+            "showed_up": self.showed_up,
+            "duration_minutes": self.duration_minutes,
+            "feedback": self.feedback,
+            "concerns": [c for c in (self.concerns or "").split(",") if c],
+            "intention": self.intention,
+            "intention_label": self.INTENTIONS.get(self.intention,
+                                                   self.intention),
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+
+
+class AgentCommission(Base):
+    """佣金（J-06）。
+
+    **不复用 bills / payments。** 那两张表描述的是「租客付给房东」的
+    交易链，字段（type、due_date、contract_id 的语义）全是按那条链
+    设计的；佣金是「房东付给中介」，付款方、收款方、触发条件都不同，
+    塞进去只会让两边的字段互相为空——和 K-08 不复用 content_flags
+    是同一条理由。
+
+    结算不接真实资金，与《待完善清单》D-1 同一个边界：
+    状态机做全，钱线下结。
+    """
+
+    __tablename__ = "agent_commissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"),
+                                             nullable=False, index=True)
+    delegation_id: Mapped[int] = mapped_column(
+        ForeignKey("house_delegations.id"), nullable=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                          nullable=False, index=True)
+
+    # 计佣基数（月租金）与比例分开存。只存最终金额的话，事后想核对
+    # 「这笔是怎么算出来的」就查不了了
+    base_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    rate: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+
+    # pending 待结算 / settled 已结算 / cancelled 已取消
+    status: Mapped[str] = mapped_column(String(20), default="pending",
+                                        index=True)
+    settled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    contract: Mapped["Contract"] = relationship(lazy="selectin")
+
+    def to_dict(self):
+        contract = self.contract
+        return {
+            "id": self.id,
+            "contract_no": contract.contract_no if contract else "",
+            "house_no": (contract.house.house_no
+                         if contract and contract.house else ""),
+            "base_amount": float(self.base_amount),
+            "rate": float(self.rate),
+            "amount": float(self.amount),
+            "status": self.status,
+            "settled_at": (self.settled_at.strftime("%Y-%m-%d")
+                           if self.settled_at else ""),
+            "created_at": self.created_at.strftime("%Y-%m-%d"),
+        }

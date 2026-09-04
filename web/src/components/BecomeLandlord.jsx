@@ -31,7 +31,9 @@ export default function BecomeLandlord({ onUpgraded }) {
     return () => { alive = false }
   }, [])
 
-  if (!info || info.already_landlord) return null
+  // 经纪人也整个藏掉：他点下去只会得到一句「不能直接转为房东」，
+  // 而那句话解释的是一件他此刻并不想做的事
+  if (!info || info.already_landlord || info.is_agent) return null
 
   async function upgrade() {
     setBusy(true)

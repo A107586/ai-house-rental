@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import AgentQueue from './AgentQueue'
+import AgentRoster from './AgentRoster'
 import ConfigPanel from './ConfigPanel'
 import FlagPanel from './FlagPanel'
 import HouseReportPanel from './HouseReportPanel'
@@ -9,7 +11,9 @@ import LogPanel from './LogPanel'
 import ReportPanel from './ReportPanel'
 import SupportPanel from './SupportPanel'
 
-const ROLE_LABEL = { tenant: '租客', landlord: '房东', admin: '管理员' }
+const ROLE_LABEL = {
+  tenant: '租客', landlord: '房东', agent: '经纪人', admin: '管理员',
+}
 
 const CONTRACT_STATUS = {
   pending: { label: '待确认', cls: 'status-pending' },
@@ -37,6 +41,9 @@ export default function AdminPanel({ user, onClose }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
+  // 只为了页签上那个待审角标。中介档案页自己会再取一次完整口径，
+  // 但角标必须在打开后台的第一屏就出现——待审的东西藏在页签里没人点
+  const [agentPending, setAgentPending] = useState(0)
 
   async function load() {
     setError('')
@@ -59,6 +66,15 @@ export default function AdminPanel({ user, onClose }) {
       setNotices(n.list || [])
     } catch (err) {
       setError(err.message)
+    }
+    // 中介口径单独取，且**不并进上面那个 Promise.all**：
+    // 这是后加的功能，跑在旧数据库上时表可能还没建全，
+    // 让它把整个后台首屏一起拖挂不值得
+    try {
+      const a = await api.adminAgentStats()
+      setAgentPending(a.license_pending || 0)
+    } catch {
+      setAgentPending(0)
     }
   }
 
@@ -105,6 +121,8 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'review', label: '房源审核', n: pending.length },
     { key: 'users', label: '用户管理', n: users.length },
     { key: 'landlords', label: '户主档案' },
+    { key: 'agentQueue', label: '资质审核', n: agentPending },
+    { key: 'agents', label: '中介档案' },
     { key: 'orders', label: '订单总览', n: contracts.length },
     { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'notices', label: '公告', n: notices.length },
@@ -144,6 +162,11 @@ export default function AdminPanel({ user, onClose }) {
 
         {/* ---------------- 户主档案（F-02） ---------------- */}
         {tab === 'landlords' && <LandlordRoster />}
+
+        {/* ---------------- 中介治理（J-11） ---------------- */}
+        {tab === 'agentQueue' && <AgentQueue onReviewed={load} />}
+
+        {tab === 'agents' && <AgentRoster />}
 
         {/* ---------------- 内容审核（M-08） ---------------- */}
         {tab === 'support' && <SupportPanel />}

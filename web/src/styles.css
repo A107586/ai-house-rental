@@ -4468,3 +4468,70 @@ button.account-row:last-child { border-bottom: none; }
     width: 100%;
     flex-wrap: wrap;
   }
+
+/* ---------------------------------------------------------- 带分母的比率
+   RatioCell 用。百分比大、分母小而灰——两者必须在同一个视觉层级里
+   分出主次，否则要么分母抢戏，要么读的人根本不会去看它。 */
+.ratio {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.ratio b {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ratio-note {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ratio.none {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 样本不足时显示的是原始数字，不该看起来像个结论 */
+.ratio.thin {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ratio.bad b {
+  color: var(--danger);
+}
+
+/* 表格里的状态胶囊不该被挤成竖排的单字。.pill 默认 margin-left:auto
+   是为 record-head 那种右对齐场景设计的，进了表格反而把它推到格子右边
+   还挤扁——在这里覆盖掉 */
+.log-table .pill {
+  margin-left: 0;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* 列多的表格用这个变体。
+   `.log-table` 默认 `width: 100%`，于是无论多少列都硬挤进抽屉宽度里，
+   外面那层 `.table-wrap { overflow-x: auto }` 永远用不上——列被压到
+   连「累计成交」四个字都要竖着断成三行。改成按内容取宽、以容器宽度
+   为下限，该滚的时候才真的能滚。 */
+.log-table.wide {
+  width: auto;
+  min-width: 100%;
+}
+
+.log-table.wide td {
+  white-space: nowrap;
+}
+
+/* 同一侧内部的发言人标签（委托期间房东一侧会有房东和中介两个人）。
+   刻意做得比正文小而淡：它是消歧用的旁注，不是内容本身。 */
+.cw-who {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-bottom: 3px;
+}

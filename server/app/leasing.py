@@ -200,6 +200,43 @@ def render_contract_text(house, tenant, start_date, end_date, rent,
     )
 
 
+def settle_delegation(session, contract, house):
+    """合同生效时结算委托：记佣金、标促成中介、结束委托。
+
+    **不复用账单那条链**——佣金是「房东付给中介」，和账单的
+    「租客付给房东」付款方收款方都不同（见 AgentCommission 的注释）。
+
+    佣金基数取**合同上的月租**而不是房源当前定价：房源可以在签约之后
+    改价，而这一单的佣金该按当时谈成的价算。
+    """
+    from app.models import AgentCommission, HouseDelegation
+
+    delegation = session.scalar(select(HouseDelegation).where(
+        HouseDelegation.house_id == house.id,
+        HouseDelegation.status == "active"))
+    if not delegation:
+        return None
+
+    contract.agent_id = delegation.agent_id
+    rate = Decimal(str(delegation.commission_rate))
+    base = Decimal(str(contract.rent))
+    commission = AgentCommission(
+        contract_id=contract.id, delegation_id=delegation.id,
+        agent_id=delegation.agent_id, base_amount=base, rate=rate,
+        amount=(base * rate / 100).quantize(Decimal("0.01")))
+    session.add(commission)
+
+    # 房子租出去了，委托自然结束，不留悬空关系
+    delegation.status = "ended"
+    delegation.end_at = datetime.now()
+    delegation.end_reason = "房源已签约"
+
+    notify(session, delegation.agent_id, "system", "成交，佣金已入账",
+           "房源 %s 已签约，佣金 %d 元待结算。"
+           % (house.house_no, int(commission.amount)), contract.contract_no)
+    return commission
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":
@@ -214,6 +251,11 @@ def activate_contract(session, contract):
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
+
+    # 这套房如果是委托给中介带看的，成交这一刻结算佣金并结束委托（J-06）。
+    # 放在这里而不是签约那一步：合同生效才算成交，pending 的合同
+    # 随时可能作废，那时佣金已经记上了就得再撤回一次
+    settle_delegation(session, contract, house)
 
     bills = generate_bills(session, contract)
     notify(session, contract.tenant_id, "contract",

@@ -48,6 +48,16 @@ def become_landlord(user: User = Depends(require_login),
                             detail="管理员账号本来就能管理房源")
     if user.role == "landlord":
         raise HTTPException(status_code=409, detail="你已经是房东了")
+    if user.role == "agent":
+        # **必须拦。** 中介的房源管理权来自「role == agent 且有生效委托」，
+        # 一旦角色变成 landlord，他手上在托的房源立刻全部管不了，
+        # 而页面上不会有任何提示——房东那边也不知道自己的委托已经失效。
+        # 要转做房东就先把委托解除干净，这是一次需要他自己确认的迁移，
+        # 不该由一个「升级为房东」按钮顺手完成。
+        raise HTTPException(
+            status_code=400,
+            detail="经纪人账号不能直接转为房东。如需自己出租，"
+                   "请先解除全部在托委托，再联系管理员变更身份")
 
     if not user.real_name.strip():
         raise HTTPException(
@@ -89,6 +99,9 @@ def landlord_eligibility(user: User = Depends(require_login),
         "role": user.role,
         "can_upgrade": user.role == "tenant" and not missing,
         "already_landlord": user.role in ("landlord", "admin"),
+        # 经纪人既不是「已经是房东」也不是「可以升级」，
+        # 前端据此把升级入口整个藏掉，而不是给一个点了会报错的按钮
+        "is_agent": user.role == "agent",
         "missing": missing,
         # 升级后这些数据都还在，前端可以直接摆出来打消顾虑
         "kept": {

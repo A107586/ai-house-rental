@@ -118,6 +118,7 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
                 <select value={form.role} onChange={update('role')}>
                   <option value="tenant">我是租客</option>
                   <option value="landlord">我是房东</option>
+                  <option value="agent">我是经纪人</option>
                 </select>
               </div>
             </>
