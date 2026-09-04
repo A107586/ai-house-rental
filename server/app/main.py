@@ -1494,6 +1494,30 @@ def create_appointment(payload: AppointmentCreate,
         status="pending",
     )
     session.add(appointment)
+    session.flush()
+
+    # 通知当前负责这套房的人（J-05）。
+    #
+    # 委托出去了就发给受托中介，否则发给房东。**房东始终会收到一份抄送**
+    # ——他委托出去的是带看这件事，不是知情权；自己的房子被谁约了、
+    # 约在什么时候，他有权知道。
+    #
+    # 这条通知原本根本不存在：预约提交后没有任何人被告知，房东只能自己
+    # 去工作台里翻。加中介时才发现这个洞——「活转给谁」这个问题
+    # 逼着人先回答「活到底有没有人接到」。
+    responsible = responsible_user_id(session, house)
+    when = payload.viewing_time.strftime("%m-%d %H:%M")
+    leasing.notify(
+        session, responsible, "system", "新的看房预约",
+        "%s 有一条 %s 的看房预约待确认。" % (house.house_no, when),
+        house.house_no)
+    if responsible != house.landlord_id:
+        leasing.notify(
+            session, house.landlord_id, "system", "新的看房预约（已转交中介）",
+            "%s 有一条 %s 的看房预约，已通知受托中介处理。"
+            % (house.house_no, when),
+            house.house_no)
+
     session.commit()
     session.refresh(appointment)
     return {"ok": True, "appointment": appointment.to_dict()}
@@ -1515,7 +1539,12 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
         raise HTTPException(status_code=404, detail="预约不存在")
 
     house = session.get(House, appointment.house_id)
-    is_staff = user.role == "admin" or (house and house.landlord_id == user.id)
+    # 受托中介也算「能处理这套房预约的人」（J-05）。
+    #
+    # 改这一行之前，委托是**只转了权、没转活**：中介能改房源、能回咨询，
+    # 唯独确认不了预约——而带看正是委托他去做的那件事。
+    # 房东仍然处理得了，`can_manage_house` 里房东的权限不因委托而丧失。
+    is_staff = bool(house) and can_manage_house(session, user, house)
 
     if payload.status == "cancelled":
         if not is_staff and appointment.tenant_id != user.id:

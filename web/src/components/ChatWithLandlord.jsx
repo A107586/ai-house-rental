@@ -172,6 +172,12 @@ export default function ChatWithLandlord({ onClose, onOpenHouse, initialId }) {
                   lines.map((line) => (
                     <div className={`bubble ${line.mine ? 'user' : 'assistant'}`}
                          key={line.id}>
+                      {/* 同一侧里不是自己发的才标名字。委托期间房东一侧
+                          会有两个人（房东本人和受托中介），不标出来
+                          就分不清刚才那句承诺是谁做的 */}
+                      {line.sender_label && (
+                        <div className="cw-who">{line.sender_label}</div>
+                      )}
                       <div className="bubble-text">{line.content}</div>
                       <div className="cw-at">{line.created_at}</div>
                     </div>

@@ -1373,28 +1373,49 @@ class Conversation(Base):
     tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id], lazy="selectin")
     landlord: Mapped["User"] = relationship(foreign_keys=[landlord_id], lazy="selectin")
 
-    def to_dict(self, viewer_id=None):
+    def to_dict(self, viewer_id=None, responder=None):
         """会话摘要。
 
         未读数按**查看者**给：同一个会话，租客和房东看到的未读数不同。
         对方姓名只露姓氏——会话列表不是通讯录。
+
+        判断的是「**是不是租客那一侧**」，不是「是不是房东本人」。
+        委托期间受托中介也会来读这个会话（J-03），他站在房东一侧，
+        对面同样是租客。原来写成 `viewer_id == self.landlord_id`，
+        中介进来会被当成第三种人，看到的「对方」变成房东——
+        而他要联系的明明是租客。
+
+        `responder` 是当前负责答的那个 User（委托中即受托中介），
+        由路由层查好传进来。模型层拿不到 session，也不该为了显示
+        一个称谓去查委托。
         """
         def masked(user):
             return mask_name(user)
 
-        is_landlord = viewer_id == self.landlord_id
+        is_tenant = viewer_id == self.tenant_id
+        if is_tenant:
+            # 租客看到的「对方」是当前负责答的人，称谓也随之变。
+            # 一直显示「房东」而实际由中介在回，租客会以为在和房东
+            # 直接谈价——那是会出纠纷的误导。
+            peer = responder or self.landlord
+            peer_role = "经纪人" if (responder
+                                 and responder.id != self.landlord_id)                 else "房东"
+        else:
+            peer = self.tenant
+            peer_role = "租客"
+
         return {
             "id": self.id,
             "house_no": self.house.house_no if self.house else "",
             "house_title": self.house.title if self.house else "",
             "cover_image": self.house.cover_image if self.house else "",
             "rent_price": float(self.house.rent_price) if self.house else 0,
-            "peer_name": masked(self.tenant if is_landlord else self.landlord),
-            "peer_role": "租客" if is_landlord else "房东",
+            "peer_name": masked(peer),
+            "peer_role": peer_role,
             "last_message": self.last_message,
             "last_at": self.last_at.strftime("%Y-%m-%d %H:%M"),
-            "unread": (self.landlord_unread if is_landlord
-                       else self.tenant_unread),
+            "unread": (self.tenant_unread if is_tenant
+                       else self.landlord_unread),
             "status": self.status,
         }
 
@@ -1417,12 +1438,31 @@ class ChatLine(Base):
 
     sender: Mapped["User"] = relationship(lazy="selectin")
 
-    def to_dict(self, viewer_id=None):
+    def to_dict(self, viewer_id=None, tenant_id=None, sender_label=""):
+        """一条消息。
+
+        `mine` 是**按「哪一侧」算的，不是按「谁发的」**。会话只有两侧，
+        气泡的左右表达的也是侧，不是人。委托期间中介进来看历史记录时，
+        如果按发送者算，房东此前回的那几句会跑到租客那一侧去——
+        中介会当场读错是谁说的。
+
+        代价是同一侧内部分不清是房东还是中介说的，所以补一个
+        `sender_label`：不是本人发的就标出来是谁。
+        """
+        if tenant_id is None:
+            mine = self.sender_id == viewer_id
+        else:
+            viewer_is_tenant = viewer_id == tenant_id
+            sender_is_tenant = self.sender_id == tenant_id
+            mine = viewer_is_tenant == sender_is_tenant
         return {
             "id": self.id,
             "content": self.content,
             "kind": self.kind,
-            "mine": self.sender_id == viewer_id,
+            "mine": mine,
+            # 同一侧里不是自己发的才标，否则每条都挂个名字很吵
+            "sender_label": (sender_label
+                             if mine and self.sender_id != viewer_id else ""),
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
         }
 

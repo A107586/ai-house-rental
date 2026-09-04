@@ -4527,3 +4527,11 @@ button.account-row:last-child { border-bottom: none; }
 .log-table.wide td {
   white-space: nowrap;
 }
+
+/* 同一侧内部的发言人标签（委托期间房东一侧会有房东和中介两个人）。
+   刻意做得比正文小而淡：它是消歧用的旁注，不是内容本身。 */
+.cw-who {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-bottom: 3px;
+}

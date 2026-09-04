@@ -14,8 +14,8 @@ from datetime import datetime, timedelta
 
 from tests.base import ApiTestCase, auth_header, make_admin
 import app.db as db
-from app.models import (AgentCommission, AgentProfile, Contract, House,
-                        HouseDelegation, User, ViewingRecord)
+from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
+                        House, HouseDelegation, User, ViewingRecord)
 
 
 def future(days=7):
@@ -568,15 +568,37 @@ class TestAgentRole(BrokerCase):
 class TestDashboardTodo(BrokerCase):
     """工作台首屏那几个数字的口径。"""
 
-    def _appoint(self, house_no="DL0001", days=0, hours=3):
-        when = (datetime.now() + timedelta(days=days, hours=hours))
+    def _appoint(self, house_no="DL0001", at_hour=12):
+        """建一条预约，并把看房时间钉在**今天的某个整点**上。
+
+        为什么要钉：接口要求 `viewing_time > now`，所以只能传一个未来时间；
+        而「今日带看」判定的是「落在今天」。傍晚跑测试时 `now + 3h`
+        就跨到明天去了，这条用例会在下午之前一直绿、入夜之后突然红——
+        **这种按时钟变脸的用例比没有用例更糟**，它会让人以为是代码坏了。
+        （本次就是在 23:38 跑全量时才炸出来的。）
+
+        所以：先用一个必然合法的未来时间把记录建出来，
+        再直接改库把时间挪到今天的整点。
+        """
+        when = datetime.now() + timedelta(days=1)
         created = self.client.post("/api/appointments", headers=self.tenant,
                                    json={"house_no": house_no,
                                          "viewing_time": when.isoformat(),
                                          "contact_name": "租客甲",
                                          "contact_phone": "13800000001"})
         assert created.status_code == 200, created.text
-        return created.json()
+        body = created.json()
+        aid = body["appointment"]["id"]
+
+        session = db.SessionLocal()
+        try:
+            row = session.get(Appointment, aid)
+            row.viewing_time = datetime.now().replace(
+                hour=at_hour, minute=0, second=0, microsecond=0)
+            session.commit()
+        finally:
+            session.close()
+        return body
 
     def test_today_viewings_only_counts_confirmed(self):
         """**未确认的预约不算「今日带看」。**
@@ -607,3 +629,146 @@ class TestDashboardTodo(BrokerCase):
                                headers=self.agent).json()["todo"]
         self.assertEqual(len(todo["today_viewings"]), 1)
         self.assertEqual(len(todo["pending_appointments"]), 0)
+
+
+# -------------------------------------------------- 会话与预约路由（J-03/J-05）
+
+class TestWorkActuallyMoves(BrokerCase):
+    """委托之后，**活有没有真的转过去**。
+
+    这一组比权限那一组更贴近「这个功能好不好用」：权限对了但咨询和预约
+    仍然只发给房东，中介就是个摆设，房东该干的事一件没少。
+    """
+
+    def _ask(self, house_no="DL0001", text="这套能养猫吗"):
+        started = self.client.post("/api/conversations", headers=self.tenant,
+                                   json={"house_no": house_no})
+        assert started.status_code == 200, started.text
+        cid = started.json()["conversation"]["id"]
+        sent = self.client.post("/api/conversations/%d/lines" % cid,
+                                headers=self.tenant, json={"content": text})
+        assert sent.status_code == 200, sent.text
+        return cid
+
+    def test_agent_sees_conversation_of_delegated_house(self):
+        self.delegate("DL0001")
+        cid = self._ask()
+        rows = self.client.get("/api/conversations",
+                               headers=self.agent).json()["list"]
+        self.assertEqual([c["id"] for c in rows], [cid])
+        # 中介的「对方」是租客，不是房东
+        self.assertEqual(rows[0]["peer_role"], "租客")
+
+    def test_agent_cannot_read_conversation_of_other_house(self):
+        """**这条是安全用例。** 会话对中介开放的是「他在托的那几套」，
+        不是「所有房源」。"""
+        self.delegate("DL0001")
+        cid = self._ask("DL0002")
+        blocked = self.client.get("/api/conversations/%d/lines" % cid,
+                                  headers=self.agent)
+        self.assertEqual(blocked.status_code, 403)
+
+    def test_tenant_sees_agent_as_peer(self):
+        """租客得知道自己在跟谁说话。
+
+        一直显示「房东」而实际由中介在回，租客会以为在和房东直接谈价——
+        那是会出纠纷的误导。
+        """
+        self.delegate("DL0001")
+        self._ask()
+        rows = self.client.get("/api/conversations",
+                               headers=self.tenant).json()["list"]
+        self.assertEqual(rows[0]["peer_role"], "经纪人")
+
+    def test_landlord_still_sees_and_is_copied(self):
+        """**房东委托出去的是带看，不是知情权。**"""
+        self.delegate("DL0001")
+        self._ask()
+        rows = self.client.get("/api/conversations",
+                               headers=self.landlord).json()["list"]
+        self.assertEqual(len(rows), 1)
+
+        titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.landlord).json()["list"]]
+        self.assertIn("租客咨询（由中介代答）", titles)
+
+    def test_history_bubbles_keep_their_side(self):
+        """房东先回过一句，中介进来看到的仍应是「自己这一侧」。
+
+        按发送者算 `mine` 的话，房东那句会跑到租客一侧去，
+        中介当场就读错是谁说的。
+        """
+        cid = self._ask()
+        self.client.post("/api/conversations/%d/lines" % cid,
+                         headers=self.landlord, json={"content": "可以养猫"})
+        self.delegate("DL0001")
+
+        lines = self.client.get("/api/conversations/%d/lines" % cid,
+                                headers=self.agent).json()["list"]
+        landlord_line = next(l for l in lines if l["content"] == "可以养猫")
+        self.assertTrue(landlord_line["mine"])
+        self.assertEqual(landlord_line["sender_label"], "房东")
+        tenant_line = next(l for l in lines if l["content"] == "这套能养猫吗")
+        self.assertFalse(tenant_line["mine"])
+
+    def test_appointment_notifies_agent_and_copies_landlord(self):
+        self.delegate("DL0001")
+        when = (datetime.now() + timedelta(days=1)).isoformat()
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0001",
+                                      "viewing_time": when,
+                                      "contact_name": "租客甲",
+                                      "contact_phone": "13800000001"})
+        self.assertEqual(made.status_code, 200, made.text)
+
+        agent_titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.agent).json()["list"]]
+        self.assertIn("新的看房预约", agent_titles)
+
+        landlord_titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.landlord).json()["list"]]
+        self.assertIn("新的看房预约（已转交中介）", landlord_titles)
+
+    def test_agent_can_confirm_appointment(self):
+        """委托他去带看，却不让他确认预约，等于只转了权没转活。"""
+        self.delegate("DL0001")
+        when = (datetime.now() + timedelta(days=1)).isoformat()
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0001",
+                                      "viewing_time": when,
+                                      "contact_name": "租客甲",
+                                      "contact_phone": "13800000001"}).json()
+        aid = made["appointment"]["id"]
+        ok = self.client.patch("/api/appointments/%d" % aid,
+                               headers=self.agent,
+                               json={"status": "confirmed", "reply": "到时候见"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+
+    def test_agent_cannot_confirm_appointment_elsewhere(self):
+        self.delegate("DL0001")
+        when = (datetime.now() + timedelta(days=1)).isoformat()
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0002",
+                                      "viewing_time": when,
+                                      "contact_name": "租客甲",
+                                      "contact_phone": "13800000001"}).json()
+        aid = made["appointment"]["id"]
+        blocked = self.client.patch("/api/appointments/%d" % aid,
+                                    headers=self.agent,
+                                    json={"status": "confirmed"})
+        self.assertEqual(blocked.status_code, 403)
+
+    def test_permission_gone_after_delegation_ends(self):
+        """解除委托后会话立刻不可见，但**消息不删**——问责需要。"""
+        did = self.delegate("DL0001")
+        cid = self._ask()
+        self.client.post("/api/delegations/%d/end" % did, headers=self.landlord,
+                         json={"reason": "自己出租"})
+
+        blocked = self.client.get("/api/conversations/%d/lines" % cid,
+                                  headers=self.agent)
+        self.assertEqual(blocked.status_code, 403)
+        # 房东仍然读得到全部记录
+        kept = self.client.get("/api/conversations/%d/lines" % cid,
+                               headers=self.landlord).json()
+        self.assertEqual(len(kept["list"]), 1)
