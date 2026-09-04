@@ -102,7 +102,30 @@ class TestTraceBasics(unittest.TestCase):
         self.assertIn("规则解析", text)
 
 
-class TestTrajectory(unittest.TestCase):
+class _FusionAlwaysOn(object):
+    """把「规则很确定就跳过大模型」这个开关钉死为关闭（K-10）。
+
+    这一组用例测的是**融合机制本身**：规则结论有没有进提示词、护栏挡不挡得住
+    幻觉、大模型输出不可用时退不退得回去。它们必须让大模型真的被调用一次，
+    否则测的就是别的东西了。
+
+    开关的默认值是产品决策、会变（现在默认开启）；这些用例不该跟着它飘，
+    所以在这里显式钉住，而不是依赖默认值恰好是某个值。
+    """
+
+    def setUp(self):
+        super().setUp()
+        from app.config import settings
+        self._skip = settings.fusion_skip_when_confident
+        settings.fusion_skip_when_confident = False
+
+    def tearDown(self):
+        from app.config import settings
+        settings.fusion_skip_when_confident = self._skip
+        super().tearDown()
+
+
+class TestTrajectory(_FusionAlwaysOn, unittest.TestCase):
     """轨迹级：路径是否合理。"""
 
     def test_rules_only_path_does_not_call_backend_twice(self):

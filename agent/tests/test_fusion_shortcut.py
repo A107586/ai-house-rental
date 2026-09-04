@@ -112,9 +112,15 @@ class TestShortCircuit(unittest.TestCase):
 class TestFinderRespectsTheSwitch(unittest.TestCase):
     """找房链路上的开关接线。"""
 
-    def test_switch_off_by_default(self):
+    def test_switch_on_by_default(self):
+        """**默认开启**（团队定的）。
+
+        这条用例守的是一个产品决策，不是一段逻辑：默认值改动时它会红，
+        逼着改的人重新读一遍 config.py 里那段取舍说明——
+        置信度高只说明规则认得出，不等于它认得对。
+        """
         from app.config import settings
-        self.assertFalse(settings.fusion_skip_when_confident)
+        self.assertTrue(settings.fusion_skip_when_confident)
 
     def test_switch_on_skips_for_a_confident_query(self):
         from app.agents.property_finder import agent
