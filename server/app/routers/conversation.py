@@ -163,22 +163,22 @@ def start_conversation(payload: ConversationStart,
 def list_conversations(user: User = Depends(require_login),
                        session: Session = Depends(get_session)):
     """我的会话列表，最近有消息的排前面。"""
-    stmt = select(Conversation).where(
+    # 三个身份并成一个 or：我是租客、我是房东、或者这套房现在委托给我。
+    #
+    # **不按角色分支**（K-13 的教训）：写成「如果 role 是 agent 就……」
+    # 的话，一个身兼两职的账号会有一侧的数据被挡在外面。这里三个条件
+    # 是并列的，谁占了哪个位置就看得到哪一份。
+    #
+    # 委托解除后这些会话不再出现在中介的列表里，但**消息不删**——
+    # 已经发生的对话是问责的依据。
+    delegated = select(HouseDelegation.house_id).where(
+        HouseDelegation.agent_id == user.id,
+        HouseDelegation.status == "active")
+    rows = session.scalars(select(Conversation).where(
         or_(Conversation.tenant_id == user.id,
-            Conversation.landlord_id == user.id))
-    if user.role == "agent":
-        # 中介看到的是他在托房源上的会话（J-03）。
-        # 委托解除后这些会话就不再出现在他的列表里，但**消息不删**——
-        # 已经发生的对话是问责的依据。
-        mine = select(HouseDelegation.house_id).where(
-            HouseDelegation.agent_id == user.id,
-            HouseDelegation.status == "active")
-        stmt = select(Conversation).where(
-            or_(Conversation.tenant_id == user.id,
-                Conversation.landlord_id == user.id,
-                Conversation.house_id.in_(mine)))
-    rows = session.scalars(
-        stmt.order_by(Conversation.last_at.desc())).all()
+            Conversation.landlord_id == user.id,
+            Conversation.house_id.in_(delegated))
+    ).order_by(Conversation.last_at.desc())).all()
     unread = sum((c.tenant_unread if c.tenant_id == user.id
                   else c.landlord_unread) for c in rows)
     responders = _responders(session, rows)

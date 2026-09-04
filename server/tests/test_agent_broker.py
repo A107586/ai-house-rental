@@ -876,3 +876,111 @@ class TestReportAttribution(BrokerCase):
                          headers=self.landlord, json={"reason": "自己出租"})
         self.assertEqual(self._report("DL0001").status_code, 200)
         self.assertEqual(self._count()["total"], 0)
+
+
+class TestPartyNotRole(BrokerCase):
+    """取数按「是不是当事一方」，不按角色分支。
+
+    **K-13 的教训在这里又犯了一次。** 那次是四个 `/mine` 接口按角色
+    二选一取数，租客升级为房东后升级前签的租约当场从页面上消失；
+    这次是带看流水写成「role 是 agent 就只看他带的，否则看他名下房源的」。
+
+    构造一个**名下有房、同时又是中介**的账号来守这条——管理员改过角色
+    的账号就是这样，房源不会跟着角色走。
+    """
+
+    def _agent_with_houses(self):
+        """把 landlord1 的角色改成 agent，他名下房源原样保留。"""
+        header = self.make_agent("agent7")
+        session = db.SessionLocal()
+        try:
+            agent = session.query(User).filter_by(username="agent7").one()
+            house = session.query(House).filter_by(house_no="DL0003").one()
+            house.landlord_id = agent.id
+            session.commit()
+        finally:
+            session.close()
+        return header
+
+    def test_agent_still_sees_viewings_on_his_own_houses(self):
+        owner = self._agent_with_houses()
+
+        # 另一个中介受托 DL0003 并带看了一次
+        invited = self.client.post("/api/delegations", headers=owner,
+                                   json={"house_no": "DL0003",
+                                         "agent_username": "agent1"})
+        self.assertEqual(invited.status_code, 200, invited.text)
+        did = invited.json()["delegation"]["id"]
+        self.client.patch("/api/delegations/%d" % did, headers=self.agent,
+                          json={"accept": True})
+        made = self.client.post("/api/viewings", headers=self.agent,
+                                json={"house_no": "DL0003",
+                                      "tenant_username": "tenant1",
+                                      "showed_up": True, "intention": "high"})
+        self.assertEqual(made.status_code, 200, made.text)
+
+        # 房主本人是中介身份，但这条带看发生在**他的房子**上，他必须看得到
+        rows = self.client.get("/api/viewings", headers=owner).json()["list"]
+        self.assertEqual([r["house_no"] for r in rows], ["DL0003"])
+
+    def test_agent_sees_conversations_on_his_own_houses(self):
+        owner = self._agent_with_houses()
+        started = self.client.post("/api/conversations", headers=self.tenant,
+                                   json={"house_no": "DL0003"})
+        self.assertEqual(started.status_code, 200, started.text)
+
+        rows = self.client.get("/api/conversations",
+                               headers=owner).json()["list"]
+        self.assertEqual([c["house_no"] for c in rows], ["DL0003"])
+
+    def test_owner_who_is_an_agent_invites_instead_of_self_delegating(self):
+        """**房主对自己的房子永远是委托方，与他的 role 无关。**
+
+        顺序反过来（先看角色）时，这里会建出一条 `agent_id == landlord_id`
+        的记录——自己委托自己，而且返回 200，看起来一切正常。
+        """
+        owner = self._agent_with_houses()
+        created = self.client.post("/api/delegations", headers=owner,
+                                   json={"house_no": "DL0003",
+                                         "agent_username": "agent1"})
+        self.assertEqual(created.status_code, 200, created.text)
+        row = created.json()["delegation"]
+        self.assertEqual(row["initiated_by"], "landlord")
+        self.assertNotEqual(row["agent_id"], row["landlord_id"])
+
+    def test_cannot_delegate_a_house_to_its_own_owner(self):
+        owner = self._agent_with_houses()
+        blocked = self.client.post("/api/delegations", headers=owner,
+                                   json={"house_no": "DL0003",
+                                         "agent_username": "agent7"})
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn("房主自己", blocked.json()["detail"])
+
+
+class TestRepairListIsPartyBased(BrokerCase):
+    """工单列表也按当事方取（K-13 那次漏掉的第五个接口）。
+
+    房东自己也可能是别处的租客。他报的那张工单，在他升级成房东的那一刻
+    就从这个列表里消失了——**数据一直在库里，是查询把它挡住的。**
+    """
+
+    def test_landlord_still_sees_the_repair_he_filed_as_a_tenant(self):
+        # 先以租客身份报一张工单，再把这个账号升级成房东
+        filed = self.client.post("/api/repairs", headers=self.tenant, json={
+            "house_no": "DL0002", "content": "厨房水管漏水",
+            "contact_name": "租客甲", "contact_phone": "13800000001"})
+        self.assertEqual(filed.status_code, 200, filed.text)
+        repair_no = filed.json()["repair"].get("repair_no")
+
+        session = db.SessionLocal()
+        try:
+            me = session.query(User).filter_by(username="tenant1").one()
+            me.role = "landlord"
+            session.commit()
+        finally:
+            session.close()
+
+        rows = self.client.get("/api/repairs", headers=self.tenant).json()["list"]
+        self.assertTrue(rows, "升级成房东后，自己报的工单不该消失")
+        if repair_no:
+            self.assertIn(repair_no, [r.get("repair_no") for r in rows])

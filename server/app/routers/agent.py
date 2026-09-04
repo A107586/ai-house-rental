@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import leasing
@@ -160,14 +160,15 @@ def create_delegation(payload: DelegationCreate,
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
 
-    if user.role == "agent":
-        profile = _profile(session, user.id)
-        if not profile or not profile.can_take_orders:
-            raise HTTPException(
-                status_code=403,
-                detail="资质未通过审核或已关闭接单，暂时不能申请接单")
-        agent_id, landlord_id, initiated_by = user.id, house.landlord_id, "agent"
-    elif house.landlord_id == user.id or user.role == "admin":
+    # **先看归属，再看角色。** 顺序反过来会出一个很难发现的错：
+    # 一个名下有房、同时又是中介身份的账号（管理员改过角色的就是这样，
+    # 房源不会跟着角色走），对自己的房源发起委托时会走进「中介申请接单」
+    # 那一支，建出一条 `agent_id == landlord_id` 的记录——
+    # **自己委托自己**，而且接口返回 200，看起来一切正常。
+    #
+    # 这与 K-13 是同一类错误：**按角色分支，而不是按他在这件事里
+    # 站在哪个位置。** 房主对自己的房子永远是委托方，与他的 role 无关。
+    if house.landlord_id == user.id or user.role == "admin":
         target = session.scalar(
             select(User).where(User.username == payload.agent_username.strip()))
         if not target or target.role != "agent":
@@ -176,7 +177,17 @@ def create_delegation(payload: DelegationCreate,
         if not profile or not profile.can_take_orders:
             raise HTTPException(status_code=400,
                                 detail="该中介资质未通过或未开启接单")
+        if target.id == house.landlord_id:
+            raise HTTPException(status_code=400,
+                                detail="不能把房源委托给房主自己")
         agent_id, landlord_id, initiated_by = target.id, house.landlord_id, "landlord"
+    elif user.role == "agent":
+        profile = _profile(session, user.id)
+        if not profile or not profile.can_take_orders:
+            raise HTTPException(
+                status_code=403,
+                detail="资质未通过审核或已关闭接单，暂时不能申请接单")
+        agent_id, landlord_id, initiated_by = user.id, house.landlord_id, "agent"
     else:
         raise HTTPException(status_code=403, detail="只能委托自己的房源")
 
@@ -384,13 +395,19 @@ def create_viewing(payload: ViewingCreate,
 def list_viewings(house_no: str = "", limit: int = Query(50, ge=1, le=200),
                   user: User = Depends(require_login),
                   session: Session = Depends(get_session)):
-    """带看流水。中介看自己带的，房东看自己房子被带的，管理员看全部。"""
+    """带看流水。中介看自己带的，房东看自己房子被带的，管理员看全部。
+
+    **按「是不是当事一方」取，不按角色分支**——这是 K-13 留下的教训，
+    我在这里又犯了一次。原来写的是「role 是 agent 就只看他带的，
+    否则看他名下房源的」：一个由房东被管理员改成中介的账号，名下房源
+    仍然在，但这套房被谁带看过他从此看不到了。**数据一直在库里，
+    是查询把它挡住的**，页面上完全看不出来，和 K-13 那次一模一样。
+    """
     stmt = select(ViewingRecord)
-    if user.role == "agent":
-        stmt = stmt.where(ViewingRecord.agent_id == user.id)
-    elif user.role != "admin":
+    if user.role != "admin":
         mine = select(House.id).where(House.landlord_id == user.id)
-        stmt = stmt.where(ViewingRecord.house_id.in_(mine))
+        stmt = stmt.where(or_(ViewingRecord.agent_id == user.id,
+                              ViewingRecord.house_id.in_(mine)))
     if house_no:
         house = session.scalar(select(House).where(House.house_no == house_no))
         stmt = stmt.where(ViewingRecord.house_id == (house.id if house else -1))

@@ -1612,12 +1612,21 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
     else:
         if not user:
             raise HTTPException(status_code=401, detail="请先登录")
-        if user.role == "landlord":
+        if user.role != "admin":
+            # **按当事方取，不按角色分支**（K-13）。
+            #
+            # 原来写的是「role 是房东就只看名下房源的工单，否则只看自己
+            # 报的」。房东自己也可能是别处的租客——他报的那张工单，
+            # 在他升级成房东的那一刻就从这个列表里消失了；反过来，
+            # 一个被改成中介角色的账号，名下房源的工单也全看不到了。
+            # **数据一直在库里，是查询把它挡住的。**
+            #
+            # K-13 那次修了 contracts/bills/appointments/refunds 四个
+            # `/mine`，漏了这一个。三个条件并列，谁占哪个位置就看得到哪份。
             house_ids = [row[0] for row in session.execute(
                 select(House.id).where(House.landlord_id == user.id)).all()]
-            stmt = stmt.where(Repair.house_id.in_(house_ids or [-1]))
-        elif user.role != "admin":
-            stmt = stmt.where(Repair.tenant_id == user.id)
+            stmt = stmt.where(or_(Repair.tenant_id == user.id,
+                                  Repair.house_id.in_(house_ids or [-1])))
 
     if status:
         stmt = stmt.where(Repair.status == status)
