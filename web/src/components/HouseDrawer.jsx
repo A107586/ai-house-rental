@@ -24,6 +24,9 @@ const TABS = [
 export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                                      onClose, onOpenHouse, onTalk }) {
   const [tab, setTab] = useState('booking')
+  // K-08 举报弹窗。入口放在详情页而不是个人中心——
+  // 用户是在看这套房、觉得不对劲的那一刻才想举报的
+  const [reporting, setReporting] = useState(false)
   const [booked, setBooked] = useState([])
   const [repairs, setRepairs] = useState([])
   const [reviews, setReviews] = useState({ list: [], average: 0, total: 0 })
@@ -212,6 +215,15 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             }}
           >
             {talking ? '打开中…' : '咨询房东'}
+          </button>
+
+          {/* 举报入口常驻在详情页（K-08）。贝壳把它放在详情页那条
+              「真实存在、真实在租、真实价格」承诺的旁边，是同一个道理：
+              **承诺和申诉渠道要摆在一起**，只有承诺没有渠道就是空话。
+              样式压到最轻——它是兜底通道，不该和「咨询房东」抢注意力 */}
+          <button className="link report-link"
+                  onClick={() => setReporting(true)}>
+            举报该房源
           </button>
         </div>
 
@@ -492,6 +504,19 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </section>
         )}
       </aside>
+
+      {reporting && (
+        <ReportDialog
+          house={house}
+          user={user}
+          onClose={() => setReporting(false)}
+          onNeedLogin={() => {
+            setReporting(false)
+            setReply({ status: 'error', message: '请先登录后再举报房源',
+                       alternatives: [] })
+          }}
+        />
+      )}
     </>
   )
 }
