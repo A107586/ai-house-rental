@@ -4,6 +4,7 @@ import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
 import ProfileForm from './ProfileForm'
 import ReviewForm from './ReviewForm'
+import SavedSearchPanel from './SavedSearchPanel'
 
 const APPOINTMENT_STATUS = {
   pending: '待确认',
@@ -29,7 +30,8 @@ const REPAIR_STATUS = {
 // 真正需要一眼看到的只有紧急那一档。
 const URGENCY_CLS = { 紧急: 'urgent' }
 
-export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onLogout }) {
+export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
+                                 onLogout, onApplySearch }) {
   const [tab, setTab] = useState('contracts')
   const [appointments, setAppointments] = useState([])
   const [contracts, setContracts] = useState([])
@@ -139,6 +141,8 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
     { key: 'history', label: '足迹', n: history.length },
+    // K-09 我的搜索。租客侧才有——房东不需要「符合条件的房源上架时提醒我」
+    ...(isStaff ? [] : [{ key: 'searches', label: '我的搜索' }]),
     { key: 'repairs', label: isStaff ? '工单' : '我的报修',
       n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'reviews', label: '待评价', n: pending.length },
@@ -430,6 +434,19 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated, onL
               </ul>
             </>
           )
+        )}
+
+        {/* ---------------- 我的搜索（K-09） ---------------- */}
+        {tab === 'searches' && (
+          <SavedSearchPanel
+            onApply={(conditions) => {
+              // 一键恢复：把条件交回首页并关掉面板。
+              // 这是保存搜索的主要用途——留在面板里看着条件却用不上，
+              // 等于只做了一半
+              onApplySearch && onApplySearch(conditions)
+              onClose()
+            }}
+          />
         )}
 
         {/* ---------------- 待评价 ---------------- */}

@@ -26,6 +26,38 @@ const AREA_RANGES = [
   { label: '120㎡ 以上', min: 120, max: null },
 ]
 
+// ---------------------------------------------------------------- K-05
+//
+// 以下六组维度对应 K-04 新增的独立列。
+//
+// **值必须和库里存的一模一样。** 库里存「南」而按钮上写「朝南」，
+// 点了就永远查不到——这个坑本项目已经踩过一次（种子数据原先存的正是
+// 「朝南」「南北通透」）。描述里怎么写是另一回事，筛选走规范值。
+const ORIENTATIONS = ['东', '南', '西', '北', '南北']
+const FLOOR_LEVELS = ['低楼层', '中楼层', '高楼层']
+const DECORATIONS = ['精装', '简装', '毛坯']
+const HEATINGS = ['集中供暖', '自采暖']
+
+// 电梯是三态：不限 / 有 / 无。**不能做成一个「有电梯」开关**——
+// 那样「我要找没电梯的便宜房」就表达不出来，而这是真实存在的需求。
+const ELEVATORS = [
+  { key: 'true', label: '有电梯' },
+  { key: 'false', label: '无电梯' },
+]
+
+const LEASE_TERMS = [
+  { key: 'monthly', label: '一月起租' },
+  { key: 'quarter', label: '三月内起租' },
+  { key: 'half', label: '半年内起租' },
+  { key: 'yearly', label: '年租起' },
+]
+
+const AVAILABLE = [
+  { key: '0', label: '随时入住' },
+  { key: '15', label: '15 天内' },
+  { key: '30', label: '30 天内' },
+]
+
 const SORTS = [
   { key: 'published_at', label: '最新发布' },
   { key: 'rent_price', label: '租金从低到高' },
@@ -36,7 +68,30 @@ const SORTS = [
 
 const EMPTY = {
   district: '', layout: '', rent_type: '',
-  priceIndex: -1, areaIndex: -1, sort: 'published_at',
+  priceIndex: -1, areaIndex: -1, customPrice: null, customArea: null,
+  orientation: '', floor_level: '', elevator: '',
+  decoration: '', heating: '', lease_term: '', available_days: '',
+  sort: 'published_at',
+}
+
+// 「更多筛选」里的那几项。收起时若其中有生效条件，要在按钮上标出来，
+// 否则用户会看不见自己设过什么，只觉得结果莫名其妙地少
+const ADVANCED_KEYS = ['orientation', 'floor_level', 'elevator',
+  'decoration', 'heating', 'lease_term', 'available_days']
+
+// 智能体解析出的「租价 ≤ 3000」落不进任何一个固定档位
+// （档位是 2500–3500、3500–5000…）。这时 index 为 -1，
+// 但**那个条件是真实存在的**，只是这排按钮表达不了它。
+//
+// 不记下来的话就会出现这个 bug：用一句话搜出「中山区两室三千以内」，
+// 再点一下「中楼层」，`apply()` 会按 index=-1 发出空的价格区间，
+// **把三千以内这一条抹掉**——正是 K-06 要消灭的那种「一操作就丢条件」。
+function customRange(value, minKey, maxKey, index) {
+  if (index >= 0) return null
+  const min = value[minKey]
+  const max = value[maxKey]
+  if ((min ?? '') === '' && (max ?? '') === '') return null
+  return { min: min ?? '', max: max ?? '' }
 }
 
 function stateFromValue(value = {}) {
@@ -47,17 +102,29 @@ function stateFromValue(value = {}) {
     String(range.min ?? '') === String(value.area_min ?? '') &&
     String(range.max ?? '') === String(value.area_max ?? ''))
   return {
+    customPrice: customRange(value, 'rent_price_min', 'rent_price_max',
+                             priceIndex),
+    customArea: customRange(value, 'area_min', 'area_max', areaIndex),
     district: value.district || '',
     layout: value.layout || '',
     rent_type: value.rent_type || '',
     priceIndex,
     areaIndex,
+    orientation: value.orientation || '',
+    floor_level: value.floor_level || '',
+    elevator: value.elevator === undefined ? '' : String(value.elevator ?? ''),
+    decoration: value.decoration || '',
+    heating: value.heating || '',
+    lease_term: value.lease_term || '',
+    available_days: value.available_days === undefined || value.available_days === ''
+      ? '' : String(value.available_days),
     sort: value.sort || 'published_at',
   }
 }
 
 export default function FilterBar({ value, onApply, disabled }) {
   const [open, setOpen] = useState(false)
+  const [more, setMore] = useState(false)
   const [f, setF] = useState(() => stateFromValue(value))
   const [districts, setDistricts] = useState(
     FALLBACK_DISTRICTS.map((d) => ({ district: d, count: null })))
@@ -79,11 +146,15 @@ export default function FilterBar({ value, onApply, disabled }) {
     setF(stateFromValue(value))
   }, [value])
 
-  function pick(key, value) {
+  function pick(key, next) {
     // 再点一次同一项即取消选择，省掉一个「全部」按钮
-    const next = { ...f, [key]: f[key] === value ? (typeof value === 'number' ? -1 : '') : value }
-    setF(next)
-    apply(next)
+    const cleared = typeof next === 'number' ? -1 : ''
+    const state = { ...f, [key]: f[key] === next ? cleared : next }
+    // 用户亲手点了价格档位，就以档位为准，此前那个表达不了的自定义值作废
+    if (key === 'priceIndex') state.customPrice = null
+    if (key === 'areaIndex') state.customArea = null
+    setF(state)
+    apply(state)
   }
 
   function apply(next) {
@@ -93,10 +164,18 @@ export default function FilterBar({ value, onApply, disabled }) {
       district: next.district,
       layout: next.layout,
       rent_type: next.rent_type,
-      rent_price_min: price?.min ?? '',
-      rent_price_max: price?.max ?? '',
-      area_min: area?.min ?? '',
-      area_max: area?.max ?? '',
+      // 档位表达不了的自定义区间原样带走，不能被一个空值覆盖掉
+      rent_price_min: price ? (price.min ?? '') : (next.customPrice?.min ?? ''),
+      rent_price_max: price ? (price.max ?? '') : (next.customPrice?.max ?? ''),
+      area_min: area ? (area.min ?? '') : (next.customArea?.min ?? ''),
+      area_max: area ? (area.max ?? '') : (next.customArea?.max ?? ''),
+      orientation: next.orientation,
+      floor_level: next.floor_level,
+      elevator: next.elevator,
+      decoration: next.decoration,
+      heating: next.heating,
+      lease_term: next.lease_term,
+      available_days: next.available_days,
       sort: next.sort,
     })
   }
@@ -106,9 +185,12 @@ export default function FilterBar({ value, onApply, disabled }) {
     onApply({})
   }
 
-  const activeCount =
+  const basicCount =
     (f.district ? 1 : 0) + (f.layout ? 1 : 0) + (f.rent_type ? 1 : 0) +
-    (f.priceIndex >= 0 ? 1 : 0) + (f.areaIndex >= 0 ? 1 : 0)
+    (f.priceIndex >= 0 || f.customPrice ? 1 : 0) +
+    (f.areaIndex >= 0 || f.customArea ? 1 : 0)
+  const advancedCount = ADVANCED_KEYS.filter((k) => f[k] !== '').length
+  const activeCount = basicCount + advancedCount
 
   return (
     <section className="filter-bar">
@@ -183,6 +265,84 @@ export default function FilterBar({ value, onApply, disabled }) {
               </Chip>
             ))}
           </Row>
+
+          {/* 五组常用条件之外的收进「更多」。一次摊开十一组，
+              手机上要滚三屏才看得到房源列表 */}
+          <div className="filter-more-head">
+            <button className="link" onClick={() => setMore(!more)}>
+              {more ? '收起更多筛选' : '更多筛选'}
+              {!more && advancedCount > 0 && (
+                <span className="tab-n">{advancedCount}</span>
+              )}
+            </button>
+          </div>
+
+          {more && (
+            <>
+              <Row label="朝向">
+                {ORIENTATIONS.map((o) => (
+                  <Chip key={o} on={f.orientation === o}
+                    onClick={() => pick('orientation', o)}>
+                    {o}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="楼层">
+                {FLOOR_LEVELS.map((l) => (
+                  <Chip key={l} on={f.floor_level === l}
+                    onClick={() => pick('floor_level', l)}>
+                    {l}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="电梯">
+                {ELEVATORS.map((e) => (
+                  <Chip key={e.key} on={f.elevator === e.key}
+                    onClick={() => pick('elevator', e.key)}>
+                    {e.label}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="装修">
+                {DECORATIONS.map((d) => (
+                  <Chip key={d} on={f.decoration === d}
+                    onClick={() => pick('decoration', d)}>
+                    {d}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="供暖">
+                {HEATINGS.map((h) => (
+                  <Chip key={h} on={f.heating === h}
+                    onClick={() => pick('heating', h)}>
+                    {h}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="租期">
+                {LEASE_TERMS.map((t) => (
+                  <Chip key={t.key} on={f.lease_term === t.key}
+                    onClick={() => pick('lease_term', t.key)}>
+                    {t.label}
+                  </Chip>
+                ))}
+              </Row>
+
+              <Row label="入住">
+                {AVAILABLE.map((a) => (
+                  <Chip key={a.key} on={f.available_days === a.key}
+                    onClick={() => pick('available_days', a.key)}>
+                    {a.label}
+                  </Chip>
+                ))}
+              </Row>
+            </>
+          )}
         </div>
       )}
     </section>

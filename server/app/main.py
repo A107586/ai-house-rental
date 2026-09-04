@@ -19,12 +19,12 @@ from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import Float, cast, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 
-from app import leasing
+from app import gateway, house_query, leasing
 from app.auth import create_token, decode_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
@@ -47,7 +47,8 @@ from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          PayRequest, ProfileUpdate, RegisterRequest,
                          RepairCreate, RepairUpdate, ReviewCreate,
                          UserUpdate)
-from app.routers import conversation, repair_data, support
+from app.routers import (account, conversation, password_reset,
+                         repair_data, reports, saved_search, support)
 from app.security import hash_password, verify_password
 
 app = FastAPI(
@@ -140,6 +141,10 @@ async def record_operation(request, call_next):
 app.include_router(repair_data.router)
 app.include_router(support.router)
 app.include_router(conversation.router)
+app.include_router(reports.router)
+app.include_router(saved_search.router)
+app.include_router(password_reset.router)
+app.include_router(account.router)
 
 
 # 一次看房占用多久由系统配置决定（M-09），这里只是配置缺失时的兜底。
@@ -382,13 +387,29 @@ def list_houses(
     area_min: float | None = None,
     area_max: float | None = None,
     keyword: str = "",
+    # ---- K-05 高级筛选。字段在 K-04 里已经落库，这里只是接上 ----
+    orientation: str = "",
+    floor_level: str = "",
+    elevator: bool | None = None,
+    decoration: str = "",
+    heating: str = "",
+    lease_term: str = "",
+    available_days: int | None = None,
+    features: str = "",
     sort: str = "published_at",
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """房源列表。所有筛选条件都是可选的，未传即不过滤。"""
+    """房源列表。所有筛选条件都是可选的，未传即不过滤。
+
+    K-05 之前这里只有六个维度，而 `orientation`、`floor` 明明已经在库里
+    ——**数据在，只是没人能筛**。「电梯」「精装」则更糟：它们挤在逗号
+    分隔的 `tags` 字符串里，用 `LIKE '%电梯%'` 去筛，「无电梯」会被
+    「电梯」命中，筛出来的结果是错的。K-04 把这些拆成了独立列，
+    这里才谈得上「任意组合、结果必然正确」。
+    """
     stmt = select(House)
 
     # 待审核与已下架的房源不对外可见。若不拦，房东一发布就能被匿名用户
@@ -399,24 +420,20 @@ def list_houses(
 
     if status:
         stmt = stmt.where(House.status == status)
-    if district:
-        stmt = stmt.where(House.district.like("%" + district + "%"))
-    if layout:
-        stmt = stmt.where(House.layout.like("%" + layout + "%"))
-    if rent_type:
-        stmt = stmt.where(House.rent_type == rent_type)
-    if rent_price_min is not None:
-        stmt = stmt.where(House.rent_price >= rent_price_min)
-    if rent_price_max is not None:
-        stmt = stmt.where(House.rent_price <= rent_price_max)
-    if area_min is not None:
-        stmt = stmt.where(House.area >= area_min)
-    if area_max is not None:
-        stmt = stmt.where(House.area <= area_max)
-    if keyword:
-        like = "%" + keyword + "%"
-        stmt = stmt.where(House.title.like(like) | House.description.like(like)
-                          | House.community.like(like))
+
+    # 条件构造统一在 app/house_query.py。**这里不再手写一遍**——
+    # 保存搜索要判断「新上架的房源符不符合用户存下的条件」，
+    # 两份实现一旦分叉，表现是最难查的那种：列表页筛得到这套房、
+    # 上新提醒却不发，或者反过来（K-09）。
+    stmt = house_query.apply_filters(stmt, {
+        "district": district, "layout": layout, "rent_type": rent_type,
+        "rent_price_min": rent_price_min, "rent_price_max": rent_price_max,
+        "area_min": area_min, "area_max": area_max, "keyword": keyword,
+        "orientation": orientation, "floor_level": floor_level,
+        "elevator": elevator, "decoration": decoration, "heating": heating,
+        "lease_term": lease_term, "available_days": available_days,
+        "features": features,
+    })
 
     # 用 count(*) 而不是把匹配的行全捞出来再 len()。
     # 后者会把每一行都实例化成 ORM 对象，只为得到一个数字——
@@ -644,6 +661,10 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
     session.flush()
     record_flag(session, verdict, house_fields, "house", user,
                 house.id, house.house_no)
+    # 开了免审的站点，房源发布即上架，这一刻就是「上新」。
+    # 要审核的走 review_house，那边另有一处触发（K-09）
+    if house.status == "available":
+        saved_search.notify_new_house(session, house)
     session.commit()
     session.refresh(house)
     return {"ok": True, "house": house.to_dict()}
@@ -855,6 +876,9 @@ def review_house(house_no: str, payload: HouseReview,
     if payload.approved:
         house.status = "available"
         title, content = "房源审核通过", "房源 %s 已通过审核并上架。" % house.house_no
+        # 上架这一刻才是「上新」。发布时房源还是 pending，对外不可见，
+        # 那时通知等于让用户去看一套他点不开的房（K-09）
+        saved_search.notify_new_house(session, house)
     else:
         house.status = "offline"
         title = "房源审核未通过"

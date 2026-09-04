@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.property_finder import agent  # noqa: E402
 from app.agents.property_finder.tools.search_properties import (  # noqa: E402
-    build_params, matches_all_features, score_by_features, summarize)
+    build_params, summarize)
 from app.backend import BackendError  # noqa: E402
 from app.llm.base import LLMProvider, NullProvider  # noqa: E402
 
@@ -35,10 +35,23 @@ class FakeBackend(object):
         self.last_params = None
 
     def list_properties(self, params):
+        """按参数真的过滤一遍。
+
+        以前这里无视 params 直接返回全部，测试靠智能体本地过滤才通过。
+        设施筛选挪到后端之后（K-06），假后端必须照着真后端的语义来，
+        否则「智能体有没有把条件传下去」这件事就测不出来了——
+        它可以什么都不传，测试照样绿。
+
+        设施按**整词**匹配，和 `server/app/main.py::_feature_clause` 一致：
+        子串匹配会让「无电梯」命中「电梯」。
+        """
         self.last_params = params
         if self.fail:
             raise BackendError("模拟后端不可用")
-        return {"list": self.items, "total": len(self.items)}
+        wanted = [f for f in (params.get("features") or "").split(",") if f]
+        items = [it for it in self.items
+                 if all(f in (it.get("tags") or []) for f in wanted)]
+        return {"list": items, "total": len(items)}
 
 
 def make_house(house_id, price, layout="两室一厅", district="中山区",
@@ -83,18 +96,28 @@ class TestBuildParams(unittest.TestCase):
         self.assertEqual(params["limit"], 10)
 
 
-class TestFeatureScoring(unittest.TestCase):
+class TestFeatureParams(unittest.TestCase):
+    """设施偏好要作为查询参数交给后端，不能在本地过滤（K-06）。
 
-    def test_score_counts_matches(self):
-        house = make_house(1, 2500, tags=["电梯", "地铁"])
-        self.assertEqual(score_by_features(house, ["电梯", "地铁"]), 2)
+    本地过滤有两个毛病：为了拿到正确的 total 得把候选集整个翻完
+    （一次找房打好几趟后端），而且靠子串匹配——「无电梯」里含「电梯」，
+    要电梯的人会被推一套没电梯的房。
+    """
 
-    def test_no_features_scores_zero(self):
-        self.assertEqual(score_by_features(make_house(1, 2500), []), 0)
+    def test_features_go_into_params(self):
+        params = build_params({}, features=["电梯", "可养宠物"])
+        self.assertEqual(params["features"], "电梯,可养宠物")
 
-    def test_all_requested_features_must_match(self):
-        house = make_house(1, 2500, tags=["电梯"])
-        self.assertFalse(matches_all_features(house, ["电梯", "可养宠物"]))
+    def test_no_features_means_no_param(self):
+        """没有设施条件时不要发一个空参数过去。"""
+        self.assertNotIn("features", build_params({}))
+
+    def test_features_combine_with_structured_filters(self):
+        params = build_params({"suozaidiqu": "中山区", "zujia_max": 3000},
+                              features=["电梯"])
+        self.assertEqual(params["district"], "中山区")
+        self.assertEqual(params["rent_price_max"], 3000)
+        self.assertEqual(params["features"], "电梯")
 
 
 class TestSummarize(unittest.TestCase):

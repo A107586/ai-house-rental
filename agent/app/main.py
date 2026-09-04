@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import memory, supervisor
+from app import fusion, memory, supervisor
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
@@ -125,6 +125,37 @@ def agent_search(payload: SearchRequest):
     """AI-01 自然语言找房。"""
     return property_finder.run(
         payload.text, page=payload.page, limit=payload.limit, provider=provider)
+
+
+@app.post("/agent/parse")
+def agent_parse(payload: SearchRequest):
+    """只把一句话解析成筛选条件，**不查房源**（K-06）。
+
+    为什么要和 `/agent/search` 分开：
+
+    网站原先只有 AI 找房这一条检索入口，条件识别和取数捆在一起。
+    结果是两个问题——**智能体一挂，整站就搜不了房**；而且用筛选器会
+    把 AI 的结果整个清空，用户先用一句话搜出来、再想点一下「有电梯」
+    缩小范围，这一下就退回了全量列表。
+
+    拆开之后职责就清楚了：智能体只负责**把人话翻译成条件**，
+    翻完交给网站，取数统一走后端 `/api/houses` 一条路。这样
+    条件看得见、可继续修改，智能体不可用时也只是回到手动选条件——
+    从「唯一入口」降级成「一个便利入口」。
+
+    返回里带着 `source` 和 `divergence`：规则说了什么、大模型改了什么，
+    答辩时能当场展示，也方便排查「它为什么这么理解我」。
+    """
+    filters, features, source, divergence = property_finder.understand(
+        payload.text, provider=provider)
+    return {
+        "ok": bool(filters or features),
+        "filters": filters,
+        "features": features,
+        "source": source,
+        "source_label": fusion.describe_source(source),
+        "divergence": divergence,
+    }
 
 
 @app.post("/agent/route")

@@ -315,8 +315,46 @@ export const api = {
 
   // ---------------- 智能体 ----------------
   // AI-01 自然语言找房
-  agentSearch: (text, limit = 12, page = 1) =>
-    post(agentUrl('/agent/search'), { text, limit, page }),
+  // K-06：**只解析，不取数**。网站拿到条件后自己走 /api/houses，
+  // 检索路径因此只剩一条，智能体挂了也只是少了个便利入口。
+  //
+  // 原先这里还有一个 `agentSearch`（打 /agent/search，一次拿回条件和房源）。
+  // 统一检索路径之后前端不再需要它，就删掉了——留着会让人以为
+  // 有两条取数路径可选，而那正是这次改造要消灭的东西。
+  // 服务端 /agent/search 仍然保留，聊天面板走 supervisor 时会用到。
+  agentParse: (text) => post(agentUrl('/agent/parse'), { text }),
+
+  // ---------------- K-13 身份升级 ----------------
+  landlordEligibility: () => request('/api/auth/landlord-eligibility'),
+  becomeLandlord: () => post('/api/auth/become-landlord', {}),
+
+  // ---------------- K-11 找回密码 ----------------
+  forgotPassword: (username) => post('/api/auth/forgot', { username }),
+  resetPassword: (token, newPassword) =>
+    post('/api/auth/reset', { token, new_password: newPassword }),
+
+  // ---------------- K-09 保存搜索 ----------------
+  savedSearches: () => request('/api/saved-searches'),
+  createSavedSearch: (conditions, name = '') =>
+    post('/api/saved-searches', { conditions, name }),
+  updateSavedSearch: (id, patch) =>
+    request(`/api/saved-searches/${id}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    }),
+  deleteSavedSearch: (id) =>
+    request(`/api/saved-searches/${id}`, { method: 'DELETE' }),
+
+  // ---------------- K-08 房源举报 ----------------
+  reportKinds: () => request('/api/report-kinds'),
+  createReport: (payload) => post('/api/reports', payload),
+  myReports: () => request('/api/reports/mine'),
+  adminReports: (status = 'pending') =>
+    request(`/api/admin/reports?${toQuery({ status })}`),
+  handleReport: (no, status, conclusion = '') =>
+    request(`/api/admin/reports/${no}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, conclusion }),
+    }),
 
   // AI-06 智能预约看房
   agentBooking: (text, houseNo, applicant = {}) =>
