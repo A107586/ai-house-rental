@@ -500,15 +500,30 @@ def dashboard(user: User = Depends(require_agent),
         HouseDelegation.status == "active").order_by(
             HouseDelegation.start_at.desc())).all()
 
-    # 今天要带看的：我受托房源上、今天的、已确认的预约
+    # 今天要带看的：我受托房源上、今天的、**已确认**的预约。
+    #
+    # status 这个条件不能省。省掉的话，一条房东还没点确认的预约也会被算进
+    # 「今日带看 1 场」，中介照着这个数去安排一天的行程，到了地方才发现
+    # 这场约根本没成立。卡片上的数字必须是他真的要去做的事。
     house_ids = [d.house_id for d in active_rows] or [-1]
     day_start = datetime.now().replace(hour=0, minute=0, second=0,
                                        microsecond=0)
     today = session.scalars(select(Appointment).where(
         Appointment.house_id.in_(house_ids),
+        Appointment.status == "confirmed",
         Appointment.viewing_time >= day_start,
         Appointment.viewing_time < day_start + timedelta(days=1)).order_by(
             Appointment.viewing_time)).all()
+
+    # 待我确认的预约单独一档。上面把未确认的滤掉了，但它们不能就此消失——
+    # 受托期间这些预约本来就该由中介来处理（J-05），落在待办里才有人管。
+    # 取今天之后的全部，而不只是今天的：一条明天的预约今天不确认，
+    # 明天就来不及了。
+    pending_appointments = session.scalars(select(Appointment).where(
+        Appointment.house_id.in_(house_ids),
+        Appointment.status == "pending",
+        Appointment.viewing_time >= day_start).order_by(
+            Appointment.viewing_time).limit(20)).all()
 
     return {
         "profile": profile.to_dict(),
@@ -517,6 +532,7 @@ def dashboard(user: User = Depends(require_agent),
             # 待我确认的邀请
             "invitations": [d.to_dict() for d in pending],
             "today_viewings": [a.to_dict() for a in today],
+            "pending_appointments": [a.to_dict() for a in pending_appointments],
         },
         "delegations": [d.to_dict() for d in active_rows[:20]],
     }

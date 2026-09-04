@@ -488,4 +488,57 @@ export const api = {
 
   supportAnalytics: (days = 30) =>
     request(`/api/admin/support/analytics?${toQuery({ days })}`),
+
+  // ---- 中介 / 经纪人（J 系列） ----
+  //
+  // **命名注意**：这个文件里的 `agentXxx` 全部指「AI 智能体微服务」
+  // （/agent/chat、/agent/parse 那一套，跑在 8000 端口）。中介是完全
+  // 不相干的一个业务概念，如果也叫 agent，往后任何人读到 `api.agentXxx`
+  // 都得先愣一下判断是哪个。所以前端这一侧统一用 `broker` 前缀，
+  // 服务端路径保持 /api/agent/*（那边没有歧义，它没有 AI 微服务的路由）。
+
+  brokerDashboard: () => request('/api/agent/dashboard'),
+  brokerProfile: () => request('/api/agent/profile'),
+  updateBrokerProfile: (payload) =>
+    request('/api/agent/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  submitLicense: (licenseNo, images = []) =>
+    post('/api/agent/license', { license_no: licenseNo, license_images: images }),
+
+  // 委托。房东和中介调的是同一组接口，靠 role 参数区分「我是哪一方」
+  delegations: (params = {}) => request(`/api/delegations?${toQuery(params)}`),
+  createDelegation: (payload) => post('/api/delegations', payload),
+  // accept 走请求体而不是查询串：服务端是 `Body(embed=True)`。
+  // 拒绝不带理由——那个接口不收，与其在这里编一个参数送过去被忽略，
+  // 不如让签名如实反映它能做什么
+  respondDelegation: (id, accept) =>
+    request(`/api/delegations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accept }),
+    }),
+  endDelegation: (id, reason = '') =>
+    post(`/api/delegations/${id}/end`, { reason }),
+
+  openHouses: (limit = 20) => request(`/api/agent/open-houses?${toQuery({ limit })}`),
+
+  viewings: (params = {}) => request(`/api/viewings?${toQuery(params)}`),
+  createViewing: (payload) => post('/api/viewings', payload),
+
+  brokerCommissions: (status = '') =>
+    request(`/api/agent/commissions?${toQuery({ status })}`),
+
+  // ---- 管理端的中介治理（J-11） ----
+  adminAgentQueue: () => request('/api/admin/agent-queue'),
+  reviewLicense: (userId, approved, reason = '') =>
+    request(`/api/admin/agents/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved, reason }),
+    }),
+  adminAgents: (params = {}) => request(`/api/admin/agents?${toQuery(params)}`),
+  adminAgentStats: () => request('/api/admin/agent-stats'),
 }

@@ -3,6 +3,7 @@ import { api } from '../api'
 import CloseRepairDialog from './CloseRepairDialog'
 import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
+import DelegationPanel from './DelegationPanel'
 import ImageUploader from './ImageUploader'
 import SignContractDialog from './SignContractDialog'
 
@@ -214,6 +215,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
     { key: 'contracts', label: '出租合同',
       n: contracts.filter((c) => c.status === 'pending').length },
     { key: 'tenants', label: '租客', n: tenants.length },
+    { key: 'delegations', label: '委托中介' },
     { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
   ]
 
@@ -513,6 +515,9 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
           ))}
 
         {/* ---------------- 发布 / 编辑 ---------------- */}
+        {/* ---------------- 委托中介（J-04） ---------------- */}
+        {tab === 'delegations' && <DelegationPanel houses={houses} />}
+
         {tab === 'publish' && (
           <form onSubmit={submitHouse} className="house-form">
             {editing && (

@@ -37,15 +37,17 @@ class BrokerCase(ApiTestCase):
         # 姓名不能带数字（注册接口的校验规则），所以按序号取汉字
         names = "甲乙丙丁戊己庚辛壬癸"
         index = int(username[-1]) if username[-1].isdigit() else 0
+        # 直接以 agent 身份注册，走真实入口而不是在库里改 role——
+        # 「中介账号根本注册不出来」这种问题，只有测试也走同一条路才会暴露
         created = self.client.post("/api/auth/register", json={
             "username": username, "password": "test123",
             "real_name": "中介" + names[index % len(names)],
-            "phone": "13700000001", "role": "tenant"})
+            "phone": "13700000001", "role": "agent"})
         assert created.status_code == 200, created.text
+        assert created.json()["user"]["role"] == "agent", created.text
         session = db.SessionLocal()
         try:
             user = session.query(User).filter_by(username=username).one()
-            user.role = "agent"
             profile = AgentProfile(
                 user_id=user.id, service_districts=districts,
                 license_no="JJ2026001",
@@ -495,3 +497,113 @@ class TestAdminGovernance(BrokerCase):
                      "/api/admin/agent-stats"):
             self.assertEqual(
                 self.client.get(path, headers=self.agent).status_code, 403)
+
+
+# ---------------------------------------------------------- 角色入口（J-01）
+
+class TestAgentRole(BrokerCase):
+    """中介这个角色本身的出入口。
+
+    这一组测的不是功能，是**功能够不够得着**。后端做得再全，
+    如果没有任何途径让一个账号变成 agent，整套中介功能在系统里
+    就是一段谁也走不到的代码。
+    """
+
+    def test_can_register_as_agent(self):
+        """注册时能直接选经纪人。"""
+        body = self.client.post("/api/auth/register", json={
+            "username": "broker9", "password": "test123",
+            "real_name": "中介玖", "phone": "13700000009",
+            "role": "agent"}).json()
+        self.assertEqual(body["user"]["role"], "agent")
+
+    def test_fresh_agent_can_do_nothing_until_approved(self):
+        """**注册出来的中介是个空壳。**
+
+        自助注册之所以安全，全靠这一条：role 本身不给任何权限，
+        接单要等资质审核通过。如果哪天有人放松了这里，
+        这条用例应当立刻变红。
+        """
+        self.client.post("/api/auth/register", json={
+            "username": "broker8", "password": "test123",
+            "real_name": "中介捌", "phone": "13700000008", "role": "agent"})
+        fresh = auth_header(self.client, "broker8", "test123")
+
+        # 能看自己的工作台（要在上面提交资质），但接不了单
+        dash = self.client.get("/api/agent/dashboard", headers=fresh)
+        self.assertEqual(dash.status_code, 200)
+        self.assertFalse(dash.json()["profile"]["can_take_orders"])
+
+        applied = self.client.post("/api/delegations", headers=fresh,
+                                   json={"house_no": "DL0001"})
+        self.assertEqual(applied.status_code, 403)
+
+    def test_agent_cannot_flip_to_landlord(self):
+        """**中介不能一键转房东。**
+
+        角色一旦变成 landlord，他手上在托房源的管理权立刻全部消失
+        （`can_manage_house` 要求 role == agent），而页面上不会有任何提示，
+        房东那边也不知道自己的委托已经失效。这是一次需要本人确认的迁移，
+        不该由「升级为房东」按钮顺手完成。
+        """
+        self.delegate("DL0001")
+        blocked = self.client.post("/api/auth/become-landlord",
+                                   headers=self.agent)
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn("解除", blocked.json()["detail"])
+
+        # 委托仍然生效，权限没被这次尝试改坏
+        rows = self.client.get("/api/delegations?role=agent",
+                               headers=self.agent).json()
+        self.assertEqual(rows["list"][0]["status"], "active")
+
+    def test_eligibility_marks_agent(self):
+        """前端据此把「成为房东」入口整个藏掉，而不是给一个点了会报错的按钮。"""
+        body = self.client.get("/api/auth/landlord-eligibility",
+                               headers=self.agent).json()
+        self.assertTrue(body["is_agent"])
+        self.assertFalse(body["can_upgrade"])
+
+
+class TestDashboardTodo(BrokerCase):
+    """工作台首屏那几个数字的口径。"""
+
+    def _appoint(self, house_no="DL0001", days=0, hours=3):
+        when = (datetime.now() + timedelta(days=days, hours=hours))
+        created = self.client.post("/api/appointments", headers=self.tenant,
+                                   json={"house_no": house_no,
+                                         "viewing_time": when.isoformat(),
+                                         "contact_name": "租客甲",
+                                         "contact_phone": "13800000001"})
+        assert created.status_code == 200, created.text
+        return created.json()
+
+    def test_today_viewings_only_counts_confirmed(self):
+        """**未确认的预约不算「今日带看」。**
+
+        算进去的话，中介照着一个虚高的数字安排一天行程，
+        到了地方才发现这场约根本没成立。
+        """
+        self.delegate("DL0001")
+        self._appoint("DL0001")          # 停在 pending
+
+        todo = self.client.get("/api/agent/dashboard",
+                               headers=self.agent).json()["todo"]
+        self.assertEqual(len(todo["today_viewings"]), 0)
+        # 但它不能就此消失——受托期间这些预约本来就该由中介处理
+        self.assertEqual(len(todo["pending_appointments"]), 1)
+
+    def test_confirmed_appointment_shows_up(self):
+        self.delegate("DL0001")
+        appointment = self._appoint("DL0001")
+        aid = appointment["appointment"]["id"] if "appointment" in appointment \
+            else appointment["id"]
+        replied = self.client.patch(
+            "/api/appointments/%d" % aid, headers=self.landlord,
+            json={"status": "confirmed", "reply": "到时候见"})
+        self.assertEqual(replied.status_code, 200, replied.text)
+
+        todo = self.client.get("/api/agent/dashboard",
+                               headers=self.agent).json()["todo"]
+        self.assertEqual(len(todo["today_viewings"]), 1)
+        self.assertEqual(len(todo["pending_appointments"]), 0)
