@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ConfigPanel from './ConfigPanel'
 import FlagPanel from './FlagPanel'
+import HouseReportPanel from './HouseReportPanel'
 import LandlordRoster from './LandlordRoster'
 import RepairDataPanel from './RepairDataPanel'
 import LogPanel from './LogPanel'
@@ -109,6 +110,7 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'notices', label: '公告', n: notices.length },
     { key: 'support', label: '智能客服' },
     { key: 'flags', label: '内容审核' },
+    { key: 'houseReports', label: '举报处理' },
     { key: 'repairdata', label: '维修数据' },
     { key: 'logs', label: '操作日志' },
     { key: 'config', label: '系统配置' },
@@ -147,6 +149,8 @@ export default function AdminPanel({ user, onClose }) {
         {tab === 'support' && <SupportPanel />}
 
         {tab === 'flags' && <FlagPanel />}
+
+        {tab === 'houseReports' && <HouseReportPanel />}
 
         {/* ---------------- 维修数据（F-09） ---------------- */}
         {tab === 'repairdata' && <RepairDataPanel />}

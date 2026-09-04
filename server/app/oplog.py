@@ -70,6 +70,9 @@ ACTION_RULES = (
     ("DELETE", r"^/api/faqs/", "删除知识条目"),
     ("POST", r"^/api/support/handoff$", "提交转人工"),
     ("POST", r"^/api/admin/handoffs/", "回复转人工工单"),
+    # K-08 房源举报
+    ("POST", r"^/api/reports$", "提交房源举报"),
+    ("PATCH", r"^/api/admin/reports/", "处理房源举报"),
 )
 
 _COMPILED = tuple((method, re.compile(pattern), name)
