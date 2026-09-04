@@ -238,8 +238,13 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)):
                             detail="姓名需为 2–20 位中英文字符")
     if phone and not re.fullmatch(r"1[3-9]\d{9}", phone):
         raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
-    if payload.role not in ("tenant", "landlord"):
-        raise HTTPException(status_code=400, detail="只能注册租客或房东账号")
+    if payload.role not in ("tenant", "landlord", "agent"):
+        raise HTTPException(status_code=400,
+                            detail="只能注册租客、房东或经纪人账号")
+    # 经纪人可以自助注册，但**这个角色本身不带任何权限**——
+    # 接单要等资质审核通过（J-01）。所以这里不必额外设卡：
+    # 注册一个 agent 账号在能力上等同于一个什么都做不了的账号。
+    # 反过来把注册也卡死，只会逼着每个中介去找管理员开户。
     exists = session.scalar(select(User).where(User.username == username))
     if exists:
         raise HTTPException(status_code=409, detail="用户名已被占用")
