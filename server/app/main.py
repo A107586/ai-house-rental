@@ -1529,7 +1529,8 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
                        session: Session = Depends(get_session)):
     """确认 / 拒绝 / 取消预约。
 
-    房东与管理员可确认或拒绝；租客只能取消自己的预约。
+    房东、受托中介与管理员可确认或拒绝；租客只能取消自己的预约。
+    **处理结果一律通知租客**——他要据此安排出门。
     """
     if payload.status not in ("confirmed", "rejected", "cancelled"):
         raise HTTPException(status_code=400, detail="状态值不合法")
@@ -1550,10 +1551,41 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
         if not is_staff and appointment.tenant_id != user.id:
             raise HTTPException(status_code=403, detail="只能取消自己的预约")
     elif not is_staff:
-        raise HTTPException(status_code=403, detail="只有房东或管理员可以处理预约")
+        raise HTTPException(status_code=403,
+                            detail="只有房东、受托中介或管理员可以处理预约")
 
     appointment.status = payload.status
     appointment.reply = payload.reply
+
+    # 处理结果必须回给租客。
+    #
+    # 在此之前这里**一条通知都不发**：租客约了看房，之后是确认了、
+    # 被拒了、还是没人管，他只能自己回页面一遍遍刷。约看房的人是要
+    # 据此安排出门的，把结果压在数据库里不告诉他，等于让他白等。
+    #
+    # 取消不通知发起人自己——租客自己点的取消，再给他发一条
+    # 「你的预约已取消」是噪音。房东取消才需要通知。
+    when = appointment.viewing_time.strftime("%m-%d %H:%M")
+    house_no = house.house_no if house else ""
+    if payload.status == "confirmed":
+        leasing.notify(
+            session, appointment.tenant_id, "system", "看房预约已确认",
+            "%s %s 的看房已确认。%s" % (house_no, when, payload.reply or ""),
+            house_no)
+    elif payload.status == "rejected":
+        # 理由原样带上（同 K-08）：只说「未通过」，租客不知道是时间不合适
+        # 还是房子已经租出去了，只能再约一次碰运气
+        leasing.notify(
+            session, appointment.tenant_id, "system", "看房预约未通过",
+            "%s %s 的看房未能安排。%s" % (house_no, when,
+                                   payload.reply or "房东未说明原因"),
+            house_no)
+    elif payload.status == "cancelled" and user.id != appointment.tenant_id:
+        leasing.notify(
+            session, appointment.tenant_id, "system", "看房预约已取消",
+            "%s %s 的看房已被取消。%s" % (house_no, when, payload.reply or ""),
+            house_no)
+
     session.commit()
     return {"ok": True, "appointment": appointment.to_dict()}
 

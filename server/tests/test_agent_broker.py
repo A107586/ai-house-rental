@@ -772,3 +772,65 @@ class TestWorkActuallyMoves(BrokerCase):
         kept = self.client.get("/api/conversations/%d/lines" % cid,
                                headers=self.landlord).json()
         self.assertEqual(len(kept["list"]), 1)
+
+
+class TestAppointmentReceipt(BrokerCase):
+    """预约的处理结果要回给租客。
+
+    这个缺口不属于中介功能，是做 J-05 时顺带照出来的：约看房的人要据此
+    安排出门，把结果压在库里不告诉他，等于让他白等。
+    """
+
+    def _appoint(self, house_no="DL0001"):
+        when = datetime.now() + timedelta(days=1)
+        created = self.client.post("/api/appointments", headers=self.tenant,
+                                   json={"house_no": house_no,
+                                         "viewing_time": when.isoformat(),
+                                         "contact_name": "租客甲",
+                                         "contact_phone": "13800000001"})
+        assert created.status_code == 200, created.text
+        return created.json()["appointment"]["id"]
+
+    def _titles(self, headers):
+        return [m["title"] for m in self.client.get(
+            "/api/messages", headers=headers).json()["list"]]
+
+    def test_confirm_notifies_tenant(self):
+        aid = self._appoint()
+        self.client.patch("/api/appointments/%d" % aid, headers=self.landlord,
+                          json={"status": "confirmed", "reply": "到时候见"})
+        self.assertIn("看房预约已确认", self._titles(self.tenant))
+
+    def test_reject_carries_the_reason(self):
+        """只说「未通过」，租客不知道是时间不合适还是房子已经租出去了，
+        只能再约一次碰运气——与 K-08 同一条理由。"""
+        aid = self._appoint()
+        self.client.patch("/api/appointments/%d" % aid, headers=self.landlord,
+                          json={"status": "rejected", "reply": "那天我不在大连"})
+        body = [m for m in self.client.get(
+            "/api/messages", headers=self.tenant).json()["list"]
+            if m["title"] == "看房预约未通过"]
+        self.assertTrue(body)
+        self.assertIn("那天我不在大连", body[0]["content"])
+
+    def test_agent_can_confirm_and_tenant_is_told(self):
+        """受托中介确认，租客照样收到回执——通知的是结果，不是谁点的。"""
+        self.delegate("DL0001")
+        aid = self._appoint()
+        ok = self.client.patch("/api/appointments/%d" % aid, headers=self.agent,
+                               json={"status": "confirmed", "reply": "我带你看"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertIn("看房预约已确认", self._titles(self.tenant))
+
+    def test_self_cancel_is_not_echoed_back(self):
+        """租客自己点的取消，再给他发一条「你的预约已取消」是噪音。"""
+        aid = self._appoint()
+        self.client.patch("/api/appointments/%d" % aid, headers=self.tenant,
+                          json={"status": "cancelled"})
+        self.assertNotIn("看房预约已取消", self._titles(self.tenant))
+
+    def test_landlord_cancel_is_notified(self):
+        aid = self._appoint()
+        self.client.patch("/api/appointments/%d" % aid, headers=self.landlord,
+                          json={"status": "cancelled", "reply": "房子已出租"})
+        self.assertIn("看房预约已取消", self._titles(self.tenant))
