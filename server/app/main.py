@@ -1840,7 +1840,16 @@ def my_bills(status: str = "", contract_no: str = "",
 def pay_bill(bill_no: str, payload: PayRequest,
              user: User = Depends(require_login),
              session: Session = Depends(get_session)):
-    """缴费。只有承租方与管理员能付。"""
+    """第一段：发起支付。只有承租方与管理员能付。
+
+    **这个接口不再代表「已付款」。** 它创建一张 pending 的支付单并返回
+    收银台地址，账单仍然是 unpaid——钱要等网关回调
+    （`POST /api/payments/notify`）确认之后才算收到。
+
+    改造前它是一步到位的：进来就把账单置 paid。那种写法在本地跑得通，
+    但它假设「发起支付 == 收到钱」，而真实链路里用户可能跳到收银台就走了、
+    可能付失败、也可能回调晚到几秒——这三种情况旧写法全都记成已付款。
+    """
     bill = session.scalar(select(Bill).where(Bill.bill_no == bill_no))
     if not bill:
         raise HTTPException(status_code=404, detail="账单不存在")
@@ -1848,6 +1857,9 @@ def pay_bill(bill_no: str, payload: PayRequest,
     contract = bill.contract
     if user.role != "admin" and (not contract or user.id != contract.tenant_id):
         raise HTTPException(status_code=403, detail="只有承租方可以缴费")
+
+    # 顺手清掉过期的挂单，否则用户会被自己十分钟前那张没付的单堵住
+    leasing.sweep_expired_payments(session)
 
     if payload.idempotency_key:
         previous = session.scalar(select(Payment).where(
@@ -1858,10 +1870,19 @@ def pay_bill(bill_no: str, payload: PayRequest,
             return {"ok": True, "bill": previous.bill.to_dict(),
                     "payment": previous.to_dict(), "idempotent": True}
 
+    # 线下缴费与管理员代收走一步到位：钱已经通过别的渠道收到了，
+    # 系统只需要如实记一笔，不该再让它去走一遍网关。
+    offline = payload.method in ("offline", "cash") or user.role == "admin"
+
     try:
-        payment = leasing.pay_bill(
-            session, bill, user, method=payload.method,
-            idempotency_key=payload.idempotency_key or None)
+        if offline:
+            payment = leasing.pay_bill(
+                session, bill, user, method=payload.method,
+                idempotency_key=payload.idempotency_key or None)
+        else:
+            payment = leasing.start_payment(
+                session, bill, user, method=payload.method,
+                idempotency_key=payload.idempotency_key or None)
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -1869,7 +1890,124 @@ def pay_bill(bill_no: str, payload: PayRequest,
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.refresh(bill)
-    return {"ok": True, "bill": bill.to_dict(), "payment": payment.to_dict()}
+    session.refresh(payment)
+    result = {"ok": True, "bill": bill.to_dict(), "payment": payment.to_dict()}
+    if payment.status == "pending":
+        result["pay_url"] = "/#/pay/%s" % payment.trade_no
+        result["next"] = "waiting_notify"
+    return result
+
+
+@app.post("/api/payments/notify")
+def payment_notify(payload: dict, session: Session = Depends(get_session)):
+    """第二段：网关异步回调。**账单是在这里才真正变成已付的。**
+
+    这个接口有三个和其它接口都不一样的地方，每一个都是真实网关的要求：
+
+    1. **没有登录态。** 调用方是网关服务器，不是浏览器，带不了用户令牌。
+       身份靠**签名**验证——这也是为什么验签失败必须直接拒绝，
+       它是这个接口唯一的门。
+    2. **必须幂等。** 支付宝对同一笔交易最多重复推送 8 次（间隔递增），
+       直到平台返回成功为止。处理两次就多记一笔收入。
+    3. **要回一个网关认识的响应。** 真实网关看不懂 HTTP 200 里的 JSON，
+       支付宝认的是纯文本 `success`；这里保留 JSON，但把
+       `code` 字段留成同样的语义位置。
+
+    金额也要核对：**不能信回调报文里的钱数就直接入账**，
+    要和平台自己的单子对上——回调是可以被伪造的，签名挡住了伪造，
+    金额核对挡住的是网关侧的错单。
+    """
+    if not gateway.verify(payload):
+        # 验签失败不解释原因。回调接口暴露在公网上，
+        # 告诉对方「签名错了」还是「单号不存在」等于帮着试探。
+        raise HTTPException(status_code=400, detail="签名校验失败")
+
+    trade_no = payload.get("trade_no", "")
+    payment = session.scalar(select(Payment).where(Payment.trade_no == trade_no))
+    if not payment:
+        raise HTTPException(status_code=404, detail="支付单不存在")
+
+    try:
+        if abs(float(payload.get("amount", 0)) - float(payment.amount)) > 0.01:
+            raise HTTPException(status_code=409, detail="回调金额与支付单不符")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="回调金额格式不正确")
+
+    try:
+        payment, changed = leasing.confirm_payment(
+            session, payment, payload, payload.get("result", "success"))
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    # changed=False 表示这是一次重复推送，账没有再动过。
+    # 仍然返回成功——**返回失败会让网关继续重推**。
+    return {"code": "success", "trade_no": payment.trade_no,
+            "status": payment.status, "duplicated": not changed}
+
+
+@app.post("/api/payments/{trade_no}/mock-pay")
+def mock_pay(trade_no: str, result: str = "success",
+             user: User = Depends(require_login),
+             session: Session = Depends(get_session)):
+    """假网关的「我付好了」按钮——**替代真实收银台的那一步**。
+
+    真实链路里用户是跳到支付宝页面完成支付，然后支付宝回调平台。
+    我们拿不到支付宝，所以由这个接口代替用户点下「确认付款」，
+    再由它去构造一份**带正确签名的回调报文**打给上面那个 notify 接口。
+
+    重点是：**回调链路本身是真的**，只有触发回调的人换成了我们自己。
+    将来接上真网关，删掉这个接口即可，notify 一行不用改。
+    """
+    payment = session.scalar(select(Payment).where(Payment.trade_no == trade_no))
+    if not payment:
+        raise HTTPException(status_code=404, detail="支付单不存在")
+    contract = payment.bill.contract
+    if user.role != "admin" and (not contract or user.id != contract.tenant_id):
+        raise HTTPException(status_code=403, detail="无权操作该支付单")
+    if payment.status != "pending":
+        raise HTTPException(status_code=409, detail="该支付单不在等待付款状态")
+
+    notice = gateway.get_gateway().build_notify(
+        payment.trade_no, payment.gateway_trade_no, payment.amount, result)
+    return payment_notify(notice, session)
+
+
+@app.get("/api/payments/{trade_no}/status")
+def payment_status(trade_no: str, user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """第三段：前端轮询确认到账。
+
+    还带一条**主动查询**的兜底：回调是会丢的（网络抖动、平台正好在重启），
+    只等回调的系统一定会有付了钱但账单没变的用户。所以单子还挂着 pending
+    时，反过来问一次网关。
+    """
+    payment = session.scalar(select(Payment).where(Payment.trade_no == trade_no))
+    if not payment:
+        raise HTTPException(status_code=404, detail="支付单不存在")
+    contract = payment.bill.contract
+    allowed = (user.role == "admin" or
+               (contract and user.id in (contract.tenant_id, contract.landlord_id)))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="无权查看该支付单")
+
+    if payment.status == "pending":
+        if payment.expire_at and payment.expire_at < datetime.now():
+            leasing.close_payment(session, payment, "超时未支付，自动关单")
+            session.commit()
+        else:
+            remote = gateway.get_gateway().query(payment.gateway_trade_no or "")
+            if remote.get("status") == "succeeded":
+                # 网关说付了，我们这边还是 pending —— 回调丢了，就地补上
+                notice = gateway.get_gateway().build_notify(
+                    payment.trade_no, payment.gateway_trade_no, payment.amount)
+                leasing.confirm_payment(session, payment, notice, "success")
+                session.commit()
+
+    session.refresh(payment)
+    return {"ok": True, "payment": payment.to_dict(),
+            "bill": payment.bill.to_dict()}
 
 
 @app.get("/api/payments/{trade_no}")

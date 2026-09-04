@@ -7,7 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header
+from tests.base import ApiTestCase, auth_header, settle
 
 
 def future(days=7):
@@ -137,8 +137,8 @@ class TestLandlordTenants(ManageCase):
     def test_paid_total_grows(self):
         self.make_contract()
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"]
-        self.client.post("/api/bills/%s/pay" % bills[0]["bill_no"],
-                         headers=self.tenant, json={})
+        # 已收金额只认确认到账的钱，所以要走完回调那一段
+        settle(self.client, bills[0]["bill_no"], self.tenant)
         data = self.client.get("/api/landlord/tenants",
                                headers=self.landlord).json()
         self.assertGreater(data["list"][0]["paid_total"], 0)

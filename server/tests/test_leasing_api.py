@@ -7,7 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header
+from tests.base import ApiTestCase, auth_header, settle
 
 
 def future(days=7):
@@ -47,8 +47,9 @@ class ContractCase(ApiTestCase):
         deposit = next(b for b in bills["list"]
                        if b["type"] == "deposit" and b["house_no"] == "DL0001"
                        and b["status"] == "unpaid")
-        self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
-                         headers=self.tenant, json={"method": "alipay"})
+        # 三段式改造之后，只调 /pay 账单仍是 unpaid——要缴清得等回调。
+        # 这里的用例关心的是「押金已经收到」这个前提，不是支付链路本身
+        settle(self.client, deposit["bill_no"], self.tenant)
         return deposit["bill_no"]
 
 
@@ -176,7 +177,13 @@ class TestBills(ContractCase):
         data = self.client.get("/api/bills/mine", headers=self.landlord).json()
         self.assertEqual(data["total"], 13)
 
-    def test_pay(self):
+    def test_pay_only_starts_the_payment(self):
+        """**发起支付不等于收到钱。**
+
+        改造前这个接口进来就把账单置 paid。那种写法假设
+        「发起支付 == 付款成功」，而真实链路里用户可能跳到收银台就走了、
+        可能付失败、也可能回调晚到几秒——三种情况旧写法全记成已付款。
+        """
         self.active_contract()
         bill_no = self.client.get("/api/bills/mine",
                                   headers=self.tenant).json()["list"][0]["bill_no"]
@@ -184,14 +191,33 @@ class TestBills(ContractCase):
                                     headers=self.tenant, json={"method": "wechat"})
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["bill"]["status"], "paid")
         self.assertEqual(body["payment"]["method"], "wechat")
+        # 支付单在途，账单还没付
+        self.assertEqual(body["payment"]["status"], "pending")
+        self.assertEqual(body["bill"]["status"], "unpaid")
 
-    def test_double_pay_rejected(self):
+    def test_bill_is_paid_after_the_callback(self):
+        """账单是在网关回调那一步才真正变成已付的。"""
         self.active_contract()
         bill_no = self.client.get("/api/bills/mine",
                                   headers=self.tenant).json()["list"][0]["bill_no"]
-        self.client.post("/api/bills/%s/pay" % bill_no, headers=self.tenant, json={})
+        response = settle(self.client, bill_no, self.tenant, method="wechat")
+        self.assertEqual(response.status_code, 200)
+
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        paid = next(b for b in bills["list"] if b["bill_no"] == bill_no)
+        self.assertEqual(paid["status"], "paid")
+
+    def test_double_pay_rejected(self):
+        """已经缴清的账单不能再付一次。
+
+        重复入账是**对账时最难查的一类错**：钱数对不上，
+        但每一笔流水看起来都合法。
+        """
+        self.active_contract()
+        bill_no = self.client.get("/api/bills/mine",
+                                  headers=self.tenant).json()["list"][0]["bill_no"]
+        settle(self.client, bill_no, self.tenant)
         again = self.client.post("/api/bills/%s/pay" % bill_no,
                                  headers=self.tenant, json={})
         self.assertEqual(again.status_code, 409)
@@ -221,9 +247,9 @@ class TestBills(ContractCase):
         self.active_contract()
         bill_no = self.client.get("/api/bills/mine",
                                   headers=self.tenant).json()["list"][0]["bill_no"]
-        paid = self.client.post("/api/bills/%s/pay" % bill_no,
-                                headers=self.tenant, json={}).json()
-        trade_no = paid["payment"]["trade_no"]
+        started = self.client.post("/api/bills/%s/pay" % bill_no,
+                                   headers=self.tenant, json={}).json()
+        trade_no = started["payment"]["trade_no"]
         receipt = self.client.get("/api/payments/%s" % trade_no,
                                   headers=self.tenant)
         self.assertEqual(receipt.status_code, 200)
@@ -396,8 +422,9 @@ class TestStatsIncome(ContractCase):
 
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"]
         rent_bill = [b for b in bills if b["type"] == "rent"][0]
-        self.client.post("/api/bills/%s/pay" % rent_bill["bill_no"],
-                         headers=self.tenant, json={})
+        # 收入只认**确认到账**的钱，所以必须走完回调那一段。
+        # 只发起支付就计入收入，等于把在途的钱当成已收
+        settle(self.client, rent_bill["bill_no"], self.tenant)
 
         after = self.client.get("/api/stats").json()
         self.assertEqual(after["income_received"], 2800.0)

@@ -481,11 +481,38 @@ class Payment(Base):
     amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     # 课程项目不接真实支付，method 仅作展示：alipay / wechat / bank / offline
     method: Mapped[str] = mapped_column(String(20), default="alipay")
-    status: Mapped[str] = mapped_column(String(20), default="succeeded", index=True)
+
+    # 支付单状态机（D-1 三段式改造）：
+    #   pending   已发起，等网关回调——**此时账单仍是 unpaid，钱还没到**
+    #   succeeded 回调确认到账，账单才置 paid
+    #   failed    网关明确回调支付失败
+    #   closed    超时未回调，平台主动关单，用户可以重新发起
+    #
+    # 改造之前这个字段默认就是 succeeded：点一下就算付了，没有「在途」状态。
+    # 真实系统里「在途」是必须存在的——用户跳到收银台还没付、网络断了、
+    # 回调延迟，这些都停在 pending，既不能算已付，也不能当没发生过。
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+
+    # 幂等键：同一笔缴费重复提交只产生一条流水（前端重试、用户连点）
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True,
                                                         nullable=True)
     failure_reason: Mapped[str] = mapped_column(String(200), default="")
-    paid_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    # ---- 以下四列服务于回调链路 ----
+    # 网关侧单号。对账时以它为准——平台单号网关不认。
+    gateway: Mapped[str] = mapped_column(String(20), default="mock")
+    gateway_trade_no: Mapped[str | None] = mapped_column(String(64), index=True,
+                                                          nullable=True)
+    # 回调报文原样存档。对不上账时要能拿出网关究竟推了什么，
+    # 只存一个「已处理」的结论是查不了问题的。
+    notify_payload: Mapped[str] = mapped_column(Text, default="")
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    # 到账时间。**pending 期间它是空的**——原先这里无条件填当前时间，
+    # 等于「发起」和「到账」共用一个时间戳，对账时分不出钱是什么时候到的。
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     bill: Mapped["Bill"] = relationship(back_populates="payment")
 
@@ -499,7 +526,14 @@ class Payment(Base):
             "status": self.status,
             "idempotency_key": self.idempotency_key or "",
             "failure_reason": self.failure_reason,
-            "paid_at": self.paid_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "gateway": self.gateway,
+            "gateway_trade_no": self.gateway_trade_no or "",
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                          if self.created_at else "",
+            "paid_at": self.paid_at.strftime("%Y-%m-%d %H:%M:%S")
+                       if self.paid_at else "",
+            "expire_at": self.expire_at.strftime("%Y-%m-%d %H:%M:%S")
+                         if self.expire_at else "",
         }
 
 

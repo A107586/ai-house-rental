@@ -96,3 +96,40 @@ def auth_header(client, username="tenant1", password="test123"):
     data = client.post("/api/auth/login",
                        json={"username": username, "password": password}).json()
     return {"Authorization": "Bearer " + data["token"]}
+
+
+def settle(client, bill_no, headers, method="alipay"):
+    """把一张账单**真正缴清**：发起支付 + 模拟网关回调（D-1 三段式）。
+
+    支付改造之后，`POST /api/bills/{no}/pay` 只创建一张 pending 的支付单，
+    **账单仍然是 unpaid**——钱要等 `POST /api/payments/notify` 回调
+    确认才算收到。这是对的：真实链路里用户可能跳到收银台就走了、
+    可能付失败、也可能回调晚到几秒，旧的一步到位写法会把这三种情况
+    全都记成已付款。
+
+    但测试里大量用例只是想「让这张账单变成已付」，好接着测后面的
+    退租结算、房东收入、合同时间线。让每个用例都自己拼一遍带签名的
+    回调报文，既啰嗦又会把「支付怎么走」这个细节复制到十几处——
+    将来回调报文改一个字段就要改十几个地方。
+
+    所以在这里收口：**要测支付链路本身的用例直接调那两个接口，
+    其余只想「把钱缴了」的用例调这个函数。**
+
+    返回回调接口的响应。
+    """
+    from app import gateway
+
+    started = client.post("/api/bills/%s/pay" % bill_no, headers=headers,
+                          json={"method": method})
+    body = started.json()
+    payment = body.get("payment") or {}
+    trade_no = payment.get("trade_no")
+    if not trade_no:
+        # 线下缴费与管理员代收是一步到位的，没有回调这一段
+        return started
+
+    payload = {"trade_no": trade_no,
+               "amount": float(payment["amount"]),
+               "result": "success"}
+    payload["sign"] = gateway.sign(payload)
+    return client.post("/api/payments/notify", json=payload)

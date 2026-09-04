@@ -13,7 +13,7 @@
 
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, settle
 
 
 def future(days=1):
@@ -40,8 +40,9 @@ class DetailCase(ApiTestCase):
     def pay_first_two(self):
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
         for bill in bills["list"][:2]:
-            self.client.post("/api/bills/%s/pay" % bill["bill_no"],
-                             headers=self.tenant, json={"method": "alipay"})
+            # 走完「发起 + 回调」两段。只调 /pay 账单仍是 unpaid，
+            # 时间线上也就不会出现缴费记录（D-1 三段式）
+            settle(self.client, bill["bill_no"], self.tenant)
 
     def detail(self, no, headers=None):
         return self.client.get("/api/contracts/%s/detail" % no,

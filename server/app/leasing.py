@@ -21,7 +21,9 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from app import notifier
+from sqlalchemy import select
+
+from app import gateway, notifier
 from app.models import Bill, Contract, House, Message, Payment, Refund, User
 
 
@@ -221,8 +223,8 @@ def generate_bills(session, contract):
     return bills
 
 
-def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
-    """缴费。重复缴费直接拒绝，不能产生两条流水。"""
+def _guard_payable(bill):
+    """发起支付前的共同校验。发起与确认两段都要用，抽出来免得只改一处。"""
     if bill.status == "paid":
         raise ValueError("该账单已缴清")
     if bill.status == "cancelled":
@@ -239,18 +241,86 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
     if bill.contract and bill.contract.status in ("ended", "cancelled"):
         raise ValueError("该合同已结束，无法继续缴费；如有欠款请联系房东处理")
 
-    bill.status = "paid"
-    bill.paid_at = datetime.now()
+
+def start_payment(session, bill, user=None, method="alipay", idempotency_key=None):
+    """第一段：发起支付。
+
+    **这一步不改账单状态。** 返回的是一张「等待付款」的支付单，
+    钱还没到——账单要等网关回调确认之后才置 paid（见 confirm_payment）。
+
+    改造之前这里是一步到位的：把 bill.status 改成 paid、建一条 succeeded
+    的流水就返回了。那样写在本地能跑，但它假设了一件真实系统里不成立的事——
+    **发起支付等于收到钱**。真实链路里用户跳到收银台之后可能不付、付失败、
+    或者付了但回调晚到几秒，这三种情况在旧写法里都会被记成已付款。
+    """
+    _guard_payable(bill)
+
+    # 同一张账单上如果压着一张过期的 pending 单，先关掉。
+    # 不关的话它会一直占着 bill_id 的唯一约束，用户重新发起时被挡住，
+    # 表现为「点了没反应」——这是三段式最容易踩的坑。
+    existing = bill.payment
+    if existing is not None:
+        if existing.status == "succeeded":
+            raise ValueError("该账单已缴清")
+        if existing.status == "pending":
+            if existing.expire_at and existing.expire_at > datetime.now():
+                # 还没过期，直接把原单还回去，不重复建单
+                return existing
+            close_payment(session, existing, "超时未支付，自动关单")
+
+    trade_no = _serial("LS")
+    order = gateway.get_gateway().create(trade_no, bill.amount,
+                                         "账单 %s" % bill.bill_no)
 
     payment = Payment(
-        trade_no=_serial("LS"),
+        trade_no=trade_no,
         bill_id=bill.id,
         user_id=user.id if user else None,
         amount=bill.amount,
         method=method,
+        status="pending",
         idempotency_key=idempotency_key,
+        gateway=gateway.get_gateway().name,
+        gateway_trade_no=order["gateway_trade_no"],
+        expire_at=datetime.fromtimestamp(order["expire_at"]),
     )
+    payment.pay_url = order["pay_url"]   # 仅本次响应用，不落库
     session.add(payment)
+    session.flush()
+    return payment
+
+
+def confirm_payment(session, payment, payload=None, result="success"):
+    """第二段：网关回调确认。**账单是在这里才变成已付的。**
+
+    幂等是这个函数的核心要求：支付宝对同一笔交易会重复推送回调
+    （最多 8 次，间隔递增），处理两次就多记一笔收入。所以已经是终态的
+    支付单直接原样返回，不再动账。
+    """
+    if payment.status == "succeeded":
+        return payment, False        # 重复回调，什么都不做
+    if payment.status in ("failed", "closed"):
+        raise ValueError("支付单已关闭，请重新发起支付")
+
+    bill = payment.bill
+    if payload is not None:
+        payment.notify_payload = gateway.dumps(payload)
+    payment.notified_at = datetime.now()
+
+    if result != "success":
+        payment.status = "failed"
+        payment.failure_reason = (payload or {}).get("reason", "网关返回支付失败")
+        session.flush()
+        return payment, True
+
+    # 到账前再校验一次合同状态：从发起到回调之间可能已经退租了。
+    # 这段时间窗在本地是毫秒，真实网关里是几分钟——足够合同状态变化。
+    _guard_payable(bill)
+
+    payment.status = "succeeded"
+    payment.paid_at = datetime.now()
+    bill.status = "paid"
+    bill.paid_at = payment.paid_at
     session.flush()
 
     contract = bill.contract
@@ -258,6 +328,47 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
         notify(session, contract.landlord_id, "bill",
                "收到租金", "账单 %s 已缴纳，金额 %d 元。"
                % (bill.bill_no, int(bill.amount)), bill.bill_no)
+    return payment, True
+
+
+def close_payment(session, payment, reason="超时未支付"):
+    """第三段的反面：关单。
+
+    回调可能永远不来（用户关掉了收银台）。没有关单机制的话，
+    这张 pending 单会永久占住账单，用户再也付不了钱。
+    """
+    if payment.status != "pending":
+        return payment
+    payment.status = "closed"
+    payment.failure_reason = reason
+    session.flush()
+    return payment
+
+
+def sweep_expired_payments(session, now=None):
+    """扫描并关掉所有过期的 pending 单。
+
+    真实系统里这是一个定时任务。这里在缴费相关接口被调用时顺带跑一次，
+    没有引入调度框架——课程环境跑不起常驻的定时进程，
+    而「顺带扫一次」在单机上足够，且不会漏（下次有人缴费就会清）。
+    """
+    now = now or datetime.now()
+    rows = session.scalars(select(Payment).where(
+        Payment.status == "pending", Payment.expire_at < now)).all()
+    for row in rows:
+        close_payment(session, row, "超时未支付，自动关单")
+    return len(rows)
+
+
+def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
+    """一步缴清：发起 + 立即确认。
+
+    保留这个函数是因为**线下缴费和管理员代收是真实存在的场景**——
+    钱已经通过别的方式收到了，系统只需要如实记一笔，不该走网关。
+    它内部仍然走三段式的两个函数，所以状态流转和在线支付完全一致。
+    """
+    payment = start_payment(session, bill, user, method, idempotency_key)
+    payment, _ = confirm_payment(session, payment, None, "success")
     return payment
 
 
