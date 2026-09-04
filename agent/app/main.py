@@ -231,11 +231,17 @@ def agent_describe(payload: DescribeRequest):
     return describe.run(payload.model_dump(), provider=provider)
 
 
+class ReportRequest(BaseModel):
+    # 管理员令牌。经营分析里的钱数要管理员身份才取得到，
+    # 没带令牌时后端只回房源侧的公开数字，报告会照实说「取不到经营数据」
+    token: str = ""
+
+
 @app.post("/agent/report")
-def agent_report():
+def agent_report(payload: ReportRequest = ReportRequest()):
     """AI-05 经营分析报告。数字全部取自业务后端，不由大模型生成。"""
     try:
-        stats = backend_client.stats()
+        stats = backend_client.stats(token=payload.token or None)
     except Exception:
         return {"intent": "report", "status": "error", "ok": False,
                 "message": "统计服务暂时不可用，请稍后再试。"}

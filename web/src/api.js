@@ -388,7 +388,9 @@ export const api = {
     post(agentUrl('/agent/recommend'), { token: getToken(), limit }),
 
   // AI-05 经营分析报告
-  agentReport: () => post(agentUrl('/agent/report'), {}),
+  // 带上令牌：经营分析里的钱数要管理员身份才取得到（/api/stats 分两档）。
+  // 这个面板本来就只在管理后台里
+  agentReport: () => post(agentUrl('/agent/report'), { token: getToken() }),
 
   // AI-02 审阅结论回写。只存摘要，明细每次都能重算——
   // 存下来只会在规则升级后变成一份过期的旧结论。

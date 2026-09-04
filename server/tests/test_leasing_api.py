@@ -7,7 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, settle
+from tests.base import ApiTestCase, auth_header, make_admin, settle
 
 
 def future(days=7):
@@ -414,9 +414,15 @@ class TestNotices(ContractCase):
 class TestStatsIncome(ContractCase):
     """需求 F-07 收租统计：/api/stats 要能反映真实租金收入。"""
 
+    def setUp(self):
+        super().setUp()
+        # `/api/stats` 分两档：钱那一档只给管理员。
+        # 这几条测的正是钱，所以要以管理员身份取
+        self.admin = make_admin(self.client)
+
     def test_income_appears_after_payment(self):
         self.active_contract()
-        before = self.client.get("/api/stats").json()
+        before = self.client.get("/api/stats", headers=self.admin).json()
         self.assertEqual(before["income_received"], 0)
         self.assertGreater(before["income_pending"], 0)
 
@@ -426,13 +432,13 @@ class TestStatsIncome(ContractCase):
         # 只发起支付就计入收入，等于把在途的钱当成已收
         settle(self.client, rent_bill["bill_no"], self.tenant)
 
-        after = self.client.get("/api/stats").json()
+        after = self.client.get("/api/stats", headers=self.admin).json()
         self.assertEqual(after["income_received"], 2800.0)
         self.assertEqual(len(after["monthly_income"]), 1)
 
     def test_contract_and_occupancy(self):
         self.active_contract()
-        stats = self.client.get("/api/stats").json()
+        stats = self.client.get("/api/stats", headers=self.admin).json()
         self.assertEqual(stats["contract_active"], 1)
         self.assertGreater(stats["occupancy_rate"], 0)
 
@@ -503,11 +509,17 @@ class TestStatsAggregationParity(ContractCase):
     两处只要改一处就会悄悄对不上。
     """
 
+    def setUp(self):
+        super().setUp()
+        # `/api/stats` 分两档：钱那一档只给管理员。
+        # 这几条测的正是钱，所以要以管理员身份取
+        self.admin = make_admin(self.client)
+
     def test_counts_match_row_by_row(self):
         no = self.active_contract()
         self.pay_deposit(no)
 
-        stats = self.client.get("/api/stats").json()
+        stats = self.client.get("/api/stats", headers=self.admin).json()
 
         import app.db as db
         from app.models import Bill, Contract, House
@@ -541,7 +553,7 @@ class TestStatsAggregationParity(ContractCase):
             session.close()
 
     def test_district_grouping_matches(self):
-        stats = self.client.get("/api/stats").json()
+        stats = self.client.get("/api/stats", headers=self.admin).json()
         import app.db as db
         from app.models import House
         session = db.SessionLocal()
@@ -567,7 +579,7 @@ class TestStatsAggregationParity(ContractCase):
         """按月收租只统计**已缴的租金**，押金与未缴的不能混进去。"""
         no = self.active_contract()
         self.pay_deposit(no)
-        stats = self.client.get("/api/stats").json()
+        stats = self.client.get("/api/stats", headers=self.admin).json()
         total = sum(m["amount"] for m in stats["monthly_income"])
         # 刚才只缴了押金，租金一期没缴，月度收租应当为 0
         self.assertEqual(total, 0)

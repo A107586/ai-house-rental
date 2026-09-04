@@ -1035,3 +1035,90 @@ class TestAppointmentSlotsAreNotAnAddressBook(BrokerCase):
         rows = self.client.get("/api/appointments/mine",
                                headers=self.agent).json()["list"]
         self.assertTrue([r for r in rows if r["house_no"] == "DL0001"])
+
+
+class TestStatsIsTiered(BrokerCase):
+    """`/api/stats` 分两档。
+
+    这个接口原先完全不需要登录，却返回 `income_received`、
+    `monthly_income`、逾期笔数——**平台收了多少钱、还有多少没收上来，
+    全网可见**。这不是个人隐私问题，是经营数据外泄。
+
+    公开的那一档必须留住：首页的地图找房未登录也能用，靠的正是
+    `by_district`。
+    """
+
+    PRIVATE = ("income_received", "income_pending", "monthly_income",
+               "overdue_count", "contract_total", "repair_pending")
+
+    def test_anonymous_gets_facts_but_no_money(self):
+        body = self.client.get("/api/stats")
+        self.assertEqual(body.status_code, 200)
+        data = body.json()
+        # 地图要用的那几项还在
+        self.assertIn("by_district", data)
+        self.assertIn("avg_rent", data)
+        self.assertIn("house_total", data)
+        for key in self.PRIVATE:
+            self.assertNotIn(key, data, "未登录不该看到 %s" % key)
+
+    def test_tenant_is_not_special(self):
+        """登录了也不行——这一档是管理员的，不是「登录用户」的。"""
+        data = self.client.get("/api/stats", headers=self.tenant).json()
+        for key in self.PRIVATE:
+            self.assertNotIn(key, data)
+
+    def test_admin_gets_everything(self):
+        data = self.client.get("/api/stats", headers=self.admin).json()
+        for key in self.PRIVATE:
+            self.assertIn(key, data, "管理端仪表盘要用 %s" % key)
+
+
+class TestRepairHistoryHidesTheReporter(BrokerCase):
+    """公开的房源维修历史里不带报修人。
+
+    「这套房修过什么、修好没有」是对看房人透明的信息；
+    **「谁报的、他的号码后四位」不是。** 原来两者一起返回，于是任何人
+    打开房源页，就能看到上一任租客的名字连同「他家卧室门锁坏过」。
+    """
+
+    def setUp(self):
+        super().setUp()
+        filed = self.client.post("/api/repairs", headers=self.tenant, json={
+            "house_no": "DL0001", "content": "卧室门锁打不开",
+            "contact_name": "林小雨", "contact_phone": "13800000001"})
+        assert filed.status_code == 200, filed.text
+
+    def _public(self):
+        return self.client.get("/api/repairs?house_no=DL0001")
+
+    def test_anonymous_sees_the_fault_not_the_person(self):
+        body = self._public()
+        row = body.json()["list"][0]
+        self.assertEqual(row["content"], "卧室门锁打不开")   # 故障要留着
+        self.assertNotIn("contact_name", row)
+        self.assertNotIn("contact_phone", row)
+        self.assertNotIn("林小雨", body.text)
+        self.assertNotIn("138****0001", body.text)
+
+    def test_a_stranger_who_is_logged_in_is_no_different(self):
+        other = self.make_agent("agent8")
+        row = self.client.get("/api/repairs?house_no=DL0001",
+                              headers=other).json()["list"][0]
+        self.assertNotIn("contact_name", row)
+
+    def test_landlord_still_sees_who_to_call(self):
+        row = self.client.get("/api/repairs?house_no=DL0001",
+                              headers=self.landlord).json()["list"][0]
+        self.assertEqual(row["contact_name"], "林小雨")
+
+    def test_delegated_agent_sees_it_too(self):
+        self.delegate("DL0001")
+        row = self.client.get("/api/repairs?house_no=DL0001",
+                              headers=self.agent).json()["list"][0]
+        self.assertEqual(row["contact_name"], "林小雨")
+
+    def test_reporter_sees_his_own(self):
+        row = self.client.get("/api/repairs?house_no=DL0001",
+                              headers=self.tenant).json()["list"][0]
+        self.assertEqual(row["contact_name"], "林小雨")

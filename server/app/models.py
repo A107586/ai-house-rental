@@ -455,13 +455,24 @@ class Repair(Base):
     # 一张工单只能结案一次
     record: Mapped["RepairRecord | None"] = relationship(back_populates="repair", uselist=False, lazy="selectin")
 
-    def to_dict(self):
+    def to_dict(self, with_contact=True):
+        """工单。
+
+        `with_contact=False` 用于**公开的房源维修历史**：房源详情页要让
+        没登录的访客看到「这套房修过什么、修好没有」，那是对租客透明的
+        信息；但**报修人是谁、他的号码后四位，不是**。
+
+        姓名 + 号码后四位 + 具体房源地址凑在一起足以定位到一个真人，
+        而这三样此前是任何人打开房源页就能看到的——上一任租客的名字，
+        连同「他家卧室门锁坏过」，一起摆在下一位看房人面前。
+        """
+        contact = {"contact_name": self.contact_name,
+                   "contact_phone": mask_phone(self.contact_phone)}             if with_contact else {}
         return {
             "id": self.id,
             "house_id": self.house_id,
             "house_no": self.house.house_no if self.house else "",
-            "contact_name": self.contact_name,
-            "contact_phone": mask_phone(self.contact_phone),
+            **contact,
             "content": self.content,
             "category": self.category,
             "urgency": self.urgency,

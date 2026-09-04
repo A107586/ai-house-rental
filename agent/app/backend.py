@@ -106,8 +106,14 @@ class BackendClient(object):
         body = self.get("/api/houses", dict(params or {}, limit=limit))
         return body.get("list") or []
 
-    def stats(self):
-        return self.get("/api/stats")
+    def stats(self, token=None):
+        """平台概况。
+
+        **带上令牌**：`/api/stats` 分两档返回，不带令牌只给房源侧的
+        公开数字（总数、均价、分区分布），钱和工单那一档要管理员身份。
+        AI-05 的经营分析本来就只在管理后台里看，令牌由调用方透传过来。
+        """
+        return self.get("/api/stats", token=token)
 
     # ------------------------------------------------------------ 客服知识库
 

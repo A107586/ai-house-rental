@@ -1634,11 +1634,22 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
     """
     stmt = select(Repair)
 
+    # 公开的房源维修历史里**不带报修人**。
+    #
+    # 「这套房修过什么、修好没有」是对看房人透明的信息；
+    # 「谁报的、他的号码后四位」不是。原来两者一起返回，于是任何人
+    # 打开房源页，就能看到上一任租客的名字连同「他家卧室门锁坏过」。
+    # 姓名 + 号码后四位 + 具体地址，凑在一起足以定位到一个真人。
+    with_contact = True
+
     if house_no:
         house = session.scalar(select(House).where(House.house_no == house_no))
         if not house:
             return {"total": 0, "list": []}
         stmt = stmt.where(Repair.house_id == house.id)
+        # 房东本人、受托中介、管理员看自己那套房时仍然要看得到联系人——
+        # 他们得联系报修人。判据是「管不管得了这套房」，不是角色
+        with_contact = can_manage_house(session, user, house)
     else:
         if not user:
             raise HTTPException(status_code=401, detail="请先登录")
@@ -1678,7 +1689,10 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
 
     result = []
     for repair in rows:
-        item = repair.to_dict()
+        # 自己报的那张，报修人就是自己，没有隐去的必要
+        show = with_contact or (user is not None
+                                and repair.tenant_id == user.id)
+        item = repair.to_dict(with_contact=show)
         if repair.status == "done" or not repair.created_at:
             item["overdue"] = False
             item["waited_hours"] = 0
@@ -1851,8 +1865,22 @@ def admin_notices(user: User = Depends(require_login),
 # ------------------------------------------------------------------ 统计
 
 @app.get("/api/stats")
-def stats(session: Session = Depends(get_session)):
+def stats(user: User | None = Depends(current_user),
+          session: Session = Depends(get_session)):
     """平台概况。供管理端仪表盘与 AI-05 经营分析取数。
+
+    **分两档返回。** 这个接口原先完全不需要登录，却把
+    `income_received`、`income_pending`、`monthly_income`、逾期笔数
+    一并返回——**平台收了多少钱、还有多少没收上来，全网可见**。
+    这不是个人隐私问题，是经营数据外泄：竞品照着这个接口就能算出
+    我们的规模和现金流。
+
+    公开的那一档只留房源侧的事实：总数、可租/已租、均价、出租率、
+    分区分布。这些本来就写在每一个房源卡片上，聚合起来也推不出别的，
+    而首页的地图找房（未登录也能用）正是靠 `by_district` 上色的。
+
+    经营数据（钱、工单、合同、逾期）只给管理员。AI-05 的经营分析报告
+    因此要带管理员令牌来取——那份报告本来就只在管理后台里看得到。
 
     **聚合下推到数据库，不把整表拉进内存。**
 
@@ -1925,13 +1953,27 @@ def stats(session: Session = Depends(get_session)):
         key = paid_at.strftime("%Y-%m")
         monthly[key] = monthly.get(key, 0.0) + float(amount)
 
-    return {
+    # 公开的一档：房源侧的事实。这些数字本来就写在每一张房源卡片上，
+    # 聚合起来也推不出别的；首页地图（未登录可用）靠 by_district 上色
+    body = {
         "house_total": house_total,
         "house_available": house_available,
         "house_rented": house_rented,
         "avg_rent": round(float(avg_rent), 2) if avg_rent else 0,
         "occupancy_rate": (round(house_rented / house_total * 100, 1)
                            if house_total else 0),
+        "by_district": [
+            {"district": district, "count": count,
+             "avg_rent": round(float(avg), 2)}
+            for district, count, avg in district_rows
+        ],
+    }
+    if not user or user.role != "admin":
+        return body
+
+    # 经营数据只给管理员。**钱和工单不是公开信息**——
+    # 竞品照着 income_received / monthly_income 就能算出我们的规模和现金流
+    body.update({
         "appointment_total": appointment_total,
         "appointment_pending": appointment_pending,
         "repair_total": repair_total,
@@ -1944,12 +1986,8 @@ def stats(session: Session = Depends(get_session)):
         "overdue_count": overdue_count,
         "monthly_income": [{"month": m, "amount": round(v, 2)}
                            for m, v in sorted(monthly.items())],
-        "by_district": [
-            {"district": district, "count": count,
-             "avg_rent": round(float(avg), 2)}
-            for district, count, avg in district_rows
-        ],
-    }
+    })
+    return body
 
 
 # ------------------------------------------------------------------ 合同
