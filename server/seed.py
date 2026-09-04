@@ -12,7 +12,7 @@ import os
 import random
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -50,9 +50,37 @@ LAYOUTS = [
 ]
 
 RENT_TYPES = ["整租", "整租", "整租", "合租", "公寓"]
-ORIENTATIONS = ["朝南", "朝南", "南北通透", "朝东", "朝西"]
-ALL_TAGS = ["电梯", "地铁", "近学校", "近医院", "有阳台", "可做饭",
+
+# 朝向：(入库的规范值, 描述里的说法)。
+# **两者必须分开。** 库里存「南」才筛得动——筛选按钮上写的就是「南」；
+# 而描述里写「朝南」「南北通透」才像人话。原先只有一个「朝南」，
+# 结果是筛选按钮点了什么都查不到（K-04）。
+ORIENTATIONS = [("南", "朝南"), ("南", "朝南"), ("南北", "南北通透"),
+                ("东", "朝东"), ("西", "朝西"), ("北", "朝北")]
+
+# tags 里只留「说不清、也不拿来筛」的描述性标签。
+# 电梯、装修、供暖都已经拆成独立列了，再留在 tags 里只会两边打架——
+# 一套 elevator=False 的房子挂着「电梯」标签，用户会当成欺骗（K-04）。
+ALL_TAGS = ["地铁", "近学校", "近医院", "有阳台", "可做饭",
             "有家具", "可养宠物", "采光好"]
+
+DECORATIONS = ["精装", "精装", "简装", "简装", "毛坯"]
+# 大连冬天长，供暖方式是本地租客必问的一条
+HEATINGS = ["集中供暖", "集中供暖", "集中供暖", "自采暖"]
+# 押付方式。押一付一最常见，押二付一多见于高价房
+PAY_PLANS = [(1, 1), (1, 1), (1, 1), (1, 3), (2, 1), (0, 1)]
+
+# 各区中心坐标，用于地图打点（K-04）。
+# 房源坐标 = 区中心 + 小幅抖动：真实小区坐标要逐个查，这里只需要
+# 「点落在正确的区里、彼此不重叠」，抖动就够了。
+DISTRICT_CENTER = {
+    "中山区": (121.6447, 38.9186),
+    "西岗区": (121.6123, 38.9147),
+    "沙河口区": (121.5806, 38.9046),
+    "甘井子区": (121.5657, 38.9530),
+    "旅顺口区": (121.2620, 38.8514),
+    "金州区": (121.7176, 39.1041),
+}
 
 DESC_TEMPLATES = [
     "{community}成熟社区，{layout}，{orientation}，{area}平米。{tag_text}房源干净整洁，随时可看房。",
@@ -100,11 +128,41 @@ def build_house(index, landlord, district, layout_spec):
 
     tags = random.sample(ALL_TAGS, random.randint(2, 5))
     tag_text = "配备" + "、".join(tags) + "。" if tags else ""
-    orientation = random.choice(ORIENTATIONS)
+    orientation, orientation_text = random.choice(ORIENTATIONS)
 
     description = random.choice(DESC_TEMPLATES).format(
         district=district, community=community, layout=layout,
-        area=area, orientation=orientation, tag_text=tag_text)
+        area=area, orientation=orientation_text, tag_text=tag_text)
+
+    # ---- K-04 新增维度。全部给真值，否则高级筛选没有数据可筛 ----
+    # 先定楼型再定层数。**不能直接随机层高**——那样撒出来的房源
+    # 九成都是高层带电梯，「无电梯」这个筛选按钮点下去只剩两套，
+    # 演示时看着就像没做。大连老城区多层住宅本来就不少。
+    if random.random() < 0.35:
+        # 多层：老式住宅，六七层顶天，绝大多数没电梯
+        floor_total = random.randint(5, 7)
+        elevator = random.random() < 0.15
+    else:
+        floor_total = random.randint(11, 33)
+        elevator = True
+    floor_no = random.randint(1, floor_total)
+
+    deposit_months, pay_months = random.choice(PAY_PLANS)
+    # 押金按押付方式折算，和 houses.deposit 始终是同一个数（K-02）
+    deposit = price * deposit_months
+
+    lng_c, lat_c = DISTRICT_CENTER[district]
+
+    # 核验状态：大部分已核验，留一部分待核验和未核验，
+    # 好让详情页上的核验条三种样子都演示得出来
+    verify_status = random.choice(
+        ["verified"] * 7 + ["pending"] * 2 + ["unverified"])
+    verified_at = (datetime.now() - timedelta(days=random.randint(1, 60))
+                   if verify_status == "verified" else None)
+    verify_no = ("DL%s%08d" % (datetime.now().strftime("%y"), index * 7919 % 10**8)
+                 if verify_status == "verified" else "")
+
+    published_at = datetime.now() - timedelta(days=random.randint(0, 90))
 
     return House(
         house_no="DL%04d" % index,
@@ -116,17 +174,43 @@ def build_house(index, landlord, district, layout_spec):
             district, community, random.choice(["路", "街", "巷"]),
             random.randint(1, 88), random.randint(1, 6)),
         rent_price=price,
-        deposit=price,
+        deposit=deposit,
         area=area,
         layout=layout,
         rent_type=rent_type,
-        floor="%d/%d层" % (random.randint(1, 18), random.randint(18, 33)),
+        floor="%d/%d层" % (floor_no, floor_total),
         orientation=orientation,
         description=description,
         tags=",".join(tags),
         status=random.choice(["available"] * 9 + ["rented"]),
         view_count=random.randint(0, 500),
-        published_at=datetime.now() - timedelta(days=random.randint(0, 90)),
+        published_at=published_at,
+
+        # ---- K-04 ----
+        elevator=elevator,
+        decoration=random.choice(DECORATIONS),
+        floor_no=floor_no,
+        floor_total=floor_total,
+        heating=random.choice(HEATINGS),
+        # 可入住日：多数房源随时可住，少部分要等现租客到期
+        available_from=(date.today()
+                        + timedelta(days=random.choice([0, 0, 0, 7, 15, 30, 60]))),
+        min_months=random.choice([1, 3, 6, 12, 12]),
+        deposit_months=deposit_months,
+        pay_months=pay_months,
+        # 服务费：只有一部分房源收，金额是月租的一个零头
+        service_fee=(round(price * 0.05 / 10) * 10
+                     if random.random() < 0.35 else 0),
+        business_area=community,
+        lng=round(lng_c + random.uniform(-0.012, 0.012), 6),
+        lat=round(lat_c + random.uniform(-0.010, 0.010), 6),
+        verify_status=verify_status,
+        verify_no=verify_no,
+        verified_at=verified_at,
+        # 维护时间总在发布之后、今天之前。房东改一次房源信息就刷新一次，
+        # 卡片上那句「3天前维护」显示的就是它
+        maintained_at=published_at + timedelta(
+            days=random.randint(0, max((datetime.now() - published_at).days, 0))),
     )
 
 

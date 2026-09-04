@@ -11,10 +11,10 @@
 搬过来反而要在两个文件之间来回跳。
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RegisterRequest(BaseModel):
@@ -58,20 +58,80 @@ class RepairUpdate(BaseModel):
     status: str
 
 
-class HouseCreate(BaseModel):
-    title: str
-    district: str
-    community: str = ""
-    address: str = ""
-    rent_price: float = Field(gt=0)
-    deposit: float = 0
-    area: float = Field(gt=0)
-    layout: str = ""
+# 可选枚举。**空串一律合法**——表示房东没填，不是填错了。
+# 把「没填」当成非法值会逼着房东为了发布而瞎选一个，那比留空更糟。
+DECORATIONS = ("", "精装", "简装", "毛坯")
+HEATINGS = ("", "集中供暖", "自采暖", "无供暖")
+ORIENTATIONS = ("", "东", "南", "西", "北", "东南", "西南", "东北", "西北", "南北")
+
+
+class HouseFacets(BaseModel):
+    """K-04 新增的筛选维度。发布与编辑共用，两处必须收一样的字段，
+    否则会出现「发布时填得了、编辑时改不了」这种半截功能。"""
+
+    elevator: bool | None = None
+    decoration: str | None = None
+    floor_no: int | None = Field(default=None, ge=1, le=200)
+    floor_total: int | None = Field(default=None, ge=1, le=200)
+    heating: str | None = None
+    available_from: date | None = None
+    min_months: int | None = Field(default=None, ge=1, le=60)
+    # 押 N 付 M。填了就按「月租 × N」把 deposit 一并算好，
+    # 押金始终只有 deposit 一个真相（K-02）
+    deposit_months: int | None = Field(default=None, ge=0, le=6)
+    pay_months: int | None = Field(default=None, ge=1, le=12)
+    service_fee: float | None = Field(default=None, ge=0, le=100000)
+    business_area: str | None = Field(default=None, max_length=30)
+    # 大连市域范围。写死边界是为了挡住「把经纬度填反了」这种最常见的错误
+    # ——纬度填成 121 的话点位会掉到地图外面，而页面上看不出哪里不对
+    lng: float | None = Field(default=None, ge=120.5, le=123.5)
+    lat: float | None = Field(default=None, ge=38.5, le=40.5)
+
+    @field_validator("decoration")
+    @classmethod
+    def _check_decoration(cls, value):
+        if value is not None and value not in DECORATIONS:
+            raise ValueError("装修情况只能是：精装 / 简装 / 毛坯")
+        return value
+
+    @field_validator("heating")
+    @classmethod
+    def _check_heating(cls, value):
+        if value is not None and value not in HEATINGS:
+            raise ValueError("供暖方式只能是：集中供暖 / 自采暖 / 无供暖")
+        return value
+
+    @model_validator(mode="after")
+    def _check_floor(self):
+        if (self.floor_no is not None and self.floor_total is not None
+                and self.floor_no > self.floor_total):
+            raise ValueError("所在楼层不能高于总楼层")
+        return self
+
+
+class HouseCreate(HouseFacets):
+    title: str = Field(min_length=2, max_length=60)
+    district: str = Field(min_length=2, max_length=30)
+    community: str = Field(default="", max_length=60)
+    address: str = Field(default="", max_length=200)
+    # 上限不是摆设：没有它就能发出「月租 9999999」的房源，
+    # 而列表按价格排序时这一条会永远霸占榜首（K-12）
+    rent_price: float = Field(gt=0, le=1000000)
+    deposit: float = Field(default=0, ge=0, le=1000000)
+    area: float = Field(gt=0, le=10000)
+    layout: str = Field(default="", max_length=20)
     rent_type: str = "整租"
-    floor: str = ""
+    floor: str = Field(default="", max_length=20)
     orientation: str = ""
-    description: str = ""
+    description: str = Field(default="", max_length=2000)
     tags: list[str] = []
+
+    @field_validator("orientation")
+    @classmethod
+    def _check_orientation(cls, value):
+        if value not in ORIENTATIONS:
+            raise ValueError("朝向只能是东/南/西/北及其组合")
+        return value
 
 
 class ContractCreate(BaseModel):
@@ -106,19 +166,26 @@ class NoticeCreate(BaseModel):
     category: str = "公告"
 
 
-class HouseUpdate(BaseModel):
-    title: str | None = None
-    community: str | None = None
-    address: str | None = None
-    rent_price: float | None = Field(default=None, gt=0)
-    deposit: float | None = Field(default=None, ge=0)
-    area: float | None = Field(default=None, gt=0)
-    layout: str | None = None
+class HouseUpdate(HouseFacets):
+    title: str | None = Field(default=None, min_length=2, max_length=60)
+    community: str | None = Field(default=None, max_length=60)
+    address: str | None = Field(default=None, max_length=200)
+    rent_price: float | None = Field(default=None, gt=0, le=1000000)
+    deposit: float | None = Field(default=None, ge=0, le=1000000)
+    area: float | None = Field(default=None, gt=0, le=10000)
+    layout: str | None = Field(default=None, max_length=20)
     rent_type: str | None = None
-    floor: str | None = None
+    floor: str | None = Field(default=None, max_length=20)
     orientation: str | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     tags: list[str] | None = None
+
+    @field_validator("orientation")
+    @classmethod
+    def _check_orientation(cls, value):
+        if value is not None and value not in ORIENTATIONS:
+            raise ValueError("朝向只能是东/南/西/北及其组合")
+        return value
 
 
 class HouseReview(BaseModel):

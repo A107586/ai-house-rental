@@ -8,9 +8,10 @@
 import json
 import os
 import time
+import uuid
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
@@ -556,6 +557,62 @@ def similar_houses(house_no: str, limit: int = Query(4, ge=1, le=12),
             "list": [h.to_dict() for h in candidates[:limit]]}
 
 
+# K-04 新增的筛选维度。发布与编辑走同一份清单，两处不一致就会出现
+# 「发布时填得了、编辑时改不了」这种半截功能。
+FACET_FIELDS = ("elevator", "decoration", "floor_no", "floor_total",
+                "heating", "available_from", "min_months", "deposit_months",
+                "pay_months", "service_fee", "business_area", "lng", "lat")
+
+
+def _next_house_no(session):
+    """生成房源编号。
+
+    原先是 `"DL%04d" % (max(id) + 1)`——两个房东同时发布会算出同一个号，
+    撞上 `house_no` 的唯一约束，后提交的那个直接 500（K-12）。
+    编号本身没有连续性要求（它只是给人念的），所以撞了就往后顺延，
+    顺延几次仍然撞就退回带随机后缀的形式。
+    """
+    last = session.scalar(select(House).order_by(House.id.desc()))
+    base = (last.id if last else 0) + 1
+    for offset in range(10):
+        candidate = "DL%04d" % (base + offset)
+        if not session.scalar(select(House.id).where(
+                House.house_no == candidate)):
+            return candidate
+    return "DL%s" % uuid.uuid4().hex[:8].upper()
+
+
+def _facet_fields(payload):
+    """把用户真正填了的维度取出来。
+
+    `None` 表示「这一项没填」，不是「填了空」——原样 `setattr` 下去会把
+    列上的默认值（比如 `elevator=False`、`min_months=1`）覆盖成 NULL，
+    之后按这些列筛选就再也筛不到这套房了。
+    """
+    values = payload.model_dump(include=set(FACET_FIELDS), exclude_none=True)
+    return values
+
+
+def _resolve_listing_deposit(rent, deposit=0, deposit_months=None):
+    """房源上的押金。**押金只有 `houses.deposit` 一个真相**（K-02）。
+
+    房东可以用两种方式表达押金：直接填金额，或者选「押二付一」。
+    后者填的是月数，这里当场折算成金额存进 `deposit`——
+    如果把月数也当成第二个押金来源，详情页读金额、合同读月数，
+    就又回到了「同一套房两个押金」的老问题上。
+
+    `deposit_months` 那一列仍然存着，但它的职责只剩两件：
+    筛选「押一付一」，和在卡片上显示「押一付三」。
+
+    押金填 0 时回落到一个月租金，而不是真的免押——房东把这一栏留空
+    通常是「按惯例来」，不是「不收押金」。真要免押就明确选押零付一。
+    """
+    rent = float(rent)
+    if deposit_months is not None:
+        return rent * deposit_months
+    return float(deposit) or rent
+
+
 @app.post("/api/houses")
 def create_house(payload: HouseCreate, user: User = Depends(require_staff),
                  session: Session = Depends(get_session)):
@@ -563,17 +620,20 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
     house_fields = {"标题": payload.title, "描述": payload.description}
     verdict = moderate(house_fields, scene="house")
 
-    last = session.scalar(select(House).order_by(House.id.desc()))
-    next_no = "DL%04d" % ((last.id if last else 0) + 1)
+    next_no = _next_house_no(session)
 
     house = House(
         house_no=next_no, title=payload.title, landlord_id=user.id,
         district=payload.district, community=payload.community,
         address=payload.address, rent_price=payload.rent_price,
-        deposit=payload.deposit or payload.rent_price, area=payload.area,
+        deposit=_resolve_listing_deposit(payload.rent_price, payload.deposit,
+                                         payload.deposit_months),
+        area=payload.area,
         layout=payload.layout, rent_type=payload.rent_type,
         floor=payload.floor, orientation=payload.orientation,
         description=payload.description, tags=",".join(payload.tags),
+        maintained_at=datetime.now(),
+        **_facet_fields(payload),
         # 管理员发布的房源无需自审；房东发布的是否免审由系统配置决定（M-09）
         status="available" if (
             user.role == "admin"
@@ -642,8 +702,20 @@ def update_house(house_no: str, payload: HouseUpdate,
     if tags is not None:
         house.tags = ",".join(tags)
 
+    # 改了押付方式或租金，押金要跟着重算——否则「押一付一」的标签
+    # 和 `deposit` 里那个数会各说各话（K-02）
+    if payload.deposit_months is not None or "rent_price" in fields:
+        house.deposit = _resolve_listing_deposit(
+            house.rent_price,
+            payload.deposit if payload.deposit is not None else house.deposit,
+            payload.deposit_months
+            if payload.deposit_months is not None else house.deposit_months)
+
     # 内容变更后回到待审状态，管理员改的不用重审
     if fields or tags is not None:
+        # 房源信息动过就刷新维护时间。列表卡片上那句「3天前维护」
+        # 靠它，不刷新的话一套天天在改的房源看起来像是半年没人管（K-04）
+        house.maintained_at = datetime.now()
         if user.role != "admin" and house.status == "available":
             house.status = "pending"
 

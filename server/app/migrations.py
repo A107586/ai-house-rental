@@ -194,3 +194,120 @@ def pending(engine, database_url):
     with engine.begin() as connection:
         done = _applied(engine, connection)
     return [v for v, _, _ in _STEPS if v not in done]
+
+
+@step("0006", "支付表：三段式支付的网关与回调字段（D-1）")
+def _payments_gateway(connection, engine):
+    """把「点一下就算付了」改成「发起 → 回调 → 确认」需要的六列。
+
+    **老数据必须显式回填成 succeeded。** 模型层的默认值改成了 pending，
+    但改造之前建出来的流水，钱在这个项目的语义下是真收到了的
+    （账单已经是 paid）。不回填的话历史流水会集体显示「等待付款」——
+    账单说已付、流水说没付，对账直接对不上，而且这种不一致
+    在本地是看不出来的（本地库是新建的，根本没有历史流水）。
+    """
+    if not _table_exists(engine, "payments"):
+        return
+    _add_column(connection, engine, "payments", "gateway",
+                "VARCHAR(20) NOT NULL DEFAULT 'mock'")
+    _add_column(connection, engine, "payments", "gateway_trade_no", "VARCHAR(64)")
+    _add_column(connection, engine, "payments", "notify_payload",
+                "TEXT NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "payments", "notified_at", "DATETIME")
+    _add_column(connection, engine, "payments", "expire_at", "DATETIME")
+    _add_column(connection, engine, "payments", "created_at", "DATETIME")
+
+    # 历史流水回填：状态置终态，created_at 用 paid_at 兜底
+    connection.execute(text(
+        "UPDATE payments SET status='succeeded' "
+        "WHERE status IS NULL OR status='' OR status='pending'"))
+    connection.execute(text(
+        "UPDATE payments SET created_at=paid_at WHERE created_at IS NULL"))
+    connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_payments_gateway_trade_no "
+        "ON payments (gateway_trade_no)"))
+
+
+@step("0007", "房源表：筛选维度、费用、坐标与核验字段（K-04）")
+def _houses_facets(connection, engine):
+    """把「电梯」「精装」这些从 tags 字符串里拆成独立列。
+
+    原先它们全揉在逗号分隔的 `tags` 里，用 `tags LIKE '%电梯%'` 去筛，
+    **「无电梯」会被「电梯」命中**——这不是没做筛选，是做了会错。
+    高级筛选、费用明细、地图打点、房源核验四件事共用这一组字段，
+    字段不落库，四件事都做不出来。
+
+    存量房源的处理：新列一律给中性默认值（未填/未核验），
+    **不去猜**。从 `tags` 里反推「有没有电梯」看着聪明，实际上
+    「电梯」和「无电梯」两种写法都可能出现在旧数据里，猜错了
+    比留空更糟——留空前端显示「暂无」，猜错就是明确的错误信息。
+    """
+    if not _table_exists(engine, "houses"):
+        return
+
+    columns = (
+        ("elevator", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("decoration", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("floor_no", "INTEGER"),
+        ("floor_total", "INTEGER"),
+        ("heating", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("available_from", "DATE"),
+        ("min_months", "INTEGER NOT NULL DEFAULT 1"),
+        ("deposit_months", "INTEGER"),
+        ("pay_months", "INTEGER"),
+        ("service_fee", "NUMERIC(10, 2) NOT NULL DEFAULT 0"),
+        ("business_area", "VARCHAR(30) NOT NULL DEFAULT ''"),
+        ("lng", "FLOAT"),
+        ("lat", "FLOAT"),
+        ("verify_status", "VARCHAR(20) NOT NULL DEFAULT 'unverified'"),
+        ("verify_no", "VARCHAR(32) NOT NULL DEFAULT ''"),
+        ("verified_at", "DATETIME"),
+        ("verify_remark", "VARCHAR(200) NOT NULL DEFAULT ''"),
+        ("maintained_at", "DATETIME"),
+    )
+    for name, definition in columns:
+        _add_column(connection, engine, "houses", name, definition)
+
+    # 维护时间回填成发布时间。留空的话所有存量房源都显示「暂无维护记录」，
+    # 而它们其实是有一个明确时间点的——发布那天。
+    connection.execute(text(
+        "UPDATE houses SET maintained_at = published_at "
+        "WHERE maintained_at IS NULL"))
+
+    for statement in (
+        "CREATE INDEX IF NOT EXISTS ix_houses_elevator ON houses (elevator)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_decoration ON houses (decoration)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_available_from "
+        "ON houses (available_from)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_business_area "
+        "ON houses (business_area)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_verify_status "
+        "ON houses (verify_status)",
+        "CREATE INDEX IF NOT EXISTS ix_houses_verify_no ON houses (verify_no)",
+    ):
+        connection.execute(text(statement))
+
+
+@step("0008", "相册表：图片尺寸、体积、内容哈希与审核状态（K-04）")
+def _house_images_meta(connection, engine):
+    """图片元数据。
+
+    `audit_status` 默认 approved 而不是 pending：本项目的图片审核是
+    **事后**的——先展示，被举报或被管理员发现再下架。默认 pending
+    会让所有存量图片一夜之间从页面上消失。
+    """
+    if not _table_exists(engine, "house_images"):
+        return
+    _add_column(connection, engine, "house_images", "width",
+                "INTEGER NOT NULL DEFAULT 0")
+    _add_column(connection, engine, "house_images", "height",
+                "INTEGER NOT NULL DEFAULT 0")
+    _add_column(connection, engine, "house_images", "file_size",
+                "INTEGER NOT NULL DEFAULT 0")
+    _add_column(connection, engine, "house_images", "hash",
+                "VARCHAR(64) NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "house_images", "audit_status",
+                "VARCHAR(20) NOT NULL DEFAULT 'approved'")
+    connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_house_images_hash "
+        "ON house_images (hash)"))
