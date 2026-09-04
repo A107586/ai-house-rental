@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, setToken } from '../api'
+import BecomeLandlord from './BecomeLandlord'
 
 export default function ProfileForm({ user, onUpdated, onLogout }) {
   const [profile, setProfile] = useState({
@@ -183,6 +184,11 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
       >
         {busy === 'logout' ? '处理中…' : '退出所有设备'}
       </button>
+
+      {/* 身份升级入口（K-13）。放在账号设置里而不是首页某个角落——
+          「我也要出租房子」是一次关于账号本身的决定，
+          和改密码、管设备是同一类事 */}
+      <BecomeLandlord onUpgraded={onUpdated} />
     </>
   )
 }

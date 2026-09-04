@@ -1213,16 +1213,18 @@ def list_appointments(
 @app.get("/api/appointments/mine")
 def my_appointments(user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
-    """我的预约。房东看自己房源上的预约，租客看自己提交的。"""
-    if user.role in ("landlord", "admin"):
+    """我的预约：我提交的，加上我名下房源收到的（K-13）。
+
+    不再按角色二选一——房东升级前约看过的房，升级后仍然是他的预约。
+    """
+    if user.role == "admin":
+        stmt = select(Appointment)
+    else:
         house_ids = [row[0] for row in session.execute(
             select(House.id).where(House.landlord_id == user.id)).all()]
-        if user.role == "admin":
-            stmt = select(Appointment)
-        else:
-            stmt = select(Appointment).where(Appointment.house_id.in_(house_ids or [-1]))
-    else:
-        stmt = select(Appointment).where(Appointment.tenant_id == user.id)
+        stmt = select(Appointment).where(
+            or_(Appointment.tenant_id == user.id,
+                Appointment.house_id.in_(house_ids or [-1])))
 
     rows = session.scalars(stmt.order_by(Appointment.viewing_time.desc())).all()
     return {"total": len(rows), "list": [a.to_dict() for a in rows]}
@@ -1675,14 +1677,20 @@ def _visible_contract(session, contract_no, user):
 @app.get("/api/contracts/mine")
 def my_contracts(status: str = "", user: User = Depends(require_login),
                  session: Session = Depends(get_session)):
-    """我的合同。房东看自己出租的，租客看自己承租的，管理员看全部。"""
+    """我的合同：**只要我是其中一方就算我的**，管理员看全部。
+
+    原先是按角色二选一：role 是 landlord 就只查出租的，否则只查承租的。
+    单账号双身份之后这条规则就错了（K-13）——租客升级成房东，
+    他升级前签的那份租约当场从「我的租约」里消失，
+    看起来就像升级把数据弄丢了。数据一直都在，是这个查询把它挡住了。
+
+    按「我是不是其中一方」来判断，和 role 无关，这样也顺带覆盖了
+    「房东自己也租房」这种本来就该支持的情况。
+    """
     stmt = select(Contract)
-    if user.role == "admin":
-        pass
-    elif user.role == "landlord":
-        stmt = stmt.where(Contract.landlord_id == user.id)
-    else:
-        stmt = stmt.where(Contract.tenant_id == user.id)
+    if user.role != "admin":
+        stmt = stmt.where(or_(Contract.tenant_id == user.id,
+                              Contract.landlord_id == user.id))
     if status:
         stmt = stmt.where(Contract.status == status)
 
@@ -1910,10 +1918,11 @@ def my_bills(status: str = "", contract_no: str = "",
     if user.role == "admin":
         stmt = select(Bill)
     else:
-        field = (Contract.landlord_id if user.role == "landlord"
-                 else Contract.tenant_id)
+        # 和合同一样按「我是不是其中一方」取，不按角色二选一（K-13）
         contract_ids = [row[0] for row in session.execute(
-            select(Contract.id).where(field == user.id)).all()]
+            select(Contract.id).where(
+                or_(Contract.tenant_id == user.id,
+                    Contract.landlord_id == user.id))).all()]
         stmt = select(Bill).where(Bill.contract_id.in_(contract_ids or [-1]))
     if status:
         stmt = stmt.where(Bill.status == status)
@@ -2127,10 +2136,10 @@ def payment_receipt(trade_no: str, user: User = Depends(require_login),
 def my_refunds(user: User = Depends(require_login),
                session: Session = Depends(get_session)):
     stmt = select(Refund).join(Contract, Refund.contract_id == Contract.id)
-    if user.role == "tenant":
-        stmt = stmt.where(Contract.tenant_id == user.id)
-    elif user.role == "landlord":
-        stmt = stmt.where(Contract.landlord_id == user.id)
+    if user.role != "admin":
+        # 同上（K-13）：按「我是不是其中一方」，不按角色二选一
+        stmt = stmt.where(or_(Contract.tenant_id == user.id,
+                              Contract.landlord_id == user.id))
     rows = session.scalars(stmt.order_by(Refund.refunded_at.desc())).all()
     return {"total": len(rows), "list": [row.to_dict() for row in rows]}
 
