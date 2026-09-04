@@ -60,19 +60,68 @@ def months_between(start, end):
 
 # ---------------------------------------------------------------- 签约
 
+def resolve_deposit(house, deposit_months=None, default_deposit_months=1):
+    """算这份合同的押金。**这是押金唯一的口径，别处不许再算一遍**（K-02）。
+
+    原先这里写死 `rent * deposit_months`，完全没读 `house.deposit`——
+    房东发布时填「押金 800」，租客在详情页看到的是 800，
+    合同上签出来却是「租金 × 押金月数」，两个数对不上。
+    详情页和合同对同一套房给出两个押金，这是**用户会当成欺骗的那类错误**。
+
+    优先级从高到低：
+
+    1. **显式传了 `deposit_months`**——房东在签约时主动选了「押二付一」，
+       这是针对这一单的决定，优先于房源上的默认值；
+    2. **房源上选了押付方式**（`house.deposit_months`）——发布时选的
+       「押一付三」。它和 `house.deposit` 是同一个数：发布与编辑接口
+       都会按「月租 × 押金月数」把 `deposit` 一并写好。
+       这里之所以还要单独看一眼月数，是为了**把「免押」和「没填」分开**：
+       两者的 `deposit` 都是 0，只有月数能区分「明确不收押金」
+       和「这一栏留空了」；
+    3. **房源上填了押金金额**——房东填的是不成整数倍的数（月租 2800、
+       押金 800）时走这条，也是租客在详情页看到的数字；
+    4. 都没有，才回落到系统配置的押金月数。
+    """
+    rent = Decimal(str(house.rent_price))
+    if deposit_months is not None:
+        return rent * deposit_months
+    if house.deposit_months is not None:
+        return rent * house.deposit_months
+    if house.deposit:
+        return Decimal(str(house.deposit))
+    return rent * default_deposit_months
+
+
 def create_contract(session, house, tenant, start_date, months=12,
-                    deposit_months=1, pay_months=1, content=""):
+                    deposit_months=None, pay_months=1, content="",
+                    default_deposit_months=1):
     """生成一份待确认合同。
 
     不在这里改房源状态——合同要等租客确认后才生效，
     在 `activate_contract` 里才占用房源。
+
+    `deposit_months` 默认是 **None 而不是 1**：None 表示「签约方没有指定，
+    按房源上的押金走」，1 表示「明确要求押一」。用 1 当默认值就无法
+    区分这两种情况，房源上填的押金也就永远读不到了（K-02）。
     """
     if house.status != "available":
         raise ValueError("该房源当前不可签约")
     if months < 1:
         raise ValueError("租期至少一个月")
 
+    # 合同是法律文本，甲乙双方必须是真实姓名。租客没实名就签，
+    # 正文里的承租方会写成 `tenant1` 这种登录名（K-03）。
+    # 这一步拦在生成之前，而不是生成完再补——合同一旦生成就有了编号、
+    # 有了通知、租客那边已经看得见，事后改姓名等于改一份已经发出的合同。
+    landlord = house.landlord or session.get(User, house.landlord_id)
+    if not (landlord and landlord.real_name.strip()):
+        raise ValueError("出租方尚未实名，请先在「个人中心 → 编辑资料」填写真实姓名")
+    if not tenant.real_name.strip():
+        raise ValueError("租客尚未实名，请让对方在「个人中心 → 编辑资料」"
+                         "填写真实姓名后再签约")
+
     rent = Decimal(str(house.rent_price))
+    deposit = resolve_deposit(house, deposit_months, default_deposit_months)
     end_date = add_months(start_date, months)
 
     contract = Contract(
@@ -83,12 +132,12 @@ def create_contract(session, house, tenant, start_date, months=12,
         start_date=start_date,
         end_date=end_date,
         rent=rent,
-        deposit=rent * deposit_months,
+        deposit=deposit,
         pay_months=pay_months,
         status="pending",
         content=content or render_contract_text(house, tenant, start_date,
                                                 end_date, rent,
-                                                rent * deposit_months, pay_months),
+                                                deposit, pay_months),
     )
     session.add(contract)
     session.flush()
@@ -134,8 +183,11 @@ def render_contract_text(house, tenant, start_date, end_date, rent,
 乙方不得擅自转租、改变房屋结构或用于非居住用途。
 本合同一式两份，甲乙双方各执一份，自双方确认之日起生效。
 """.format(
-        landlord=(house.landlord.real_name if house.landlord else "房东"),
-        tenant=tenant.real_name or tenant.username,
+        # 姓名不再有 `or username` 兜底。到得了这一行，双方实名都已经
+        # 在 create_contract 里校验过了；留着兜底只会把「没实名」这个
+        # 问题藏进一份看起来正常的合同里（K-03）
+        landlord=house.landlord.real_name,
+        tenant=tenant.real_name,
         address=house.address or (house.district + house.community),
         house_no=house.house_no,
         area=int(house.area),
@@ -463,10 +515,12 @@ def renew_contract(session, contract, months=12):
 
     from app.models import User
     tenant = session.get(User, tenant_id)
+    # 押金不写死一个月：续租的押金该和这套房现在挂着的押金一致，
+    # 否则续一次租押金就变了一个数（K-02）
     new_contract = create_contract(
         session, house, tenant,
         start_date=contract.end_date, months=months,
-        deposit_months=1, pay_months=contract.pay_months)
+        pay_months=contract.pay_months)
     return new_contract
 
 

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
+import EndLeaseDialog from './EndLeaseDialog'
 
 const STATUS = {
   pending: { label: '待确认', cls: 'status-pending' },
@@ -15,6 +16,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
   const [error, setError] = useState('')
   const [review, setReview] = useState(null)
   const [reviewing, setReviewing] = useState(false)
+  const [ending, setEnding] = useState(false)
 
   async function runReview() {
     if (reviewing) return
@@ -68,16 +70,14 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
     }
   }
 
-  function endLease() {
-    // 扣押金是出租方的权利，租客侧不出现扣款输入
-    const deduct = isStaff
-      ? Number(window.prompt('押金扣款金额（无扣款填 0）', '0') || 0)
-      : 0
-    if (Number.isNaN(deduct)) {
-      setError('扣款金额必须是数字')
-      return
-    }
-    act(() => api.endContract(contract.contract_no, '退租', deduct))
+  /** 退租。**请求由弹窗按「确认退租」时发起**，这里只负责把它打开。
+   *
+   * 原先这里是 `window.prompt`，点「取消」返回 `null`，`null || 0` 得到 0，
+   * 于是取消也照样把租约退掉了（K-01）。退租不可撤销，这条路径必须是
+   * 「用户明确按下确认」才走得通。 */
+  async function endLease(reason, deduct) {
+    await api.endContract(contract.contract_no, reason, deduct)
+    onChanged()
   }
 
   return (
@@ -166,7 +166,8 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
 
         {contract.status === 'active' && (
           <>
-            <button className="btn ghost small" disabled={busy} onClick={endLease}>
+            <button className="btn ghost small" disabled={busy}
+                    onClick={() => setEnding(true)}>
               退租
             </button>
             <button
@@ -232,6 +233,15 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
       )}
 
       {showText && <pre className="contract-text">{contract.content}</pre>}
+
+      {ending && (
+        <EndLeaseDialog
+          contract={contract}
+          isStaff={isStaff}
+          onConfirm={endLease}
+          onClose={() => setEnding(false)}
+        />
+      )}
     </li>
   )
 }

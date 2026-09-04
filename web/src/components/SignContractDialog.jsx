@@ -9,8 +9,9 @@ import { api } from '../api'
  * 主干流程却要去调接口，这条链在界面上就是断的。
  *
  * 表单只收四个必要参数，其余由后端算：
- * 租金取房源当前定价、押金按系统配置的默认月数、结束日按起始日推算。
- * 让房东手填这些既啰嗦又容易和房源信息对不上。
+ * 租金取房源当前定价、**押金取房源上填的那个数**、结束日按起始日推算。
+ * 让房东手填这些既啰嗦又容易和房源信息对不上——押金这一项就出过这个问题：
+ * 详情页显示房源上填的 800，合同却按「租金 × 系统默认月数」签出另一个数（K-02）。
  */
 function today() {
   const d = new Date()
@@ -49,7 +50,9 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
         months: Number(months) || 12,
         pay_months: Number(payMonths) || 1,
       }
-      // 不填就交给系统配置里的默认押金月数，别在前端写死一个 1
+      // 不填就不传。押金口径由后端一处裁决：
+      // 显式月数 > 房源上填的押金 > 系统配置（K-02）。
+      // 在前端补一个默认值，房源上填的押金就永远读不到了
       if (depositMonths !== '') body.deposit_months = Number(depositMonths)
       await api.createContract(body)
       onDone()
@@ -113,7 +116,7 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
                 <span>押金月数</span>
                 <input type="number" min="0" max="6" value={depositMonths}
                        onChange={(e) => setDepositMonths(e.target.value)}
-                       placeholder="留空用系统默认" />
+                       placeholder="留空按房源押金" />
               </label>
               <label className="fld">
                 <span>付款周期（月）</span>
@@ -125,7 +128,9 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
             {picked && (
               <div className="assist">
                 <div className="assist-body">
-                  月租按房源当前定价 <b>{Math.round(picked.rent_price)}</b> 元计。
+                  月租按房源当前定价 <b>{Math.round(picked.rent_price)}</b> 元计，
+                  押金默认取房源上填的 <b>{Math.round(picked.deposit)}</b> 元
+                  ——和租客在详情页看到的是同一个数（K-02）。
                   <div className="assist-hint">
                     确认生效时会一次排满整个租期的账单：1 条押金 +
                     {' '}{months} 条租金，不用每月手工补。

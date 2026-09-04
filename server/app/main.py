@@ -1619,10 +1619,13 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         contract = leasing.create_contract(
             session, house, tenant, payload.start_date,
             months=payload.months,
-            deposit_months=(payload.deposit_months
-                            if payload.deposit_months is not None
-                            else config_store.get_int(session, "deposit_months")),
-            pay_months=payload.pay_months)
+            # None 原样传下去，**不要在这里替换成配置值**。押金口径由
+            # leasing.resolve_deposit 一处裁决：显式月数 > 房源上填的押金
+            # > 系统配置。在这里就把 None 填掉，房源上的押金永远读不到（K-02）
+            deposit_months=payload.deposit_months,
+            pay_months=payload.pay_months,
+            default_deposit_months=config_store.get_int(session,
+                                                        "deposit_months"))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
