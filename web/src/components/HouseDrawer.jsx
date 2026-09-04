@@ -176,6 +176,10 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           {house.district} · {house.community} · {house.address}
         </div>
 
+        {/* 核验条紧跟标题。租客要先判断「这房子是不是真的」，
+            再看别的——放到页面底部等于没放（K-07） */}
+        <VerifyBar house={house} />
+
         <div className="record-actions">
           <button
             className={`btn ghost small ${favorited ? 'active' : ''}`}

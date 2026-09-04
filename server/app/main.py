@@ -891,6 +891,118 @@ def review_house(house_no: str, payload: HouseReview,
     return {"ok": True, "house": house.to_dict()}
 
 
+# ------------------------------------------------------------------ 房源核验
+
+# 核验状态机（K-07）。
+#
+# 《待完善清单》D-4 的判断是对的：不动产登记数据接口我们拿不到，
+# 所以「核验」不可能做成真的产权核验。但**状态机和公开的核验编号
+# 是我们自己能做的**——把核验方从「登记接口」换成「管理员人工看证件
+# 照片」，流程一模一样，将来接上接口只是换掉判定那一步。
+#
+#     unverified 未核验 ──房东提交──► pending 待核验
+#                                        │
+#                          管理员通过 ───┴─── 管理员驳回
+#                                │              │
+#                          verified 已核验   rejected 核验失败
+#                                                │
+#                                          房东改完再提交 ─► pending
+VERIFY_SUBMITTABLE = ("unverified", "rejected")
+
+
+def _make_verify_no(house):
+    """生成公开的核验编号。
+
+    格式 `DL` + 两位年 + 八位。它要能被租客拿去和客服核对，
+    所以必须**稳定且唯一**——用房源自增 id 做种子，同一套房重复核验
+    也是同一个编号，不会出现「上次给我的号查不到」。
+    """
+    return "DL%s%08d" % (datetime.now().strftime("%y"), house.id * 7919 % 10**8)
+
+
+@app.post("/api/houses/{house_no}/verify-request")
+def request_verify(house_no: str, user: User = Depends(require_staff),
+                   session: Session = Depends(get_session)):
+    """房东提交核验申请。
+
+    证件照片走已有的相册上传接口，这里只推进状态——把「上传」和
+    「提交」分开，房东可以先传齐再提交，不会传一半就进了待审队列。
+    """
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能为自己的房源申请核验")
+    if house.verify_status not in VERIFY_SUBMITTABLE:
+        raise HTTPException(
+            status_code=409,
+            detail="该房源已在核验中或已核验通过")
+
+    house.verify_status = "pending"
+    house.verify_remark = ""
+    session.commit()
+    session.refresh(house)
+    return {"ok": True, "house": house.to_dict()}
+
+
+@app.patch("/api/houses/{house_no}/verify")
+def decide_verify(house_no: str, payload: HouseReview,
+                  user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """管理员裁定核验结果。
+
+    **房东不能自己盖这个章。** 核验是平台对房源做的背书，
+    房东能自己标成「已核验」，这个标记就一文不值了——
+    所以这里只认管理员，且房东侧的编辑接口收不到 `verify_status`。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if house.verify_status != "pending":
+        raise HTTPException(status_code=409, detail="该房源当前没有待处理的核验申请")
+
+    if payload.approved:
+        house.verify_status = "verified"
+        house.verify_no = _make_verify_no(house)
+        house.verified_at = datetime.now()
+        house.verify_remark = ""
+        title = "房源核验通过"
+        content = "房源 %s 已通过核验，核验编号 %s。" % (house.house_no,
+                                                       house.verify_no)
+    else:
+        # 驳回要写清原因。只说「未通过」，房东不知道该改什么，
+        # 下一次提交上来还是同样的问题
+        if not payload.reason.strip():
+            raise HTTPException(status_code=422, detail="驳回核验必须填写原因")
+        house.verify_status = "rejected"
+        house.verify_no = ""
+        house.verified_at = None
+        house.verify_remark = payload.reason.strip()
+        title = "房源核验未通过"
+        content = "房源 %s 核验未通过：%s" % (house.house_no, house.verify_remark)
+
+    leasing.notify(session, house.landlord_id, "system", title, content,
+                   house.house_no)
+    session.commit()
+    session.refresh(house)
+    return {"ok": True, "house": house.to_dict()}
+
+
+@app.get("/api/admin/verify-queue")
+def verify_queue(user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """待核验队列。和房源审核队列分开——两者判的不是一件事：
+    审核看的是内容合规，核验看的是产权凭证。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    rows = session.scalars(
+        select(House).where(House.verify_status == "pending")
+        .order_by(House.id.desc())).all()
+    return {"total": len(rows), "list": [h.to_dict() for h in rows]}
+
+
 @app.get("/api/admin/users")
 def admin_users(keyword: str = "", role: str = "",
                 user: User = Depends(require_login),
