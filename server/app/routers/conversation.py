@@ -59,15 +59,46 @@ def _responder(session, conversation):
     """当前负责答这个会话的人。委托中是受托中介，否则是房东本人。
 
     只有租客那一侧需要它（用来显示「对方」是房东还是经纪人）。
-    列表接口会对每个会话调一次——委托表上有 (house_id, status) 索引，
-    这是那条索引存在的主要理由之一。
+    单条会话用这个；**列表一律走 `_responders`**，见下面的说明。
     """
-    if not conversation.house:
-        return conversation.landlord
-    uid = responsible_user_id(session, conversation.house)
-    if uid == conversation.landlord_id:
-        return conversation.landlord
-    return session.get(User, uid)
+    return _responders(session, [conversation])[conversation.id]
+
+
+def _responders(session, conversations):
+    """一批会话各自的答复人，`{conversation_id: User}`。
+
+    列表接口原来是对每个会话调一次 `_responder`——一个手上有五十个咨询
+    的房东，打开会话列表就是五十次委托查询。**这正是 K-09 之后反复强调
+    的那类问题：单条看着没毛病，放进列表里就是 N+1。**
+
+    这里改成两次查询：一次把涉及房源的生效委托全取回来，一次把用到的
+    中介取回来，然后在内存里配对。会话数再多，查询次数都是常数。
+    """
+    if not conversations:
+        return {}
+
+    house_ids = {c.house_id for c in conversations}
+    active = {d.house_id: d.agent_id for d in session.scalars(
+        select(HouseDelegation).where(
+            HouseDelegation.house_id.in_(house_ids),
+            HouseDelegation.status == "active")).all()}
+
+    agent_ids = set(active.values())
+    agents = {}
+    if agent_ids:
+        agents = {u.id: u for u in session.scalars(
+            select(User).where(User.id.in_(agent_ids))).all()}
+
+    out = {}
+    for c in conversations:
+        agent_id = active.get(c.house_id)
+        # 委托给的就是房东自己，或者中介账号已被删——都退回房东。
+        # 退回而不是返回 None，是因为调用方只想知道「该显示谁」，
+        # 让它去处理一个空值只会把判断散出去
+        out[c.id] = agents.get(agent_id) if agent_id else None
+        if out[c.id] is None:
+            out[c.id] = c.landlord
+    return out
 
 
 def _sender_label(session, conversation, line):
@@ -150,9 +181,9 @@ def list_conversations(user: User = Depends(require_login),
         stmt.order_by(Conversation.last_at.desc())).all()
     unread = sum((c.tenant_unread if c.tenant_id == user.id
                   else c.landlord_unread) for c in rows)
+    responders = _responders(session, rows)
     return {"total": len(rows), "unread": unread,
-            "list": [c.to_dict(user.id, _responder(session, c))
-                     for c in rows]}
+            "list": [c.to_dict(user.id, responders.get(c.id)) for c in rows]}
 
 
 @router.get("/api/conversations/{conversation_id}/lines")

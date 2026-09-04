@@ -73,6 +73,8 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // 依赖里带上三份数据本身，这样 run() 把它们清空之后会立刻重取，
+  // 而不必等用户切走页签再切回来
   useEffect(() => {
     if (tab === 'market' && openList.length === 0) {
       api.openHouses(30).then((r) => setOpenList(r.list || [])).catch(() => {})
@@ -85,7 +87,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
       api.brokerCommissions().then(setCommissions).catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+  }, [tab, openList.length, viewings.length, commissions])
 
   async function run(key, fn, message = '') {
     if (busy) return
@@ -96,6 +98,15 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
       await fn()
       if (message) setOk(message)
       await load()
+      // 按需加载的那几个页签也要作废重取。
+      //
+      // 只重取工作台的话，「申请接单」之后那套房仍然留在接单大厅里，
+      // 再点一次得到的是「这套房已经有生效中的委托」——**用户会以为
+      // 是自己刚才没点上**。凡是会改变这些列表内容的操作，都得让它们
+      // 重新取一次，而不是等用户切走再切回来。
+      setOpenList([])
+      setViewings([])
+      setCommissions(null)
     } catch (err) {
       setError(err.message)
     } finally {
