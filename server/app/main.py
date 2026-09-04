@@ -459,8 +459,10 @@ def list_houses(
                      joinedload(House.landlord))
         .order_by(order).offset((page - 1) * limit).limit(limit)).all()
 
+    # 列表走精简载荷。完整字典是详情页的，列表用它等于每个请求都白白
+    # 序列化一遍房源描述、整个相册数组和费用明细（见 House.to_card_dict）
     return {"total": total, "page": page, "limit": limit,
-            "list": [h.to_dict() for h in rows]}
+            "list": [h.to_card_dict() for h in rows]}
 
 
 @app.get("/api/houses/{house_no}")

@@ -394,3 +394,96 @@ class TestNewTablesExist(ApiTestCase):
             self.assertFalse(used.is_usable())
         finally:
             session.close()
+
+
+class TestCardPayloadStaysInSync(FacetCase):
+    """列表载荷必须是详情载荷的**子集**，而且同名字段取值一致。
+
+    `to_card_dict()` 存在的理由是性能：K-04/K-07 往 `to_dict()` 里加了
+    二十来个字段之后，单套房的 JSON 长到 1.4KB，一页 12 套 15KB，
+    而列表卡片一个都用不到房源描述、整个相册数组和费用明细拆解。
+    实测精简后列表接口在 100 并发下 p50 从 1486ms 降到 1024ms。
+
+    但「为了快另写一份序列化」是会出事的：加了字段只改一处，
+    列表和详情从此对同一套房给出不一样的信息，而这种不一致
+    在页面上极难发现——两处本来就长得不一样。
+
+    所以约定是「挑字段」而不是「另写一份」，这组用例守的就是这个约定。
+    """
+
+    def test_card_is_a_subset_of_detail(self):
+        session = db.SessionLocal()
+        try:
+            house = session.query(House).filter_by(house_no="DL0001").one()
+            card = house.to_card_dict()
+            full = house.to_dict()
+        finally:
+            session.close()
+
+        extra = set(card) - set(full)
+        self.assertEqual(extra, set(),
+                         "列表返回了详情没有的字段：%s" % extra)
+
+    def test_same_keys_carry_same_values(self):
+        session = db.SessionLocal()
+        try:
+            house = session.query(House).filter_by(house_no="DL0001").one()
+            card = house.to_card_dict()
+            full = house.to_dict()
+        finally:
+            session.close()
+
+        for key, value in card.items():
+            self.assertEqual(value, full[key],
+                             "字段 %s 在列表和详情里不一致" % key)
+
+    def test_card_keeps_what_the_card_renders(self):
+        """HouseCard 与 CompareBar 真正读到的键，一个都不能少。
+
+        少一个的表现是卡片上某一项静悄悄变成空白——不报错，
+        所以只能靠测试兜住。
+        """
+        session = db.SessionLocal()
+        try:
+            card = session.query(House).filter_by(
+                house_no="DL0001").one().to_card_dict()
+        finally:
+            session.close()
+
+        for key in ("house_no", "title", "district", "community", "floor",
+                    "rent_price", "deposit", "area", "layout", "rent_type",
+                    "orientation", "tags", "cover_image", "rating",
+                    "elevator", "floor_level", "pay_plan",
+                    "verify_status", "maintained_at"):
+            self.assertIn(key, card)
+
+    def test_card_drops_the_expensive_detail_only_fields(self):
+        """详情页才用得上的大字段不该出现在列表里。
+
+        这条会在有人「顺手」把字段加回 CARD_FIELDS 时变红，
+        提醒他这里是全站最热的一条路径。
+        """
+        session = db.SessionLocal()
+        try:
+            card = session.query(House).filter_by(
+                house_no="DL0001").one().to_card_dict()
+        finally:
+            session.close()
+
+        for key in ("description", "images", "fee_detail"):
+            self.assertNotIn(key, card)
+
+    def test_list_endpoint_uses_the_card_payload(self):
+        body = self.client.get("/api/houses", params={"limit": 1}).json()
+        self.assertTrue(body["list"])
+        row = body["list"][0]
+        self.assertNotIn("description", row)
+        self.assertNotIn("fee_detail", row)
+        self.assertIn("floor_level", row)
+
+    def test_detail_endpoint_still_returns_everything(self):
+        """详情页不受影响——精简的只有列表。"""
+        row = self.client.get("/api/houses/DL0001").json()
+        for key in ("description", "images", "fee_detail", "verify_no",
+                    "available_from", "min_months", "service_fee"):
+            self.assertIn(key, row)

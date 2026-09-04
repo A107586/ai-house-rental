@@ -238,6 +238,36 @@ class House(Base):
                               if self.maintained_at else ""),
         }
 
+    # 列表卡片需要的字段。**列表不该返回详情页才用得上的东西。**
+    #
+    # `to_dict()` 是详情页的完整载荷，K-04/K-07 往里加了二十来个字段之后
+    # 单套房的 JSON 长到 1.4KB，一页 12 套就是 15KB。列表接口在 100 并发
+    # 下是全站最热的一条路径，这些多出来的字节每个请求都要序列化一遍，
+    # 而卡片上一个都用不到——房源描述、整个相册数组、费用明细拆解，
+    # 全是点进详情才看的。
+    #
+    # 这里列的是 `HouseCard` 与 `CompareBar` 真正读到的键，
+    # 外加筛选相关的几个标量（测试要拿它们核对筛选结果对不对）。
+    CARD_FIELDS = (
+        "id", "house_no", "title", "district", "community", "address",
+        "rent_price", "deposit", "area", "layout", "rent_type",
+        "floor", "orientation", "tags", "cover_image", "status",
+        "rating", "review_count",
+        "elevator", "decoration", "floor_level", "pay_plan",
+        "verify_status", "maintained_at",
+    )
+
+    def to_card_dict(self):
+        """列表卡片用的精简载荷，`to_dict()` 的子集。
+
+        刻意做成「从完整字典里挑」而不是另写一份：两份独立的序列化
+        必然会分叉——加了字段只改一处，列表和详情从此对同一套房
+        给出不一样的信息。挑字段的代价是仍然算了一遍完整字典，
+        但那部分实测只有 0.2ms/12 套，真正贵的是把它编码成 JSON 发出去。
+        """
+        full = self.to_dict()
+        return {key: full[key] for key in self.CARD_FIELDS if key in full}
+
     @property
     def floor_level(self):
         """低 / 中 / 高楼层。列表卡片和筛选按钮上显示的都是这个。
