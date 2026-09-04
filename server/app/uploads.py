@@ -110,3 +110,65 @@ def remove(static_dir, url):
         os.remove(target)
         return True
     return False
+
+
+
+# ---------------------------------------------------------------- 图片元数据
+
+# PNG 文件头。用常量而不是字面量写在判断里，免得转义出错时不易察觉
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\x1a"[:4] + b"\r\n\x1a\n"
+_JPEG_MAGIC = b"\xff\xd8"
+
+# 带尺寸的 JPEG 段标记（SOF0–SOF15，跳过 0xC4/0xC8/0xCC 这类非尺寸段）
+_JPEG_SOF = frozenset([0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                       0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF])
+
+
+def measure(data):
+    """从图片字节里读出宽高，并算一个内容哈希（K-12）。
+
+    **只读文件头，不解码整张图。** 引 Pillow 就为拿两个数字不划算，
+    而这台机器 pip 也装不上（见 `app/migrations.py` 里同样的处境）。
+    PNG / JPEG / GIF 的尺寸都写在头几十个字节里，自己读就够了。
+
+    哈希用的是**整份文件内容**：盗图和「同一张图发十套房」是虚假房源
+    最常见的形态，有哈希才查得出来；没有它，举报了也只能靠人眼比对。
+
+    读不出尺寸时返回 0，**不抛异常**——尺寸是锦上添花，
+    不该让一张读不懂的图把整个上传流程打断。
+    """
+    import hashlib
+    import struct
+
+    result = {"width": 0, "height": 0, "file_size": len(data),
+              "hash": hashlib.sha256(data).hexdigest()}
+
+    try:
+        if data[:8] == _PNG_MAGIC and data[12:16] == b"IHDR":
+            result["width"], result["height"] = struct.unpack(">II", data[16:24])
+        elif data[:3] == b"GIF":
+            result["width"], result["height"] = struct.unpack("<HH", data[6:10])
+        elif data[:2] == _JPEG_MAGIC:
+            i = 2
+            while i + 9 < len(data):
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in _JPEG_SOF:
+                    height, width = struct.unpack(">HH", data[i + 5:i + 9])
+                    result["width"], result["height"] = width, height
+                    break
+                if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                    continue
+                length = struct.unpack(">H", data[i + 2:i + 4])[0]
+                if length <= 0:
+                    break
+                i += 2 + length
+    except (struct.error, IndexError):
+        pass
+
+    result["width"] = int(result["width"])
+    result["height"] = int(result["height"])
+    return result

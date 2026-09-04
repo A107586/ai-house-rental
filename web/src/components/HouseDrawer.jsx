@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import ImageUploader from './ImageUploader'
+import { FeeTable, VerifyBar } from './VerifyBadge'
+import ReportDialog from './ReportDialog'
+import HousePhoto from './HousePhoto'
 import { api } from '../api'
 
 // 智能体返回的 status 与展示样式的对应关系。
@@ -144,7 +147,8 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
 
         {photos.length > 0 && (
           <div className="album">
-            <img className="album-main" src={photos[shot]} alt={house.title} />
+            <HousePhoto className="album-main" src={photos[shot]}
+                        alt={house.title} lazy={false} />
             {photos.length > 1 && (
               <div className="album-thumbs">
                 {photos.map((url, i) => (
@@ -154,7 +158,8 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                     onClick={() => setShot(i)}
                     aria-label={`第 ${i + 1} 张`}
                   >
-                    <img src={url} alt="" />
+                    <HousePhoto src={url} alt="" placeholder="✕"
+                                placeholderClassName="thumb-none" />
                   </button>
                 ))}
               </div>
@@ -243,15 +248,59 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             <dt>面积</dt>
             <dd>{Math.round(house.area)} 平米</dd>
           </dl>
-          <dl className="fact">
-            <dt>楼层</dt>
-            <dd>{house.floor}</dd>
-          </dl>
-          <dl className="fact">
-            <dt>朝向</dt>
-            <dd>{house.orientation}</dd>
-          </dl>
+          {/* 楼层和朝向也一样：没填就不摆。
+              一个空的「朝向：」看起来像数据丢了，而事实是房东没填 */}
+          {house.floor && (
+            <dl className="fact">
+              <dt>楼层</dt>
+              <dd>{house.floor}</dd>
+            </dl>
+          )}
+          {house.orientation && (
+            <dl className="fact">
+              <dt>朝向</dt>
+              <dd>{house.orientation}</dd>
+            </dl>
+          )}
+
+          {/* K-04 新增的那些维度也要在详情页露出来。
+              用户刚用「有电梯」筛完，点进详情却看不到这一条，
+              等于让他自己再去信一次筛选结果。
+              **没填的项直接不显示**，摆一个空的「装修：」比不摆更糟——
+              它看起来像数据丢了 */}
+          {house.elevator !== undefined && (
+            <dl className="fact">
+              <dt>电梯</dt>
+              <dd>{house.elevator ? '有' : '无'}</dd>
+            </dl>
+          )}
+          {house.decoration && (
+            <dl className="fact">
+              <dt>装修</dt>
+              <dd>{house.decoration}</dd>
+            </dl>
+          )}
+          {house.heating && (
+            <dl className="fact">
+              <dt>供暖</dt>
+              <dd>{house.heating}</dd>
+            </dl>
+          )}
+          {house.available_from && (
+            <dl className="fact">
+              <dt>可入住</dt>
+              <dd>{house.available_from}</dd>
+            </dl>
+          )}
+          {house.min_months > 0 && (
+            <dl className="fact">
+              <dt>最短租期</dt>
+              <dd>{house.min_months} 个月</dd>
+            </dl>
+          )}
         </div>
+
+        <FeeTable house={house} />
 
         <div className="tags">
           {house.tags.map((tag) => (
@@ -420,11 +469,9 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                     className="sim-item"
                     onClick={() => onOpenHouse && onOpenHouse(item)}
                   >
-                    {item.cover_image ? (
-                      <img src={item.cover_image} alt={item.title} loading="lazy" />
-                    ) : (
-                      <span className="sim-none">暂无图</span>
-                    )}
+                    <HousePhoto src={item.cover_image} alt={item.title}
+                                placeholder="暂无图"
+                                placeholderClassName="sim-none" />
                     <span className="sim-body">
                       <span className="sim-title">{item.title}</span>
                       <span className="muted-note">

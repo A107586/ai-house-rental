@@ -2420,7 +2420,12 @@ if HAS_UPLOAD:
         ok, result = uploads.validate(data)
         if not ok:
             raise HTTPException(status_code=400, detail=result)
-        return {"ok": True, "url": uploads.save(STATIC_DIR, data, result)}
+        # 尺寸、体积与内容哈希在这里算一次就存下来（K-12）。
+        # 每次要判断「这张图能不能当封面」都去读一遍文件是不必要的，
+        # 图多了会把列表接口拖垮；哈希则是查盗图与重复图的唯一抓手
+        meta = uploads.measure(data)
+        return {"ok": True, "url": uploads.save(STATIC_DIR, data, result),
+                **meta}
 
 else:
 
@@ -2435,6 +2440,10 @@ else:
 @app.post("/api/houses/{house_no}/images")
 def add_house_image(house_no: str, url: str = Body(embed=True),
                     caption: str = Body(default="", embed=True),
+                    width: int = Body(default=0, embed=True),
+                    height: int = Body(default=0, embed=True),
+                    file_size: int = Body(default=0, embed=True),
+                    hash: str = Body(default="", embed=True),
                     user: User = Depends(require_staff),
                     session: Session = Depends(get_session)):
     """把已上传的图片挂到房源上。
@@ -2452,7 +2461,14 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
     image = HouseImage(house_id=house.id, url=url, caption=caption[:100],
                        sort_order=len(house.images or []),
                        # 第一张自动做封面，免得房东传完发现列表页还是空图
-                       is_cover=not has_cover)
+                       is_cover=not has_cover,
+                       # 元数据由 /api/upload 算好后原样带过来（K-12）。
+                       # 带不过来也不拦——老前端不传这几个字段，
+                       # 拦下来等于让一次前端没升级把发布流程整个卡死
+                       width=max(int(width or 0), 0),
+                       height=max(int(height or 0), 0),
+                       file_size=max(int(file_size or 0), 0),
+                       hash=(hash or "")[:64])
     session.add(image)
     session.commit()
     session.refresh(image)
