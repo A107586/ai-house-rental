@@ -60,7 +60,10 @@ class Settings:
         self.llm_api_key = _get("LLM_API_KEY", "")
         self.llm_base_url = _get("LLM_BASE_URL", "")
         self.llm_model = _get("LLM_MODEL", "")
-        self.llm_timeout = _get_float("LLM_TIMEOUT", 30.0)
+        # 30 秒改成 8 秒（K-10）。**用户等 30 秒和等 8 秒后拿到规则结果，
+        # 后者体验好得多**——降级路径是完整可用的，不是残次品，
+        # 没有理由为了「说不定第 29 秒能回来」让人干等着。
+        self.llm_timeout = _get_float("LLM_TIMEOUT", 8.0)
         # 单次请求上下文上限，避免 Token 消耗失控（非功能需求 N-08）
         self.llm_max_tokens = _get_int("LLM_MAX_TOKENS", 1024)
 
@@ -80,7 +83,9 @@ class Settings:
             str(Path(__file__).resolve().parents[1] / "knowledge" / "vectors.json"))
 
         # ---- 路由阈值 ----
-        # 规则解析置信度低于此值才调用大模型兜底
+        # 规则解析置信度低于此值才调用大模型兜底。
+        # 融合模式下它同样生效：置信度到线就直接用规则结果，
+        # 不再为一次已经确定的解析多付一趟网络往返（K-10）
         self.rule_confidence_threshold = _get_float("RULE_CONFIDENCE_THRESHOLD", 0.5)
         # 规则与大模型是否同时参与。开启时每次请求都会调一次大模型，
         # 由它在规则结论的基础上给出最终结果；关闭则退回纯规则。
@@ -89,6 +94,24 @@ class Settings:
         # 「置信度不足才调」费钱，所以留这个开关：演示或压测时可以关掉，
         # 关掉之后功能仍然完整，只是少了大模型的修正。
         self.fusion_enabled = _get_bool("FUSION_ENABLED", True)
+
+        # 规则置信度够高时跳过大模型（K-10 提速开关）。
+        #
+        # **默认关闭，因为它推翻的是本模块开头那段刻意的设计决定**：
+        # 融合的立场是「规则与大模型同时参与」，理由是规则再全也覆盖不了
+        # 所有说法，置信度高只说明规则认得出，不等于它认得对。
+        #
+        # 但代价是实打实的：融合模式下**每一次请求都要等一趟大模型往返**，
+        # 哪怕规则已经百分之百确定。「中山区两室一厅三千以内」这类说法
+        # 规则全都认得，为它多付一趟往返，用户感受到的就是「智能体很慢」。
+        #
+        # 所以做成开关而不是替换：
+        #   - 追求解析准确率（答辩演示、跑验收指标）→ 保持关闭；
+        #   - 追求响应速度（现场试用、压测）→ 置 true。
+        # 关掉大模型（不配 LLM_PROVIDER）本来就是纯规则模式，
+        # 这个开关只影响「配了大模型」的那条路径。
+        self.fusion_skip_when_confident = _get_bool(
+            "FUSION_SKIP_WHEN_CONFIDENT", False)
 
         self.service_port = _get_int("AGENT_PORT", 8000)
 
@@ -107,6 +130,7 @@ class Settings:
             "mode": "大模型 + 规则" if self.llm_enabled else "纯规则（降级模式）",
             "rule_confidence_threshold": self.rule_confidence_threshold,
             "fusion_enabled": self.fusion_enabled,
+            "fusion_skip_when_confident": self.fusion_skip_when_confident,
             "embed_enabled": bool(self.embed_base_url),
             "embed_model": self.embed_model or "(未配置)",
         }

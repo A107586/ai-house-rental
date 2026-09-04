@@ -31,7 +31,7 @@ import json
 from app.llm.base import LLMUnavailable
 
 # source 的三种取值
-SOURCE_RULES = "rules"              # 大模型没参与（不可用或被关闭）
+SOURCE_RULES = "rules"              # 大模型没参与（不可用、被关闭，或规则已经足够确定）
 SOURCE_FUSED = "fused"              # 两者都参与，采用了融合结果
 SOURCE_FALLBACK = "rules_fallback"  # 大模型参与了但输出不可用，退回规则
 
@@ -78,7 +78,8 @@ def _diff(rule_result, final):
 
 
 def fuse(rule_result, provider, system, prompt, sanitize,
-         guards=(), enabled=True, trace=None):
+         guards=(), enabled=True, trace=None, confidence=None,
+         confidence_threshold=None):
     """执行一次融合。
 
     :param rule_result: 规则算出的结构化结果（dict）
@@ -93,10 +94,32 @@ def fuse(rule_result, provider, system, prompt, sanitize,
     :param enabled:     置 False 可强制走纯规则，便于对照测试
     :param trace:       可选的 `app.trace.Trace`，记下大模型这一步的耗时
                         与结果。**失败也记**——真正要查的恰恰是出问题那次
+    :param confidence:  规则解析的置信度。够高就直接短路，不调大模型（K-10）
+    :param confidence_threshold: 短路阈值，通常取自 `settings`
 
     :returns: ``(final, source, divergence)``
     """
     if not enabled or provider is None or not getattr(provider, "available", False):
+        return dict(rule_result), SOURCE_RULES, []
+
+    # ---- K-10 规则足够确定时直接短路，不等大模型 ----
+    #
+    # 融合模式原本对每一次请求都调一次大模型，**哪怕规则已经百分之百
+    # 确定**。用户问一句「有没有两室的」，规则 5 毫秒就能答，
+    # 却要为此等一趟网络往返；赶上大模型慢或超时，就是几十秒。
+    #
+    # 「慢」在助手类产品里不是体验问题，是**功能问题**：等三秒的助手，
+    # 用户第二次就自己去点筛选栏了。
+    #
+    # 短路的判据用的是已有的 `rule_confidence_threshold` 配置——这个阈值
+    # 一直存在，只是融合模式下从来没被用来做这个决定。
+    # 注意方向：置信度**高**才跳过大模型；低的时候恰恰最需要它补救。
+    if (confidence is not None and confidence_threshold is not None
+            and confidence >= confidence_threshold):
+        if trace:
+            with trace.step("规则置信度足够，跳过大模型") as step:
+                step.says("置信度 %.2f ≥ 阈值 %.2f"
+                          % (confidence, confidence_threshold))
         return dict(rule_result), SOURCE_RULES, []
 
     step = trace.step("大模型融合") if trace else _NullStep()

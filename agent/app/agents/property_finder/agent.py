@@ -138,7 +138,13 @@ def understand(text, provider=None, trace=None):
         rule_payload, provider, _PARSE_SYSTEM,
         _PARSE_PROMPT.format(text=text, reference=reference),
         sanitize, guards=(_keep_rule_district,),
-        enabled=settings.fusion_enabled, trace=trace)
+        enabled=settings.fusion_enabled, trace=trace,
+        # 规则已经很确定时可以不等大模型（K-10）。默认不开——
+        # 它推翻的是 fusion.py 开头那段刻意的设计决定，见
+        # settings.fusion_skip_when_confident 的注释
+        confidence=(rule_result.get("confidence")
+                    if settings.fusion_skip_when_confident else None),
+        confidence_threshold=settings.rule_confidence_threshold)
 
     return final["filters"], final["features"], source, divergence
 
