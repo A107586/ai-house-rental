@@ -834,3 +834,45 @@ class TestAppointmentReceipt(BrokerCase):
         self.client.patch("/api/appointments/%d" % aid, headers=self.landlord,
                           json={"status": "cancelled", "reply": "房子已出租"})
         self.assertIn("看房预约已取消", self._titles(self.tenant))
+
+
+class TestReportAttribution(BrokerCase):
+    """被举报次数怎么算到中介头上。
+
+    **按举报发生时这套房是不是他在托**，不按当前受托人——否则委托一解除，
+    历史举报就全都不算数了，中介档案页也就失去了意义。
+    """
+
+    def _report(self, house_no, headers=None):
+        return self.client.post(
+            "/api/reports", headers=headers or self.tenant,
+            json={"house_no": house_no, "kind": "fake",
+                  "description": "打电话过去说这套早就租出去了"})
+
+    def _count(self):
+        roster = self.client.get("/api/admin/agents",
+                                 headers=self.admin).json()
+        row = next(r for r in roster["list"] if r["username"] == "agent1")
+        return row["reported"]
+
+    def test_report_during_delegation_counts(self):
+        self.delegate("DL0001")
+        self.assertEqual(self._report("DL0001").status_code, 200)
+        self.assertEqual(self._count()["total"], 1)
+
+    def test_report_on_a_house_he_never_held_does_not_count(self):
+        """**这条守的是这次的性能改法。**
+
+        为了不整表扫描，实现改成「先用他托过的房源把举报缩小，再比时间」。
+        写错成「先取全部举报」或者漏掉房源过滤，这条就会红。
+        """
+        self.delegate("DL0001")
+        self.assertEqual(self._report("DL0002").status_code, 200)
+        self.assertEqual(self._count()["total"], 0)
+
+    def test_report_after_delegation_ended_does_not_count(self):
+        did = self.delegate("DL0001")
+        self.client.post("/api/delegations/%d/end" % did,
+                         headers=self.landlord, json={"reason": "自己出租"})
+        self.assertEqual(self._report("DL0001").status_code, 200)
+        self.assertEqual(self._count()["total"], 0)

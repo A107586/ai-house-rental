@@ -450,11 +450,16 @@ def agent_stats(session, agent_id):
         AgentCommission.agent_id == agent_id)).all()
 
     # 好评率：4 分及以上算好评。评价挂在合同上，取这个中介促成的那些
-    contract_ids = {c.id for c in deals}
+    contract_ids = [c.id for c in deals]
     reviews = []
     if contract_ids:
-        reviews = [r for r in session.scalars(select(Review)).all()
-                   if r.contract_id in contract_ids and not r.deleted_at]
+        # **过滤必须落在 SQL 里。** 原来是把整张 reviews 表读进来再用
+        # Python 筛——管理端的中介档案页每个中介调一次 agent_stats，
+        # 十个中介就是十遍全表扫描。N-01 要求接口 < 1s，这种写法在
+        # 演示数据上看不出问题，评价一多就直接崩掉。
+        reviews = session.scalars(select(Review).where(
+            Review.contract_id.in_(contract_ids),
+            Review.deleted_at.is_(None))).all()
     good = len([r for r in reviews if r.rating >= 4])
 
     return {
@@ -643,13 +648,20 @@ def _reported_count(session, agent_id):
     """
     from app.models import HouseReport
 
-    rows = session.scalars(select(HouseReport)).all()
-    if not rows:
-        return {"total": 0, "accepted": 0}
     spans = session.scalars(select(HouseDelegation).where(
-        HouseDelegation.agent_id == agent_id)).all()
+        HouseDelegation.agent_id == agent_id,
+        HouseDelegation.start_at.is_not(None))).all()
+    if not spans:
+        return {"total": 0, "accepted": 0}
+
+    # 只取他托过的那几套房的举报，而不是把整张举报表读进来。
+    # 「时间落在哪一段委托里」这一步仍在 Python 做——那是区间比对，
+    # 用 SQL 表达要么写成一串 OR，要么按委托条数发多次查询，
+    # 两种都不比现在清楚。**先用房源把量缩小，再在小集合上比对**。
+    rows = session.scalars(select(HouseReport).where(
+        HouseReport.house_id.in_({d.house_id for d in spans}))).all()
     hit = [r for r in rows for d in spans
-           if d.house_id == r.house_id and d.start_at
+           if d.house_id == r.house_id
            and d.start_at <= r.created_at
            and (d.end_at is None or r.created_at <= d.end_at)]
     return {"total": len(hit),
@@ -667,11 +679,13 @@ def platform_agent_stats(user: User = Depends(require_login),
     pending_license = len([p for p in profiles
                            if p.license_status == "pending"])
 
-    available = session.scalars(select(House).where(
-        House.status == "available")).all()
-    delegated_ids = {d.house_id for d in session.scalars(select(
-        HouseDelegation).where(HouseDelegation.status == "active")).all()}
-    delegated_available = len([h for h in available if h.id in delegated_ids])
+    delegated_ids = set(session.scalars(select(HouseDelegation.house_id).where(
+        HouseDelegation.status == "active")).all())
+    available_total = session.scalar(select(func.count()).select_from(
+        House).where(House.status == "available")) or 0
+    delegated_available = session.scalar(select(func.count()).select_from(
+        House).where(House.status == "available",
+                     House.id.in_(delegated_ids or {-1}))) or 0
 
     viewings = session.scalar(select(func.count()).select_from(
         select(ViewingRecord.id).where(
@@ -682,9 +696,13 @@ def platform_agent_stats(user: User = Depends(require_login),
     # 这是唯一能回答「中介到底有没有用」的数字。做了这个功能就该敢于
     # 把它摆出来——如果委托的反而更低，那说明功能没起作用，应当如实
     # 显示。看板不是用来证明功能有价值的，是用来发现它没价值的。
-    contracts = session.scalars(select(Contract)).all()
-    with_agent = len([c for c in contracts if c.agent_id])
-    without_agent = len(contracts) - with_agent
+    # 数数就用 count，不要把整张合同表读进内存——
+    # 这一页只需要两个数字
+    deal_total = session.scalar(
+        select(func.count()).select_from(Contract)) or 0
+    with_agent = session.scalar(select(func.count()).select_from(
+        Contract).where(Contract.agent_id.is_not(None))) or 0
+    without_agent = deal_total - with_agent
 
     return {
         "agent_total": len(profiles),
@@ -692,7 +710,7 @@ def platform_agent_stats(user: User = Depends(require_login),
                                if p.license_status == "approved"]),
         "license_pending": pending_license,
         "delegated_houses": len(delegated_ids),
-        "delegated_share": _ratio(delegated_available, len(available)),
+        "delegated_share": _ratio(delegated_available, available_total),
         "recent_viewings": viewings,
         "recent_days": RECENT_DAYS,
         "deals_with_agent": with_agent,
