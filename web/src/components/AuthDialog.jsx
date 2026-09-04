@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, setToken } from '../api'
+import ForgotPasswordForm from './ForgotPasswordForm'
 
 export default function AuthDialog({ onClose, onLoggedIn }) {
   const [mode, setMode] = useState('login')
@@ -8,6 +9,8 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // K-11：密码忘了原先是真的进不去，只能找管理员改
+  const [notice, setNotice] = useState('')
 
   const update = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
@@ -59,7 +62,20 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
         <button className="drawer-close" onClick={onClose} aria-label="关闭">
           ×
         </button>
+        {mode === 'forgot' ? (
+          <ForgotPasswordForm
+            onBack={() => { setMode('login'); setError('') }}
+            onDone={(message) => {
+              setMode('login')
+              setError('')
+              setNotice(message)
+            }}
+          />
+        ) : (
+        <>
         <h3>{mode === 'login' ? '登录' : '注册'}</h3>
+
+        {notice && <div className="reply created">{notice}</div>}
 
         <form onSubmit={submit}>
           <div className="field">
@@ -121,6 +137,10 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
               <button className="link" onClick={() => { setMode('register'); setError('') }}>
                 注册一个
               </button>
+              <span className="foot-sep">·</span>
+              <button className="link" onClick={() => { setMode('forgot'); setError('') }}>
+                忘记密码
+              </button>
             </>
           ) : (
             <>
@@ -138,6 +158,8 @@ export default function AuthDialog({ onClose, onLoggedIn }) {
             <code>landlord1 / test123</code>（房东）·{' '}
             <code>admin / admin123</code>（管理员）
           </div>
+        )}
+        </>
         )}
       </div>
     </>
