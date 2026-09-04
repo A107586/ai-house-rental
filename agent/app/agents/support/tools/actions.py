@@ -711,8 +711,15 @@ def _propose_submit_review(text, token, backend, context):
 
 
 def _propose_handle_appointment(text, token, backend, context):
-    """房东确认或拒绝看房预约。"""
-    rows = _rows(backend.get("/api/appointments", token=token))
+    """房东确认或拒绝看房预约。
+
+    走 `/mine` 而不是 `/api/appointments`。后者是**按房源查已占用时段**的
+    公开接口，带上 token 也不会按人过滤——原来这里拿回来的是全平台的
+    待处理预约，于是房东会被问「你要处理哪一条」，选项里列着别人的预约；
+    真去处理还会 403。`/mine` 才是「与我有关的」，房东、租客、
+    受托中介各取各的那一份。
+    """
+    rows = _rows(backend.get("/api/appointments/mine", token=token))
     pending = [r for r in rows if r.get("status") in ("pending", "待审核")]
     if not pending:
         return NOT_APPLICABLE, "没有待处理的看房预约。", None, None

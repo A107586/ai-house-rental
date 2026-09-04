@@ -984,3 +984,54 @@ class TestRepairListIsPartyBased(BrokerCase):
         self.assertTrue(rows, "升级成房东后，自己报的工单不该消失")
         if repair_no:
             self.assertIn(repair_no, [r.get("repair_no") for r in rows])
+
+
+class TestAppointmentSlotsAreNotAnAddressBook(BrokerCase):
+    """`GET /api/appointments` 不需要登录，所以它只能返回时段。
+
+    在此之前它返回完整的 `to_dict()`——**任何人不登录就能翻出全站
+    「谁、什么时候、看哪套房」，还附带姓名和号码后四位。**
+    姓名 + 号码后四位 + 具体地址 + 具体时间，凑在一起已经足够定位到
+    一个真人。掩码不是免死金牌：R-02 要求的是脱敏，不是「脱敏了就可以
+    随便公开」。
+    """
+
+    def setUp(self):
+        super().setUp()
+        when = datetime.now() + timedelta(days=1)
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0001",
+                                      "viewing_time": when.isoformat(),
+                                      "contact_name": "林小雨",
+                                      "contact_phone": "13800000001"})
+        assert made.status_code == 200, made.text
+
+    def test_public_list_carries_no_identity(self):
+        body = self.client.get("/api/appointments?house_no=DL0001")
+        self.assertEqual(body.status_code, 200)
+        row = body.json()["list"][0]
+        self.assertEqual(set(row), {"id", "viewing_time", "status"})
+        self.assertNotIn("林小雨", body.text)
+        # 明文与掩码后的号码都不该出现。用完整串比对而不是「0001」——
+        # 那四位随时可能撞上某个自增 id，用例会假红
+        self.assertNotIn("13800000001", body.text)
+        self.assertNotIn("138****0001", body.text)
+
+    def test_cannot_dump_the_whole_platform(self):
+        """不带房源编号拉全表只有「翻遍全平台」一种意义。"""
+        self.assertEqual(self.client.get("/api/appointments").status_code, 400)
+
+    def test_the_landlord_still_gets_the_contact(self):
+        """收窄的是公开接口，房东该看到的一样看得到——走要登录的 /mine。"""
+        rows = self.client.get("/api/appointments/mine",
+                               headers=self.landlord).json()["list"]
+        mine = [r for r in rows if r["house_no"] == "DL0001"]
+        self.assertTrue(mine)
+        self.assertEqual(mine[0]["contact_name"], "林小雨")
+        self.assertEqual(mine[0]["contact_phone"], "138****0001")
+
+    def test_delegated_agent_sees_it_in_mine(self):
+        self.delegate("DL0001")
+        rows = self.client.get("/api/appointments/mine",
+                               headers=self.agent).json()["list"]
+        self.assertTrue([r for r in rows if r["house_no"] == "DL0001"])

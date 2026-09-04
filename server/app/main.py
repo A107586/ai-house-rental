@@ -36,7 +36,8 @@ from app.permissions import (active_delegation, can_manage_house,
 from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
                         ChatMessage, Conversation,
                         Faq, SupportHandoff, SupportLog,
-                        ContentFlag, Contract, Favorite, House, HouseImage,
+                        ContentFlag, Contract, Favorite, House,
+                        HouseDelegation, HouseImage,
                         Message, Notice, OperationLog, Payment, Refund, Repair,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
@@ -1385,13 +1386,33 @@ def list_appointments(
     status: str = "",
     session: Session = Depends(get_session),
 ):
-    """看房预约列表。智能体用它做时段冲突检测。"""
-    stmt = select(Appointment)
-    if house_no:
-        house = session.scalar(select(House).where(House.house_no == house_no))
-        if not house:
-            return {"total": 0, "list": []}
-        stmt = stmt.where(Appointment.house_id == house.id)
+    """某房源**已被占用的看房时段**。用于时段冲突检测。
+
+    这个接口不需要登录——房源详情页要在未登录时就告诉访客「哪些时段
+    已经有人约了」，智能体推荐时段前也要先问一次。
+
+    **正因为它不需要登录，返回的字段被压到最小：只有时刻和状态。**
+    在此之前它返回的是完整的 `to_dict()`，里面带着 `contact_name` 和
+    脱敏手机号——也就是说任何人不登录就能翻出全站「谁、什么时候、
+    看哪套房」，还附带姓名和号码后四位。**姓名 + 号码后四位 + 具体地址
+    + 具体时间，凑在一起已经足够定位到一个真人。** 掩码不是免死金牌，
+    R-02 要求的是脱敏，不是「脱敏了就可以随便公开」。
+
+    页面与智能体都只用到时刻和状态（房源详情页显示「已被预约的时段」、
+    智能体做冲突检测），所以收窄没有任何调用方受影响。房东要看是谁约的，
+    走 `/api/appointments/mine`，那里是要登录的。
+
+    也不再允许不带 `house_no` 拉全表：那个用法只有「翻遍全平台」一种
+    意义，没有正当场景。
+    """
+    if not house_no:
+        raise HTTPException(status_code=400,
+                            detail="请指定房源编号")
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        return {"total": 0, "list": []}
+
+    stmt = select(Appointment).where(Appointment.house_id == house.id)
     if status:
         stmt = stmt.where(Appointment.status == status)
     else:
@@ -1399,7 +1420,11 @@ def list_appointments(
         stmt = stmt.where(Appointment.status.in_(["pending", "confirmed"]))
 
     rows = session.scalars(stmt.order_by(Appointment.viewing_time)).all()
-    return {"total": len(rows), "list": [a.to_dict() for a in rows]}
+    return {"total": len(rows),
+            "list": [{"id": a.id,
+                      "viewing_time": a.viewing_time.strftime(
+                          "%Y-%m-%d %H:%M:%S"),
+                      "status": a.status} for a in rows]}
 
 
 @app.get("/api/appointments/mine")
@@ -1414,9 +1439,14 @@ def my_appointments(user: User = Depends(require_login),
     else:
         house_ids = [row[0] for row in session.execute(
             select(House.id).where(House.landlord_id == user.id)).all()]
+        # 受托中介也是当事一方：委托期间这套房的预约本来就归他处理（J-05）
+        delegated = select(HouseDelegation.house_id).where(
+            HouseDelegation.agent_id == user.id,
+            HouseDelegation.status == "active")
         stmt = select(Appointment).where(
             or_(Appointment.tenant_id == user.id,
-                Appointment.house_id.in_(house_ids or [-1])))
+                Appointment.house_id.in_(house_ids or [-1]),
+                Appointment.house_id.in_(delegated)))
 
     rows = session.scalars(stmt.order_by(Appointment.viewing_time.desc())).all()
     return {"total": len(rows), "list": [a.to_dict() for a in rows]}

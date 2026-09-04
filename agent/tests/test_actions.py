@@ -525,6 +525,8 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
              "viewing_time": "2026-09-05 14:00:00"},
             {"id": 2, "house_no": "DL0008", "status": "pending",
              "viewing_time": "2026-09-06 10:00:00"}]},
+        # 陷阱夹具：这些 id 不该出现在任何「我的预约」动作里。
+        # /api/appointments 是公开的时段占用查询，不按人过滤
         "/api/appointments": {"list": [
             {"id": 11, "house_no": "DL0101", "status": "pending",
              "viewing_time": "2026-09-05 14:00:00"},
@@ -600,7 +602,12 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         cases = [
             ("unfavorite_house", "取消收藏", "house_no", "DL0007"),
             ("submit_review", "帮我评价", "contract_no", "HT901"),
-            ("handle_appointment", "确认预约", "appointment_id", "12"),
+            # 这里填的是 /api/appointments/mine 里的 id。
+            # 夹具里 /api/appointments 那份用的是另一批 id（11、12），
+            # **是故意留的陷阱**：那个接口是「按房源查已占用时段」的公开
+            # 接口，带上 token 也不按人过滤，一旦有人把这个动作改回去读它，
+            # 房东就会在选项里看到别人的预约——这条用例会立刻红。
+            ("handle_appointment", "确认预约", "appointment_id", "2"),
             ("update_repair", "关闭工单", "repair_id", "22"),
             ("toggle_house", "把房源下架", "house_no", "DL0101"),
         ]
@@ -627,9 +634,9 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         backend = RecordingBackend(self.PAYLOADS)
         _, _, card, _ = actions.propose(
             "handle_appointment", "确认预约", "tok", backend,
-            context={"appointment_id": "12"})
-        self.assertEqual(str(card["params"]["appointment_id"]), "12")
-        self.assertIn("DL0102", card["summary"])
+            context={"appointment_id": "2"})
+        self.assertEqual(str(card["params"]["appointment_id"]), "2")
+        self.assertIn("DL0008", card["summary"])
 
 
 class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
