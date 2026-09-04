@@ -3930,3 +3930,403 @@ button.account-row:last-child { border-bottom: none; }
   color: var(--danger);
   font-weight: 600;
 }
+
+/* ---------------- K-01 退租确认弹窗 ---------------- */
+/* 押金结算三行。用 dl 而不是 div 排版：这就是「名称—数值」对，
+   语义对了，屏幕阅读器也能把它当成一组读出来 */
+.settle {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.settle > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.settle dt {
+  color: var(--muted);
+  margin: 0;
+}
+
+.settle dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.settle .settle-total {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.settle .settle-total dt {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.settle .settle-total dd {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* 「取消」和「确认退租」等宽并排。不可逆操作不该只有一个按钮，
+   用户需要一条同样显眼的退路 */
+.dialog .fld-row .btn.block {
+  margin-top: 0;
+}
+
+/* ---------------- K-05 更多筛选 ---------------- */
+/* 常用五组之外的收在这条分隔线下面。一次摊开十一组条件，
+   手机上要滚三屏才看得到房源列表 */
+.filter-more-head {
+  margin: 4px 0 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.filter-more-head .link {
+  font-size: 13px;
+}
+
+/* 收起状态下如果里面有生效条件，要在按钮上标出来——
+   否则用户看不见自己设过什么，只觉得结果莫名其妙地少 */
+.filter-more-head .tab-n {
+  margin-left: 6px;
+}
+
+/* ---------------- K-06 统一检索路径 ---------------- */
+/* 关键词搜索框。视觉上比自然语言框轻一档——它是保底入口，
+   不该抢智能找房的主位，但必须一直在 */
+.search-row.plain {
+  margin-top: 10px;
+}
+
+.search-row.plain input {
+  font-size: 14px;
+}
+
+/* 已生效条件。无论条件来自智能体、筛选栏还是搜索框，都在这里如实列出，
+   每一条都能删——用户由此看得见「系统以为我要什么」，也改得动 */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.active-filters-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.active-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.active-filters-note {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 可删除的 chip。× 常驻而不是 hover 才出现——
+   触屏上没有 hover，藏起来等于没有 */
+.chip.removable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--brand-soft);
+  cursor: pointer;
+}
+
+.chip.removable:hover {
+  border-color: var(--brand);
+}
+
+.chip.removable span {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.chip.removable:hover span {
+  color: var(--brand);
+}
+
+.parsed-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------------- K-07 房源核验条与费用明细 ---------------- */
+/* 四种核验状态四种颜色。**「未核验」不能画成绿色的样子**——
+   核验做不到真的产权核验，但如实显示状态是能做到的，
+   把未核验伪装成已核验才是真的欺骗 */
+.verify-bar {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.verify-mark {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--muted);
+}
+
+.verify-bar.ok { border-color: #bfe3d4; background: #f2fbf7; }
+.verify-bar.ok .verify-mark { background: #16875f; }
+.verify-bar.wait { border-color: #e6d9b6; background: var(--warn-soft); }
+.verify-bar.wait .verify-mark { background: #b0862a; }
+.verify-bar.bad { border-color: #e8c4bd; background: #fdf3f1; }
+.verify-bar.bad .verify-mark { background: #c0392b; }
+
+.verify-body { flex: 1; min-width: 0; }
+
+.verify-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.verify-no {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.verify-note { color: var(--ink-2); }
+
+.verify-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 费用明细。租客真正想知道的是「入住前要掏多少钱」，
+   让他自己拿四项去算，算错就是白跑一趟 */
+.fee-table { margin-top: 18px; }
+
+.fee-lines {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.fee-lines > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.fee-lines dt { margin: 0; color: var(--muted); }
+
+.fee-lines dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fee-lines .fee-total {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.fee-lines .fee-total dt { color: var(--ink-2); font-weight: 600; }
+
+.fee-lines .fee-total dd {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--brand);
+}
+
+.fee-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+/* ---------------- K-08 举报入口 ---------------- */
+/* 举报是兜底通道，不该和「咨询房东」抢注意力。
+   但它必须常驻——只在出问题时才出现的入口，等于没有 */
+.report-link {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.report-link:hover {
+  color: var(--warn);
+  text-decoration: underline;
+}
+
+/* 举报弹窗里的说明输入框 */
+.dialog textarea {
+  resize: vertical;
+  min-height: 84px;
+  font-family: inherit;
+}
+
+/* ---------------- K-09 保存搜索 ---------------- */
+/* 「保存这组条件」和「全部清空」并排。前者是正向动作，
+   给一点品牌色，但仍是 link 而不是按钮——它不该压过条件本身 */
+.save-search {
+  color: var(--brand);
+  margin-left: 4px;
+}
+
+.save-search:disabled {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.saved-searches .rename-input {
+  padding: 5px 9px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.link.danger {
+  color: #c0392b;
+}
+
+/* ---------------- K-10 加载骨架屏 ---------------- */
+/* 智能体最慢的那一下要等一趟大模型往返。这期间页面纹丝不动的话，
+   用户会以为点击没生效，然后再点一次 */
+.card.skeleton {
+  padding: 12px;
+  pointer-events: none;
+}
+
+.card.skeleton .sk-photo {
+  height: 150px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.card.skeleton .sk-line {
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 9px;
+  width: 60%;
+}
+
+.card.skeleton .sk-line.wide { width: 88%; height: 15px; }
+.card.skeleton .sk-line.short { width: 34%; }
+
+.card.skeleton .sk-photo,
+.card.skeleton .sk-line {
+  background: linear-gradient(90deg,
+    var(--surface-2) 25%, var(--line) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes sk-shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0 50%; }
+}
+
+/* 关掉动画偏好下只留静态灰块，不要闪 */
+@media (prefers-reduced-motion: reduce) {
+  .card.skeleton .sk-photo,
+  .card.skeleton .sk-line {
+    animation: none;
+    background: var(--surface-2);
+  }
+}
+
+/* ---------------- K-11 找回密码 ---------------- */
+.dialog-foot .foot-sep {
+  margin: 0 6px;
+  color: var(--line);
+}
+
+/* ---------------- K-12 图片加载失败的统一占位 ---------------- */
+/* 相册缩略图失败时的占位。尺寸要和缩略图一致，
+   否则一张坏图会把整排缩略图挤歪 */
+.thumb-none {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------------- 卡片可信度行（报告 3.5） ---------------- */
+/* 核验标记 + 押付方式 + 最近维护时间。三者回答的是同一个问题：
+   这条信息还能不能信。压得比 card-meta 更轻，
+   它是判断依据而不是房源属性 */
+.card-trust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card-trust .verified-mark {
+  color: var(--ok, #2a7d5f);
+  font-weight: 600;
+}
+
+.card-trust .maintained {
+  margin-left: auto;
+}
