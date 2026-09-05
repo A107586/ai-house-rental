@@ -118,15 +118,17 @@ const ACCOUNT_ROWS = {
     main: `${item.house_no || ''} ${item.contract_no}`,
     sub: `${item.start_date} 至 ${item.end_date} · ${statusText(item.status)}`,
   })),
+  // 预约和报修上面就是一条轨迹，行里不再重复状态——
+  // 轨迹说「维修中」、同一张卡的行里却写「待处理」，看着像系统在自相矛盾。
   booking: (data) => (data.list || []).map((item) => ({
     key: item.id,
     main: item.house_title || item.house_no,
-    sub: `${(item.viewing_time || '').slice(0, 16)} · ${statusText(item.status)}`,
+    sub: (item.viewing_time || '').slice(0, 16),
   })),
   repair: (data) => (data.list || []).map((item) => ({
     key: item.id,
     main: (item.content || '').slice(0, 24),
-    sub: `${item.house_no || ''} · ${statusText(item.status)}`,
+    sub: item.house_no || '',
   })),
   favorite: (data) => (data.list || []).map(houseRow),
   history: (data) => (data.list || []).map(houseRow),
@@ -165,6 +167,31 @@ const ACCOUNT_ROWS = {
       me.phone ? { key: 'phone', main: '手机号', sub: me.phone } : null,
     ].filter(Boolean)
   },
+}
+
+/** 办事进度轨迹。
+ *
+ * 「当前状态：待处理」说的是对的，但用户看完仍然不知道「还要等什么、
+ * 下一步该谁动」，于是还是要再问一次人。京东客服把物流整条轨迹摆出来，
+ * 就是为了省掉这一次追问——报修和预约是租房里最像物流的两件事。
+ */
+function Timeline({ timeline }) {
+  const steps = timeline?.steps || []
+  if (!steps.length) return null
+  return (
+    <div className="timeline">
+      {steps.map((step) => (
+        <div className={`tl-step tl-${step.state}`} key={step.label}>
+          <span className="tl-dot" />
+          <div className="tl-body">
+            <span className="tl-label">{step.label}</span>
+            {step.at && <span className="tl-at">{step.at}</span>}
+            {step.note && <div className="tl-note">{step.note}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 /** 经营数据是四个数字，摆成行不如摆成格子。 */
@@ -211,6 +238,7 @@ function AccountCard({ topic, data, onOpenHouse }) {
 
   return (
     <div className="account-card">
+      {data.timeline && <Timeline timeline={data.timeline} />}
       {rows.map((row) => (
         row.house && onOpenHouse ? (
           <button
@@ -232,7 +260,7 @@ function AccountCard({ topic, data, onOpenHouse }) {
   )
 }
 
-export default function ChatPanel({ user, onOpenHouse, onClose }) {
+export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) {
   const [sessionId] = useState(loadSessionId)
   // 优先恢复上次没聊完的，没有才从开场白开始
   const [messages, setMessages] = useState(() => loadDraft()?.messages || [OPENING])
@@ -243,7 +271,32 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
   // 服务端不存会话态，这份状态由前端带着走。
   const [pending, setPending] = useState(() => loadDraft()?.pending || null)
   const [error, setError] = useState('')
+  // 开场白给的快捷入口。它是「这个人现在有什么没办完」算出来的，
+  // 跟固定的 QUICK 不是一回事，所以单独存一份。
+  const [chips, setChips] = useState([])
   const bottomRef = useRef(null)
+
+  // 开场白：先问一次「这个人现在有什么没办完」。
+  //
+  // 原先是一段写死的自我介绍，讲完把「该问点什么」原样丢回给用户。
+  // 购物软件的客服不这么做——点开就是「你有一笔待付款、一个包裹在派送」，
+  // 每条后面跟一个能点的按钮。接口不调大模型，几十毫秒就回来了。
+  useEffect(() => {
+    // 聊到一半关掉又打开，不该把上下文冲掉换成开场白
+    if (loadDraft()) return undefined
+    let alive = true
+    api
+      .supportGreeting(houseNo)
+      .then((data) => {
+        if (!alive || !data.message) return
+        setMessages([{ role: 'assistant', content: data.message }])
+        setChips(data.chips || [])
+      })
+      .catch(() => {
+        // 取不到就用组件里那句静态开场白，不影响使用
+      })
+    return () => { alive = false }
+  }, [houseNo, user])
 
   // 登录用户把之前存在后端的对话拉回来
   useEffect(() => {
@@ -292,14 +345,18 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
     return messages.filter((m) => m.role === 'user').map((m) => m.content)
   }
 
-  // 上一轮结果的房源编号，用于消解「第二套」「那套」
+  // 上一轮结果的房源编号，用于消解「第二套」「那套」。
+  //
+  // 从房源详情页进来时，当前这套排在最前面——用户说「收藏这套」
+  // 指的显然是他正在看的那套，而不是上一轮搜索结果里的第一条。
   function lastHouseNos() {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       if (messages[i].items?.length) {
-        return messages[i].items.map((h) => h.house_no)
+        const nos = messages[i].items.map((h) => h.house_no)
+        return houseNo ? [houseNo, ...nos.filter((n) => n !== houseNo)] : nos
       }
     }
-    return []
+    return houseNo ? [houseNo] : []
   }
 
   async function send(e, override) {
@@ -668,7 +725,7 @@ export default function ChatPanel({ user, onOpenHouse, onClose }) {
         {error && <div className="reply failed">{error}</div>}
 
         <div className="chat-quick">
-          {QUICK.map((sample) => (
+          {(chips.length ? chips : QUICK).map((sample) => (
             <button
               className="chip-btn"
               key={sample}

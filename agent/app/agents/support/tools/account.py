@@ -16,6 +16,7 @@
 `data` 是结构化结果，既供前端渲染，也作为大模型组织回答的唯一依据。
 """
 
+from app.agents.support.tools import progress
 from app.backend import BackendError
 
 
@@ -124,13 +125,13 @@ def repairs(backend, token):
     open_rows = [r for r in rows
                  if r.get("status") not in ("done", "已完成", "closed")]
     if not open_rows:
-        return "你的报修都已处理完成。", {"list": rows[:5]}
+        return "你的报修都已处理完成。", {"list": rows[:5], "focus": rows[0]}
 
     first = open_rows[0]
     message = ("你有 %d 条报修在处理中。最近一条是「%s」，当前状态：%s。"
                % (len(open_rows), (first.get("content") or "")[:20],
                   status_text(first.get("status"), "待受理")))
-    return message, {"list": open_rows[:5]}
+    return message, {"list": open_rows[:5], "focus": first}
 
 
 def bookings(backend, token):
@@ -149,7 +150,10 @@ def bookings(backend, token):
         message = ("你最近一条预约是 %s，状态：%s。"
                    % (first.get("viewing_time", ""),
                       status_text(first.get("status"))))
-    return message, {"list": rows[:5]}
+    # `focus` 标出这句话说的是哪一条。轨迹要跟着它走，
+    # 不然会出现文字说「等房东确认」、轨迹却画着「已取消」——
+    # **两个说法摆在同一张卡片上打架，比不给轨迹更糟。**
+    return message, {"list": rows[:5], "focus": first}
 
 
 def favorites(backend, token):
@@ -351,4 +355,8 @@ def lookup(backend, token, topic):
     except Exception:
         return "error", "查询时出了点问题，稍后再试试。", {}
 
+    # 报修与预约再补一条办事轨迹。一句「当前状态：待处理」说的是对的，
+    # 但用户看完仍然不知道「还要等什么、下一步该谁动」——
+    # 京东客服把物流整条轨迹摆出来，就是为了省掉这一次追问。
+    progress.attach(topic, data)
     return "ok", message, data

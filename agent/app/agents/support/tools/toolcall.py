@@ -79,6 +79,13 @@ _COMPOSE_PROMPT = """用户问题：「{question}」
 1. 用一两句话直接回答他问的那一点，口语一点
 2. **金额、笔数、日期必须与数据完全一致**，数据里没有的数字一个都不许出现
 3. 如果数据是空的，就如实说没有记录
+4. **别把这段 JSON 的存在说出来。** 不许出现「数据里」「字段」「JSON」
+   「记录显示」这类词——用户问的是他自己的事，不是来看一份查询结果的
+5. **状态一律说中文。** pending 是待处理、confirmed 是已确认、
+   cancelled 是已取消、rejected 是已拒绝、done 是已完成、
+   rent 是租金、deposit 是押金。英文原样吐出来等于没翻译
+6. 他问的是「通过了吗」这种是非问句，就先给是或否，再补一句情况，
+   别一上来罗列所有条目
 
 只输出：{{"answer": "回答正文"}}"""
 
@@ -162,7 +169,43 @@ def compose(provider, question, topic, data, fallback):
             return (fallback, "rules",
                     "回答里的数字「%s」在数据中找不到" % number)
 
+    leak = _leaked(message)
+    if leak:
+        return fallback, "rules", "回答里漏出了「%s」" % leak
+
     return message, "llm", ""
+
+
+# 不该出现在回答里的词。分两类，都是实测撞出来的：
+#
+# - **实现细节**：模型答过「数据里能看到有状态是 confirmed 的预约」。
+#   用户问的是他自己的事，不是来看一份查询结果的；一提「数据」「字段」，
+#   这句话立刻从「客服在回答我」变成「系统在念它的数据库」。
+# - **英文枚举**：pending / confirmed / rent 直接吐出来等于没翻译。
+#   提示词里已经交代过，但提示词是软约束——照这个项目对数字的做法，
+#   说漏了就退回规则那句，它由代码格式化，不可能说错。
+_LEAK_WORDS = (
+    "数据里", "数据中", "字段", "JSON", "json", "记录显示", "查询结果",
+    "pending", "confirmed", "cancelled", "rejected", "processing",
+    "available", "unpaid", "overdue", "deposit",
+)
+
+
+def _leaked(message):
+    """回答里有没有漏出实现细节或英文枚举。返回漏出的那个词。
+
+    「rent」「done」「paid」这类太短的词故意不收：中文句子里嵌一个
+    「rent」确实该拦，但「current」「different」这些正常词里也含它，
+    误伤的代价比漏掉一次高。真正常见的几个长词已经覆盖住了。
+    """
+    lowered = message.lower()
+    for word in _LEAK_WORDS:
+        if word.islower() and word.isascii():
+            if word in lowered:
+                return word
+        elif word in message:
+            return word
+    return ""
 
 
 def run(question, token, backend, provider=None, tool=None):

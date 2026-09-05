@@ -461,6 +461,12 @@ export const api = {
   // 可代办操作清单
   supportActions: () => request(agentUrl('/agent/support/actions')),
 
+  // 会话开场白。带上令牌看这个人有什么没办完，带上房源编号则围绕那套房开场。
+  supportGreeting: (houseNo = '') =>
+    post(agentUrl('/agent/support/greeting'), {
+      token: getToken(), house_no: houseNo,
+    }),
+
   // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单
   supportFeedback: (logId, value) =>
     post('/api/support/feedback', { log_id: logId, value }),

@@ -112,6 +112,10 @@ export default function App() {
   const [filters, setFilters] = useState({})
   const [compare, setCompare] = useState([])
   const [showChat, setShowChat] = useState(false)
+  // 从哪套房源打开的助手。购物软件从商品页点客服会带上那件商品，
+  // 这里同理：带上之后开场白就是关于这套房的，用户说「收藏这套」
+  // 「约看房」也不用再报编号。
+  const [chatHouseNo, setChatHouseNo] = useState('')
   const [showMap, setShowMap] = useState(false)
   const [showTalk, setShowTalk] = useState(false)
   const [talkId, setTalkId] = useState(0)
@@ -588,7 +592,7 @@ export default function App() {
       {!showChat && !showMine && !showWork && !selected && (
       <button
         className="chat-fab"
-        onClick={() => setShowChat(true)}
+        onClick={() => { setChatHouseNo(''); setShowChat(true) }}
         title="打开租房助手"
       >
         <span className="fab-dot" />
@@ -614,6 +618,7 @@ export default function App() {
       {showChat && (
         <ChatPanel
           user={user}
+          houseNo={chatHouseNo}
           onOpenHouse={(house) => {
             setShowChat(false)
             go('house', house.house_no)
@@ -637,6 +642,12 @@ export default function App() {
       {selected && (
         <HouseDrawer
           onOpenHouse={(house) => go('house', house.house_no)}
+          onAskAssistant={(house) => {
+            // 关掉详情再开助手：两个抽屉叠着会互相盖住
+            setChatHouseNo(house.house_no)
+            go('home', '', true)
+            setShowChat(true)
+          }}
           onTalk={(id) => {
             // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
             go('home', '', true)

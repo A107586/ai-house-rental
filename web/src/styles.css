@@ -3560,6 +3560,43 @@ td.accent {
 .account-sub { color: #6b7280; font-size: 12px; flex: none; }
 .account-row.alert { color: #b42318; background: #fef3f2; }
 
+/* 办事进度轨迹。竖排、左侧一列圆点连成线——和快递轨迹是同一种读法，
+   用户不用学。走过的实心，正卡着的高亮，没到的灰。 */
+.timeline {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.tl-step {
+  position: relative;
+  padding: 0 0 12px 18px;
+  border-left: 1px solid #e3e6eb;
+}
+
+.tl-step:last-child { border-left-color: transparent; padding-bottom: 2px; }
+
+.tl-dot {
+  position: absolute;
+  left: -4.5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d3d8e0;
+}
+
+.tl-done .tl-dot { background: #2f7d5d; }
+.tl-current .tl-dot {
+  background: #2f7d5d;
+  box-shadow: 0 0 0 3px rgba(47, 125, 93, 0.18);
+}
+
+.tl-label { font-size: 13px; color: #6b7280; }
+.tl-done .tl-label { color: #1f2937; }
+.tl-current .tl-label { color: #1f2937; font-weight: 600; }
+.tl-at { margin-left: 8px; font-size: 12px; color: #9aa2ad; }
+.tl-note { margin-top: 2px; font-size: 12px; color: #8a93a0; }
+
 /* 从后端拉回来的历史对话。它只有文字——卡片、选项、查库小卡片都不在里面，
    不标出来的话，用户会以为那些功能根本没做。 */
 .bubble.history { opacity: 0.62; }

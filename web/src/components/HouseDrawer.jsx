@@ -23,7 +23,7 @@ const TABS = [
 
 export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                                      onClose, onOpenHouse, onTalk,
-                                     demandText = '' }) {
+                                     onAskAssistant, demandText = '' }) {
   const [tab, setTab] = useState('booking')
   // K-08 举报弹窗。入口放在详情页而不是个人中心——
   // 用户是在看这套房、觉得不对劲的那一刻才想举报的
@@ -233,6 +233,17 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             }}
           >
             {talking ? '打开中…' : '咨询房东'}
+          </button>
+
+          {/* 「问助手」和「咨询房东」是两件事，都要留：
+              房东要等人回，助手立刻答，而且能直接帮他约看房、收藏。
+              点进去会带上这套房——购物软件从商品页点客服也是这么做的，
+              用户不该为了问一句「能养猫吗」先把房源编号背下来。 */}
+          <button
+            className="btn small ghost"
+            onClick={() => onAskAssistant && onAskAssistant(house)}
+          >
+            问助手
           </button>
 
           {/* 举报入口常驻在详情页（K-08）。贝壳把它放在详情页那条

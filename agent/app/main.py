@@ -21,6 +21,7 @@ from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
+from app.agents.support.tools import greeting
 from app.agents.support.tools import router as support_router
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
@@ -339,6 +340,43 @@ def agent_support_confirm(payload: ConfirmRequest):
         "action": payload.name,
         "data": data,
     }
+
+
+class GreetingRequest(BaseModel):
+    """开场白请求。令牌用来看这个人手头有什么没办完。"""
+
+    token: str = ""
+    # 用户此刻正在看的那套房。从房源详情页点进助手时带上，
+    # 第一句就能是关于这套房的，用户不必再把编号打一遍。
+    house_no: str = ""
+    name: str = ""
+
+
+@app.post("/agent/support/greeting")
+def support_greeting(payload: GreetingRequest):
+    """会话开场白：**先看这个人有什么没办完，再决定说什么。**
+
+    原先是一段固定的自我介绍，讲完把「该问点什么」原样丢回给用户。
+    购物软件的客服不这么做——点开就是「你有一笔待付款、一个包裹在派送」，
+    每条后面跟一个能点的按钮。这一步把被动应答改成主动服务。
+
+    **不调大模型**：内容完全由数据算出来，没有需要生成的部分，
+    而面板弹出的那一瞬间等不起三四秒。
+    """
+    house = None
+    if payload.house_no:
+        try:
+            house = backend_client.get("/api/houses/%s" % payload.house_no)
+        except Exception:
+            house = None
+
+    try:
+        return greeting.build(backend_client, payload.token,
+                              house=house, name=payload.name)
+    except Exception:
+        # 开场白挂掉绝不能让面板打不开
+        return {"message": greeting.FALLBACK,
+                "chips": list(greeting.GUEST_CHIPS), "personalised": False}
 
 
 @app.get("/agent/support/actions")
