@@ -55,6 +55,8 @@
 只要有一次「我没让你做你就做了」，之后每一句都得提防。
 """
 
+import re
+
 from app.agents.booking.tools.parse_datetime import parse_datetime
 from app.agents.support.tools import account
 from app.backend import BackendError
@@ -122,6 +124,18 @@ ACTION_KEYWORDS = [
     ("update_repair", ["工单完成", "维修完成", "修好了", "关闭工单",
                        "处理完了"]),
     ("toggle_house", ["上架", "下架", "把房源上", "把房源下"]),
+    # ---- 租客确认签约。房东发起后合同处于「待生效」，要租客点头才生效
+    # 并排出整个租期的账单。原先这一步只能回页面点，而它恰恰是最需要
+    # 「先把要签的是什么摆清楚再确认」的一步。
+    ("activate_contract", ["确认合同", "确认签约", "同意签约", "签这份合同",
+                           "确认这份合同", "我同意签"]),
+    # ---- 房东申请房源核验
+    ("verify_request", ["申请核验", "提交核验", "房源核验", "申请认证",
+                        "去核验"]),
+    # ---- 账号资料。改手机号是最常改的一项，改密码**故意不做**：
+    # 密码不该经过对话框，那是登录页该干的事。
+    ("update_profile", ["改手机号", "换手机号", "更新手机号", "改联系方式",
+                        "改一下手机", "手机号改成"]),
 ]
 
 # 问句词。带这些的句子是在**问**而不是在**要求做**，
@@ -776,6 +790,105 @@ def _propose_update_repair(text, token, backend, context):
         detail=target)
 
 
+def _propose_activate_contract(text, token, backend, context):
+    """租客确认签约。**卡片上必须把要签的东西写全**——
+
+    这是整套系统里金额最大、后果最长的一次点击：确认之后合同生效，
+    整个租期的账单一次性排出来。摘要写得含糊等于骗签字。
+    """
+    rows = _rows(backend.get("/api/contracts/mine", token=token))
+    waiting = [c for c in rows
+               if c.get("status") in ("pending", "待生效", "待确认")]
+    if not waiting:
+        return NOT_APPLICABLE, "你名下没有待确认的合同。", None, None
+
+    picked = (context or {}).get("contract_no") or ""
+    target = next((c for c in waiting if c.get("contract_no") == picked), None)
+    if target is None and len(waiting) > 1:
+        options = [_option(c.get("contract_no"), "%s %s" % (
+            c.get("house_no") or "", c.get("contract_no")))
+            for c in waiting[:5]]
+        question = "你有 %d 份合同待确认，是哪一份？" % len(waiting)
+        return NEED_SLOT, question, None, _ask("contract_no", question, options)
+
+    target = target or waiting[0]
+    # 字段名是 rent 不是 rent_price——房源用 rent_price，合同用 rent。
+    # 写错的表现很隐蔽：卡片照样出得来，只是**金额那一项悄悄消失了**，
+    # 而这是全系统金额最大的一次确认。
+    parts = ["房源 %s" % (target.get("house_no") or "")]
+    if target.get("start_date") and target.get("end_date"):
+        parts.append("租期 %s 至 %s" % (target["start_date"], target["end_date"]))
+    rent = target.get("rent") or target.get("rent_price")
+    if rent:
+        parts.append("月租 %s 元" % _money(rent))
+    if target.get("deposit"):
+        parts.append("押金 %s 元" % _money(target["deposit"]))
+
+    return CONFIRM, "", _card(
+        "activate_contract", "确认签约",
+        "确认合同 %s：%s" % (target.get("contract_no"), "，".join(parts)),
+        RISK_HIGH,
+        {"contract_no": target.get("contract_no")},
+        detail=target,
+        warning="确认后合同立即生效，整个租期的账单会一次性生成，不可撤销。")
+
+
+def _propose_verify_request(text, token, backend, context):
+    """房东给自己的房源提交核验申请。"""
+    rows = _rows(backend.get("/api/landlord/houses", token=token))
+    if not rows:
+        return NOT_APPLICABLE, "你名下还没有房源。", None, None
+
+    # 已经在核验中或已通过的就别再报一次了
+    pool = [r for r in rows
+            if (r.get("verify_status") or "none") in ("none", "", "rejected")]
+    if not pool:
+        return NOT_APPLICABLE, "你的房源都已经提交过核验了。", None, None
+
+    picked = (context or {}).get("house_no") or ""
+    target = next((r for r in pool if r.get("house_no") == picked), None)
+    if target is None and len(pool) > 1:
+        options = _house_options(pool)
+        question = "有 %d 套房源还没核验，先提交哪一套？" % len(pool)
+        return NEED_SLOT, question, None, _ask("house_no", question, options)
+
+    target = target or pool[0]
+    return CONFIRM, "", _card(
+        "verify_request", "申请核验",
+        "为房源 %s 提交核验申请" % target.get("house_no"), RISK_LOW,
+        {"house_no": target.get("house_no")},
+        detail=target,
+        warning="管理员核验通过后，房源会带上「已核验」标识。")
+
+
+# ------------------------------------------------------------- 账号资料
+
+_PHONE = re.compile(r"1[3-9]\d{9}")
+
+
+def _propose_update_profile(text, token, backend, context):
+    """改手机号。**只开放这一项**——改密码不该走对话框。"""
+    phone = (context or {}).get("phone") or ""
+    if not phone:
+        found = _PHONE.search(text or "")
+        phone = found.group(0) if found else ""
+    if not phone:
+        question = "新的手机号是多少？发给我 11 位数字就行。"
+        return NEED_SLOT, question, None, _ask("phone", question, [])
+
+    if not _PHONE.fullmatch(phone.strip()):
+        question = "这个号码看着不像 11 位手机号，再确认一下？"
+        return NEED_SLOT, question, None, _ask("phone", question, [])
+
+    masked = phone[:3] + "****" + phone[-4:]
+    return CONFIRM, "", _card(
+        "update_profile", "修改手机号",
+        "把手机号改成 %s" % masked, RISK_MEDIUM,
+        {"phone": phone.strip()},
+        detail={"phone": masked},
+        warning="房东与平台都通过这个号码联系你，改错会收不到通知。")
+
+
 PROPOSERS = {
     "pay_bill": _propose_pay_bill,
     "cancel_viewing": _propose_cancel_viewing,
@@ -791,6 +904,9 @@ PROPOSERS = {
     "handle_appointment": _propose_handle_appointment,
     "update_repair": _propose_update_repair,
     "toggle_house": _propose_toggle_house,
+    "activate_contract": _propose_activate_contract,
+    "verify_request": _propose_verify_request,
+    "update_profile": _propose_update_profile,
 }
 
 
@@ -923,6 +1039,24 @@ def _exec_update_repair(params, token, backend):
     return "工单已标记为完成。", data
 
 
+def _exec_activate_contract(params, token, backend):
+    data = backend.post("/api/contracts/%s/activate" % params["contract_no"],
+                        {}, token=token)
+    return "合同已生效，整个租期的账单已经排好，可以在「我的租约」里看。", data
+
+
+def _exec_verify_request(params, token, backend):
+    data = backend.post("/api/houses/%s/verify-request" % params["house_no"],
+                        {}, token=token)
+    return "核验申请已提交，等管理员处理。", data
+
+
+def _exec_update_profile(params, token, backend):
+    data = backend._request("PUT", "/api/auth/profile",
+                            payload={"phone": params["phone"]}, token=token)
+    return "手机号已更新。", data
+
+
 EXECUTORS = {
     "pay_bill": _exec_pay_bill,
     "cancel_viewing": _exec_cancel_viewing,
@@ -938,6 +1072,9 @@ EXECUTORS = {
     "handle_appointment": _exec_handle_appointment,
     "update_repair": _exec_update_repair,
     "toggle_house": _exec_toggle_house,
+    "activate_contract": _exec_activate_contract,
+    "verify_request": _exec_verify_request,
+    "update_profile": _exec_update_profile,
 }
 
 # 每个动作允许出现的参数名。**白名单，不是黑名单**：
@@ -958,6 +1095,11 @@ ALLOWED_PARAMS = {
     "handle_appointment": {"appointment_id", "status"},
     "update_repair": {"repair_id", "status"},
     "toggle_house": {"house_no", "status"},
+    "activate_contract": {"contract_no"},
+    "verify_request": {"house_no"},
+    # **只放行 phone。** 这张白名单是这一层真正的安全边界：
+    # 即使有人构造出 {"password": "..."}，也进不了后端。
+    "update_profile": {"phone"},
 }
 
 

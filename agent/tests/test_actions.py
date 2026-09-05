@@ -549,6 +549,26 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
                           "unread": 1},
     }
 
+    # 「确认签约」要的是待生效合同，和上面那份生效中的不是一回事
+    PAYLOADS_EXTRA = {
+        "/api/contracts/mine": {"list": [
+            # 合同里租金的字段名是 rent（房源才是 rent_price）。
+            # 用错名字卡片照样出，只是金额那一项会悄悄消失。
+            {"contract_no": "HT800", "status": "pending", "house_no": "DL0300",
+             "start_date": "2026-10-01", "end_date": "2027-09-30",
+             "rent": 2600, "deposit": 2600},
+            {"contract_no": "HT801", "status": "pending", "house_no": "DL0301",
+             "start_date": "2026-11-01", "end_date": "2027-10-31",
+             "rent": 3100, "deposit": 3100},
+        ]},
+        "/api/landlord/houses": {"list": [
+            {"house_no": "DL0101", "title": "中山区人民路 三室",
+             "status": "available", "verify_status": "none"},
+            {"house_no": "DL0102", "title": "西岗区北京街 两室",
+             "status": "offline", "verify_status": "none"},
+        ]},
+    }
+
     # 动作 -> 一句「什么都没指定」的说法
     BARE = {
         "pay_bill": "帮我交房租",
@@ -565,6 +585,9 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         "handle_appointment": "确认预约",
         "update_repair": "关闭工单",
         "toggle_house": "把房源下架",
+        "activate_contract": "确认签约",
+        "verify_request": "申请核验",
+        "update_profile": "改手机号",
     }
 
     def test_every_action_is_covered_by_this_test(self):
@@ -574,7 +597,7 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
     def test_need_slot_always_carries_an_ask(self):
         for name, text in self.BARE.items():
             with self.subTest(action=name):
-                backend = RecordingBackend(self.PAYLOADS)
+                backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
                 status, message, card, ask = actions.propose(
                     name, text, "tok", backend, context={})
                 if status != actions.NEED_SLOT:
@@ -587,9 +610,10 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
     def test_choices_are_clickable_not_crammed_into_the_sentence(self):
         """有多个候选时要给可点选项，而不是把编号拼进一句话让用户照着打。"""
         for name in ("unfavorite_house", "favorite_house", "submit_review",
-                     "handle_appointment", "update_repair", "toggle_house"):
+                     "handle_appointment", "update_repair", "toggle_house",
+                     "activate_contract", "verify_request"):
             with self.subTest(action=name):
-                backend = RecordingBackend(self.PAYLOADS)
+                backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
                 status, message, _, ask = actions.propose(
                     name, self.BARE[name], "tok", backend, context={})
                 self.assertEqual(status, actions.NEED_SLOT, name)
@@ -610,10 +634,13 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
             ("handle_appointment", "确认预约", "appointment_id", "2"),
             ("update_repair", "关闭工单", "repair_id", "22"),
             ("toggle_house", "把房源下架", "house_no", "DL0101"),
+            ("activate_contract", "确认签约", "contract_no", "HT801"),
+            ("verify_request", "申请核验", "house_no", "DL0102"),
+            ("update_profile", "改手机号", "phone", "13800001234"),
         ]
         for name, text, slot, value in cases:
             with self.subTest(action=name):
-                backend = RecordingBackend(self.PAYLOADS)
+                backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
                 status, message, card, _ = actions.propose(
                     name, text, "tok", backend, context={slot: value})
                 self.assertEqual(status, actions.CONFIRM,
@@ -622,16 +649,54 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
                 self.assertEqual(card["name"], name)
                 self.assertFalse(backend.writes, "提议阶段写了后端")
 
+    def test_the_signing_card_spells_out_everything(self):
+        """**确认签约是全系统金额最大的一次点击。**
+
+        点下去合同生效、整个租期的账单一次性排出来。摘要里少一项金额，
+        等于让人蒙着眼签字——这条盯的就是那几个数字都在。
+        """
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, card, _ = actions.propose(
+            "activate_contract", "确认签约", "tok", backend,
+            context={"contract_no": "HT801"})
+        for must in ("DL0301", "2026-11-01", "2027-10-31", "3100"):
+            self.assertIn(must, card["summary"], must)
+        self.assertEqual(card["risk"], actions.RISK_HIGH)
+        self.assertIn("不可撤销", card["warning"])
+        self.assertFalse(backend.writes, "提议阶段写了后端")
+
+    def test_profile_only_ever_touches_the_phone(self):
+        """**改密码不该走对话框。** 白名单只放行 phone，
+
+        即使有人构造出 {"password": "..."}，也进不了后端。
+        """
+        self.assertEqual(actions.ALLOWED_PARAMS["update_profile"], {"phone"})
+        backend = RecordingBackend(self.PAYLOADS)
+        okay, message, _ = actions.execute(
+            "update_profile", {"phone": "13800001234", "password": "x"},
+            "tok", backend)
+        self.assertFalse(okay)
+        self.assertIn("参数不合法", message)
+        self.assertFalse(backend.writes)
+
+    def test_a_bad_phone_number_is_asked_again_not_saved(self):
+        backend = RecordingBackend(self.PAYLOADS)
+        status, message, card, ask = actions.propose(
+            "update_profile", "手机号改成 12345", "tok", backend, context={})
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertIsNotNone(ask)
+        self.assertFalse(backend.writes)
+
     def test_picked_option_is_the_one_that_ends_up_on_the_card(self):
         """点了第二条就得是第二条。选项与卡片对不上比不给选项更危险。"""
-        backend = RecordingBackend(self.PAYLOADS)
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
         _, _, card, _ = actions.propose(
             "update_repair", "关闭工单", "tok", backend,
             context={"repair_id": "22"})
         self.assertEqual(str(card["params"]["repair_id"]), "22")
         self.assertIn("厨房水管漏水", card["summary"])
 
-        backend = RecordingBackend(self.PAYLOADS)
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
         _, _, card, _ = actions.propose(
             "handle_appointment", "确认预约", "tok", backend,
             context={"appointment_id": "2"})
@@ -664,6 +729,9 @@ class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
         ("清空我的浏览足迹", "clear_history"),
         ("把这条工单标记为已完成", "update_repair"),
         ("把房源下架", "toggle_house"),
+        ("确认签约", "activate_contract"),
+        ("申请核验", "verify_request"),
+        ("改手机号", "update_profile"),
     ]
 
     # 说法很像、但问的是「有哪些」「到哪一步」——必须仍然是查询
