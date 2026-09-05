@@ -295,10 +295,14 @@ export const api = {
   adminLogs: (params) => request(`/api/admin/logs?${toQuery(params)}`),
   adminLogActions: () => request('/api/admin/logs/actions'),
 
-  // C-1 租客与房东会话
-  startConversation: (houseNo) =>
+  // C-1 租客与房东会话。
+  // `demandSummary` 是 J-09-a 的需求摘要，服务端会把它落成会话的
+  // 第一条消息——中介一进来就看得到，不必让租客再说一遍
+  startConversation: (houseNo, demandSummary = '') =>
     request('/api/conversations', {
-      method: 'POST', body: JSON.stringify({ house_no: houseNo }),
+      method: 'POST',
+      body: JSON.stringify({ house_no: houseNo,
+                             demand_summary: demandSummary }),
     }),
   conversations: () => request('/api/conversations'),
   // after_id 用于轮询增量，不传就是整段重拉
@@ -549,4 +553,20 @@ export const api = {
     }),
   adminAgents: (params = {}) => request(`/api/admin/agents?${toQuery(params)}`),
   adminAgentStats: () => request('/api/admin/agent-stats'),
+
+  // 智能派单（J-09-b）。**全部由规则算**，返回里带着权重与逐条理由，
+  // 页面把它们一起显示出来——排序规则不该是黑箱
+  suggestAgents: (houseNo) =>
+    request(`/api/delegations/suggest?${toQuery({ house_no: houseNo })}`),
+
+  // ---- J-09 的两个智能体入口（跑在 8000，与业务后端分开）----
+
+  // 需求摘要交接（J-09-a）：把租客的一句话整理成摘要，
+  // 发起咨询时一并带给中介，省掉「请您再描述一遍需求」那一轮
+  brokerHandoff: (text) =>
+    post(agentUrl('/agent/handoff'), { text, token: getToken() }),
+
+  // 带看纪要整理（J-09-c）：口述几句 → 结构化纪要
+  viewingSummary: (text) =>
+    post(agentUrl('/agent/viewing-summary'), { text }),
 }

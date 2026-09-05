@@ -4535,3 +4535,34 @@ button.account-row:last-child { border-bottom: none; }
   opacity: 0.75;
   margin-bottom: 3px;
 }
+
+/* J-09-b 智能派单的推荐区。和表单其余部分拉开一点距离——
+   它是「选之前先看看」的辅助，不是必填项 */
+.suggest {
+  margin: 4px 0 14px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+/* 需求摘要卡片（J-09-a）。刻意做得不像聊天气泡——
+   它是随咨询附上的一份材料，不是谁说的一句话。 */
+.demand-card {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.demand-body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2);
+}

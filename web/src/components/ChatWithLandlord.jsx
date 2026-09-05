@@ -169,7 +169,15 @@ export default function ChatWithLandlord({ onClose, onOpenHouse, initialId }) {
                     押付方式能不能商量。
                   </div>
                 ) : (
-                  lines.map((line) => (
+                  lines.map((line) => (line.kind === 'summary' ? (
+                    /* 需求摘要（J-09-a）渲染成一张卡片而不是聊天气泡。
+                       它不是谁「说」的一句话，是随咨询附上的一份材料；
+                       做成气泡会让人以为租客真的打了这么一段字过来 */
+                    <div className="demand-card" key={line.id}>
+                      <pre className="demand-body">{line.content}</pre>
+                      <div className="cw-at">{line.created_at}</div>
+                    </div>
+                  ) : (
                     <div className={`bubble ${line.mine ? 'user' : 'assistant'}`}
                          key={line.id}>
                       {/* 同一侧里不是自己发的才标名字。委托期间房东一侧
@@ -181,7 +189,7 @@ export default function ChatWithLandlord({ onClose, onOpenHouse, initialId }) {
                       <div className="bubble-text">{line.content}</div>
                       <div className="cw-at">{line.created_at}</div>
                     </div>
-                  ))
+                  )))
                 )}
                 <div ref={bottomRef} />
               </div>

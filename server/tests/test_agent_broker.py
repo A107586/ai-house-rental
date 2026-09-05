@@ -1275,3 +1275,154 @@ class TestDoNotDisturb(BrokerCase):
                                    json={"house_no": "DL0001",
                                          "tenant_username": "tenant1"})
         self.assertEqual(blocked.status_code, 403)
+
+
+# ------------------------------------------------------------ J-09-b 智能派单
+
+class TestSuggestAgents(BrokerCase):
+    """给一套房推荐中介。
+
+    **全部由规则算，不调大模型。** 派单结果直接决定谁能接到这单生意，
+    它必须是可复算、可申诉的：中介问「为什么不派给我」，
+    要能拿出一行一行的算式，而不是「模型觉得他更合适」。
+    """
+
+    def _suggest(self, house_no="DL0001", headers=None):
+        return self.client.get("/api/delegations/suggest?house_no=" + house_no,
+                               headers=headers or self.landlord)
+
+    def test_only_the_owner_can_ask(self):
+        """这是「我该把房子委托给谁」的答案，不是一份中介通讯录。"""
+        self.assertEqual(self._suggest(headers=self.tenant).status_code, 403)
+        self.assertEqual(self._suggest(headers=self.agent).status_code, 403)
+        self.assertEqual(self._suggest(headers=self.admin).status_code, 200)
+
+    def test_ranked_by_score_with_reasons(self):
+        body = self._suggest().json()
+        self.assertTrue(body["list"])
+        row = body["list"][0]
+        self.assertIn("score", row)
+        self.assertTrue(row["reasons"], "排序要能解释，不能是黑箱")
+        scores = [r["score"] for r in body["list"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_weights_are_returned(self):
+        """中介问「为什么不派给我」，答案得在同一个页面上找得到。"""
+        self.assertEqual(set(self._suggest().json()["weights"]),
+                         {"activity", "praise", "load", "deals"})
+
+    def test_region_is_a_hard_filter(self):
+        """主营区域不覆盖的，分数再高也不该出现。"""
+        # agent1 主营中山区；DL0001 若不在中山区，他就不该被推荐
+        session = db.SessionLocal()
+        try:
+            house = session.query(House).filter_by(house_no="DL0001").one()
+            district = house.district
+        finally:
+            session.close()
+        names = [r["username"] for r in self._suggest().json()["list"]]
+        if district == "中山区":
+            self.assertIn("agent1", names)
+        else:
+            self.assertNotIn("agent1", names)
+
+    def test_not_accepting_is_excluded(self):
+        self.client.put("/api/agent/profile", headers=self.agent,
+                        json={"accepting": False, "service_districts": []})
+        names = [r["username"] for r in self._suggest().json()["list"]]
+        self.assertNotIn("agent1", names)
+
+    def test_unapproved_is_excluded(self):
+        self.make_agent("agent6", approved=False)
+        names = [r["username"] for r in self._suggest().json()["list"]]
+        self.assertNotIn("agent6", names)
+
+    def test_a_busy_agent_scores_lower_than_an_idle_one(self):
+        """**负载均衡**——手上二十套的中介接不过来。"""
+        self.make_agent("agent5", districts="")     # 不限区域，一定进候选
+        self.client.put("/api/agent/profile", headers=self.agent,
+                        json={"service_districts": []})
+        self.delegate("DL0002")                     # agent1 手上多一套
+
+        rows = {r["username"]: r["score"]
+                for r in self._suggest().json()["list"]}
+        self.assertIn("agent5", rows)
+        self.assertIn("agent1", rows)
+        self.assertGreater(rows["agent5"], rows["agent1"],
+                           "在托更多的中介不该排在空闲的前面")
+
+    def test_thin_praise_sample_is_neutral_not_zero(self):
+        """没人给过差评和大家都给差评是两回事。
+
+        按 0 分算等于新中介永远排最后——那不是排序，是封杀。
+        """
+        body = self._suggest().json()
+        row = next(r for r in body["list"] if r["username"] == "agent1")
+        self.assertTrue(any("样本不足" in x for x in row["reasons"]))
+        self.assertGreater(row["score"], 0)
+
+    def test_refuses_when_already_delegated(self):
+        self.delegate("DL0001")
+        self.assertEqual(self._suggest().status_code, 409)
+
+
+class TestDemandSummaryHandoff(BrokerCase):
+    """需求摘要随咨询一并交给中介（J-09-a 的落地那一半）。
+
+    摘要**做成会话的第一条消息，而不是给会话加一列**：
+    加列要改表、要在每一处会话展示里加渲染分支；做成消息则天然带时间、
+    天然进历史、天然在中介手机上也看得到。
+    """
+
+    SUMMARY = "【需求摘要】硬条件：中山区 · 两室一厅 · 租金上限≤3000元"
+
+    def test_summary_lands_as_the_first_line(self):
+        self.delegate("DL0001")
+        started = self.client.post("/api/conversations", headers=self.tenant,
+                                   json={"house_no": "DL0001",
+                                         "demand_summary": self.SUMMARY})
+        self.assertEqual(started.status_code, 200, started.text)
+        cid = started.json()["conversation"]["id"]
+
+        lines = self.client.get("/api/conversations/%d/lines" % cid,
+                                headers=self.agent).json()["list"]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["kind"], "summary")
+        self.assertIn("中山区", lines[0]["content"])
+
+    def test_agent_sees_it_before_the_tenant_says_anything(self):
+        """**这就是这个功能的全部价值**——中介不必让租客再说一遍。"""
+        self.delegate("DL0001")
+        self.client.post("/api/conversations", headers=self.tenant,
+                         json={"house_no": "DL0001",
+                               "demand_summary": self.SUMMARY})
+        rows = self.client.get("/api/conversations",
+                               headers=self.agent).json()
+        self.assertEqual(rows["unread"], 1)
+        self.assertIn("需求摘要", rows["list"][0]["last_message"])
+
+    def test_a_manager_cannot_forge_a_demand_summary(self):
+        """摘要是租客的需求。中介发起会话时带一段，不该被当成租客说的。"""
+        self.delegate("DL0001")
+        when = (datetime.now() + timedelta(days=2)).isoformat()
+        self.client.post("/api/appointments", headers=self.tenant,
+                         json={"house_no": "DL0001", "viewing_time": when,
+                               "contact_name": "林小雨",
+                               "contact_phone": "13800000001"})
+        started = self.client.post("/api/conversations", headers=self.agent,
+                                   json={"house_no": "DL0001",
+                                         "tenant_username": "tenant1",
+                                         "demand_summary": "他想要五千的三室"})
+        self.assertEqual(started.status_code, 200, started.text)
+        cid = started.json()["conversation"]["id"]
+        lines = self.client.get("/api/conversations/%d/lines" % cid,
+                                headers=self.tenant).json()["list"]
+        self.assertEqual(lines, [])
+
+    def test_no_summary_means_an_empty_conversation(self):
+        started = self.client.post("/api/conversations", headers=self.tenant,
+                                   json={"house_no": "DL0001"})
+        cid = started.json()["conversation"]["id"]
+        lines = self.client.get("/api/conversations/%d/lines" % cid,
+                                headers=self.tenant).json()["list"]
+        self.assertEqual(lines, [])

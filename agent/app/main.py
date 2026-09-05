@@ -14,6 +14,7 @@ from app import fusion, memory, supervisor
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
+from app.agents.handoff import agent as handoff
 from app.agents.property_finder import agent as property_finder
 from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
@@ -21,6 +22,7 @@ from app.agents.repair import agent as repair
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
 from app.agents.support.tools import router as support_router
+from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.backend import client as backend_client
 from app.config import settings
@@ -223,6 +225,41 @@ class DescribeRequest(BaseModel):
     floor: str = ""
     orientation: str = ""
     tags: list[str] = []
+
+
+class HandoffRequest(BaseModel):
+    text: str
+    # 带上令牌就能把浏览足迹一并算进摘要——「他嘴上说的和实际在看的
+    # 一致吗」是中介最想知道的一件事。没有令牌也能用，只是少一行
+    token: str = ""
+
+
+class ViewingSummaryRequest(BaseModel):
+    text: str
+
+
+@app.post("/agent/handoff")
+def agent_handoff(payload: HandoffRequest):
+    """J-09-a 需求摘要交接。
+
+    把租客的一句话整理成一份摘要，随咨询一并发给中介，
+    **省掉「请您再描述一遍需求」那一轮**。
+    """
+    viewed = []
+    if payload.token:
+        try:
+            viewed = backend_client.list_history(payload.token)
+        except Exception:
+            # 足迹取不到就不要了。它是锦上添花的一行，
+            # 不该让整份摘要一起失败
+            viewed = []
+    return handoff.run(payload.text, viewed=viewed, provider=provider)
+
+
+@app.post("/agent/viewing-summary")
+def agent_viewing_summary(payload: ViewingSummaryRequest):
+    """J-09-c 带看纪要整理。口述几句 → 结构化纪要。"""
+    return viewing.run(payload.text, provider=provider)
 
 
 @app.post("/agent/describe")

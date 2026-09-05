@@ -645,6 +645,9 @@ export default function App() {
           }}
           house={selected}
           user={user}
+          // 用户最近说的那句找房需求（J-09-a）。发起咨询时先拿它整理成
+          // 一份需求摘要，随咨询一并发给负责人——省掉「请您再描述一遍」
+          demandText={searched}
           favorited={favorites.includes(selected.house_no)}
           onToggleFavorite={toggleFavorite}
           onClose={back}

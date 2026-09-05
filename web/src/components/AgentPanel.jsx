@@ -41,6 +41,11 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
   const [form, setForm] = useState(
     { districts: '', intro: '', years: 0, accepting: true })
   const [license, setLicense] = useState('')
+  // J-09-c 带看纪要：口述原文、整理出来的结构化结果、以及它的来源
+  const [note, setNote] = useState(
+    { house_no: '', tenant_username: '', text: '' })
+  const [draft, setDraft] = useState(null)
+  const [tidying, setTidying] = useState(false)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -414,9 +419,151 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
 
         {/* ------------------------------------------------ 带看记录 */}
         {tab === 'viewings' && (
-          viewings.length === 0 ? (
-            <div className="empty">还没有带看记录。</div>
-          ) : (
+          <>
+            <div className="section-title">补一条带看纪要</div>
+            <p className="desc">
+              照平常说话写就行，智能体会整理成结构化纪要。
+              <b>整理完可以改</b>——它给的是草稿，不是结论；
+              智能体不可用时按关键词提取，纪要照样能存。
+            </p>
+            <form
+              className="house-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!draft) return
+                run('viewing', () => api.createViewing({
+                  house_no: note.house_no,
+                  tenant_username: note.tenant_username.trim(),
+                  showed_up: draft.showed_up,
+                  intention: draft.intention,
+                  concerns: draft.concerns,
+                  feedback: draft.feedback,
+                }), '纪要已提交，房东会收到一条通知。')
+                setNote({ house_no: '', tenant_username: '', text: '' })
+                setDraft(null)
+              }}
+            >
+              <div className="fld-row">
+                <label className="fld">
+                  <span>房源</span>
+                  <select
+                    value={note.house_no}
+                    onChange={(e) => setNote({ ...note, house_no: e.target.value })}
+                    required
+                  >
+                    <option value="">请选择</option>
+                    {(data?.delegations || []).map((d) => (
+                      <option key={d.house_no} value={d.house_no}>
+                        {d.house_title}（{d.house_no}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="fld">
+                  <span>租客账号</span>
+                  <input
+                    value={note.tenant_username}
+                    onChange={(e) => setNote(
+                      { ...note, tenant_username: e.target.value })}
+                    placeholder="对方的登录用户名"
+                    required
+                  />
+                </label>
+              </div>
+              <label className="fld">
+                <span>带看情况（口述即可）</span>
+                <textarea
+                  rows={3}
+                  value={note.text}
+                  onChange={(e) => setNote({ ...note, text: e.target.value })}
+                  placeholder="小两口，觉得朝向可以，嫌厨房小，问了能不能养猫，说要和家里商量下"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={tidying || !note.text.trim()}
+                onClick={async () => {
+                  setTidying(true)
+                  setError('')
+                  try {
+                    const r = await api.viewingSummary(note.text)
+                    if (r.ok) setDraft({ ...r.record, source: r.source_label })
+                    else setError(r.message || '整理失败')
+                  } catch (err) {
+                    setError(err.message)
+                  } finally {
+                    setTidying(false)
+                  }
+                }}
+              >
+                {tidying ? '整理中…' : '智能整理'}
+              </button>
+
+              {draft && (
+                <>
+                  <div className="section-title">整理结果（可改）</div>
+                  <div className="fld-row">
+                    <label className="fld">
+                      <span>是否到场</span>
+                      <select
+                        value={draft.showed_up ? 'yes' : 'no'}
+                        onChange={(e) => setDraft(
+                          { ...draft, showed_up: e.target.value === 'yes' })}
+                      >
+                        <option value="yes">已到场</option>
+                        <option value="no">未到场</option>
+                      </select>
+                    </label>
+                    <label className="fld">
+                      <span>意向</span>
+                      <select
+                        value={draft.intention}
+                        onChange={(e) => setDraft(
+                          { ...draft, intention: e.target.value })}
+                      >
+                        <option value="high">意向强</option>
+                        <option value="medium">一般</option>
+                        <option value="low">意向弱</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="record-body">
+                    {draft.concerns.length > 0 && (
+                      <>顾虑：{draft.concerns.map((c) => (
+                        <span className="chip" key={c}>{c}</span>))}</>
+                    )}
+                    {draft.positives.length > 0 && (
+                      <>　满意：{draft.positives.map((c) => (
+                        <span className="chip" key={c}>{c}</span>))}</>
+                    )}
+                    {draft.questions.length > 0 && (
+                      <>　问到：{draft.questions.map((c) => (
+                        <span className="chip" key={c}>{c}</span>))}</>
+                    )}
+                  </div>
+                  <label className="fld">
+                    <span>纪要（房东会看到）</span>
+                    <textarea
+                      rows={2}
+                      value={draft.feedback}
+                      onChange={(e) => setDraft(
+                        { ...draft, feedback: e.target.value })}
+                    />
+                  </label>
+                  <p className="fld-hint">来源：{draft.source}</p>
+                  <button className="btn" type="submit"
+                    disabled={busy === 'viewing'}>
+                    提交纪要
+                  </button>
+                </>
+              )}
+            </form>
+
+            <div className="section-title">历史记录</div>
+            {viewings.length === 0 ? (
+              <div className="empty">还没有带看记录。</div>
+            ) : (
             <div className="table-wrap">
               <table className="log-table">
                 <thead>
@@ -446,7 +593,8 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
                 </tbody>
               </table>
             </div>
-          )
+            )}
+          </>
         )}
 
         {/* ------------------------------------------------ 佣金 */}

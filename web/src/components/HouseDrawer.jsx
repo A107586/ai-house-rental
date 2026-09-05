@@ -22,7 +22,8 @@ const TABS = [
 ]
 
 export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
-                                     onClose, onOpenHouse, onTalk }) {
+                                     onClose, onOpenHouse, onTalk,
+                                     demandText = '' }) {
   const [tab, setTab] = useState('booking')
   // K-08 举报弹窗。入口放在详情页而不是个人中心——
   // 用户是在看这套房、觉得不对劲的那一刻才想举报的
@@ -204,7 +205,24 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
               }
               setTalking(true)
               try {
-                const data = await api.startConversation(house.house_no)
+                // J-09-a：先把最近那句需求整理成摘要，随咨询一并带过去。
+                //
+                // **整理失败不能挡住咨询。** 摘要是锦上添花的一段，
+                // 智能体挂了就当没有——降级之后咨询照常发起，
+                // 只是中介要多问一句（需求 N-07）。
+                let summary = ''
+                if (demandText && demandText.trim()) {
+                  try {
+                    const r = await api.brokerHandoff(demandText)
+                    // 渲染好的文本由智能体给，前端不再实现一遍——
+                    // 两边各写一份，迟早会不一样
+                    if (r.ok) summary = r.summary_text || ''
+                  } catch {
+                    summary = ''
+                  }
+                }
+                const data = await api.startConversation(house.house_no,
+                                                         summary)
                 onTalk && onTalk(data.conversation.id)
               } catch (err) {
                 setReply({ status: 'error', message: err.message,

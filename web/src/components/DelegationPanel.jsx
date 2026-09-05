@@ -34,6 +34,8 @@ export default function DelegationPanel({ houses = [] }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
+  // J-09-b 智能派单：给选中的房源推荐几个中介
+  const [suggested, setSuggested] = useState(null)
 
   async function load() {
     setError('')
@@ -239,6 +241,83 @@ export default function DelegationPanel({ houses = [] }) {
               />
             </label>
           </div>
+          {/* ---------- J-09-b 智能派单 ---------- */}
+          {draft.house_no && (
+            <div className="suggest">
+              <button
+                type="button"
+                className="btn ghost small"
+                disabled={busy === 'suggest'}
+                onClick={async () => {
+                  setBusy('suggest')
+                  setError('')
+                  try {
+                    setSuggested(await api.suggestAgents(draft.house_no))
+                  } catch (err) {
+                    setError(err.message)
+                    setSuggested(null)
+                  } finally {
+                    setBusy('')
+                  }
+                }}
+              >
+                {busy === 'suggest' ? '匹配中…' : '帮我推荐中介'}
+              </button>
+
+              {suggested && (
+                suggested.list.length === 0 ? (
+                  <p className="desc">
+                    这个区暂时没有可接单的中介。中介要资质过审、开着接单开关，
+                    并且主营区域覆盖 {suggested.district} 才会出现在这里。
+                  </p>
+                ) : (
+                  <>
+                    <ul className="record-list">
+                      {suggested.list.map((a) => (
+                        <li key={a.user_id}>
+                          <div className="record-head">
+                            <strong>{a.name || a.username}</strong>
+                            <span className="pill">{a.score} 分</span>
+                          </div>
+                          <div className="record-body">
+                            {a.districts.length > 0
+                              && `主营 ${a.districts.join('、')} · `}
+                            从业 {a.years} 年
+                            {a.intro && ` · ${a.intro}`}
+                          </div>
+                          <div className="record-body log-path">
+                            {a.reasons.join(' · ')}
+                          </div>
+                          <div className="record-actions">
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => setDraft(
+                                { ...draft, agent_username: a.username })}
+                            >
+                              选他
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="rd-note">
+                      排序完全由规则算出：活跃度 {suggested.weights.activity} 分、
+                      好评 {suggested.weights.praise} 分、
+                      负载 {suggested.weights.load} 分、
+                      成交 {suggested.weights.deals} 分。
+                      <b>没有用大模型</b>——派单决定谁接到这单生意，
+                      必须可复算、可申诉：中介问「为什么不派给我」，
+                      要能拿出一行一行的算式。
+                      「负载」是反向计分，<b>手上二十套的中介接不过来</b>；
+                      评价不满 5 条时好评率按中性算，否则新中介永远排最后。
+                    </p>
+                  </>
+                )
+              )}
+            </div>
+          )}
+
           <label className="fld">
             <span>佣金比例（按月租金的百分比，成交后一次性结算）</span>
             <input

@@ -29,6 +29,9 @@ class ConversationStart(BaseModel):
     # 由房源负责人发起时填：要联系哪位租客（J-07）。
     # 租客自己发起时留空——他就是那个租客
     tenant_username: str = ""
+    # 需求摘要（J-09-a）。由智能体整理好之后随咨询一并带过来，
+    # 落成会话的第一条消息，中介一进来就看得到
+    demand_summary: str = Field(default="", max_length=600)
 
 
 class LineCreate(BaseModel):
@@ -189,6 +192,24 @@ def start_conversation(payload: ConversationStart,
     conversation = Conversation(house_id=house.id, tenant_id=tenant_id,
                                 landlord_id=house.landlord_id)
     session.add(conversation)
+    session.flush()
+
+    # 需求摘要落成第一条消息（J-09-a）。
+    #
+    # **做成一条消息，而不是给会话加一列。** 加列要改表、要在每一处
+    # 会话展示里加渲染分支；做成消息则天然带时间、天然进历史、
+    # 天然在中介手机上也看得到——会话本来就是「按时间排列的一串内容」，
+    # 摘要没有理由是个例外。
+    #
+    # `kind="summary"` 让前端能把它渲染成一张卡片而不是聊天气泡；
+    # 发送人记成租客本人，因为那确实是他的需求，不是系统凭空说的。
+    if payload.demand_summary.strip() and tenant_id == user.id:
+        session.add(ChatLine(conversation_id=conversation.id,
+                             sender_id=tenant_id, kind="summary",
+                             content=payload.demand_summary.strip()))
+        conversation.last_message = "【需求摘要】"
+        conversation.landlord_unread += 1
+
     session.commit()
     session.refresh(conversation)
     return {"ok": True,

@@ -24,7 +24,8 @@ from app import leasing
 from app.db import get_session
 from app.deps import require_login
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
-                        House, HouseDelegation, Review, User, ViewingRecord)
+                        House, HouseDelegation, Review, User, ViewingRecord,
+                        mask_name)
 from app.permissions import active_delegation, can_see_tenant_contact
 
 router = APIRouter()
@@ -739,4 +740,122 @@ def platform_agent_stats(user: User = Depends(require_login),
         "recent_days": RECENT_DAYS,
         "deals_with_agent": with_agent,
         "deals_self_managed": without_agent,
+    }
+
+
+# ---------------------------------------------------------- J-09-b 智能派单
+
+# 四个因子的权重，加起来 100。**权重写在这里而不是散在算式里**，
+# 是为了让「为什么这么排」可以当场解释——答辩时被问「凭什么他排第一」，
+# 要能指着这张表说话。
+WEIGHTS = {"activity": 30, "praise": 30, "load": 25, "deals": 15}
+
+# 活跃度与负载的封顶。超过这个数再多也不加分/不扣分了：
+# 近 30 天带看 40 次和 20 次，对「他还接不接得过来」没有区别
+ACTIVITY_CAP = 20
+LOAD_CAP = 10
+DEALS_CAP = 10
+
+# 好评率样本不足时按这个中性值算（与 RatioCell 的 MIN_SAMPLE 同一条理由）。
+# **不能按 0 分算**——那等于新中介永远排在最后，
+# 而「没人给过差评」和「大家都给差评」是两回事
+NEUTRAL_PRAISE = 50.0
+MIN_PRAISE_SAMPLE = 5
+
+
+def _score_agent(stats):
+    """给一个中介打分，返回 ``(分数, [理由])``。
+
+    **全部由规则算，不调大模型。** 派单结果直接决定谁能接到这单生意，
+    它必须是可复算、可申诉的：中介问「为什么不派给我」，
+    要能拿出一行一行的算式，而不是「模型觉得他更合适」。
+
+    方案里写的「大模型可选地在同分时给一句说明」没有做，理由是
+    规则本来就能给出精确到分数的理由（下面 `reasons` 里每一条都带数字），
+    再让大模型改写一遍只会引入不确定，换不来任何新信息。
+    """
+    reasons = []
+
+    recent = min(stats["recent_viewings"], ACTIVITY_CAP)
+    activity = recent / ACTIVITY_CAP * WEIGHTS["activity"]
+    if stats["recent_viewings"]:
+        reasons.append("近 %d 天带看 %d 次"
+                       % (stats["recent_days"], stats["recent_viewings"]))
+
+    praise = stats["praise"]
+    if praise["total"] >= MIN_PRAISE_SAMPLE:
+        rate = praise["rate"]
+        reasons.append("好评率 %.0f%%（%d 条评价）" % (rate, praise["total"]))
+    else:
+        rate = NEUTRAL_PRAISE
+        reasons.append("评价样本不足，好评率按中性计")
+    quality = rate / 100 * WEIGHTS["praise"]
+
+    active = stats["active_delegations"]
+    load = (1 - min(active, LOAD_CAP) / LOAD_CAP) * WEIGHTS["load"]
+    reasons.append("当前在托 %d 套" % active)
+
+    deals = min(stats["deal_total"], DEALS_CAP) / DEALS_CAP * WEIGHTS["deals"]
+    if stats["deal_total"]:
+        reasons.append("累计成交 %d 单" % stats["deal_total"])
+
+    return round(activity + quality + load + deals, 1), reasons
+
+
+@router.get("/api/delegations/suggest")
+def suggest_agents(house_no: str, limit: int = Query(5, ge=1, le=20),
+                   user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """给这套房推荐几个中介（J-09-b）。
+
+    只有**房主本人和管理员**能问——这是「我该把房子委托给谁」的答案，
+    不是一份可以随便拉取的中介通讯录。
+
+    两个硬条件先把人筛掉，不参与打分：主营区域不覆盖这个区的、
+    以及关掉了接单开关或资质没过审的。硬条件就是硬条件，
+    分数再高也不该出现在结果里。
+    """
+    house = session.scalar(select(House).where(House.house_no == house_no))
+    if not house:
+        raise HTTPException(status_code=404, detail="房源不存在")
+    if user.role != "admin" and house.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只能为自己的房源找中介")
+
+    if _one_active(session, house.id):
+        raise HTTPException(status_code=409, detail="这套房已经有生效中的委托")
+
+    profiles = session.scalars(select(AgentProfile).where(
+        AgentProfile.license_status == "approved",
+        AgentProfile.accepting.is_(True))).all()
+
+    ranked = []
+    for profile in profiles:
+        # 主营区域为空表示不限区域——新中介还没填，不该因此被排除
+        if profile.districts and house.district not in profile.districts:
+            continue
+        stats = agent_stats(session, profile.user_id)
+        score, reasons = _score_agent(stats)
+        ranked.append({
+            "user_id": profile.user_id,
+            "username": profile.user.username if profile.user else "",
+            "name": mask_name(profile.user) if profile.user else "",
+            "districts": profile.districts,
+            "years": profile.years,
+            "intro": profile.intro,
+            "score": score,
+            "reasons": reasons,
+            "stats": stats,
+        })
+
+    ranked.sort(key=lambda r: (-r["score"], r["username"]))
+    return {
+        "total": len(ranked),
+        "house_no": house.house_no,
+        "district": house.district,
+        # 权重一并返回，前端可以把它显示出来。**排序规则不该是黑箱**：
+        # 中介问「为什么不派给我」，房东问「为什么推荐他」，
+        # 答案得在同一个页面上找得到
+        "weights": WEIGHTS,
+        "list": ranked[:limit],
+        "source": "rules",
     }
