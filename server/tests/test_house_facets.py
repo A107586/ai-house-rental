@@ -144,7 +144,25 @@ class TestPublishValidation(FacetCase):
         self.assertEqual(self.publish(decoration="豪装").status_code, 422)
 
     def test_rejects_unknown_orientation(self):
-        self.assertEqual(self.publish(orientation="朝南").status_code, 422)
+        """**这条原先断言「朝南」该被拒，改了。**
+
+        理由是它和系统其余部分对不上：前端发布表单的下拉框给的就是
+        「朝南」「南北通透」，种子数据里 88 套房源用的也是这一套写法。
+        照原先的校验，九个选项里有五个一提交就 422——房东在页面上
+        选「朝南」根本发不出去，编辑已有房源时朝向原样回填也存不下。
+
+        两条路：把库里的存量数据和前端统一成「南」，或者校验放宽成两种都收。
+        选了后者——封版在即，改数据要写迁移、还要同步前端与展示，
+        而这里只是入参校验，放宽不丢信息。真正无效的值照样拒。
+        """
+        self.assertEqual(self.publish(orientation="朝里").status_code, 422)
+        self.assertEqual(self.publish(orientation="斜着").status_code, 422)
+
+    def test_accepts_both_spellings(self):
+        for value in ("南", "朝南", "东南", "南北通透", ""):
+            with self.subTest(orientation=value):
+                self.assertEqual(self.publish(orientation=value).status_code,
+                                 200, value)
 
     def test_rejects_swapped_coordinates(self):
         """经纬度填反了要挡住。

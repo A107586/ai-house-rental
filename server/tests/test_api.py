@@ -206,6 +206,66 @@ class TestAppointments(ApiTestCase):
         self.assertEqual(response.json()["detail"], "请输入正确的 11 位手机号")
 
 
+class TestOrientationVocabulary(ApiTestCase):
+    """**朝向的两套写法都得收。**
+
+    这个洞是给智能体做「发布房源」表单、真的点了确认才撞出来的：
+    校验表只写了「南」「东南」，而前端下拉框给的是「朝南」「南北通透」，
+    种子数据也是后一套——九个选项里五个一提交就 422，
+    **房东在页面上选「朝南」根本发不出去**，编辑已有房源同样存不下。
+
+    卡片好好的、页面也好好的，只有真的提交一次才看得见。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.headers = auth_header(self.client, "landlord1", "test123")
+
+    BASE = {"title": "朝向测试房源", "district": "中山区", "community": "测试小区",
+            "address": "测试路 1 号", "rent_price": 3000, "deposit": 3000,
+            "area": 80, "layout": "两室一厅", "rent_type": "整租", "floor": "3/9"}
+
+    def test_both_spellings_are_accepted(self):
+        for value in ("南", "东南", "朝南", "朝东", "南北", "南北通透", ""):
+            with self.subTest(orientation=value):
+                payload = dict(self.BASE, orientation=value)
+                response = self.client.post("/api/houses", headers=self.headers,
+                                            json=payload)
+                self.assertEqual(response.status_code, 200,
+                                 "朝向「%s」被拒了：%s"
+                                 % (value, response.text[:120]))
+
+    def test_the_frontend_dropdown_is_fully_accepted(self):
+        """前端下拉框里的每一项都得能提交——这才是用户真正会点的那些。
+
+        写死在这里是有意的：改前端选项而忘了后端校验，正是原先出错的路径。
+        """
+        for value in ("朝南", "朝东", "朝西", "朝北",
+                      "东南", "西南", "东北", "西北", "南北通透"):
+            with self.subTest(orientation=value):
+                response = self.client.post(
+                    "/api/houses", headers=self.headers,
+                    json=dict(self.BASE, orientation=value))
+                self.assertEqual(response.status_code, 200, value)
+
+    def test_seeded_houses_can_be_saved_back_unchanged(self):
+        """已有房源原样保存一次必须成功。
+
+        编辑表单会把朝向原样回填，用户什么都没改就点保存——
+        这一步失败是最说不过去的。
+        """
+        house = self.client.get("/api/houses/DL0001").json()
+        response = self.client.put(
+            "/api/houses/DL0001", headers=self.headers,
+            json={"orientation": house.get("orientation") or ""})
+        self.assertEqual(response.status_code, 200, response.text[:150])
+
+    def test_garbage_is_still_rejected(self):
+        response = self.client.post("/api/houses", headers=self.headers,
+                                    json=dict(self.BASE, orientation="朝里"))
+        self.assertEqual(response.status_code, 422)
+
+
 class TestDistricts(ApiTestCase):
 
     def test_counts_only_available(self):

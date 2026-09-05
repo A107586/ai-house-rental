@@ -276,7 +276,11 @@ def describe(conditions):
     if conditions.get("floor_level"):
         parts.append(str(conditions["floor_level"]))
     if conditions.get("orientation"):
-        parts.append("朝%s" % conditions["orientation"])
+        # 朝向两种写法都可能传进来（「南」和「朝南」，见 schemas.ORIENTATIONS
+        # 那段说明）。无脑加「朝」会写出「朝朝南」，所以先看有没有。
+        facing = str(conditions["orientation"])
+        parts.append(facing if facing.startswith("朝") or facing == "南北通透"
+                     else "朝" + facing)
     if conditions.get("decoration"):
         parts.append(str(conditions["decoration"]))
     elevator = _as_bool(conditions.get("elevator")) \
