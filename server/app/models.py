@@ -47,9 +47,14 @@ class User(Base):
     token_valid_after: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     id_card_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
     id_card_masked: Mapped[str] = mapped_column(String(32), default="")
-    # tenant 租客 / landlord 房东 / admin 管理员
+    # tenant 租客 / landlord 房东 / agent 经纪人 / admin 管理员
     role: Mapped[str] = mapped_column(String(20), default="tenant", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    # 免打扰（J-07）：关掉之后中介不能主动发起会话。
+    # **默认开**——默认关等于功能上线当天所有联系按钮一起置灰，
+    # 那是把偏好开关做成了功能开关
+    accept_contact: Mapped[bool] = mapped_column(Boolean, default=True,
+                                                 nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     houses: Mapped[list["House"]] = relationship(back_populates="landlord")
@@ -65,6 +70,9 @@ class User(Base):
             "id_card": self.id_card_masked,
             "role": self.role,
             "status": self.status,
+            # 免打扰开关（J-07）。前端据此渲染「我的账号」里的勾选框，
+            # 中介端据此决定「联系租客」按钮是不是置灰
+            "accept_contact": bool(self.accept_contact),
         }
 
 
@@ -384,8 +392,19 @@ class Appointment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     house: Mapped["House"] = relationship(back_populates="appointments", lazy="selectin")
+    # 取租客的账号名与免打扰状态用（J-07）。tenant_id 可空（历史数据里
+    # 有匿名预约），所以用它的地方一律要判空
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id],
+                                          lazy="selectin")
 
-    def to_dict(self):
+    def to_dict(self, show_contact=True):
+        """一条预约。
+
+        `show_contact=False` 时不返回联系人姓名与号码（J-07）——
+        受托中介只在**看房当天、且预约已确认**的窗口里看得到，
+        窗口外那个号码对他没有用处，只是一份可以慢慢攒的通讯录。
+        判定在 `permissions.can_see_tenant_contact`，不在这里。
+        """
         return {
             "id": self.id,
             "house_id": self.house_id,
@@ -398,8 +417,17 @@ class Appointment(Base):
             "district": self.house.district if self.house else "",
             "layout": self.house.layout if self.house else "",
             "rent_price": float(self.house.rent_price) if self.house else 0,
-            "contact_name": self.contact_name,
-            "contact_phone": mask_phone(self.contact_phone),
+            "contact_name": self.contact_name if show_contact else "",
+            # 号码在窗口外一律不给（J-07）。**给空串而不是省略这个键**：
+            # 前端拿不到键会渲染成 undefined，拿到空串才知道「现在看不到」
+            "contact_phone": (mask_phone(self.contact_phone)
+                              if show_contact else ""),
+            "contact_visible": bool(show_contact),
+            # 供中介端把「联系租客」按钮置灰（J-07）。**按钮是提示，
+            # 接口才是边界**——真正的拦截在 start_conversation 里
+            "tenant_username": self.tenant.username if self.tenant else "",
+            "accept_contact": (bool(self.tenant.accept_contact)
+                               if self.tenant else True),
             "viewing_time": self.viewing_time.strftime("%Y-%m-%d %H:%M:%S"),
             "remark": self.remark,
             "status": self.status,

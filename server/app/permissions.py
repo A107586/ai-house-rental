@@ -82,3 +82,48 @@ def responsible_user_id(session, house):
     """
     delegation = active_delegation(session, house.id)
     return delegation.agent_id if delegation else house.landlord_id
+
+
+# ---------------------------------------------------------------- J-07 隐私
+
+def contact_window_open(appointment, now=None):
+    """这条预约现在是不是处在「可以看到联系方式」的窗口里。
+
+    规则：**预约已确认，且今天就是看房当天。**
+
+    贝壳用虚拟号，虚拟号有有效期；我们做不了电话，但那条原则可以照搬——
+    联系方式是为了「我到楼下了，你在哪」，不是给中介留一份可以慢慢用的
+    通讯录。约在下周三的看房，中介今天不需要那个号码。
+    """
+    from datetime import datetime, timedelta
+
+    if not appointment or appointment.status != "confirmed":
+        return False
+    if not appointment.viewing_time:
+        return False
+    now = now or datetime.now()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return day_start <= appointment.viewing_time < day_start + timedelta(days=1)
+
+
+def can_see_tenant_contact(session, user, appointment, house=None):
+    """这个人现在能不能看到这条预约上的租客联系方式（J-07）。
+
+    **窗口只卡中介，不卡房东。**
+
+    这不是给中介搞特殊，恰恰相反：设计方案 J-07 整节讲的就是
+    「租客与中介」这一侧，理由是**中介比房东更有动机把交易引到站外**
+    （省掉平台佣金），而房东是潜在合同的对方当事人，本来就要和租客
+    建立直接联系，把他也卡住只会逼着双方另找渠道，反而更不可控。
+    """
+    if not user:
+        return False
+    if user.role == "admin":
+        return True
+    if appointment is not None and appointment.tenant_id == user.id:
+        return True          # 自己的预约，看的是自己的号码
+    if house is not None and house.landlord_id == user.id:
+        return True          # 房东不受窗口限制，理由见上
+    if not can_manage_house(session, user, house):
+        return False
+    return contact_window_open(appointment)

@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 from app import leasing, moderation
 from app.db import get_session
 from app.deps import require_login
-from app.models import (ChatLine, ContentFlag, Conversation, House,
-                        HouseDelegation, User, mask_name)
+from app.models import (Appointment, ChatLine, ContentFlag, Conversation,
+                        House, HouseDelegation, User, ViewingRecord,
+                        mask_name)
 from app.permissions import can_manage_house, responsible_user_id
 
 router = APIRouter()
@@ -25,6 +26,9 @@ router = APIRouter()
 
 class ConversationStart(BaseModel):
     house_no: str
+    # 由房源负责人发起时填：要联系哪位租客（J-07）。
+    # 租客自己发起时留空——他就是那个租客
+    tenant_username: str = ""
 
 
 class LineCreate(BaseModel):
@@ -138,18 +142,51 @@ def start_conversation(payload: ConversationStart,
         select(House).where(House.house_no == payload.house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
-    if house.landlord_id == user.id:
+
+    tenant_id = user.id
+    if payload.tenant_username.strip():
+        # ---- 由房源负责人（房东或受托中介）主动联系某位租客 ----
+        tenant = session.scalar(select(User).where(
+            User.username == payload.tenant_username.strip()))
+        if not tenant:
+            raise HTTPException(status_code=404, detail="租客不存在")
+        if not can_manage_house(session, user, house):
+            raise HTTPException(status_code=403, detail="这套房不在你的管理范围内")
+
+        # **不能对任意人发起会话。** 否则「主动联系」就成了一个站内群发
+        # 入口——中介手上有全站房源的浏览记录，挨个私信是稳赚的。
+        # 必须是这套房上已经有往来的人：约过看房，或者被带看过。
+        related = session.scalar(select(Appointment.id).where(
+            Appointment.house_id == house.id,
+            Appointment.tenant_id == tenant.id)) or session.scalar(
+            select(ViewingRecord.id).where(
+                ViewingRecord.house_id == house.id,
+                ViewingRecord.tenant_id == tenant.id))
+        if not related:
+            raise HTTPException(
+                status_code=403,
+                detail="只能联系在这套房上约过看房或被带看过的租客")
+
+        # **免打扰**（J-07）。放在这里而不是只把前端按钮置灰：
+        # 按钮是提示，接口才是边界——灰掉的按钮拦不住直接调接口的人
+        if not tenant.accept_contact:
+            raise HTTPException(
+                status_code=403,
+                detail="对方已设置不接受主动联系。你可以等他先来问，"
+                       "预约与带看的通知照常送达")
+        tenant_id = tenant.id
+    elif house.landlord_id == user.id:
         raise HTTPException(status_code=400, detail="不能和自己的房源发起咨询")
 
     existing = session.scalar(select(Conversation).where(
         Conversation.house_id == house.id,
-        Conversation.tenant_id == user.id))
+        Conversation.tenant_id == tenant_id))
     if existing:
         return {"ok": True,
                 "conversation": existing.to_dict(
                     user.id, _responder(session, existing))}
 
-    conversation = Conversation(house_id=house.id, tenant_id=user.id,
+    conversation = Conversation(house_id=house.id, tenant_id=tenant_id,
                                 landlord_id=house.landlord_id)
     session.add(conversation)
     session.commit()

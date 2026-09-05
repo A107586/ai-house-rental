@@ -41,6 +41,29 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
     }
   }
 
+  // 免打扰（J-07）单独走一次即时保存，**不并进上面那个表单**。
+  //
+  // 那个表单的规则是「只提交填了内容的字段」（因为手机号显示的是掩码，
+  // 留空表示不改）。一个布尔开关放进去，关掉时值是 false，
+  // 会被 `v.trim()` 那一行当成空值直接丢掉——**开得了、关不掉**。
+  async function toggleContact(next) {
+    if (busy) return
+    setBusy('contact')
+    setMsg(null)
+    try {
+      const data = await api.updateProfile({ accept_contact: next })
+      onUpdated(data.user)
+      setMsg({ ok: true,
+               text: next ? '已允许经纪人主动联系你。'
+                          : '已设为免打扰。经纪人不能再主动发起会话，'
+                            + '但你的预约和带看通知照常送达。' })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+    } finally {
+      setBusy('')
+    }
+  }
+
   async function logoutEverywhere() {
     if (busy) return
     setBusy('logout')
@@ -135,6 +158,22 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
           {busy === 'profile' ? '保存中…' : '保存资料'}
         </button>
       </form>
+
+      <div className="section-title">免打扰</div>
+      <label className="fld inline">
+        <input
+          type="checkbox"
+          checked={user.accept_contact !== false}
+          disabled={busy === 'contact'}
+          onChange={(e) => toggleContact(e.target.checked)}
+        />
+        <span>允许经纪人主动联系我</span>
+      </label>
+      <p className="fld-hint">
+        关掉之后，受托经纪人不能再主动发起会话。
+        <b>你自己发起的咨询、以及预约与带看的通知不受影响</b>——
+        免打扰挡的是别人主动来，不是把你自己也关在外面。
+      </p>
 
       <div className="section-title">修改密码</div>
       <form onSubmit={changePassword}>

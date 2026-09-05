@@ -400,3 +400,23 @@ def _contracts_agent(connection, engine):
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_contracts_agent "
             "ON contracts (agent_id)"))
+
+
+@step("0012", "用户表：免打扰开关（J-07）")
+def _user_accept_contact(connection, engine):
+    """租客可以关掉「接受中介主动联系」。
+
+    **默认开（1）**，而不是默认关。默认关等于这个功能上线当天，
+    所有中介的联系按钮全部置灰——那是把一个偏好开关做成了功能开关。
+
+    加在 users 上而不是单开一张偏好表：这是一个所有角色都可能用到的
+    通用开关（房东日后也可能想清静），不是角色专属字段，
+    不适用「加表而不是加列」那条。
+    """
+    _add_column(connection, engine, "users", "accept_contact",
+                "BOOLEAN DEFAULT 1")
+    if _table_exists(engine, "users"):
+        # 老库里补出来的列会是 NULL，而 NULL 在 Python 侧是假值——
+        # 不回填的话，所有存量用户一夜之间变成「拒绝联系」
+        connection.execute(text(
+            "UPDATE users SET accept_contact = 1 WHERE accept_contact IS NULL"))

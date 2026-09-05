@@ -513,6 +513,12 @@ export const api = {
   // 委托。房东和中介调的是同一组接口，靠 role 参数区分「我是哪一方」
   delegations: (params = {}) => request(`/api/delegations?${toQuery(params)}`),
   createDelegation: (payload) => post('/api/delegations', payload),
+
+  // 由房源负责人主动联系某位租客（J-07）。租客设了免打扰会被服务端拒绝，
+  // 前端只负责把按钮置灰——**按钮是提示，接口才是边界**
+  contactTenant: (houseNo, tenantUsername) =>
+    post('/api/conversations',
+      { house_no: houseNo, tenant_username: tenantUsername }),
   // accept 走请求体而不是查询串：服务端是 `Body(embed=True)`。
   // 拒绝不带理由——那个接口不收，与其在这里编一个参数送过去被忽略，
   // 不如让签名如实反映它能做什么

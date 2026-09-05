@@ -247,7 +247,10 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
               <div className="table-wrap">
                 <table className="log-table">
                   <thead>
-                    <tr><th>时间</th><th>房源</th><th>租客</th><th>状态</th></tr>
+                    <tr>
+                      <th>时间</th><th>房源</th><th>租客</th>
+                      <th>联系方式</th><th>操作</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {data.todo.today_viewings.map((a) => (
@@ -256,8 +259,27 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
                           {(a.viewing_time || '').slice(5, 16)}
                         </td>
                         <td>{a.house_title || a.house_no}</td>
-                        <td>{a.contact_name || '-'}</td>
-                        <td>{APPOINTMENT_STATUS[a.status] || a.status}</td>
+                        <td>{a.contact_name || '租客'}</td>
+                        <td className="mono">
+                          {a.contact_visible ? a.contact_phone : (
+                            <span className="log-path">看房当天才可见</span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            className="btn ghost small"
+                            disabled={a.accept_contact === false
+                              || busy === `c${a.id}`}
+                            title={a.accept_contact === false
+                              ? '对方已设置不接受主动联系' : '发起站内会话'}
+                            onClick={() => run(`c${a.id}`,
+                              () => api.contactTenant(a.house_no,
+                                a.tenant_username),
+                              '已建立会话，去「咨询」里说话。')}
+                          >
+                            {a.accept_contact === false ? '免打扰' : '联系'}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -288,6 +310,13 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
                 </table>
               </div>
             )}
+            <p className="rd-note">
+              租客的号码**只在看房当天、且预约已确认时**才显示——
+              它是给「我到楼下了，你在哪」用的，不是一份可以慢慢攒的通讯录。
+              平时联系走站内会话；对方设了免打扰，按钮会变成灰的「免打扰」，
+              那时候等他来找你就好，预约和带看通知照常送达。
+            </p>
+
             <p className="rd-note">
               上面「今天的带看」只算**已确认**的那些。把待确认的一起算进去，
               你会照着一个虚高的数字安排一天的行程，到了地方才发现这场约

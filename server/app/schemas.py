@@ -205,6 +205,9 @@ class ProfileUpdate(BaseModel):
     real_name: str | None = Field(default=None, max_length=50)
     phone: str | None = Field(default=None, max_length=20)
     email: str | None = Field(default=None, max_length=100)
+    # 免打扰（J-07）。用 None 表示「这次不改」，而不是默认 False——
+    # 只改手机号的请求不该顺手把免打扰关掉
+    accept_contact: bool | None = None
 
 
 class PasswordChange(BaseModel):

@@ -1122,3 +1122,156 @@ class TestRepairHistoryHidesTheReporter(BrokerCase):
         row = self.client.get("/api/repairs?house_no=DL0001",
                               headers=self.tenant).json()["list"][0]
         self.assertEqual(row["contact_name"], "林小雨")
+
+
+# ------------------------------------------------------------ J-07 隐私
+
+class TestContactWindow(BrokerCase):
+    """租客的联系方式对中介只在窗口内可见。
+
+    **窗口只卡中介，不卡房东**——不是给中介搞特殊，恰恰相反：
+    方案 J-07 整节讲的就是「租客与中介」这一侧，理由是中介比房东更有
+    动机把交易引到站外；而房东是潜在合同的对方当事人，本来就要和租客
+    建立直接联系，卡住他只会逼双方另找渠道，反而更不可控。
+    """
+
+    def _appoint(self, days=0, hour=12, confirm=True):
+        when = datetime.now() + timedelta(days=3)
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0001",
+                                      "viewing_time": when.isoformat(),
+                                      "contact_name": "林小雨",
+                                      "contact_phone": "13800000001"})
+        assert made.status_code == 200, made.text
+        aid = made.json()["appointment"]["id"]
+        if confirm:
+            self.client.patch("/api/appointments/%d" % aid,
+                              headers=self.landlord,
+                              json={"status": "confirmed"})
+        session = db.SessionLocal()
+        try:
+            row = session.get(Appointment, aid)
+            row.viewing_time = (datetime.now() + timedelta(days=days)).replace(
+                hour=hour, minute=0, second=0, microsecond=0)
+            session.commit()
+        finally:
+            session.close()
+        return aid
+
+    def _agent_row(self, aid):
+        rows = self.client.get("/api/appointments/mine",
+                               headers=self.agent).json()["list"]
+        return next(r for r in rows if r["id"] == aid)
+
+    def test_agent_sees_contact_on_the_viewing_day(self):
+        self.delegate("DL0001")
+        aid = self._appoint(days=0)
+        row = self._agent_row(aid)
+        self.assertTrue(row["contact_visible"])
+        self.assertEqual(row["contact_phone"], "138****0001")
+
+    def test_agent_cannot_see_it_days_ahead(self):
+        """约在下周三的看房，中介今天不需要那个号码。"""
+        self.delegate("DL0001")
+        aid = self._appoint(days=5)
+        row = self._agent_row(aid)
+        self.assertFalse(row["contact_visible"])
+        self.assertEqual(row["contact_phone"], "")
+        self.assertEqual(row["contact_name"], "")
+
+    def test_unconfirmed_stays_closed_even_today(self):
+        self.delegate("DL0001")
+        aid = self._appoint(days=0, confirm=False)
+        self.assertFalse(self._agent_row(aid)["contact_visible"])
+
+    def test_landlord_is_not_windowed(self):
+        self.delegate("DL0001")
+        aid = self._appoint(days=5)
+        rows = self.client.get("/api/appointments/mine",
+                               headers=self.landlord).json()["list"]
+        row = next(r for r in rows if r["id"] == aid)
+        self.assertTrue(row["contact_visible"])
+        self.assertEqual(row["contact_phone"], "138****0001")
+
+    def test_tenant_always_sees_his_own(self):
+        aid = self._appoint(days=5)
+        rows = self.client.get("/api/appointments/mine",
+                               headers=self.tenant).json()["list"]
+        row = next(r for r in rows if r["id"] == aid)
+        self.assertTrue(row["contact_visible"])
+
+
+class TestDoNotDisturb(BrokerCase):
+    """免打扰（J-07 第三条）。"""
+
+    def _appoint(self):
+        when = datetime.now() + timedelta(days=2)
+        made = self.client.post("/api/appointments", headers=self.tenant,
+                                json={"house_no": "DL0001",
+                                      "viewing_time": when.isoformat(),
+                                      "contact_name": "林小雨",
+                                      "contact_phone": "13800000001"})
+        assert made.status_code == 200, made.text
+
+    def _set(self, value):
+        r = self.client.put("/api/auth/profile", headers=self.tenant,
+                            json={"accept_contact": value})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_default_is_on(self):
+        """默认关等于功能上线当天所有联系按钮一起置灰。"""
+        me = self.client.get("/api/auth/me", headers=self.tenant).json()
+        self.assertTrue(me["accept_contact"])
+
+    def test_agent_can_reach_a_related_tenant(self):
+        self.delegate("DL0001")
+        self._appoint()
+        started = self.client.post("/api/conversations", headers=self.agent,
+                                   json={"house_no": "DL0001",
+                                         "tenant_username": "tenant1"})
+        self.assertEqual(started.status_code, 200, started.text)
+
+    def test_dnd_blocks_it(self):
+        self.delegate("DL0001")
+        self._appoint()
+        self._set(False)
+        blocked = self.client.post("/api/conversations", headers=self.agent,
+                                   json={"house_no": "DL0001",
+                                         "tenant_username": "tenant1"})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertIn("不接受主动联系", blocked.json()["detail"])
+
+    def test_dnd_does_not_block_the_tenant_himself(self):
+        """免打扰挡的是别人主动来，不是把自己也关在外面。"""
+        self.delegate("DL0001")
+        self._set(False)
+        started = self.client.post("/api/conversations", headers=self.tenant,
+                                   json={"house_no": "DL0001"})
+        self.assertEqual(started.status_code, 200, started.text)
+
+    def test_cannot_cold_message_an_unrelated_tenant(self):
+        """**这条是安全用例。**
+
+        中介手上有全站房源，若能对任意人发起会话，「主动联系」就成了
+        一个站内群发入口。必须是这套房上已经有往来的人。
+        """
+        self.delegate("DL0001")
+        # 一个和这套房毫无往来的租客（种子库里只有 tenant1，现注册一个）
+        created = self.client.post("/api/auth/register", json={
+            "username": "passerby", "password": "test123",
+            "real_name": "路人甲", "phone": "13700009999", "role": "tenant"})
+        self.assertEqual(created.status_code, 200, created.text)
+
+        blocked = self.client.post("/api/conversations", headers=self.agent,
+                                   json={"house_no": "DL0001",
+                                         "tenant_username": "passerby"})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertIn("约过看房", blocked.json()["detail"])
+
+    def test_agent_cannot_reach_into_a_house_he_does_not_hold(self):
+        self._appoint()
+        blocked = self.client.post("/api/conversations", headers=self.agent,
+                                   json={"house_no": "DL0001",
+                                         "tenant_username": "tenant1"})
+        self.assertEqual(blocked.status_code, 403)

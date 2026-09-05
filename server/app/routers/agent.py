@@ -25,7 +25,7 @@ from app.db import get_session
 from app.deps import require_login
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
                         House, HouseDelegation, Review, User, ViewingRecord)
-from app.permissions import active_delegation
+from app.permissions import active_delegation, can_see_tenant_contact
 
 router = APIRouter()
 
@@ -528,6 +528,7 @@ def dashboard(user: User = Depends(require_agent),
     # 「今日带看 1 场」，中介照着这个数去安排一天的行程，到了地方才发现
     # 这场约根本没成立。卡片上的数字必须是他真的要去做的事。
     house_ids = [d.house_id for d in active_rows] or [-1]
+    houses_by_id = {d.house.id: d.house for d in active_rows if d.house}
     day_start = datetime.now().replace(hour=0, minute=0, second=0,
                                        microsecond=0)
     today = session.scalars(select(Appointment).where(
@@ -553,8 +554,14 @@ def dashboard(user: User = Depends(require_agent),
         "todo": {
             # 待我确认的邀请
             "invitations": [d.to_dict() for d in pending],
-            "today_viewings": [a.to_dict() for a in today],
-            "pending_appointments": [a.to_dict() for a in pending_appointments],
+            # 今天的带看在窗口内，联系方式给；待确认的那些还没到日子，
+            # 号码此刻对中介没有用处（J-07）
+            "today_viewings": [
+                a.to_dict(show_contact=can_see_tenant_contact(
+                    session, user, a, houses_by_id.get(a.house_id)))
+                for a in today],
+            "pending_appointments": [
+                a.to_dict(show_contact=False) for a in pending_appointments],
         },
         "delegations": [d.to_dict() for d in active_rows[:20]],
     }

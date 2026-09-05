@@ -31,6 +31,7 @@ from app.db import get_session, init_db
 from app.deps import (current_user, require_house_manager,
                       require_login, require_staff)
 from app.permissions import (active_delegation, can_manage_house,
+                             can_see_tenant_contact,
                              require_can_manage_house,
                              responsible_user_id)
 from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
@@ -1449,7 +1450,12 @@ def my_appointments(user: User = Depends(require_login),
                 Appointment.house_id.in_(delegated)))
 
     rows = session.scalars(stmt.order_by(Appointment.viewing_time.desc())).all()
-    return {"total": len(rows), "list": [a.to_dict() for a in rows]}
+    # 联系方式按窗口给（J-07）。房源一次性取回来，避免每行查一次
+    houses = {h.id: h for h in session.scalars(select(House).where(
+        House.id.in_({a.house_id for a in rows} or {-1}))).all()}
+    return {"total": len(rows),
+            "list": [a.to_dict(show_contact=can_see_tenant_contact(
+                session, user, a, houses.get(a.house_id))) for a in rows]}
 
 
 @app.post("/api/appointments")
@@ -1617,7 +1623,10 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
             house_no)
 
     session.commit()
-    return {"ok": True, "appointment": appointment.to_dict()}
+    return {"ok": True,
+            "appointment": appointment.to_dict(
+                show_contact=can_see_tenant_contact(
+                    session, user, appointment, house))}
 
 
 # ------------------------------------------------------------------ 报修
