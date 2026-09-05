@@ -6,14 +6,36 @@
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 
+# **跑测试时不读 .env。**
+#
+# 谁在本机填了大模型密钥，测试就会跟着真的往厂商发请求。实测的表现是
+# 整个套件卡死——每条用例几秒到二十几秒，五百多条跑不完；跑完也要计费，
+# 而且结论随模型心情变，「同一份代码两次跑出不同结果」的测试等于没有。
+#
+# 项目一直宣称「测试不依赖网络、数据库与大模型」。在没人填密钥的机器上
+# 这话自动成立，但它是**靠运气成立的**。给中转站接上 GPT 之后，
+# 第一个炸掉的就是测试套件。
+#
+# 判据用 `unittest`/`pytest` 在不在 sys.modules 里：`python -m unittest`
+# 会先把 unittest 导进来，再由用例去 import app.*；而 uvicorn 起服务时
+# 这两个模块都不在。放在**配置层**而不是 tests/__init__.py，是因为
+# `unittest discover -s tests` 把用例当顶层模块导入，那个 __init__ 压根不执行——
+# 这一点是踩了坑才知道的。
+#
+# 要测「接上大模型之后」的行为，用假 provider 显式注入
+# （见 tests/test_router.py 的 FakeProvider），那样才可复现。
+_UNDER_TEST = "unittest" in sys.modules or "pytest" in sys.modules
+
 # 本地开发配置位于 agent/.env。显式指定路径，避免从仓库根目录或
 # start-all.ps1 启动时因当前工作目录不同而漏读配置。
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+if not _UNDER_TEST:
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 def _get(name, default=None):

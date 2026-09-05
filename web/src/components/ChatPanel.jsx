@@ -81,6 +81,19 @@ const STATUS_TEXT = {
 
 const statusText = (value) => STATUS_TEXT[value] || value || ''
 
+// 账单类型同样是英文枚举（库里迁移成了 rent / deposit），
+// 不翻的话卡片上会写「rent 2200 元」。字段名新旧两种都认。
+const BILL_TYPE_TEXT = {
+  rent: '租金', deposit: '押金', utility: '水电费',
+  property: '物业费', penalty: '违约金', other: '其他费用',
+}
+
+const billType = (bill) => {
+  const raw = bill.bill_type || bill.type || ''
+  if (!raw) return '租金'
+  return BILL_TYPE_TEXT[raw] || raw
+}
+
 const money = (value) => `${Math.round(Number(value) || 0)}`
 
 /** 房源类的卡片行都长一样：标题在上，编号与租金在下。 */
@@ -97,7 +110,7 @@ const houseRow = (item) => ({
 const ACCOUNT_ROWS = {
   bill: (data) => (data.unpaid || []).map((bill) => ({
     key: bill.bill_no,
-    main: `${bill.bill_type || '租金'} ${money(bill.amount)} 元`,
+    main: `${billType(bill)} ${money(bill.amount)} 元`,
     sub: bill.due_date ? `${bill.due_date} 到期` : '',
   })),
   contract: (data) => (data.list || []).map((item) => ({

@@ -56,6 +56,7 @@
 """
 
 from app.agents.booking.tools.parse_datetime import parse_datetime
+from app.agents.support.tools import account
 from app.backend import BackendError
 
 RISK_LOW = "low"
@@ -366,7 +367,7 @@ def _propose_pay_bill(text, token, backend, context):
     if len(unpaid) > 1 and target is None and wants_choice:
         options = []
         for bill in unpaid[:5]:
-            kind = bill.get("bill_type") or bill.get("type") or "租金"
+            kind = account.bill_type_text(bill)
             label = "%s · %s 元 · %s到期" % (
                 kind, _money(bill.get("amount")), bill.get("due_date") or "待定")
             options.append(_option(bill.get("bill_no"), label))
@@ -374,7 +375,7 @@ def _propose_pay_bill(text, token, backend, context):
         return NEED_SLOT, question, None, _ask("bill_no", question, options)
     target = target or unpaid[0]
     amount = _money(target.get("amount"))
-    kind = target.get("bill_type") or target.get("type") or "租金"
+    kind = account.bill_type_text(target)
     due = target.get("due_date") or ""
 
     summary = "缴纳%s %s 元" % (kind, amount)

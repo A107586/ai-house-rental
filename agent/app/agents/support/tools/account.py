@@ -50,7 +50,7 @@ def bills(backend, token):
     first = unpaid[0]
     message = ("你还有 %d 笔待缴账单，合计 %s 元。最近一笔是%s，%s 元%s。"
                % (len(unpaid), _fmt_money(total),
-                  first.get("bill_type") or "租金",
+                  bill_type_text(first),
                   _fmt_money(first.get("amount")),
                   "，%s 到期" % first["due_date"] if first.get("due_date") else ""))
     return message, {"total": len(rows), "unpaid": unpaid[:5]}
@@ -89,6 +89,23 @@ STATUS_TEXT = {
     "available": "在租中", "rented": "已出租", "offline": "已下架",
     "replied": "已回复",
 }
+
+
+# 账单类型也是英文枚举。库里迁移成 rent / deposit 之后，
+# 缴费确认卡上显示的是「缴纳rent 2200 元」——**在一张要用户点确认付钱的
+# 卡片上露出英文枚举**，是最不该省的一处翻译。
+BILL_TYPE_TEXT = {
+    "rent": "租金", "deposit": "押金", "utility": "水电费",
+    "property": "物业费", "penalty": "违约金", "other": "其他费用",
+}
+
+
+def bill_type_text(bill, default="租金"):
+    """一笔账单的中文类型名。字段名与取值都做过迁移，两种都认。"""
+    raw = (bill or {}).get("bill_type") or (bill or {}).get("type") or ""
+    if not raw:
+        return default
+    return BILL_TYPE_TEXT.get(raw, raw)
 
 
 def status_text(value, default=""):
