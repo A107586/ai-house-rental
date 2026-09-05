@@ -24,8 +24,8 @@ from sqlalchemy import select  # noqa: E402
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
 from app.map_service import approximate_coordinates  # noqa: E402
-from app.models import (Appointment, Base, BrowsingHistory,  # noqa: E402
-                        Faq,
+from app.models import (AgentProfile, Appointment, Base,  # noqa: E402
+                        BrowsingHistory, Faq,
                         ContentFlag, Favorite, House, HouseImage, Notice,
                         Repair, RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, User)
@@ -325,6 +325,25 @@ def main():
                         real_name=name, phone=_phone(), role="tenant")
             session.add(user)
             tenants.append(user)
+
+        # 一个**已过审**的中介（J-01）。
+        #
+        # 不留给测试的人自己注册：注册出来的中介资质是「未提交」，
+        # 工作台上除了「提交资质」什么都没有，得先切到管理员审一遍
+        # 才能开始测中介功能——那是三步跟中介本身无关的准备动作。
+        # 演示数据的职责就是把这类准备动作省掉。
+        #
+        # 主营区域**留空**（不限区域），否则「接单大厅」和「智能派单」
+        # 在别的区都是空的，测的人会以为功能坏了。
+        agent = User(username="agent1", password_hash=hash_password("test123"),
+                     real_name="李经纪", phone=_phone(), role="agent")
+        session.add(agent)
+        session.flush()
+        session.add(AgentProfile(
+            user_id=agent.id, license_no="DL-JJ-20260001",
+            license_status="approved", service_districts="",
+            years=5, accepting=True,
+            intro="熟悉大连各区两室房源，可代房东带看与答复咨询。"))
         session.flush()
 
         print("生成房源 ...")
@@ -627,6 +646,7 @@ def main():
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")
         print("  租客账号   tenant1 / test123")
+        print("  中介账号   agent1    / test123（资质已通过，可直接接单）")
     finally:
         session.close()
 
