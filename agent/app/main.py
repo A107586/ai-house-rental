@@ -25,6 +25,7 @@ from app.agents.support.tools import greeting
 from app.agents.support.tools import router as support_router
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
+from app.agents.support.tools import forms as support_forms
 from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
@@ -534,11 +535,30 @@ def _dispatch(payload, routed, intent, slots, feats):
     # 上一轮的代办还没做完时，这一句多半是在回答助手的追问（「都可以」
     # 「第二笔」），一律先交回代办层，别让它被当成一次新的请求。
     pending_action = (payload.pending or {}).get("action")
+    pending_ask = (payload.pending or {}).get("ask") or {}
+
+    # **这一句是在回答上一个问题吗？** 是的话，无论它长得多像找房，
+    # 都不能当成改口。
+    #
+    # 助手问「房子在哪个区？」并给了六个可点选项，用户答「中山区」——
+    # 下面那条改口规则里区名赫然在列，于是每答一项就丢一次待办，
+    # 十一项的表单一项都填不完。实测撞的就是这个。
+    answers_pending = bool(
+        pending_ask.get("options")
+        and support_actions.pick_option(text, pending_ask["options"]))
+
+    # 长表单里的字段值本来就长得像找房词（区、户型、面积），
+    # 所以对表单只认**明确的祈使找房**，光出现一个区名不算。
+    in_form = bool(support_forms.spec(pending_action or ""))
     explicit_search = bool(
         re.search(r"找房|房源|租.{0,3}(?:房|一套)|(?:中山|西岗|沙河口|甘井子|旅顺口|金州)区|"
                   r"[一二三四五六七八九两三]\s*室", text))
+    if in_form:
+        explicit_search = bool(re.search(r"帮我找|我要找|找房|搜一?下房", text))
+
     interrupts_pending = bool(
-        pending_action and intent == "search" and explicit_search)
+        pending_action and intent == "search" and explicit_search
+        and not answers_pending)
     if interrupts_pending:
         pending_action = None
 
@@ -572,9 +592,16 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 代办层认领了这句话（出卡片、追问、要登录、查到了数据、已取消）
         # 才返回；它自己也没辙时（status 是 refused 之类）继续按意图走，
         # 免得把一句普通问题堵死在代办分支里
-        if result.get("status") in ("confirm", "need_slot", "need_login",
-                                    "cancelled", "escalate", "failed",
-                                    "account"):
+        # **带着待办进来的，结果一律原样返回。**
+        #
+        # 原先只认几个「办成了」的状态，别的就往下走意图路由——于是
+        # 用户在长表单里问一句「租金一般填多少」，客服层答完（refused
+        # 也好 answered 也好）把待办挂在返回值上，这里却把整个结果丢掉，
+        # 重新按意图跑了一遍，**待办和已填的九项一起没了**。
+        # 只有这一层知道 pending 的存在，它的结论就是最终结论。
+        if pending_action or result.get("status") in (
+                "confirm", "need_slot", "need_login",
+                "cancelled", "escalate", "failed", "account"):
             result["route"] = routed
             if resolved_house:
                 result["house_no"] = resolved_house

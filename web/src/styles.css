@@ -3560,6 +3560,53 @@ td.accent {
 .account-sub { color: #6b7280; font-size: 12px; flex: none; }
 .account-row.alert { color: #b42318; background: #fef3f2; }
 
+/* 长表单进度。填到第几项、已经填了什么，都摆出来——
+   十一项填下来，用户真正想知道的是后者。 */
+.form-card {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.form-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.form-label { font-weight: 600; }
+.form-count { color: #6b7280; font-size: 12px; }
+
+.form-bar {
+  margin: 6px 0 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: #e8ebef;
+  overflow: hidden;
+}
+
+.form-bar span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transition: width 0.25s ease;
+}
+
+.form-filled { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.form-chip {
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #eef2f6;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.form-chip b { color: #6b7280; font-weight: 500; margin-right: 3px; }
+
 /* 办事进度轨迹。竖排、左侧一列圆点连成线——和快递轨迹是同一种读法，
    用户不用学。走过的实心，正卡着的高亮，没到的灰。 */
 .timeline {

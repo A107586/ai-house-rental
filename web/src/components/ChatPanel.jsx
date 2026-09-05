@@ -169,6 +169,35 @@ const ACCOUNT_ROWS = {
   },
 }
 
+/** 长表单的填写进度。
+ *
+ * 「（第 6/11 项）」写在文字里也能看见，但十一项填下来，用户真正想知道的是
+ * **已经填了什么**——那份清单只有摆出来才看得清，也才好在提交前发现填错了。
+ * 中途跑题问了别的，回来一眼就能接上。
+ */
+function FormProgress({ form }) {
+  if (!form || !form.total) return null
+  const pct = Math.round((form.done / form.total) * 100)
+  return (
+    <div className="form-card">
+      <div className="form-head">
+        <span className="form-label">{form.label}</span>
+        <span className="form-count">{form.done}/{form.total}</span>
+      </div>
+      <div className="form-bar"><span style={{ width: `${pct}%` }} /></div>
+      {form.filled?.length > 0 && (
+        <div className="form-filled">
+          {form.filled.map((item) => (
+            <span className="form-chip" key={item.label}>
+              <b>{item.label}</b> {item.value}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** 办事进度轨迹。
  *
  * 「当前状态：待处理」说的是对的，但用户看完仍然不知道「还要等什么、
@@ -416,6 +445,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 查库结果。有它就渲染成一张小卡片，而不是只留一句话——
         // 「你还有 35 笔待缴账单」看得见，但看不见是哪几笔。
         account: res.account || null,
+        // 长表单进度。非表单的轮次是 null，不渲染
+        form: res.form || null,
         logId: res.log_id || null,
         status: res.status || '',
         feedback: 0,
@@ -572,6 +603,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                   ))}
                 </div>
               )}
+
+              {message.form && <FormProgress form={message.form} />}
 
               {message.account?.data && (
                 <AccountCard

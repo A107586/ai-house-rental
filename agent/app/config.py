@@ -145,6 +145,10 @@ class Settings:
 
         self.service_port = _get_int("AGENT_PORT", 8000)
 
+        # 跑测试时为真。除了不读 .env，还用来关掉「对话落库」这类
+        # 纯记录性的后端调用——见 backend.log_chat。
+        self.under_test = _UNDER_TEST
+
     @property
     def llm_enabled(self):
         """是否配置了可用的大模型。未配置时全链路降级为规则模式。"""

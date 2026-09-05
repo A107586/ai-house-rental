@@ -58,7 +58,7 @@
 import re
 
 from app.agents.booking.tools.parse_datetime import parse_datetime
-from app.agents.support.tools import account
+from app.agents.support.tools import account, forms
 from app.backend import BackendError
 
 RISK_LOW = "low"
@@ -127,6 +127,14 @@ ACTION_KEYWORDS = [
     # ---- 租客确认签约。房东发起后合同处于「待生效」，要租客点头才生效
     # 并排出整个租期的账单。原先这一步只能回页面点，而它恰恰是最需要
     # 「先把要签的是什么摆清楚再确认」的一步。
+    # 长表单的触发语。放在 activate_contract 之前：「发起签约」和
+    # 「确认签约」只差一个字，顺序错了房东想发起、却被当成租客确认。
+    ("publish_house", ["发布房源", "发个房源", "新增房源", "我要发布",
+                       "挂个房子", "上架新房源", "发一套房"]),
+    ("sign_contract", ["发起签约", "给租客签约", "签个合同", "起草合同",
+                       "发起合同"]),
+    ("edit_house", ["修改房源", "改房源", "改一下房源", "编辑房源",
+                    "改租金", "改一下租金", "改价格"]),
     ("activate_contract", ["确认合同", "确认签约", "同意签约", "签这份合同",
                            "确认这份合同", "我同意签"]),
     # ---- 房东申请房源核验
@@ -861,6 +869,50 @@ def _propose_verify_request(text, token, backend, context):
         warning="管理员核验通过后，房源会带上「已核验」标识。")
 
 
+# ------------------------------------------------------------- 长表单
+
+def _form_context(name, token, backend, slots):
+    """表单需要现查的东西。写死在表里会过期，所以每次问之前拉一遍。"""
+    context = dict(slots or {})
+    form = forms.spec(name)
+    if any(f.get("source") == "landlord_houses" for f in form["fields"]):
+        context["_houses"] = _rows(
+            backend.get("/api/landlord/houses", token=token))
+    return context
+
+
+def _propose_form(name):
+    """把一张声明式表单变成一个提议器：一次问一项，填完出确认卡。"""
+
+    def proposer(text, token, backend, context):
+        form = forms.spec(name)
+        # **只收这张表单声明过的字段。**
+        #
+        # 上游会往 context 里塞 house_no（用户此刻正看着哪套房），
+        # 全盘收下的话它会混进卡片参数，执行时被参数白名单拦成
+        # 「操作参数不合法：house_no」——**卡片好好的，一点确认就报错**，
+        # 是最难查的一类。表单自己的字段表就是唯一的口径。
+        allowed = {f["name"] for f in form["fields"]}
+        slots = {k: v for k, v in (context or {}).items() if k in allowed}
+
+        env = _form_context(name, token, backend, slots)
+        if name in ("sign_contract", "edit_house") and not env.get("_houses"):
+            return NOT_APPLICABLE, "你名下还没有房源。", None, None
+
+        field = forms.next_missing(name, slots)
+        if field is not None:
+            ask = forms.ask_for(name, field, slots, env)
+            return NEED_SLOT, ask["question"], None, ask
+
+        return CONFIRM, "", _card(
+            name, form["label"], forms.summary(name, slots), form["risk"],
+            dict(slots), detail=dict(slots), warning=form.get("warning", ""))
+
+    proposer.__name__ = "_propose_" + name
+    proposer.__doc__ = "长表单「%s」。" % forms.spec(name)["label"]
+    return proposer
+
+
 # ------------------------------------------------------------- 账号资料
 
 _PHONE = re.compile(r"1[3-9]\d{9}")
@@ -906,6 +958,9 @@ PROPOSERS = {
     "toggle_house": _propose_toggle_house,
     "activate_contract": _propose_activate_contract,
     "verify_request": _propose_verify_request,
+    "publish_house": _propose_form("publish_house"),
+    "sign_contract": _propose_form("sign_contract"),
+    "edit_house": _propose_form("edit_house"),
     "update_profile": _propose_update_profile,
 }
 
@@ -1051,6 +1106,30 @@ def _exec_verify_request(params, token, backend):
     return "核验申请已提交，等管理员处理。", data
 
 
+def _exec_publish_house(params, token, backend):
+    data = backend.post("/api/houses", dict(params), token=token)
+    no = (data or {}).get("house_no") or (data or {}).get("house", {}).get("house_no", "")
+    return "房源已提交%s，等管理员审核通过后就会对外展示。" % (
+        "（编号 %s）" % no if no else ""), data
+
+
+def _exec_sign_contract(params, token, backend):
+    data = backend.post("/api/contracts", {
+        "house_no": params["house_no"],
+        "tenant_username": params["tenant_username"],
+        "start_date": params["start_date"],
+        "months": int(params["months"]),
+    }, token=token)
+    return "合同已发起，等租客确认后生效。", data
+
+
+def _exec_edit_house(params, token, backend):
+    data = backend._request(
+        "PUT", "/api/houses/%s" % params["house_no"],
+        payload={params["field"]: params["value"]}, token=token)
+    return "改好了。**房源已退回待审核**，通过后才重新对外展示。", data
+
+
 def _exec_update_profile(params, token, backend):
     data = backend._request("PUT", "/api/auth/profile",
                             payload={"phone": params["phone"]}, token=token)
@@ -1074,12 +1153,30 @@ EXECUTORS = {
     "toggle_house": _exec_toggle_house,
     "activate_contract": _exec_activate_contract,
     "verify_request": _exec_verify_request,
+    "publish_house": _exec_publish_house,
+    "sign_contract": _exec_sign_contract,
+    "edit_house": _exec_edit_house,
     "update_profile": _exec_update_profile,
 }
 
 # 每个动作允许出现的参数名。**白名单，不是黑名单**：
 # 确认卡片是从前端回传的，多一个没见过的字段就应当拒绝，
 # 而不是原样透传给后端。
+# 动作 -> 中文名。卡片上本来就带 label，但打断后要说「刚才我们在办
+# 「发布房源」」时手上只有动作名，得能反查。
+LABELS = {
+    "pay_bill": "缴费", "cancel_viewing": "取消预约", "book_viewing": "预约看房",
+    "submit_repair": "提交报修", "renew_contract": "续租", "end_contract": "退租",
+    "favorite_house": "收藏房源", "unfavorite_house": "取消收藏",
+    "read_all_messages": "消息全部已读", "clear_history": "清空浏览足迹",
+    "submit_review": "提交评价", "handle_appointment": "处理看房预约",
+    "update_repair": "关闭工单", "toggle_house": "房源上下架",
+    "activate_contract": "确认签约", "verify_request": "申请核验",
+    "update_profile": "修改手机号", "publish_house": "发布房源",
+    "sign_contract": "发起签约", "edit_house": "修改房源",
+}
+
+
 ALLOWED_PARAMS = {
     "pay_bill": {"bill_no", "method"},
     "cancel_viewing": {"appointment_id", "status"},
@@ -1097,6 +1194,12 @@ ALLOWED_PARAMS = {
     "toggle_house": {"house_no", "status"},
     "activate_contract": {"contract_no"},
     "verify_request": {"house_no"},
+    "publish_house": {"district", "community", "address", "layout",
+                      "area", "rent_price", "deposit", "rent_type",
+                      "floor", "orientation", "title"},
+    "sign_contract": {"house_no", "tenant_username", "start_date",
+                      "months"},
+    "edit_house": {"house_no", "field", "value"},
     # **只放行 phone。** 这张白名单是这一层真正的安全边界：
     # 即使有人构造出 {"password": "..."}，也进不了后端。
     "update_profile": {"phone"},

@@ -43,6 +43,18 @@ class BackendClient(object):
     # ------------------------------------------------------------ 底层
 
     def _request(self, method, path, params=None, payload=None, token=None):
+        # **测试模式下不碰网络。**
+        #
+        # 项目一直说「测试不依赖网络与数据库」，但那句话原先是靠
+        # 「跑测试的机器上恰好起着后端」成立的：后端一关，每次调用都要
+        # 等一个连接失败，542 条用例从 0.6 秒变成 41 秒。
+        #
+        # 要测后端交互的用例本来就该注入假后端（RecordingBackend、
+        # FakeBackend 满地都是），模块级的这个 client 在测试里不该有真 I/O。
+        # 直接抛 BackendError——所有调用点本来就都处理了这个异常。
+        if settings.under_test:
+            raise BackendError("测试模式：不访问业务后端")
+
         url = self.base_url + "/" + path.lstrip("/")
         if params:
             # 过滤空值，避免后端把空串当成有效筛选条件
@@ -127,7 +139,7 @@ class BackendClient(object):
     def list_chat(self, session_id, token, limit=30):
         """读取会话记录。未登录、或后端不可用时退回空列表——
         记不住上下文只是体验降级，不该让整轮对话失败。"""
-        if not token or not session_id:
+        if not token or not session_id or settings.under_test:
             return []
         try:
             body = self.get("/api/chat-messages",
@@ -138,8 +150,14 @@ class BackendClient(object):
             return []
 
     def log_chat(self, session_id, role, content, token, intent=""):
-        """落库一轮对话。失败静默——记录写不进去不该拖垮回答。"""
-        if not token or not session_id:
+        """落库一轮对话。失败静默——记录写不进去不该拖垮回答。
+
+        **测试模式下直接跳过。** 这两个调用是纯记录性的，答案对不对
+        跟它们无关；但后端没起来的时候，每一次都要等一个连接失败，
+        实测把 542 条用例从 0.6 秒拖到 41 秒。项目一直说「测试不依赖
+        网络与数据库」——那句话原先是靠「本机恰好起着后端」成立的。
+        """
+        if not token or not session_id or settings.under_test:
             return False
         try:
             self.post("/api/chat-messages",

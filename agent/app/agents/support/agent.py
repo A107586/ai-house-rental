@@ -23,7 +23,8 @@ import time
 
 from app.agents.support import corpus
 from app.agents.support.tools import (actions, answer as answer_tool,
-                                      classify_ask, gate, house as house_tool,
+                                      classify_ask, forms, gate,
+                                      house as house_tool,
                                       router, toolcall)
 from app.backend import BackendError
 from app.retrieval.embed import VectorCache, build_embedder
@@ -176,6 +177,8 @@ def _shape(status, message, **extra):
         # 下一轮就能接上——服务端不存会话态。
         "options": [],
         "pending": None,
+        # 长表单进度。非表单的轮次是 None，前端不画
+        "form": None,
         "retrieval": {},
     }
     payload.update(extra)
@@ -300,17 +303,77 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     # 「算了」被当成了槽位值填进去，反而生成了一张取消预约的确认卡片——
     # 用户明明在喊停，系统却把事情往前推了一步。
     if actions.is_deny(raw):
+        # **填了一半的表单不能说丢就丢。**
+        #
+        # 否定词表里有「不要」「不用」，而表单答案里完全可能带这两个字
+        # （「月租多少钱？」→「不要钱」）。更要紧的是：哪怕他真的想放弃，
+        # 已经填的九项也值得再问一句——丢掉别人二十次输入是件大事，
+        # 而再确认一次的成本只有一句话。
+        slots_now = dict(pending.get("slots") or {})
+        if forms.spec(name) and not pending.get("abandon_asked"):
+            done, total = forms.progress(name, slots_now)
+            if done >= 2:
+                question = ("已经填了 %d/%d 项，确定不填了吗？"
+                            "再说一次「不填了」我就丢掉，说「继续」就接着填。"
+                            % (done, total))
+                return shaped(
+                    "need_slot", question,
+                    options=[{"value": "继续", "label": "继续填"},
+                             {"value": "不填了", "label": "丢掉，不填了"}],
+                    pending=dict(pending, abandon_asked=True),
+                    retrieval={"mode": "action", "action": name,
+                               "note": "表单填了一半，放弃前再确认一次"})
         return shaped("cancelled", "好，那就先不弄了。")
 
     # 用户中途改口去做别的事，就别再往旧槽里塞
     if actions.detect(raw) and actions.detect(raw) != name:
         return None
 
+    # 「继续」不是槽位值，是「回到刚才那一项」。不单独认出来的话，
+    # 这两个字会被当成答案填进去——用户想接着填，反而把一项填坏了。
+    if _wants_resume(raw):
+        resumed = dict(pending)
+        resumed.pop("abandon_asked", None)
+        return shaped("need_slot", ask.get("question", "接着填吧。"),
+                      options=ask.get("options", []),
+                      pending=resumed,
+                      retrieval={"mode": "action", "action": name,
+                                 "note": "用户要求接着办，重问当前这一项"})
+
+    # **中途问了个问题——去答他，但别把填过的东西丢掉。**
+    #
+    # 这是长表单最要命的一处。「发布房源」有十一项，填到第六项时用户问
+    # 一句「租金一般填多少合适」，原先的做法是接不上就放弃整个待办，
+    # 前六项白填。**代价是用户从此不敢在流程里问问题**——
+    # 而问问题恰恰是他需要助手的原因。
+    #
+    # 现在返回 INTERRUPTED，由 run() 正常回答，答完把 pending 原样带回去，
+    # 再补一句「刚才填到哪儿了」。
+    if _is_question(raw):
+        return INTERRUPTED
+
     value = _fill_slot(ask, raw)
     if not value:
         return None
 
     slots = dict(pending.get("slots") or {})
+
+    # 表单字段要当场校验。填错一项就是一条错数据，而用户不会逐字复核
+    # 确认卡——所以在收下的这一刻就得挡住，并且**留在原地重问**，
+    # 不能往下走，也不能把前面填好的丢掉。
+    if forms.spec(name):
+        good, cleaned = forms.validate(name, ask["slot"], value)
+        if not good:
+            retry = dict(ask)
+            retry["question"] = "%s%s" % (cleaned, ask["question"])
+            return shaped("need_slot", retry["question"],
+                          options=retry.get("options", []),
+                          pending={"action": name, "slots": slots,
+                                   "ask": retry},
+                          retrieval={"mode": "action", "action": name,
+                                     "note": "填的内容没通过校验，原地重问"})
+        value = cleaned
+
     slots[ask["slot"]] = value
     context = dict(slots)
     context.setdefault("house_no", house_no)
@@ -318,6 +381,80 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     status, message, new_card, new_ask = actions.propose(
         name, raw, token, backend, context=context)
     return _action_result(name, status, message, new_card, new_ask, slots, shaped)
+
+
+# `_resume` 的第三种结果：既不是「接住了」也不是「接不上」，
+# 而是「用户插了个问题，答完还要回来」。用一个哨兵对象区分，
+# 因为 None 已经表示放手了。
+INTERRUPTED = object()
+
+
+def _pending_label(pending):
+    """待办的中文名。表单有自己的名字，普通动作用动作名兜底。"""
+    name = (pending or {}).get("action") or ""
+    form = forms.spec(name)
+    if form:
+        return form["label"]
+    return actions.LABELS.get(name, name)
+
+
+def _pending_where(pending):
+    """一句「填到哪儿了」。长表单报进度，普通追问报在问什么。"""
+    name = (pending or {}).get("action") or ""
+    slots = (pending or {}).get("slots") or {}
+    if forms.spec(name):
+        done, total = forms.progress(name, slots)
+        return "已经填了 %d/%d 项" % (done, total)
+    ask = (pending or {}).get("ask") or {}
+    question = (ask.get("question") or "").strip()
+    return "还差一步：%s" % question if question else "还没做完"
+
+
+# 判断这一句是在**回答**还是在**提问**。
+#
+# 宁可判成回答：判错成提问，用户的答案会被当成问题去检索，回一句
+# 「没查到」然后重问，他再说一遍就是；判错成回答，错值直接进了槽，
+# 而槽里的东西是要落库的。所以这里只认相当明确的疑问句式。
+_QUESTION_MARKS = ("吗", "呢", "?", "？")
+_QUESTION_WORDS = ("怎么", "如何", "为什么", "什么时候", "多少钱一般",
+                   "一般填", "一般是", "能不能", "可不可以", "是不是",
+                   "有没有", "什么意思", "哪些", "区别")
+
+
+_RESUME_WORDS = ("继续", "接着填", "接着办", "回到刚才", "继续填",
+                 "刚才那个", "接着来", "往下")
+
+
+def _wants_resume(text):
+    raw = (text or "").strip()
+    return bool(raw) and len(raw) <= 8 and any(w in raw for w in _RESUME_WORDS)
+
+
+def _is_question(text):
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if any(word in raw for word in _QUESTION_WORDS):
+        return True
+    # 「多少」太常见了——「面积多少平米」的答案里不会有它，
+    # 但「押金一般多少」是提问。所以只在带疑问语气词时才算
+    return raw.endswith(_QUESTION_MARKS) and len(raw) >= 4
+
+
+def _form_progress(name, slots):
+    """长表单的进度。不是表单就返回 None，前端据此决定画不画。"""
+    form = forms.spec(name)
+    if not form:
+        return None
+    done, total = forms.progress(name, slots)
+    filled = []
+    for field in form["fields"]:
+        value = slots.get(field["name"])
+        if value in (None, ""):
+            continue
+        filled.append({"label": forms.label_of(field), "value": str(value)})
+    return {"label": form["label"], "done": done, "total": total,
+            "filled": filled}
 
 
 def _action_result(name, status, message, card, ask, slots, shaped):
@@ -333,6 +470,10 @@ def _action_result(name, status, message, card, ask, slots, shaped):
         return shaped("need_slot", message,
                       options=(ask or {}).get("options", []),
                       pending={"action": name, "slots": slots, "ask": ask},
+                      # 长表单额外给一份进度，前端拿它画进度条与已填清单。
+                      # 「第 6/11 项」写在文字里也能看，但十一项填下来，
+                      # 用户想知道的是**已经填了什么**——那份清单只有画出来才看得清。
+                      form=_form_progress(name, slots),
                       retrieval={"mode": "action", "action": name,
                                  "note": "缺少 %s，已追问"
                                          % (ask or {}).get("slot", "信息")})
@@ -367,14 +508,41 @@ def run(text, token="", history=None, provider=None, backend=None,
     def shaped(status, message, **extra):
         # 每条返回都带上原问题，日志与前端反馈都要用它定位这一轮
         extra.setdefault("question", raw)
-        return _shape(status, message, **extra)
+        payload = _shape(status, message, **extra)
+
+        # **打断之后要回得来。** 用户在长表单里插了个问题，答完就得把
+        # 待办原样交回前端，并且明说「刚才填到哪儿了」——
+        # 不说这一句，他不知道流程还在，多半会重新说一遍「发布房源」，
+        # 前面填的又白填了。
+        if carry_pending and not payload.get("pending"):
+            payload["pending"] = carry_pending
+            payload["options"] = (payload.get("options") or []) + [
+                {"value": "继续", "label": "继续刚才那件事"}]
+            hint = ("（刚才我们在办「%s」，%s。回一句「继续」就接着填。）"
+                    % (_pending_label(carry_pending),
+                       _pending_where(carry_pending)))
+            payload["message"] = (payload.get("message", "")
+                                  + chr(10) * 2 + hint)
+        return payload
 
     # ⓪ 先看这一句是不是在接上一轮没做完的事：回答追问，或者对着
     # 确认卡片说「好的」。接得上就继续，接不上就当新话题往下走。
+    # 用户在流程里插了个问题时，`_resume` 返回 INTERRUPTED：正常去答，
+    # 答完再把待办原样交回前端。这个变量一路带到函数末尾。
+    carry_pending = None
     if pending:
         resumed = _resume(raw, pending, token, backend, house_no, shaped)
-        if resumed is not None:
+        if resumed is INTERRUPTED:
+            carry_pending = pending
+        elif resumed is not None:
             return resumed
+
+    if carry_pending:
+        # 打断期间不再让路由重新判一次意图。用户明摆着是在问问题，
+        # 而不是要开一件新的事——这时候弹一张新卡片是最讨嫌的。
+        routing = {"kind": router.KIND_KNOWLEDGE, "name": "none",
+                   "source": "interrupted",
+                   "rule": {"kind": router.KIND_KNOWLEDGE, "name": "none"}}
 
     # ① 孤零零一句「好的」「算了」，前面却没有待办。
     # 不拦的话会一路走到检索，回一句「暂时没有查到相关规定」——

@@ -588,6 +588,10 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         "activate_contract": "确认签约",
         "verify_request": "申请核验",
         "update_profile": "改手机号",
+        # 三张长表单。触发语很短，问题全在后面那十几轮里
+        "publish_house": "我要发布房源",
+        "sign_contract": "帮我发起签约",
+        "edit_house": "改一下房源",
     }
 
     def test_every_action_is_covered_by_this_test(self):
@@ -686,6 +690,34 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         self.assertEqual(status, actions.NEED_SLOT)
         self.assertIsNotNone(ask)
         self.assertFalse(backend.writes)
+
+    def test_a_form_only_collects_its_own_fields(self):
+        """**表单只收自己声明过的字段。**
+
+        上游会往 context 里塞 house_no（用户此刻正看着哪套房）。全盘收下的话
+        它会混进卡片参数，执行时被白名单拦成「操作参数不合法」——
+        卡片看着好好的，一点确认就报错，这类问题最难查。
+        """
+        from app.agents.support.tools import forms
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        filled = {"district": "中山区", "community": "测试小区",
+                  "address": "测试路 1 号", "layout": "两室一厅", "area": 88,
+                  "rent_price": 3200, "deposit": 3200, "rent_type": "整租",
+                  "floor": "6/18", "orientation": "朝南", "title": "测试房源"}
+        _, _, card, _ = actions.propose(
+            "publish_house", "发布房源", "tok", backend,
+            context=dict(filled, house_no="DL0007", _houses=[]))
+        self.assertEqual(set(card["params"]), set(filled))
+        self.assertEqual(set(card["params"]),
+                         actions.ALLOWED_PARAMS["publish_house"])
+
+    def test_every_form_field_is_whitelisted(self):
+        """表单字段与参数白名单必须一一对应，缺一项执行就会被拦。"""
+        from app.agents.support.tools import forms
+        for name, form in forms.FORMS.items():
+            with self.subTest(form=name):
+                fields = {f["name"] for f in form["fields"]}
+                self.assertEqual(fields, actions.ALLOWED_PARAMS[name])
 
     def test_picked_option_is_the_one_that_ends_up_on_the_card(self):
         """点了第二条就得是第二条。选项与卡片对不上比不给选项更危险。"""
