@@ -711,6 +711,33 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         self.assertEqual(set(card["params"]),
                          actions.ALLOWED_PARAMS["publish_house"])
 
+    def test_a_none_slot_is_not_treated_as_filled(self):
+        """**`str(None)` 是 "None"，非空。**
+
+        上游没有房源上下文时给的就是 None。当成填过的后果实测过：
+        「修改房源」「发起签约」默默跳过第一问——用户没被问过是哪一套，
+        助手却认为问过了，接着拿一个字符串 "None" 当房源编号往下走。
+        """
+        from app.agents.support.tools import forms
+        self.assertFalse(forms.is_filled({"house_no": None}, "house_no"))
+        self.assertFalse(forms.is_filled({"house_no": ""}, "house_no"))
+        self.assertFalse(forms.is_filled({}, "house_no"))
+        self.assertTrue(forms.is_filled({"house_no": "DL0007"}, "house_no"))
+
+        self.assertEqual(
+            forms.next_missing("edit_house", {"house_no": None})["name"],
+            "house_no")
+        self.assertEqual(forms.progress("edit_house", {"house_no": None}),
+                         (0, 3))
+
+    def test_form_starts_at_the_first_question_without_context(self):
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, message, _, ask = actions.propose(
+            "edit_house", "我要改一下房源", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(ask["slot"], "house_no")
+        self.assertIn("1/3", message)
+
     def test_every_form_field_is_whitelisted(self):
         """表单字段与参数白名单必须一一对应，缺一项执行就会被拦。"""
         from app.agents.support.tools import forms

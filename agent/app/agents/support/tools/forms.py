@@ -60,11 +60,19 @@ def _number(value, spec):
 
 def _choice(value, spec):
     raw = (value or "").strip()
-    for option in spec["options"]:
+    # 选项来自实时查询（比如「改哪一套房源」）时，表里没有静态清单。
+    # 原先直接取 spec["options"] 会 KeyError——实测的表现很怪：
+    # 用户点了给出来的房源编号，却被回一句「这个选项我没找到」。
+    # 这种字段交给后端去判合不合法，这里只保证不是空的。
+    options = spec.get("options") or []
+    if not options:
+        return (True, raw) if raw else (False, "这一项还没填。")
+
+    for option in options:
         if option["value"] == raw or option["label"] == raw:
             return True, option["value"]
     # 用户可能只说了选项里的一部分（「两室」对「两室一厅」）
-    for option in spec["options"]:
+    for option in options:
         if raw and (raw in option["value"] or raw in option["label"]):
             return True, option["value"]
     return False, "这个选项我没找到，点一个上面给的吧。"
@@ -107,6 +115,13 @@ FORMS = {
     "publish_house": {
         "label": "发布房源",
         "risk": "medium",
+        # **谁能办这件事，开问之前就要知道。**
+        # 不写这一行的后果实测过：租客把十一项全填完、点确认，
+        # 才收到一句「没有操作权限」——十一次输入白费，
+        # 而这件事在第一句话之前就该说清楚。
+        "roles": ("landlord", "admin"),
+        "denied": "发布房源是房东端的功能，你当前的身份做不了。"
+                  "要出租房子的话，先在账号设置里申请成为房东。",
         "intro": "好，我们一项一项来。随时可以问我别的，问完回来接着填。",
         "warning": "提交后房源进入待审核，管理员通过后才对外展示。",
         "fields": [
@@ -138,6 +153,9 @@ FORMS = {
     "sign_contract": {
         "label": "发起签约",
         "risk": "high",
+        "roles": ("landlord", "admin"),
+        "denied": "签约要由房东发起。你是租客的话，等房东发起后"
+                  "在「我的租约」里确认就行。",
         "intro": "好，我们把签约信息一项一项确认下来。",
         "warning": "发起后租客会收到待确认的合同，他点确认之后才生效。",
         "fields": [
@@ -154,6 +172,8 @@ FORMS = {
     "edit_house": {
         "label": "修改房源",
         "risk": "medium",
+        "roles": ("landlord", "admin"),
+        "denied": "修改房源是房东端的功能，你当前的身份做不了。",
         "intro": "改哪一项？一次改一项，改完还能接着改别的。",
         "warning": "**修改后房源会退回待审核状态**，要重新过一遍审核才对外展示。",
         "fields": [
@@ -163,8 +183,14 @@ FORMS = {
              "options": [option("rent_price", "月租"), option("deposit", "押金"),
                          option("title", "标题"), option("address", "地址"),
                          option("description", "房源描述")]},
+            # **值的类型取决于上一项改的是哪一项。**
+            # 一律当文本收的后果实测过：改租金填「三千五」，卡片好好的，
+            # 一点确认后端回 float_parsing——又是「卡片对、执行错」。
             {"name": "value", "type": "text", "question": "改成什么？",
-             "max_len": 500},
+             "max_len": 500,
+             "type_by": {"field": {"rent_price": "number",
+                                   "deposit": "number"}},
+             "min": 0, "max": 1000000},
         ],
     },
 }
@@ -193,13 +219,27 @@ def _options_for(field, context):
     return []
 
 
+def is_filled(slots, name):
+    """这一项填过没有。
+
+    **不能写成 `str(value).strip()`。** 上游的 `resolve_house` 在没有房源
+    上下文时返回的是 `None`，而 `str(None)` 是字符串 "None"——非空。
+    实测的表现是「修改房源」「发起签约」**默默跳过第一项**：
+    用户没被问过是哪一套，助手却认为问过了。
+    """
+    value = (slots or {}).get(name)
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
 def next_missing(name, slots):
     """下一个还没填的必填字段。全填完返回 None。"""
     form = FORMS[name]
     for field in form["fields"]:
         if field.get("optional"):
             continue
-        if not str(slots.get(field["name"], "")).strip():
+        if not is_filled(slots, field["name"]):
             return field
     return None
 
@@ -208,18 +248,39 @@ def progress(name, slots):
     """填到第几项 / 一共几项。用户得知道自己在哪、还剩多少。"""
     form = FORMS[name]
     required = [f for f in form["fields"] if not f.get("optional")]
-    done = sum(1 for f in required
-               if str(slots.get(f["name"], "")).strip())
+    done = sum(1 for f in required if is_filled(slots, f["name"]))
     return done, len(required)
 
 
-def validate(name, field_name, value):
+def type_of(field, slots):
+    """字段的实际类型。多数是写死的，少数看别的槽位。
+
+    「改成什么？」这一项，改的是租金就得按数字校验，改的是标题就是文本。
+    """
+    rule = field.get("type_by") or {}
+    for slot, mapping in rule.items():
+        picked = str((slots or {}).get(slot, ""))
+        if picked in mapping:
+            return mapping[picked]
+    return field["type"]
+
+
+def validate(name, field_name, value, slots=None):
     """校验一个字段。返回 ``(是否通过, 清洗后的值或错误提示)``。"""
     field = field_spec(FORMS[name], field_name)
     if not field:
         return False, "这一项我不认识。"
-    checker = VALIDATORS.get(field["type"], _text)
+    checker = VALIDATORS.get(type_of(field, slots), _text)
     return checker(value, field)
+
+
+def allowed_roles(name):
+    """这张表单允许谁办。返回空表示不限。"""
+    return (FORMS.get(name) or {}).get("roles") or ()
+
+
+def denied_message(name):
+    return (FORMS.get(name) or {}).get("denied") or "你当前的身份做不了这件事。"
 
 
 def ask_for(name, field, slots, context=None):
@@ -246,6 +307,12 @@ def summary(name, slots):
         value = slots.get(field["name"])
         if value in (None, ""):
             continue
+        # 值本身也可能是个内部名。「改 rent_price，改成 3500」——
+        # 用户在选项上点的是「月租」，卡片却回给他一个字段名。
+        for option in (field.get("options") or []):
+            if option["value"] == value:
+                value = option["label"]
+                break
         label = field["question"].rstrip("？?").replace("最后起个标题，", "")
         parts.append("%s%s" % (_short_label(field, label), value))
     return "%s：%s" % (form["label"], "，".join(parts))

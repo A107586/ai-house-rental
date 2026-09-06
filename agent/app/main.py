@@ -599,7 +599,14 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 也好 answered 也好）把待办挂在返回值上，这里却把整个结果丢掉，
         # 重新按意图跑了一遍，**待办和已填的九项一起没了**。
         # 只有这一层知道 pending 的存在，它的结论就是最终结论。
-        if pending_action or result.get("status") in (
+        # 路由判成「要办一件事」时，客服层给出的答复就是最终答复——
+        # 包括「你没这个身份」这种。原先它不在放行名单里，于是
+        # 「我要发布房源」被租客说出来，那句「发布房源是房东端的功能」
+        # 被丢掉、重新按意图跑成找房，回一句「没听懂你的找房需求」。
+        claimed = (decision["kind"] == support_router.KIND_ACTION
+                   and result.get("status") == "answered"
+                   and bool(result.get("message")))
+        if pending_action or claimed or result.get("status") in (
                 "confirm", "need_slot", "need_login",
                 "cancelled", "escalate", "failed", "account"):
             result["route"] = routed

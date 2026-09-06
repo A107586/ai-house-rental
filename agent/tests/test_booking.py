@@ -37,6 +37,46 @@ class TestParseWeekday(unittest.TestCase):
     def test_bare_weekday_is_next_occurrence(self):
         self.assertEqual(parse_datetime("周四", now=NOW)["date"], date(2026, 9, 3))
 
+    def test_this_weekday_already_passed_rolls_forward(self):
+        """**「这周六」在周日说，指的是下一个周六，不是昨天那个。**
+
+        按 ISO 周算，周日属于「这一周」的最后一天，于是「这周六」算出来是
+        昨天——用户拿它去约看房，后端一句「不能预约过去的时间」把他挡回来，
+        而他根本不知道自己哪里说错了。
+
+        这个坑只在周日冒出来，平时跑测试撞不到；是某个周日跑验收用例时
+        （AI-06 准确率从 100% 掉到 85%）才逮住的。所以这里把「现在」
+        钉死在周日，不再靠运气。
+        """
+        sunday = datetime(2026, 9, 6, 15, 0)      # 周日下午三点
+        self.assertEqual(parse_datetime("这周六", now=sunday)["date"],
+                         date(2026, 9, 12))
+        self.assertEqual(parse_datetime("这周五", now=sunday)["date"],
+                         date(2026, 9, 11))
+
+    def test_today_but_the_hour_already_passed_rolls_forward(self):
+        """日期没过期、时刻过期了，同样要顺延。
+
+        「这周日上午十点」在周日下午说，日期算出来就是今天——过期的是时刻。
+        """
+        sunday = datetime(2026, 9, 6, 15, 0)
+        parsed = parse_datetime("这周日上午十点", now=sunday)
+        self.assertEqual(parsed["date"], date(2026, 9, 13))
+        self.assertEqual(parsed["time"], time(10, 0))
+
+    def test_a_still_future_hour_today_is_not_pushed_away(self):
+        """今天晚些时候还没到，就不该顺延——那是替用户做主。"""
+        sunday = datetime(2026, 9, 6, 9, 0)
+        parsed = parse_datetime("这周日下午三点", now=sunday)
+        self.assertEqual(parsed["date"], date(2026, 9, 6))
+
+    def test_plain_today_is_never_pushed_to_next_week(self):
+        """只有星期表达才顺延。「今天下午三点」说晚了是用户自己说错，
+        把它改成下周今天才叫离谱。"""
+        late = datetime(2026, 9, 6, 16, 0)
+        self.assertEqual(parse_datetime("今天下午三点", now=late)["date"],
+                         date(2026, 9, 6))
+
 
 class TestParseRelativeDay(unittest.TestCase):
 

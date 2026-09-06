@@ -871,6 +871,26 @@ def _propose_verify_request(text, token, backend, context):
 
 # ------------------------------------------------------------- 长表单
 
+def _role_gate(name, token, backend):
+    """身份不够就返回一句解释，够就返回空串。
+
+    取不到身份时**放行**：后端每个写接口自己也校验，那一层才是真正的
+    安全边界；这里只是为了别让人白填十一项。因为一次查询失败就拒绝服务，
+    才是更常见的错误。
+    """
+    roles = forms.allowed_roles(name)
+    if not roles:
+        return ""
+    try:
+        me = backend.get("/api/auth/me", token=token)
+    except Exception:
+        return ""
+    role = (me or {}).get("role") or ""
+    if not role or role in roles:
+        return ""
+    return forms.denied_message(name)
+
+
 def _form_context(name, token, backend, slots):
     """表单需要现查的东西。写死在表里会过期，所以每次问之前拉一遍。"""
     context = dict(slots or {})
@@ -893,7 +913,16 @@ def _propose_form(name):
         # 「操作参数不合法：house_no」——**卡片好好的，一点确认就报错**，
         # 是最难查的一类。表单自己的字段表就是唯一的口径。
         allowed = {f["name"] for f in form["fields"]}
-        slots = {k: v for k, v in (context or {}).items() if k in allowed}
+        # None 一并滤掉：上游拿不到房源上下文时给的就是 None，
+        # 留着它会被当成「填过了」（str(None) == "None"）。
+        slots = {k: v for k, v in (context or {}).items()
+                 if k in allowed and v is not None and str(v).strip()}
+
+        # **先问「你能不能办这件事」，再问第一项。**
+        # 顺序反了的代价实测过：租客把十一项填完才收到「没有操作权限」。
+        denied = _role_gate(name, token, backend)
+        if denied:
+            return NOT_APPLICABLE, denied, None, None
 
         env = _form_context(name, token, backend, slots)
         if name in ("sign_contract", "edit_house") and not env.get("_houses"):

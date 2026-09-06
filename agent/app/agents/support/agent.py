@@ -362,7 +362,7 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     # 确认卡——所以在收下的这一刻就得挡住，并且**留在原地重问**，
     # 不能往下走，也不能把前面填好的丢掉。
     if forms.spec(name):
-        good, cleaned = forms.validate(name, ask["slot"], value)
+        good, cleaned = forms.validate(name, ask["slot"], value, slots)
         if not good:
             retry = dict(ask)
             retry["question"] = "%s%s" % (cleaned, ask["question"])

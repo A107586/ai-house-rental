@@ -90,7 +90,17 @@ def _next_weekday(base, target, modifier):
     if modifier == "上":
         return week_monday + timedelta(days=target - 7)
     if modifier in ("这", "本"):
-        return week_monday + timedelta(days=target)
+        this_week = week_monday + timedelta(days=target)
+        # **「这周六」在周日说，指的是下一个周六，不是昨天那个。**
+        #
+        # 按 ISO 周算，周日属于「这一周」的最后一天，于是「这周六」
+        # 算出来是昨天——用户拿它去约看房，后端一句「不能预约过去的时间」
+        # 把他挡回来，而他根本不知道自己说错了什么。
+        # 这个 bug 只在周日（以及本周那天已经过去时）冒出来，
+        # 平时跑测试撞不到；今天恰好是周日，才被 AI-06 那条验收用例逮住。
+        if this_week < base:
+            return this_week + timedelta(days=7)
+        return this_week
 
     delta = (target - base.weekday()) % 7
     if delta == 0:
@@ -236,6 +246,18 @@ def parse_datetime(text, now=None):
     if clock:
         result["time"] = clock
         matched.append("时刻")
+
+        # **今天这个点已经过了，就顺延到下一周。**
+        #
+        # 「这周日上午十点」在周日下午说，日期算出来是今天——日期本身没过期，
+        # 过期的是时刻。不管的话用户拿到一个已经过去的时间点，
+        # 后端一句「不能预约过去的时间」把他挡回来，他还不知道错在哪。
+        #
+        # 只对**星期表达**顺延：「今天下午三点」说的时候已经四点了，
+        # 那是用户自己说错，顺延成明天反而是替他做主。
+        if ("星期" in matched and result.get("date") == today
+                and clock <= now.time()):
+            result["date"] = today + timedelta(days=7)
 
     result["matched"] = matched
     result["confidence"] = _confidence(result)
