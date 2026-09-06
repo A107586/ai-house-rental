@@ -348,9 +348,24 @@ def _option(value, label):
     return {"value": value, "label": label}
 
 
-def _ask(slot, question, options=None):
-    """一次追问：缺哪个槽、问什么、有哪些可点的选项。"""
-    return {"slot": slot, "question": question, "options": options or []}
+def _ask(slot, question, options=None, kind="", carry=None):
+    """一次追问：缺哪个槽、问什么、有哪些可点的选项。
+
+    `kind` 是给前端看的提示。目前只有 "upload"：这一项要的不是打字，
+    而是选一张图——前端据此渲染上传按钮，而不是让用户对着输入框发愣。
+    """
+    ask = {"slot": slot, "question": question, "options": options or []}
+    if kind:
+        ask["kind"] = kind
+    if carry:
+        # **提议器这一轮算出来的东西，得让下一轮还看得见。**
+        #
+        # 报修的故障描述是从「当前这句话」现推的。追问照片之后，
+        # 「当前这句话」变成了照片答案，描述就丢了——实测的表现是
+        # 工单内容变成 `__skip__` 或者一串图片地址。**这是会写坏数据的。**
+        # `carry` 里的东西会并进待办的槽位，下一轮原样取回。
+        ask["carry"] = dict(carry)
+    return ask
 
 
 # ---------------------------------------------------------------- 提议
@@ -519,6 +534,25 @@ def _propose_book_viewing(text, token, backend, context):
         warning="提交后要等房东确认，结果会通过站内消息通知你。"), None
 
 
+# 用户点「跳过」时填进槽里的值。用一个不可能与图片地址混淆的串，
+# 免得把「跳过」两个字当成图片地址发给后端。
+SKIP_UPLOAD = "__skip__"
+
+
+def _image_urls(value):
+    """把槽位里的值整理成图片地址列表。跳过、空值都返回空列表。"""
+    if not value or value == SKIP_UPLOAD:
+        return []
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = str(value).split(",")
+    # 只收本系统上传的地址。后端也会再校验一次（uploads.is_managed），
+    # 这里先过一道，免得把一个外链原样发过去再被拒。
+    return [u.strip() for u in items
+            if u.strip().startswith(("/static/", "static/"))]
+
+
 def _propose_submit_repair(text, token, backend, context):
     house_no = (context or {}).get("house_no") or ""
     if not house_no:
@@ -529,6 +563,13 @@ def _propose_submit_repair(text, token, backend, context):
             return (NOT_APPLICABLE,
                     "你名下没有生效中的租约，报修要先有在租的房子。", None)
         house_no = active[0].get("house_no") or ""
+
+    # 描述优先用已经存下来的那份。第一轮从这句话里推，之后原样取——
+    # 否则追问照片时会拿照片答案覆盖掉故障描述。
+    saved = (context or {}).get("content")
+    if saved and str(saved).strip():
+        content = str(saved).strip()
+        return _repair_after_content(content, house_no, context)
 
     # 把祈使语摘掉，只留故障描述本身。
     # 不摘的话工单内容会变成「厨房水管漏水了帮我报修」——多出来的三个字
@@ -549,11 +590,34 @@ def _propose_submit_repair(text, token, backend, context):
             _option("空调不制冷", "空调不制冷"),
             _option("跳闸停电了", "跳闸停电了")])
 
+    return _repair_after_content(content, house_no, context)
+
+
+def _repair_after_content(content, house_no, context):
+    """描述已经有了，接着问照片、出卡片。"""
+    # ---- 照片是可选的一步，但值得专门问一句 ----
+    #
+    # 「哪里坏了」用文字往往说不清：「厨房水管漏水」到底是接头渗水
+    # 还是管子裂了，师傅带的工具完全不一样。一张照片能省掉一轮上门。
+    # 所以问，但必须能一键跳过——为了传张图卡住报修，是本末倒置。
+    images = (context or {}).get("images")
+    if images is None:
+        question = "要拍张照片吗？说不清的地方拍一张，师傅能提前备好工具。"
+        return NEED_SLOT, question, None, _ask(
+            "images", question,
+            [_option(SKIP_UPLOAD, "跳过，直接提交")], kind="upload",
+            carry={"content": content, "house_no": house_no})
+
+    urls = _image_urls(images)
+    summary = "为 %s 提交报修：%s" % (house_no, content[:40])
+    if urls:
+        summary += "（附 %d 张照片）" % len(urls)
+
     return CONFIRM, "", _card(
-        "submit_repair", "提交报修",
-        "为 %s 提交报修：%s" % (house_no, content[:40]), RISK_MEDIUM,
-        {"house_no": house_no, "content": content},
-        detail={"house_no": house_no, "content": content},
+        "submit_repair", "提交报修", summary, RISK_MEDIUM,
+        {"house_no": house_no, "content": content,
+         "images": ",".join(urls)},
+        detail={"house_no": house_no, "content": content, "images": urls},
         warning="提交后系统会自动判断故障类型与紧急程度并派单。")
 
 
@@ -1054,7 +1118,27 @@ def _exec_submit_repair(params, token, backend):
         "house_no": params["house_no"],
         "content": params["content"],
     }, token=token)
-    return "报修已提交，可以在「我的租约 → 报修」里看进度。", data
+
+    # 照片挂在工单建好之后——后端要工单 id 才收得下。
+    # **挂图失败不能让整单失败**：工单已经建出来了，这时候报错会让用户
+    # 以为报修没成，再报一遍就是两条重复工单。
+    urls = _image_urls(params.get("images"))
+    repair_id = ((data or {}).get("repair") or {}).get("id")
+    attached = 0
+    if repair_id and urls:
+        for url in urls[:6]:
+            try:
+                backend.post("/api/repairs/%s/images" % repair_id,
+                             {"url": url}, token=token)
+                attached += 1
+            except Exception:
+                continue
+
+    message = "报修已提交，可以在「我的租约 → 报修」里看进度。"
+    if urls:
+        message += ("照片也传上去了（%d 张）。" % attached if attached
+                    else "照片没传上去，可以到工单里再补。")
+    return message, data
 
 
 def _exec_renew_contract(params, token, backend):
@@ -1210,7 +1294,7 @@ ALLOWED_PARAMS = {
     "pay_bill": {"bill_no", "method"},
     "cancel_viewing": {"appointment_id", "status"},
     "book_viewing": {"house_no", "viewing_time"},
-    "submit_repair": {"house_no", "content"},
+    "submit_repair": {"house_no", "content", "images"},
     "renew_contract": {"contract_no", "months"},
     "end_contract": {"contract_no", "reason"},
     "favorite_house": {"house_no"},

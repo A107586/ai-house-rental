@@ -3560,6 +3560,17 @@ td.accent {
 .account-sub { color: #6b7280; font-size: 12px; flex: none; }
 .account-row.alert { color: #b42318; background: #fef3f2; }
 
+/* 对话里的选图按钮。助手问「要拍张照片吗」时，
+   面前只有输入框的话，用户没法把一张图打进去。 */
+.upload-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.upload-err { color: #b42318; font-size: 12px; }
+
 /* 长表单进度。填到第几项、已经填了什么，都摆出来——
    十一项填下来，用户真正想知道的是后者。 */
 .form-card {

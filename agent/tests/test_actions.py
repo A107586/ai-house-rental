@@ -217,11 +217,112 @@ class TestCardContents(unittest.TestCase):
 
     def test_repair_content_strips_the_imperative(self):
         """工单内容不该带上「帮我报修」这几个字——它会跟着进故障分类，
-        也会显示在房东的工单列表里。"""
+        也会显示在房东的工单列表里。
+
+        描述填完之后还会问一句要不要传照片，所以这里直接把那一步跳过。
+        """
         backend = RecordingBackend(ACTIVE_CONTRACT)
         _, _, card, _ = actions.propose(
-            "submit_repair", "厨房水管漏水了帮我报修", "tok", backend)
+            "submit_repair", "厨房水管漏水了帮我报修", "tok", backend,
+            context={"images": actions.SKIP_UPLOAD})
         self.assertEqual(card["params"]["content"], "厨房水管漏水了")
+
+
+class TestRepairPhotos(unittest.TestCase):
+    """报修传照片。
+
+    「哪里坏了」用文字往往说不清：「厨房水管漏水」到底是接头渗水还是
+    管子裂了，师傅带的工具完全不一样。所以问一句，但**必须能一键跳过**——
+    为了传张图卡住报修是本末倒置。
+    """
+
+    def setUp(self):
+        self.backend = RecordingBackend(ACTIVE_CONTRACT)
+
+    def propose(self, **context):
+        return actions.propose("submit_repair", "厨房水管漏水了帮我报修",
+                               "tok", self.backend, context=context or None)
+
+    def test_asks_for_a_photo_after_the_description(self):
+        status, message, card, ask = self.propose()
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertEqual(ask["slot"], "images")
+        # 前端靠这个标记渲染上传按钮，而不是让用户对着输入框发愣
+        self.assertEqual(ask.get("kind"), "upload")
+        self.assertTrue(ask["options"], "必须给一个跳过的出口")
+
+    def test_skipping_goes_straight_to_the_card(self):
+        status, _, card, _ = self.propose(images=actions.SKIP_UPLOAD)
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertEqual(card["params"]["images"], "")
+        self.assertNotIn("照片", card["summary"])
+
+    def test_photos_show_up_on_the_card(self):
+        _, _, card, _ = self.propose(
+            images="/static/uploads/a.jpg,/static/uploads/b.jpg")
+        self.assertIn("附 2 张照片", card["summary"])
+        self.assertEqual(card["params"]["images"],
+                         "/static/uploads/a.jpg,/static/uploads/b.jpg")
+
+    def test_outside_links_are_dropped(self):
+        """**只收本系统上传的地址。**
+
+        后端也会再校验一次，但让一个外链一路走到执行才被拒，
+        用户看到的是「报修失败」——错在最后一步，而原因在第一步。
+        """
+        _, _, card, _ = self.propose(
+            images="https://example.com/x.jpg,/static/uploads/ok.jpg")
+        self.assertEqual(card["params"]["images"], "/static/uploads/ok.jpg")
+
+    def test_the_skip_token_never_reaches_the_backend(self):
+        """跳过用的是一个不可能混淆的串，不能把「跳过」两个字当成图片地址。"""
+        self.assertEqual(actions._image_urls(actions.SKIP_UPLOAD), [])
+        self.assertEqual(actions._image_urls("跳过"), [])
+        self.assertEqual(actions._image_urls(None), [])
+
+    def test_the_description_survives_the_photo_question(self):
+        """**故障描述不能被照片那一轮的回答覆盖。**
+
+        描述是从「当前这句话」现推的。追问照片之后，「当前这句话」变成了
+        照片答案或者一个跳过标记——实测的表现是工单内容变成 `__skip__`
+        或者一串图片地址。**这是会写坏数据的**：房东打开工单看到的是
+        一行 `__skip__`，根本不知道哪儿坏了。
+        """
+        status, _, _, ask = self.propose()
+        self.assertEqual(status, actions.NEED_SLOT)
+        # 描述要跟着追问一起带走，下一轮才取得回来
+        self.assertEqual(ask["carry"]["content"], "厨房水管漏水了")
+
+        # 下一轮：用户点了跳过，描述从槽位里取回来
+        _, _, card, _ = self.propose(content="厨房水管漏水了",
+                                     images=actions.SKIP_UPLOAD)
+        self.assertEqual(card["params"]["content"], "厨房水管漏水了")
+        self.assertNotIn(actions.SKIP_UPLOAD, card["summary"])
+
+        # 传了图也一样
+        _, _, card, _ = self.propose(content="厨房水管漏水了",
+                                     images="/static/uploads/a.jpg")
+        self.assertEqual(card["params"]["content"], "厨房水管漏水了")
+
+    def test_a_failed_photo_does_not_fail_the_whole_ticket(self):
+        """**工单已经建出来了，挂图失败不能报错。**
+
+        报错会让用户以为报修没成，再报一遍就是两条重复工单。
+        """
+        class Flaky(RecordingBackend):
+            def post(self, path, payload=None, token=None):
+                if "/images" in path:
+                    raise BackendError("挂图失败")
+                self.writes.append(("POST", path, payload))
+                return {"ok": True, "repair": {"id": 7}}
+
+        backend = Flaky()
+        okay, message, _ = actions.execute(
+            "submit_repair",
+            {"house_no": "DL0001", "content": "水管漏水",
+             "images": "/static/uploads/a.jpg"}, "tok", backend)
+        self.assertTrue(okay, message)
+        self.assertIn("再补", message)
 
     def test_missing_slot_asks_instead_of_guessing(self):
         backend = RecordingBackend()

@@ -169,6 +169,63 @@ const ACCOUNT_ROWS = {
   },
 }
 
+/** 对话里的图片上传。
+ *
+ * 助手问「要拍张照片吗」的时候，用户面前不该只有一个输入框——他没法
+ * 把一张图打进去。所以这一步渲染成选文件按钮 + 一个跳过。
+ *
+ * 图片直接传给业务后端换成地址，**不经过智能体**：智能体不碰二进制，
+ * 它只收一串地址；后端那边还会再校验一次「是不是本系统传的」。
+ */
+function UploadStep({ onPicked, busy }) {
+  const inputRef = useRef(null)
+  const [error, setError] = useState('')
+  const [working, setWorking] = useState(false)
+
+  async function pick(event) {
+    const files = [...(event.target.files || [])].slice(0, 6)
+    event.target.value = ''
+    if (!files.length) return
+    setWorking(true)
+    setError('')
+    try {
+      const urls = []
+      for (const file of files) {
+        const data = await api.uploadImage(file)
+        if (data.url) urls.push(data.url)
+      }
+      if (urls.length) onPicked(urls.join(','))
+      else setError('没拿到图片地址，再试一次')
+    } catch (err) {
+      // 传图失败不该把这一步堵死——用户随时可以跳过继续报修
+      setError(err.message || '上传失败')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div className="upload-step">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={pick}
+      />
+      <button
+        className="btn small"
+        disabled={busy || working}
+        onClick={() => inputRef.current?.click()}
+      >
+        {working ? '上传中…' : '选照片（最多 6 张）'}
+      </button>
+      {error && <span className="upload-err">{error}</span>}
+    </div>
+  )
+}
+
 /** 长表单的填写进度。
  *
  * 「（第 6/11 项）」写在文字里也能看见，但十一项填下来，用户真正想知道的是
@@ -447,6 +504,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         account: res.account || null,
         // 长表单进度。非表单的轮次是 null，不渲染
         form: res.form || null,
+        // 这一轮问的是什么。kind === 'upload' 时要渲染选图按钮，
+        // 而不是让用户对着输入框发愣
+        ask: res.pending?.ask || null,
         logId: res.log_id || null,
         status: res.status || '',
         feedback: 0,
@@ -612,6 +672,10 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                   data={message.account.data}
                   onOpenHouse={onOpenHouse}
                 />
+              )}
+
+              {message.ask?.kind === 'upload' && (
+                <UploadStep busy={busy} onPicked={(urls) => send(null, urls)} />
               )}
 
               {message.options?.length > 0 && (

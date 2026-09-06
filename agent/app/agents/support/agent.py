@@ -467,6 +467,10 @@ def _action_result(name, status, message, card, ask, slots, shaped):
                                  "risk": card["risk"],
                                  "note": "已生成确认卡片，等待用户确认后才执行"})
     if status == actions.NEED_SLOT:
+        # 提议器这一轮算出来、下一轮还要用的东西（比如报修的故障描述）
+        # 通过 ask["carry"] 带过来，并进槽位一起存住。
+        slots = dict(slots or {})
+        slots.update((ask or {}).get("carry") or {})
         return shaped("need_slot", message,
                       options=(ask or {}).get("options", []),
                       pending={"action": name, "slots": slots, "ask": ask},
