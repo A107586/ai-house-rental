@@ -33,6 +33,10 @@ class LLMProvider(object):
         text = self.complete(system_prompt, user_prompt, max_tokens=max_tokens)
         return extract_json(text)
 
+    def stats(self):
+        """调用成败统计。子类可以覆盖，默认是「没统计」。"""
+        return {"calls": 0, "failures": 0, "last_error": "", "healthy": None}
+
     @property
     def available(self):
         return True

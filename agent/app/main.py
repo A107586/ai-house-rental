@@ -120,8 +120,15 @@ def root():
 
 @app.get("/health")
 def health():
-    """健康检查。返回内容**不含任何密钥**。"""
-    return {"status": "ok", "config": settings.describe()}
+    """健康检查。返回内容**不含任何密钥**。
+
+    `llm` 那一段是实测撞出来的需求：中转站把某个模型下线之后，每次调用
+    返回 503，系统按设计静默退回规则——功能全在，只是模型没参与，
+    而这里当时只写着「大模型 + 规则」。**配置上了不等于调得通**，
+    所以把这个进程里的调用成败也摆出来。
+    """
+    return {"status": "ok", "config": settings.describe(),
+            "llm": provider.stats()}
 
 
 @app.post("/agent/search")

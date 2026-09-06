@@ -38,6 +38,10 @@ class OpenAICompatibleProvider(LLMProvider):
         self._model = model or "gpt-4o-mini"
         self._timeout = timeout
         self._max_tokens = max_tokens
+        # 调用统计。进程内存着就够——要的是「现在通不通」，不是历史报表
+        self._calls = 0
+        self._failures = 0
+        self._last_error = ""
 
     # 可重试的 HTTP 状态：限流与网关侧的临时故障。
     #
@@ -49,6 +53,24 @@ class OpenAICompatibleProvider(LLMProvider):
     # 退避基数。429 时服务端往往还在过载，立刻重试只会加剧
     BACKOFF_SECONDS = 0.6
 
+    def stats(self):
+        """这个进程里大模型调用的成败情况。
+
+        **配置上了不等于调得通。** 实测撞过一次：中转站把某个模型下线，
+        每次调用返回 503，系统按设计静默退回规则——功能全在，
+        只是模型没参与，而 `/health` 还写着「大模型 + 规则」。
+        排查花的时间远超写这几行。所以把成败摆出来。
+        """
+        return {
+            "calls": self._calls,
+            "failures": self._failures,
+            "last_error": self._last_error,
+            # 一次都没调过时是**未知**，不是「不健康」。
+            # 报 False 会让人以为出了问题，其实只是还没人问过话。
+            "healthy": None if self._calls == 0
+                       else self._failures < self._calls,
+        }
+
     def _post_with_retry(self, request):
         """发请求，遇到瞬时故障时重试。
 
@@ -58,6 +80,7 @@ class OpenAICompatibleProvider(LLMProvider):
         重试仍然有上限：三次之内不成功就老实降级，不能让用户干等。
         """
         last = "未知错误"
+        self._calls += 1
         for attempt in range(self.MAX_ATTEMPTS):
             try:
                 with urllib.request.urlopen(
@@ -83,6 +106,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 time.sleep(self.BACKOFF_SECONDS * (2 ** attempt)
                            * (0.8 + random.random() * 0.4))
 
+        self._failures += 1
+        self._last_error = last
         raise LLMUnavailable(last)
 
     def complete(self, system_prompt, user_prompt, max_tokens=None):
