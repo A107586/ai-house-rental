@@ -223,7 +223,10 @@ def profile(backend, token):
     data = backend.get("/api/auth/me", token=token)
     if not isinstance(data, dict):
         return "账号信息暂时取不到。", {}
-    role = {"tenant": "租客", "landlord": "房东", "admin": "管理员"}.get(
+    # **四种角色一个都不能漏。** 漏一种的代价不是报错，是这句话直接
+    # 说成「身份：agent」——库里确实有 agent 这个角色（中介，J-02）。
+    role = {"tenant": "租客", "landlord": "房东",
+            "agent": "中介", "admin": "管理员"}.get(
         data.get("role"), data.get("role", ""))
     return ("你的账号是 %s，身份：%s。"
             % (data.get("username", ""), role), {"profile": data})

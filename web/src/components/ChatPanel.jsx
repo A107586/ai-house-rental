@@ -161,7 +161,10 @@ const ACCOUNT_ROWS = {
   profile: (data) => {
     const me = data.profile || {}
     if (!me.username) return []
-    const role = { tenant: '租客', landlord: '房东', admin: '管理员' }
+    // agent 是中介（J-02）。少写一个，中介看到的就是「身份：agent」。
+    const role = {
+      tenant: '租客', landlord: '房东', agent: '中介', admin: '管理员',
+    }
     return [
       { key: 'username', main: me.username, sub: role[me.role] || me.role },
       me.phone ? { key: 'phone', main: '手机号', sub: me.phone } : null,

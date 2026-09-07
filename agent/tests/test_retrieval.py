@@ -167,6 +167,51 @@ class TestKnowledgeIndex(unittest.TestCase):
             self.index.key_term_hit("帮我订个外卖",
                                     self.index.order[0]))
 
+    def test_key_term_is_a_real_word_not_a_fragment(self):
+        """**回归测试**：关键词曾系统性地挑中切在词缝上的碎片。
+
+        字符 bigram 的候选池里，真词和碎片混在一起，而**没见过的组合
+        IDF 必然最高**——「退租要提前多久说」于是挑中「久说」，
+        「退租要打扫干净吗」挑中「扫干」。两个都不是词，语料里当然
+        不会出现，闸门就把答案排在检索第一位的问题拒了。
+
+        这里断言的是**词性**而不是某个具体取值：挑出来的东西必须是
+        这句话里真实存在的一个词。
+        """
+        for question in ("退租要提前多久说", "退租要打扫干净吗",
+                         "预约完多久房东会确认", "物业费是房东交还是我交"):
+            term = self.index.key_term(question)
+            self.assertTrue(term, question)
+            self.assertIn(term, question)
+            self.assertNotIn(term, ("久说", "扫干", "约完", "东交"),
+                             "「%s」挑出了词缝上的碎片「%s」"
+                             % (question, term))
+
+    def test_multi_character_topic_words_are_eligible(self):
+        """**三个字的词恰恰常常就是那句话在问的东西。**
+
+        「公积金」「物业费」「暖气费」都是三字词。两字的限制原本只是
+        为了对付字符 bigram，有了词典就没有理由留着——留着的后果是
+        「可以用公积金付房租吗」退而挑到「房租」，而「房租」在这个
+        语料里到处都是，一命中闸门就放行了一个本该拒答的问题。
+        """
+        self.assertEqual(self.index.key_term("可以用公积金付房租吗"),
+                         "公积金")
+
+    def test_modifiers_are_not_topics(self):
+        """**「一般」是个词，但它不是这句话在问的东西。**
+
+        挡住了词缝碎片之后，漏网的下一类是修饰语：「退租一般要提前
+        多久说」挑中「一般」、「退租要打扫干净吗」挑中「干净」。
+        两个都是词、IDF 也高，可它们描述的是程度和状态，不是话题——
+        于是闸门又一次拒掉了知识库里写得清清楚楚的问题。
+        """
+        for question, modifier in (("退租一般要提前多久说", "一般"),
+                                   ("退租要打扫干净吗", "干净"),
+                                   ("租金定多少合适", "合适")):
+            self.assertNotEqual(self.index.key_term(question), modifier,
+                                "「%s」把修饰语当成了话题" % question)
+
     def test_vector_channel_absent_without_embedder(self):
         """没有嵌入服务时向量通道必须整条关掉，而不是半开着。"""
         self.assertFalse(self.index.vector_enabled)

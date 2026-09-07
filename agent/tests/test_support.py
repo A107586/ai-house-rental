@@ -291,6 +291,23 @@ class TestSupportFlow(unittest.TestCase):
         self.assertTrue(result["alternatives"])
         self.assertIn("handoff", result)
 
+    def test_english_question_is_told_why_not_told_a_lie(self):
+        """**拒答的理由必须是真的。**
+
+        语料一个英文词都没有，整句英文提问必然检索不到。这时候仍旧回
+        「暂时没有查到相关规定」，说的是假话——规定写得好好的，
+        查不到是因为语言不通。用户会照着这句话以为平台没这条规矩。
+        """
+        result = support.run("when will my deposit be refunded")
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("中文", result["message"])
+        self.assertNotIn("没有查到相关规定", result["message"])
+
+    def test_a_few_english_words_still_go_the_normal_way(self):
+        """夹一两个英文词的中文问句是**检索得到的**，不能一并打发掉。"""
+        result = support.run("我的 deposit 什么时候 refund")
+        self.assertNotIn("中文再问", result["message"])
+
     def test_handoff_short_circuits_retrieval(self):
         result = support.run("我要转人工")
         self.assertEqual(result["status"], "escalate")
@@ -348,6 +365,10 @@ class TestTransactionalCoverage(unittest.TestCase):
             ("我的租约什么时候到期", "contract"),
             ("我的报修到哪一步了", "repair"),
             ("我预约的看房通过了吗", "booking"),
+            # 口语里「我约的」比「我的预约」常见得多，三个关键词
+            # 一个都不命中，实测掉进知识检索、拿 FAQ 硬答
+            ("我约的看房房东回了吗", "booking"),
+            ("我约的那次房东回了吗", "booking"),
             ("我收藏了哪些房子", "favorite"),
             ("我看过哪些房源", "history"),
             ("我有未读消息吗", "message"),
@@ -407,7 +428,11 @@ class TestTransactionalCoverage(unittest.TestCase):
     def test_generic_question_never_becomes_transactional(self):
         """通用规则问题绝不能走查库——那会把 FAQ 的答案说成「你的」数据。"""
         for question in ["押金一般收几个月", "水电费怎么算", "怎么评价房东",
-                         "报修多久上门", "提前退租要付违约金吗"]:
+                         "报修多久上门", "提前退租要付违约金吗",
+                         # 这两条含「看房」也含人称，问的却是平台规则。
+                         # 补 booking 的口语说法时**差点**把它们一起收进来，
+                         # 分界线是「有没有指着自己约的那一次」。
+                         "看房是谁带我去", "看房要给我带看费吗"]:
             result = classify_ask.classify(question)
             self.assertEqual(result["kind"], classify_ask.KIND_KNOWLEDGE,
                              "「%s」被误判成事务型" % question)
@@ -500,6 +525,20 @@ class TestAccountTools(unittest.TestCase):
         backend = self.FakeBackend({"/api/favorites": {"list": []}})
         _, message, _ = account.lookup(backend, "tok", "favorite")
         self.assertIn("还没有收藏", message)
+
+    def test_every_role_has_a_chinese_name(self):
+        """**库里有几种角色，就得能说出几种中文。**
+
+        漏一种不会报错，只会让那个人看到「你的账号是 brokerli，
+        身份：agent」——中介（J-02）就是这么漏掉的。
+        所以这里照着库里的角色枚举逐个过一遍。
+        """
+        for role in ("tenant", "landlord", "agent", "admin"):
+            backend = self.FakeBackend({"/api/auth/me": {
+                "username": "u1", "role": role}})
+            _, message, _ = account.lookup(backend, "tok", "profile")
+            self.assertNotIn(role, message,
+                             "角色 %s 没翻成中文：%s" % (role, message))
 
 
 if __name__ == "__main__":

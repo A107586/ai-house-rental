@@ -441,6 +441,32 @@ def _is_question(text):
     return raw.endswith(_QUESTION_MARKS) and len(raw) >= 4
 
 
+_REFUSED = "暂时没有查到相关规定，这个我不敢乱说。"
+_REFUSED_FOREIGN = ("我这边的资料都是中文的，英文问句检索不到，"
+                    "所以查不出来——你用中文再问一遍，我就能查了。")
+
+
+def _refusal(text):
+    """拒答该说哪一句。
+
+    整句英文提问时，检索必然什么也捞不到——语料一个英文词都没有。
+    这时候仍旧回「暂时没有查到相关规定」是**在撒谎**：规定写得好好的，
+    查不到的原因是语言不通。说错原因比说不知道更糟，用户会照着这句话
+    以为平台没这条规矩。所以据实说是语言的问题，并给出下一步怎么办。
+
+    判据只看汉字占比，不做语种识别：夹一两个英文词（「我的 deposit
+    什么时候 refund」）照旧走正常路径，那句话是检索得到的。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return _REFUSED
+    chinese = sum(1 for ch in raw if "一" <= ch <= "鿿")
+    letters = sum(1 for ch in raw if ch.isascii() and ch.isalpha())
+    if letters >= 6 and chinese == 0:
+        return _REFUSED_FOREIGN
+    return _REFUSED
+
+
 def _form_progress(name, slots):
     """长表单的进度。不是表单就返回 None，前端据此决定画不画。"""
     form = forms.spec(name)
@@ -664,7 +690,7 @@ def run(text, token="", history=None, provider=None, backend=None,
         retrieval["latency_ms"] = int((time.time() - started) * 1000)
         return shaped(
             "refused",
-            "暂时没有查到相关规定，这个我不敢乱说。",
+            _refusal(raw),
             alternatives=alternatives,
             retrieval=retrieval,
             handoff={"question": raw, "reason": verdict["reason"]})
@@ -677,7 +703,7 @@ def run(text, token="", history=None, provider=None, backend=None,
         retrieval["latency_ms"] = int((time.time() - started) * 1000)
         retrieval["answer_source"] = source
         retrieval["answer_note"] = note
-        return shaped("refused", "暂时没有查到相关规定，这个我不敢乱说。",
+        return shaped("refused", _refusal(raw),
                       alternatives=suggest(index, query, candidates,
                                            verdict["cover"]),
                       retrieval=retrieval,

@@ -12,8 +12,14 @@
    bigram 仍有部分重合，词级分词则完全丢失。
 
 装了 jieba 就自动多一路词级分词（`WORD_LEVEL` 为真），检索侧多一个通道；
-没装就只用字符级。**两种情况下功能都完整**，与 `LLMProvider` 未配置密钥时
-降级为 `NullProvider` 是同一个模式。
+没装就只用字符级，**检索本身照常工作**——上面三条理由至今成立。
+
+> ⚠️ **但 jieba 后来从「可选」变成了 `requirements.txt` 里的必装项。**
+> 不是检索需要它，是**可答性闸门**需要：闸门要挑出「用户问的那个东西」，
+> 而字符 bigram 分不出「公积金」和「扫干」谁是词。详见
+> `index.RetrievalIndex._key_term_by_word`。没装它一切仍然能跑，
+> 只是 AI-03 的有依据正确率会从 85% 掉回 80%——**这种「装没装结果不一样」
+> 的差异恰恰是不能留给队友的**，所以写进了依赖清单而不是继续当彩蛋。
 """
 
 import re
@@ -91,6 +97,35 @@ def word_tokens(text):
     if not text:
         return []
     return [t for t in jieba.lcut(text) if t.strip() and t not in _STOP_CHARS]
+
+
+# 「问的那个东西」只可能是名词或动词。
+#
+# jieba 的词性标记里：n* 名词各类、v* 动词各类、j 简称、l 习用语、i 成语、
+# s 处所词。**形容词 a 与副词 d 刻意不收**——「一般」「干净」「合适」
+# 描述的是程度和状态，不是话题本身。实测「退租一般要提前多久说」
+# 曾把「一般」当成话题，于是拒答了一个知识库里写得清清楚楚的问题。
+_TOPIC_POS = frozenset((
+    "n", "nr", "ns", "nt", "nz", "nl", "ng", "v", "vn", "vg",
+    "j", "l", "i", "s",
+))
+
+
+def topic_words(text):
+    """按词性挑出可能充当「话题」的词，长的在前不排序，交给调用方比区分度。
+
+    未安装 jieba 时返回空列表——调用方据此退回字符级的近似做法。
+    """
+    if not WORD_LEVEL:
+        return []
+    text = normalize(text)
+    if not text:
+        return []
+    import jieba.posseg as posseg              # 只有这一处用到，就地引入
+
+    return [word for word, flag in posseg.lcut(text)
+            if flag in _TOPIC_POS and word.strip()
+            and word not in _STOP_CHARS]
 
 
 def tokenize(text):

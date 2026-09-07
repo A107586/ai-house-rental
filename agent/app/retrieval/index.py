@@ -22,7 +22,7 @@ import math
 from app.retrieval import rrf
 from app.retrieval.bm25 import BM25Index
 from app.retrieval.embed import EmbeddingUnavailable, cosine, normalize_vector
-from app.retrieval.tokenize import tokenize
+from app.retrieval.tokenize import WORD_LEVEL, tokenize, topic_words
 
 # 虚词表：代词、助词、疑问词、程度词与最常见的功能动词。
 # 只用于挑选「话题词」，不参与检索本身——检索交给 IDF 自己去压权重就够了，
@@ -403,10 +403,14 @@ class KnowledgeIndex(object):
     def key_term(self, query):
         """查询里区分度最高的那个词——近似「这句话在问什么」。
 
-        优先在双字词里选：中文的话题几乎总是双字词（发票 / 宠物 / 地铁 /
-        补贴 / 房贷 / 落户），单字往往是助词或过于宽泛的字。
-        没有双字词时才退回单字。
+        **先判断它到底是不是一个词，再比区分度。** 装了词级分词时走
+        `_key_term_by_word`；没装才退回下面的字符 bigram 近似。
         """
+        if WORD_LEVEL:
+            term = self._key_term_by_word(query)
+            if term:
+                return term
+
         tokens = set(tokenize(query))
         if not tokens:
             return ""
@@ -436,6 +440,42 @@ class KnowledgeIndex(object):
         if not candidates:
             return ""
         return max(candidates,
+                   key=lambda t: self.body_index.idf.get(t, self._unseen_idf))
+
+    def _key_term_by_word(self, query):
+        """在**真词**里挑区分度最高的那个。挑不出来返回空串。
+
+        下面那套字符 bigram 的近似有个系统性缺陷：候选池里真词与
+        跨词边界的碎片混在一起，而**没见过的组合 IDF 必然最高**——
+        于是它偏偏总挑中碎片。实测「退租要提前多久说」挑到「久说」、
+        「退租要打扫干净吗」挑到「扫干」、「预约完多久房东会确认」挑到
+        「约完」。这些都不是词，语料里当然不会出现，闸门于是拒掉了
+        一批答案就排在检索第一位的问题（验收集 4 条里占 3 条）。
+
+        虚词过滤治不了这个：「久说」「扫干」四个字全是实词。
+        要分开「陌生的话题词」和「压根不是词」，只能靠**词典**。
+        注意这与「把语料当词典」是两回事，后者试过且更差（见下面那段
+        注释）：语料没有的「装修」仍然是词，仍然该挑中、仍然该拒答；
+        「扫干」不是词，就不该参与竞选。
+
+        **不限定两个字。**「公积金」「物业费」「暖气费」都是三字词，
+        而且恰恰就是那句话在问的东西——两字的限制原本只是为了对付
+        字符 bigram，有了词典就没有理由留着它。
+
+        再往前一步是**词性**（`tokenize.topic_words`）：光是词还不够，
+        「一般」「干净」「合适」都是词，但它们是修饰语不是话题。
+        只在名词和动词里挑之后，负例挑出来的也变成了「股市」「天气」
+        「地铁」——**拒答的理由这才说得出口**。
+
+        两步都标定在调参集上：回答 24/29 → 25/29 → 27/29，
+        拒答 13/14 全程不变。
+        """
+        words = [w for w in topic_words(query)
+                 if len(w) >= 2 and not w.isascii()
+                 and not (w[0] in _FUNCTION_CHARS or w[-1] in _FUNCTION_CHARS)]
+        if not words:
+            return ""
+        return max(words,
                    key=lambda t: self.body_index.idf.get(t, self._unseen_idf))
 
     def key_term_hit(self, query, chunk_id):
