@@ -13,6 +13,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.cn_number import cn_to_int  # noqa: E402
+from app.agents.property_finder import agent  # noqa: E402
 from app.agents.property_finder.tools.parse_query import parse_query  # noqa: E402
 
 
@@ -160,3 +161,46 @@ class TestRealWorldQueries(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDistrictMustBeARealDistrict(unittest.TestCase):
+    """**区域只可能是那几个。**
+
+    大连的行政区是一张穷举表。规则解析器只认表里的，可大模型不受这个
+    约束——实测它把「桂林街」填进了 `suozaidiqu`。后端按等值匹配一查
+    就是 0 套，用户得到「没有找到符合条件的房源」，**而桂林街明明有
+    三套房**。首页把两个搜索框合成一个之后，这条路上的每一次搜索都
+    要经过这一层，错一次就是一次空结果。
+
+    认不出来的不丢掉，改当关键词：后端的 keyword 会去比对小区、地址、
+    商圈、标题，那正是街道名该去的地方。
+    """
+
+    def test_a_street_name_becomes_a_keyword_not_a_district(self):
+        got = agent._sanitize({"suozaidiqu": "桂林街"})
+        self.assertNotIn("suozaidiqu", got)
+        self.assertEqual(got["guanjianci"], "桂林街")
+
+    def test_a_real_district_is_kept(self):
+        self.assertEqual(agent._sanitize({"suozaidiqu": "中山区"}),
+                         {"suozaidiqu": "中山区"})
+
+    def test_a_short_district_name_is_completed(self):
+        """「沙河口」是简称，不是错的——补成全称，别丢进关键词。"""
+        self.assertEqual(agent._sanitize({"suozaidiqu": "沙河口"}),
+                         {"suozaidiqu": "沙河口区"})
+
+    def test_other_conditions_survive_alongside_the_keyword(self):
+        """「青泥洼桥两室一厅」：地名进关键词，户型照样留着。
+
+        两个框合并之前这句话是**没人管得了**的——自然语言框会丢掉
+        青泥洼桥，关键词框又不认户型。
+        """
+        got = agent._sanitize({"suozaidiqu": "青泥洼桥",
+                               "fangwuhuxing": "两室一厅"})
+        self.assertEqual(got["fangwuhuxing"], "两室一厅")
+        self.assertEqual(got["guanjianci"], "青泥洼桥")
+
+    def test_a_city_outside_dalian_is_not_treated_as_a_district(self):
+        got = agent._sanitize({"suozaidiqu": "北京市"})
+        self.assertNotIn("suozaidiqu", got)

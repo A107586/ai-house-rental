@@ -30,10 +30,15 @@ import HouseCard from './components/HouseCard'
 import NoticeBar from './components/NoticeBar'
 import RecommendStrip from './components/RecommendStrip'
 
+// 例句里**必须留一个纯地名**。
+//
+// 两个框合成一个之后，「这里也能直接搜小区」这件事就只剩占位符一句话
+// 在说了，而占位符一打字就没了。放一个「桂林街」在例句里，用户点一次
+// 就知道这个框两种说法都吃。
 const EXAMPLES = [
   '中山区两室一厅，租金三千以内，最好带电梯',
+  '桂林街',
   '沙河口 合租 单间 1500以下',
-  '甘井子区 80平以上的三室 预算不超过五千',
   '有没有金州区2000到3000的一居室',
 ]
 
@@ -55,6 +60,10 @@ const AI_FIELD_MAP = {
   zujia_max: 'rent_price_max',
   mianji_min: 'area_min',
   mianji_max: 'area_max',
+  // 认不出是哪个区的地名（街道、小区、商圈）。智能体那边判定它不是
+  // 大连的六个区之一，就落到这里；后端的 keyword 会去比对小区、地址、
+  // 商圈和标题。**不这么做的话「桂林街」会被当成一个区，查出 0 套。**
+  guanjianci: 'keyword',
 }
 
 /** 把 /agent/parse 的结果翻成 /api/houses 的查询参数。 */
@@ -99,7 +108,6 @@ export default function App() {
   // 由 filters 决定（K-06）。这里留的是「它听懂了什么、是怎么听懂的」，
   // 用来在页面上向用户解释，答辩时也能展示规则与大模型的分工。
   const [parsed, setParsed] = useState(null)
-  const [keyword, setKeyword] = useState('')
   // K-09 保存条件的按钮状态：'' | 'saving' | 'saved'
   const [saveState, setSaveState] = useState('')
   const [houses, setHouses] = useState([])
@@ -173,20 +181,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, route.param])
 
-  // 关键词输入框跟着**真正生效的那个条件**走。
-  //
-  // 它原先是一份独立的状态，只有用户打字才会变。可清掉 keyword 这个
-  // 条件的路子有三条——智能找房整组覆盖、点掉「包含『桂林街』」这个
-  // 条件、「全部清空」——**其中两条都不会去动这个输入框**。
-  // 于是页面上出现：搜索框里写着「桂林街」，列表里是沙河口区的房，
-  // 已生效条件里也没有它。用户看到的就是「搜索框失灵了」。
-  //
-  // 依赖只写 filters.keyword：打字只改 keyword、不改 filters，
-  // 所以这个副作用不会跟输入过程打架。
-  useEffect(() => {
-    setKeyword(filters.keyword || '')
-  }, [filters.keyword])
-
   // 首屏：恢复登录状态并展示最新房源
   useEffect(() => {
     if (getToken()) {
@@ -238,9 +232,9 @@ export default function App() {
       setSearched(content)
       setParsed(parsed)
       if (!parsed.ok) {
-        // 没听懂就别动用户已经设好的条件。把筛选清空再告诉他
-        // 「没听懂」，等于一句话毁掉他刚调好的筛选
-        setBusy(false)
+        // 一个条件都没解析出来——那多半是个地名（「桂林街」「青泥洼桥」）。
+        // 直接当关键词搜，别回一句「没听懂」把人打发走。
+        await byKeyword(content)
         return
       }
       // 覆盖式合并：这一句话表达的是一次新的检索意图，
@@ -249,23 +243,37 @@ export default function App() {
       setFilters(next)
       await loadPage(1, true, next)
     } catch (err) {
-      // 智能体不通。**不要清空列表**——用户还能用搜索框和筛选栏，
-      // 把房源列表也一并清掉才是真的没法用了
+      // **智能体不通时，这个框仍然要能找房。**
+      //
+      // 这正是当初单独放一个关键词框的理由。框合成一个之后，那份保底
+      // 不能跟着没了——改成在这里自动降级：解析不了就按关键词搜，
+      // 顺带告诉他现在走的是哪条路。
       setParsed(null)
-      setError('智能体暂时联系不上，可以直接用上面的搜索框或下面的筛选条件找房。')
+      // **先搜，再报。**
+      // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
+      // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
+      await byKeyword(content)
+      setError('智能体暂时联系不上，已按关键词直接检索；也可以用下面的筛选条件找房。')
     } finally {
       setBusy(false)
     }
   }
 
-  /** 关键词检索。这条路径**完全不经过智能体**，是找房的保底入口。 */
-  function searchKeyword(e) {
-    if (e) e.preventDefault()
-    const next = { ...filters, keyword: keyword.trim() }
+  /** 关键词检索。这条路径**完全不经过智能体**，是找房的保底入口。
+   *
+   * 它不再有自己的输入框，但仍然是一条独立的路径：地名、小区名这类
+   * 说法解析器认不出来（它认的是区、户型、价格、面积），
+   * 而后端的 keyword 会去比对标题、描述、小区、地址、商圈。
+   *
+   * 与解析路径不同，这里是**叠加**而不是覆盖：用户先说「中山区两室一厅」
+   * 再补一句「桂林街」，想要的显然是在刚才的结果里缩小，而不是
+   * 把区和户型都丢掉。
+   */
+  function byKeyword(word) {
+    const next = { ...filters, keyword: (word || '').trim() }
     if (!next.keyword) delete next.keyword
-    setParsed(null)
     setFilters(next)
-    loadPage(1, true, next)
+    return loadPage(1, true, next)
   }
 
   /** 把当前这组条件存进「我的搜索」（K-09）。
@@ -293,7 +301,6 @@ export default function App() {
     setSaveState('')
     setSearched('')
     setText('')
-    setKeyword('')
     setFilters({})
     loadPage(1, true, {})
   }
@@ -419,32 +426,28 @@ export default function App() {
         <section className="search-card">
           <h2>说一句话，帮你找房</h2>
           <p className="hint">
-            直接描述需求，智能体会把它翻译成下面的筛选条件——
-            条件看得见、也改得动。
+            描述需求也行，直接打小区、街道名也行。智能体会把它翻译成
+            下面的筛选条件—— 条件看得见、也改得动。
           </p>
 
+          {/* **一个框。**
+              这里原先并排放着两个：一个自然语言、一个纯关键词。分成两个
+              的初衷是「智能体挂了还能搜」，可代价是把一个技术上的分工
+              摆到了用户面前——他站在两个长得一样的框前面，得先想清楚
+              自己这句话算「描述需求」还是「搜小区」才知道往哪打字。
+              两个框还各存一份状态，光是让它们互相同步就已经出过一个 bug。
+
+              保底没有丢，只是挪到了代码里：解析不出条件（多半是地名），
+              或者智能体压根连不上，`search()` 自动转成关键词检索。 */}
           <form className="search-row" onSubmit={search}>
             <input
-              placeholder="例如：中山区两室一厅，租金三千以内，最好带电梯"
+              placeholder="说说要求或直接搜地名，如：中山区两室一厅三千以内 / 桂林街"
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
             <button className="btn" type="submit" disabled={busy || !text.trim()}>
-              {busy ? '解析中…' : '智能找房'}
+              {busy ? '找房中…' : '找房'}
             </button>
-          </form>
-
-          {/* 关键词检索。**这条路径完全不经过智能体**，是找房的保底入口。
-              以前全站唯一的找房入口就是上面那个自然语言框，
-              智能体一挂，整站就搜不了房。而用户想找「桂林街」这种
-              具体地名时，本来也不需要惊动大模型。 */}
-          <form className="search-row plain" onSubmit={searchKeyword}>
-            <input
-              placeholder="或直接搜小区、街道、商圈，如：桂林街"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-            <button className="btn ghost" type="submit">搜索</button>
           </form>
 
           <div className="examples">

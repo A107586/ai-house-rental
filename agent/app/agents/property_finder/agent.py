@@ -7,7 +7,8 @@
 from app import fusion, trace as tracing
 from app.config import settings
 from app.llm.base import LLMUnavailable
-from app.agents.property_finder.tools.parse_query import FEATURES, parse_query
+from app.agents.property_finder.tools.parse_query import (
+    DALIAN_DISTRICTS, FEATURES, _DISTRICT_SHORT, parse_query)
 from app.agents.property_finder.tools.search_properties import (
     search_properties, summarize)
 
@@ -41,7 +42,7 @@ _PARSE_PROMPT = """把用户的找房需求解析成结构化筛选条件。
 
 # 规则结论在提示词里用中文字段名，比 suozaidiqu 这种拼音好读得多
 _FIELD_LABELS = {
-    "suozaidiqu": "区域", "fangwuhuxing": "户型",
+    "suozaidiqu": "区域", "guanjianci": "地名", "fangwuhuxing": "户型",
     "fangyuanleixing": "房源类型",
     "zujia_min": "租价下限", "zujia_max": "租价上限",
     "mianji_min": "面积下限", "mianji_max": "面积上限",
@@ -50,6 +51,9 @@ _FIELD_LABELS = {
 _ALLOWED_FILTERS = {
     "suozaidiqu", "fangwuhuxing", "fangyuanleixing",
     "zujia_min", "zujia_max", "mianji_min", "mianji_max",
+    # 认不出是哪个区的地名（街道、小区、商圈）落到这里，
+    # 前端映射成后端的 keyword。见 `_sanitize` 末尾那段。
+    "guanjianci",
 }
 _INT_FILTERS = {"zujia_min", "zujia_max", "mianji_min", "mianji_max"}
 
@@ -77,6 +81,24 @@ def _sanitize(filters):
             text = str(value).strip()
             if text:
                 clean[key] = text
+
+    # **区域只可能是那几个。**
+    #
+    # 大连的行政区是一张穷举表。大模型看到「桂林街」这种街道名，
+    # 会顺手填进 `suozaidiqu`——它不是区，后端按等值匹配一查就是 0 套，
+    # 用户得到一句「没有找到符合条件的房源」，而桂林街明明有三套房。
+    #
+    # 认不出来的不丢掉，改当**关键词**：后端的 keyword 会去比对小区、
+    # 地址、商圈、标题，那正是街道名该去的地方。
+    # 猜错一个区的代价是整页结果全错，而当关键词最多是查得宽一点。
+    district = clean.get("suozaidiqu")
+    if district and district not in DALIAN_DISTRICTS:
+        full = _DISTRICT_SHORT.get(district)
+        if full:
+            clean["suozaidiqu"] = full
+        else:
+            clean.pop("suozaidiqu")
+            clean.setdefault("guanjianci", district)
     return clean
 
 

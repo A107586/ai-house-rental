@@ -20,6 +20,9 @@ _PASS_THROUGH = {
     "suozaidiqu": "district",
     "fangwuhuxing": "layout",
     "fangyuanleixing": "rent_type",
+    # 认不出是哪个区的地名（街道、小区、商圈）。后端的 keyword 会去比对
+    # 标题、描述、小区、地址、商圈——那正是这类词该去的地方。
+    "guanjianci": "keyword",
 }
 
 
