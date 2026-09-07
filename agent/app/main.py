@@ -437,7 +437,16 @@ def agent_chat(payload: ChatRequest):
     # 历史槽位一律用规则重放，不为了重建上下文再调一遍大模型
     slots, feats = memory.replay(past)
 
-    routed = supervisor.classify(payload.text, provider=provider)
+    # **意图分类先只用规则。**
+    #
+    # 统一路由马上还要判一次「这句话要干什么」，两次做的是重叠的事。
+    # 而路由认领了这一轮（要办事、要查数据、要找房）时，意图分类的结果
+    # 只是个标签，压根不参与决策——为它多花一次大模型调用不划算。
+    #
+    # 实测：接上中转站之后一句「帮我把这个月房租交了」要 17.7 秒、
+    # 两次调用；「押金怎么退」42 秒、四次。**演示里没人等得了。**
+    # 所以这里先跑规则，真正需要意图的那条路（知识型兜底）再补一次。
+    routed = supervisor.classify(payload.text, provider=None)
     intent = routed["intent"]
 
     # 承接上文：已经在找房的会话里，「三千以内的」「再便宜点」这类
@@ -586,6 +595,13 @@ def _dispatch(payload, routed, intent, slots, feats):
         intent = "search"
         routed = dict(routed, intent="search", carried_over=False,
                       reason="统一工具路由判为找房")
+
+    # 规则认不出意图、路由又说这是普通问题——只有这种时候意图才真正影响
+    # 后面走哪条路，值得为它补一次大模型调用。其余情况上面已经定了。
+    if (decision["kind"] == support_router.KIND_KNOWLEDGE
+            and intent == "unknown" and not pending_action):
+        routed = supervisor.classify(text, provider=provider)
+        intent = routed["intent"]
 
     if (not interrupts_pending and
             (decision["kind"] in (support_router.KIND_ACTION,
