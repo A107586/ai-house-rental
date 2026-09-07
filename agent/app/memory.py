@@ -290,3 +290,29 @@ def resolve_house(text, last_house_nos):
     if any(word in text for word in DEICTIC):
         return last_house_nos[0]
     return None
+
+
+def resolve_houses(text, last_house_nos):
+    """一句话里提到的**所有**序号，按出现顺序返回房源编号。
+
+    对比要两套。`resolve_house` 只返回第一个命中的序号，
+    「第一套和第二套哪个好」用它拿到的永远是第一套，
+    对比就成了「拿第一套和第一套比」。
+
+    去重是必要的：「第二套比第2套」这种说法在中英混合的序号写法下
+    会命中同一位，重复一次会让对比表凭空多出一列。
+    """
+    if not last_house_nos:
+        return []
+    raw = text or ""
+    seen = []
+    for word, index in sorted(
+            ((w, i) for w, i in ORDINALS if w in raw),
+            key=lambda pair: raw.index(pair[0])):
+        try:
+            house_no = last_house_nos[index]
+        except IndexError:
+            continue
+        if house_no and house_no not in seen:
+            seen.append(house_no)
+    return seen

@@ -21,6 +21,7 @@
 
 import time
 
+from app.agents.booking.tools.parse_datetime import parse_datetime
 from app.agents.support import corpus
 from app.agents.support.tools import (actions, answer as answer_tool,
                                       classify_ask, forms, gate,
@@ -349,7 +350,14 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     #
     # 现在返回 INTERRUPTED，由 run() 正常回答，答完把 pending 原样带回去，
     # 再补一句「刚才填到哪儿了」。
-    if _is_question(raw):
+    # ……但**先确认这句话不是在回答当前这一项**。
+    #
+    # 实测：助手问「你想什么时候去看？」，用户答「本周六上午九点可以吗」，
+    # 这句话结尾是「吗」，`_is_question` 判成提问，整句被丢去检索知识库，
+    # 回了一句「暂时没有查到相关规定」——他明明**已经把时间说了**。
+    # 中文里带商量语气的回答本来就长得像问句（「周六行吗」「三千二可以吗」），
+    # 按问句处理等于惩罚有礼貌的说法。
+    if _is_question(raw) and not _answers_slot(name, ask, raw, pending):
         return INTERRUPTED
 
     value = _fill_slot(ask, raw)
@@ -439,6 +447,40 @@ def _is_question(text):
     # 「多少」太常见了——「面积多少平米」的答案里不会有它，
     # 但「押金一般多少」是提问。所以只在带疑问语气词时才算
     return raw.endswith(_QUESTION_MARKS) and len(raw) >= 4
+
+
+def _answers_slot(name, ask, raw, pending):
+    """这句话是不是在**回答当前这一项**，哪怕它长得像问句。
+
+    判据按可靠程度排：
+
+    1. 点中了助手给的可选项——那就是答案，没有别的解释；
+    2. 这一项要时间，而这句话解析得出一个时间；
+    3. 这一项是表单字段，而这句话能通过该字段的校验。
+
+    第 3 条是最通用的一条：**「能不能填进这一格」本身就是最好的判据**，
+    不需要再去猜他的语气。校验器本来就写好了，这里只是提前问它一次。
+    """
+    slot = (ask or {}).get("slot") or ""
+    if not slot:
+        return False
+
+    options = (ask or {}).get("options") or []
+    if options and actions.pick_option(raw, options):
+        return True
+
+    if "time" in slot or "date" in slot:
+        # **`parse_datetime` 永远返回一个 dict**，没解析出来时里面全是
+        # None。写成 `if parse_datetime(raw)` 会恒为真，于是「押金怎么退」
+        # 也成了「在回答时间」，把插问功能整个废掉。要看的是 date 那一格。
+        if (parse_datetime(raw) or {}).get("date"):
+            return True
+
+    form = forms.spec(name)
+    if form and any(f.get("name") == slot for f in form.get("fields") or []):
+        good, _ = forms.validate(name, slot, raw, (pending or {}).get("slots") or {})
+        return bool(good)
+    return False
 
 
 _REFUSED = "暂时没有查到相关规定，这个我不敢乱说。"

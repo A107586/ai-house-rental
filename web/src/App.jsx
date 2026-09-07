@@ -623,7 +623,13 @@ export default function App() {
             setShowChat(false)
             go('house', house.house_no)
           }}
-          onClose={() => setShowChat(false)}
+          onClose={() => {
+            setShowChat(false)
+            // **房源上下文只跟着这一次「问助手」。**
+            // 不清掉的话，他下次从右下角的按钮打开助手，问的每一句话
+            // 仍然挂在半小时前那套房上——「帮我收藏」收的是那一套。
+            setChatHouseNo('')
+          }}
         />
       )}
 

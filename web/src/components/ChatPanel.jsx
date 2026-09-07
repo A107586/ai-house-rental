@@ -235,6 +235,100 @@ function UploadStep({ onPicked, busy }) {
  * **已经填了什么**——那份清单只有摆出来才看得清，也才好在提交前发现填错了。
  * 中途跑题问了别的，回来一眼就能接上。
  */
+/** 一套房的讲解卡：亮点、要留意的、价位。
+ *
+ * 助手那段话已经把结论说了，这张卡负责**让人扫一眼就看完**——
+ * 亮点和短板分两栏摆着，比一段话里用分号串起来好读得多。
+ *
+ * 短板必须和亮点同样显眼。只列好处的卡片，用户到现场就知道被骗了，
+ * 而看房是要花半天时间的；反过来，敢把短板写出来，亮点那一栏才有人信。
+ */
+function PitchCard({ data, onOpenHouse }) {
+  const house = data?.house
+  if (!house) return null
+  const price = data.price || {}
+  return (
+    <div className="pitch-card">
+      <button
+        className="pitch-head"
+        onClick={() => onOpenHouse && onOpenHouse(house)}
+      >
+        <span className="pitch-title">{house.title || house.house_no}</span>
+        <span className="pitch-rent">{money(house.rent_price)} 元/月</span>
+      </button>
+
+      {price.unit != null && (
+        <div className={`pitch-price ${price.diff <= -8 ? 'good' : ''}${price.diff >= 12 ? 'warn' : ''}`}>
+          每平米 {price.unit} 元
+          {price.diff === 0
+            ? `，正好是${price.scope}的中位价`
+            : `，${price.diff < 0 ? '低于' : '高于'}${price.scope}中位价 ${Math.abs(price.diff)}%`}
+          <span className="pitch-sample">（同类 {price.sample} 套）</span>
+        </div>
+      )}
+
+      {data.highlights?.length > 0 && (
+        <ul className="pitch-list good">
+          {data.highlights.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
+      {data.cautions?.length > 0 && (
+        <ul className="pitch-list warn">
+          {data.cautions.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
+      {data.suits && <div className="pitch-suits">{data.suits}</div>}
+    </div>
+  )
+}
+
+/** 两套房的对比表。
+ *
+ * `best` 是后端算好的「这一项哪一列更优」，只在**分得出高下**的项上给：
+ * 户型、朝向、位置没有优劣之分，评分在没人评过时也不算数。
+ * 前端不再自己判一遍——两处各判一次，早晚会判得不一样。
+ */
+function CompareCard({ data, onOpenHouse }) {
+  const houses = data?.houses || []
+  if (houses.length < 2) return null
+  return (
+    <div className="compare-card">
+      <table className="compare-table">
+        <thead>
+          <tr>
+            <th />
+            {houses.map((house) => (
+              <th key={house.house_no}>
+                <button
+                  className="link"
+                  onClick={() => onOpenHouse && onOpenHouse(house)}
+                >
+                  {house.house_no}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(data.rows || []).map((row) => (
+            <tr key={row.label}>
+              <th scope="row">{row.label}</th>
+              {row.values.map((value, i) => (
+                <td
+                  key={`${row.label}-${i}`}
+                  className={row.best === i ? 'best' : ''}
+                >
+                  {value}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function FormProgress({ form }) {
   if (!form || !form.total) return null
   const pct = Math.round((form.done / form.total) * 100)
@@ -371,14 +465,31 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 购物软件的客服不这么做——点开就是「你有一笔待付款、一个包裹在派送」，
   // 每条后面跟一个能点的按钮。接口不调大模型，几十毫秒就回来了。
   useEffect(() => {
-    // 聊到一半关掉又打开，不该把上下文冲掉换成开场白
-    if (loadDraft()) return undefined
+    // 聊到一半关掉又打开，不该把上下文冲掉换成开场白。
+    //
+    // **但从房源页点「问助手」进来是例外。** 原先这一行无差别地
+    // 早退，而草稿几乎总是存在（聊过一次就有了）——于是用户在房源页
+    // 点了「问助手」，面板打开还是上一场对话，一个字都没提这套房，
+    // 他自然会觉得「房源根本没发过去」。
+    // 这种时候不是恢复现场，是**开一段关于这套房的新对话**。
+    const draft = loadDraft()
+    if (draft && !houseNo) return undefined
     let alive = true
     api
       .supportGreeting(houseNo)
       .then((data) => {
         if (!alive || !data.message) return
-        setMessages([{ role: 'assistant', content: data.message }])
+        setMessages((prev) => {
+          const opening = { role: 'assistant', content: data.message }
+          if (!houseNo) return [opening]
+          // 带着房源进来：保留之前聊过的，加一条分隔，再接开场白。
+          // 直接清空等于把他刚才问到一半的事情抹掉。
+          const kept = (draft?.messages || prev || []).slice(-DRAFT_LIMIT)
+          return [...kept,
+                  { role: 'assistant', kind: 'divider',
+                    content: `以下关于 ${houseNo}` },
+                  opening]
+        })
         setChips(data.chips || [])
       })
       .catch(() => {
@@ -507,6 +618,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         account: res.account || null,
         // 长表单进度。非表单的轮次是 null，不渲染
         form: res.form || null,
+        // 讲解某一套 / 对比两套。两者互斥，各自渲染成一张卡片。
+        pitch: res.pitch || null,
+        compare: res.compare || null,
         // 这一轮问的是什么。kind === 'upload' 时要渲染选图按钮，
         // 而不是让用户对着输入框发愣
         ask: res.pending?.ask || null,
@@ -669,6 +783,13 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
               {message.form && <FormProgress form={message.form} />}
 
+              {message.pitch && (
+                <PitchCard data={message.pitch} onOpenHouse={onOpenHouse} />
+              )}
+              {message.compare && (
+                <CompareCard data={message.compare} onOpenHouse={onOpenHouse} />
+              )}
+
               {message.account?.data && (
                 <AccountCard
                   topic={message.account.tool || message.account.topic}
@@ -683,16 +804,24 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
               {message.options?.length > 0 && (
                 <div className="bubble-options">
-                  {message.options.map((option) => (
-                    <button
-                      className="chip-btn"
-                      key={option.value}
-                      disabled={busy}
-                      onClick={() => send(null, option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                  {/* 选项两种形态都要认：追问给的是 {value,label}，
+                      而讲解/对比之后的下一步只是几句现成的话。
+                      在这里统一，比要求每个产出方都包一层可靠——
+                      少包一次的后果是按钮整排消失，且不报错。 */}
+                  {message.options.map((option) => {
+                    const value = typeof option === 'string' ? option : option.value
+                    const label = typeof option === 'string' ? option : option.label
+                    return (
+                      <button
+                        className="chip-btn"
+                        key={value}
+                        disabled={busy}
+                        onClick={() => send(null, value)}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
 

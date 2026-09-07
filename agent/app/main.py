@@ -22,6 +22,7 @@ from app.agents.repair import agent as repair
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
 from app.agents.support.tools import greeting
+from app.agents.support.tools import pitch
 from app.agents.support.tools import router as support_router
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
@@ -522,9 +523,83 @@ def _serve(decision, payload, routed):
         result.setdefault("alternatives", [])
         return result
 
+    if name == "describe_house":
+        return _describe_house(payload, routed, decision)
+
+    if name == "compare_houses":
+        return _compare_houses(payload, routed, decision)
+
     # search_house 交回去走原来的找房分支：那里要合并历史槽位
     # （「三千以内的」得接上上一轮的「中山区两室一厅」），这份上下文只有那里有。
     return None
+
+
+def _fetch_houses(house_nos):
+    """按编号取房源详情，取不到的跳过。"""
+    rows = []
+    for no in house_nos:
+        if not no:
+            continue
+        try:
+            row = backend_client.get("/api/houses/%s" % no)
+        except Exception:                                    # noqa: BLE001
+            continue
+        if isinstance(row, dict) and row.get("house_no"):
+            rows.append(row)
+    return rows
+
+
+def _no_reference(routed, decision, what):
+    """指代解析不出来时的回话。**不能沉默地退回找房**——
+    那正是实测里「介绍下第一套」被当成新一轮搜索的原因。"""
+    return {
+        "intent": "support", "status": "answered", "ok": True,
+        "route": routed, "route_source": decision["source"],
+        "alternatives": [],
+        "message": "我这边还没有可以%s的房源。先说说你的条件，"
+                   "或者点开一套房再问我。" % what,
+    }
+
+
+def _describe_house(payload, routed, decision):
+    """讲解某一套。"""
+    resolved = memory.resolve_house(payload.text, payload.last_house_nos)
+    target = resolved or (payload.last_house_nos or [None])[0]
+    rows = _fetch_houses([target]) if target else []
+    if not rows:
+        return _no_reference(routed, decision, "介绍")
+
+    message, data = pitch.describe(backend_client, rows[0])
+    return {
+        "intent": "support", "status": "answered", "ok": True,
+        "route": routed, "route_source": decision["source"],
+        "alternatives": [], "message": message,
+        "house_no": rows[0].get("house_no"),
+        "pitch": data,
+        # 讲完就给下一步。用户听完「适合谁」之后最想做的就是这两件事，
+        # 让他再打一遍字是白白丢掉一次转化。
+        "options": ["帮我约看房", "收藏这套", "看看类似的"],
+    }
+
+
+def _compare_houses(payload, routed, decision):
+    """对比两套。序号解析不出第二套时，默认拿列表前两条。"""
+    nos = [n for n in (payload.last_house_nos or []) if n]
+    picked = memory.resolve_houses(payload.text, nos)
+    if len(picked) < 2:
+        picked = nos[:2]
+    rows = _fetch_houses(picked[:3])
+    if len(rows) < 2:
+        return _no_reference(routed, decision, "对比")
+
+    message, data = pitch.compare(backend_client, rows)
+    return {
+        "intent": "support", "status": "answered", "ok": True,
+        "route": routed, "route_source": decision["source"],
+        "alternatives": [], "message": message,
+        "compare": data,
+        "options": ["介绍下第一套", "介绍下第二套", "帮我约看房"],
+    }
 
 
 def _dispatch(payload, routed, intent, slots, feats):

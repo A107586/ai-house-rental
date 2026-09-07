@@ -99,6 +99,14 @@ ACTION_KEYWORDS = [
                   "把账单交", "缴租金", "交一下房租"]),
     ("cancel_viewing", ["取消预约", "取消看房", "别去看了", "不看了",
                         "把预约取消"]),
+    # **改约要排在预约之前。** 「把看房改到周日」同时含着「约」和时间，
+    # 排在 book_viewing 后面就会被它抢走，变成新约一条。
+    #
+    # 这里**故意不收「改成」「改到」**：它们太泛了。「把这条工单改成
+    # 已完成」「把消息改成已读」都带着这两个字，而这张表是先到先得的，
+    # 收进来就会把那两件事抢走。带宾语的说法交给下面的强共现去认。
+    ("reschedule_viewing", ["改约", "改期", "改时间", "换个时间",
+                            "换一个时间", "换时间", "重新约"]),
     ("book_viewing", ["约看房", "预约看房", "帮我约", "安排看房", "想去看",
                       "我要看房", "要看房", "想看房", "看房第", "约一下看房",
                       "去看看这套", "预约看"]),
@@ -196,6 +204,13 @@ _SOFT_ASKING = ["吗", "什么", "哪", "呢", "算不算", "属于"]
 # 「怎么」「吗」，那两层否决先拦下了。
 STRONG_PAIRS = [
     ("book_viewing", ["预约", "约", "要看", "想看"], ["看房", "看一下房"]),
+    # 「取消之前那个周六的看房」——「取消看房」四个字被「之前那个周六的」
+    # 隔断了，固定短语对不上；而这句话没有「帮我」，也就走不到下面那层
+    # 要求祈使语气的共现规则。**结果是一句再明确不过的取消，一条规则都不命中。**
+    # 「取消 × 看房」不存在第二种解释：问规则的说法会带「怎么」「吗」，
+    # 前面两层否决已经拦下了。
+    ("cancel_viewing", ["取消", "退掉", "撤销", "不去了"],
+     ["看房", "预约"]),
     # 「把站内消息都标记成已读」——原先的词表要求「标记已读」四个字连着，
     # 中间多一个「成」就不认了。「已读」这个词除了这件事没别的用法。
     ("read_all_messages", ["标记", "设为", "设成", "改成", "全部", "都"],
@@ -207,18 +222,62 @@ STRONG_PAIRS = [
     # 「把这条工单标记为已完成」
     ("update_repair", ["标记", "改成", "设为", "置为", "关掉"],
      ["完成", "已完成", "修好"]),
+    # 「帮我把这套收藏了」——固定短语要求「收藏」和指代词连着，中间
+    # 夹一个「把…了」就断开了。「收藏 × 这套」不存在第二种解释：
+    # 真要问怎么收藏，句子里会带「怎么」，前面那层否决先拦下了。
+    ("favorite_house", ["收藏"],
+     ["这套", "那套", "这个", "那个", "它", "房源", "一下"]),
+    # 「把周六那个看房改到周日」——「改 × 看房」凑在一起没有第二种解释，
+    # 不必再要求「帮我」托底。放在最后，前面几条更具体的先挑走。
+    ("reschedule_viewing", ["改到", "改成", "换到", "挪到", "推迟到"],
+     ["看房", "预约", "那条", "那个时间"]),
 ]
 
 ACTION_PAIRS = [
     ("pay_bill", ["交", "缴", "付", "支付", "结清"],
      ["房租", "租金", "账单", "费用", "这个月"]),
     ("cancel_viewing", ["取消", "退掉", "撤销"], ["预约", "看房"]),
+    ("reschedule_viewing", ["改", "换", "调"], ["预约", "看房", "时间", "时段"]),
     ("book_viewing", ["约", "预约", "安排"], ["看房", "看一下", "去看"]),
     ("submit_repair", ["报", "叫", "提交"], ["修", "维修", "师傅"]),
     ("renew_contract", ["续", "接着", "再租"], ["租", "约", "合同"]),
     ("end_contract", ["退", "解", "不租"], ["租", "约", "房"]),
     ("toggle_house", ["上", "下"], ["架"]),
 ]
+
+
+# 纯粹的客气话。把它们从句子里去掉之后，如果**再没有别的疑问词**，
+# 那这句话就只是说得客气，不是在提问。
+_POLITENESS = ("能不能", "可不可以", "可以吗", "行不行", "方便吗", "麻烦你",
+               "能否", "可以帮", "能帮")
+
+
+def _only_politeness(raw):
+    """句子里的疑问成分**只有客气话**吗。
+
+    「能不能把看房改成周日」去掉「能不能」就什么疑问词都不剩了——是请求。
+    「能不能帮我看看退租要注意什么」去掉之后还剩「注意什么」——是咨询。
+    差别就在这里，而不在客气与否。
+    """
+    stripped = raw
+    for word in _POLITENESS:
+        stripped = stripped.replace(word, "")
+    return not any(word in stripped for word in _ASKING)
+
+
+def _explicit(raw):
+    """只认**说法明确**的那两层：固定短语与强共现。认不出返回空串。
+
+    抽出来是因为「客气的请求」那条路只允许走到这里为止，
+    不能再往下落到宽泛的动词×对象共现。
+    """
+    for name, keywords in ACTION_KEYWORDS:
+        if any(kw in raw for kw in keywords):
+            return name
+    for name, verbs, objects in STRONG_PAIRS:
+        if any(v in raw for v in verbs) and any(o in raw for o in objects):
+            return name
+    return ""
 
 
 def detect(text):
@@ -237,20 +296,31 @@ def detect(text):
     raw = (text or "").strip()
     if not raw:
         return ""
-    if any(word in raw for word in _ASKING):
-        return ""
 
     imperative = any(verb in raw for verb in _DO_VERBS)
+
+    if any(word in raw for word in _ASKING):
+        # **中文里请人办事，十有八九是包在问句里的。**
+        #
+        # 「能不能把这个看房改成周日下午三点」——问句词一票否决，于是
+        # 这句被当成了咨询，助手回「时间没问题，请到房源页面自己提交」。
+        # 用户的原话是「你应该帮我改啊」。他没说错：**这是请求，
+        # 不是提问**，只是说得客气。一律否决等于惩罚礼貌的说法。
+        #
+        # 松口松得很窄：必须**同时**带祈使成分（帮我／把／给我），
+        # 而且必须命中下面那两层**明确**的规则；一旦松到最后那层
+        # 宽泛的共现，「能不能帮我看看退租要注意什么」里的
+        # 「退 × 租」就会变成一张退租确认卡——那正是这道否决要防的事。
+        if not imperative or not _only_politeness(raw):
+            return ""
+        return _explicit(raw)
+
     if not imperative and any(word in raw for word in _SOFT_ASKING):
         return ""
 
-    for name, keywords in ACTION_KEYWORDS:
-        if any(kw in raw for kw in keywords):
-            return name
-
-    for name, verbs, objects in STRONG_PAIRS:
-        if any(v in raw for v in verbs) and any(o in raw for o in objects):
-            return name
+    explicit = _explicit(raw)
+    if explicit:
+        return explicit
 
     # 共现规则需要祈使语气托底。少了这个约束，「账单还有 2 笔没交」
     # 这种陈述句也会被判成「要交钱」——那是查询，不是操作。
@@ -309,6 +379,29 @@ _ANY_OF_THEM = ["都可以", "都行", "随便", "都成", "你定", "你看着�
                 "无所谓", "哪个都行", "都方便"]
 
 
+def _value_said(value, raw):
+    """用户这句话里是不是真的说出了这个选项的值。
+
+    **纯数字的值必须整段匹配，不能当子串找。**
+
+    预约、工单这些选项的值是数据库自增 id——「20」「17」这种两位数。
+    直接 `value in raw` 的话，用户回一句「2026-09-12 09:00 DL0007」，
+    里面的「2026」含着「20」，于是选中了 id 为 20 的那一条。
+    实测就是这么把**另一场看房**改了期的：卡片上写着 DL0075，
+    而他说的是 DL0007。
+
+    房源编号、合同号那类带字母前缀的值不受影响，仍然按子串找——
+    「DL0007 那套」本来就该命中。
+    """
+    value = str(value or "")
+    if not value:
+        return False
+    if not value.isdigit():
+        return value in raw
+    # 前后不能再挨着数字，否则就是从别的数字里切出来的
+    return bool(re.search(r"(?<!\d)%s(?!\d)" % re.escape(value), raw))
+
+
 def pick_option(text, options):
     """把用户这句话对应到某个选项，返回选项的 value 或空串。
 
@@ -326,15 +419,29 @@ def pick_option(text, options):
         return options[0]["value"]
 
     for option in options:
-        if option["value"] and option["value"] in raw:
+        if _value_said(option.get("value"), raw):
             return option["value"]
 
+    # 按「他说中了多少」打分，**取唯一的最高分**。
+    #
+    # 原先是从上往下扫，谁先命中一段就是谁。可几条预约的标签里都写着
+    # 同一个房源编号——「2026-09-12 09:00 DL0007」里的 DL0007 三条都有，
+    # 于是选中的永远是列表里最靠前的那条。实测就是这么改错了一场看房。
+    # 说中得越多越可信；并列第一说明**他说的话本身就分不出来**，
+    # 这时候宁可回去再问一次，也不能按顺序猜一个。
+    scored = []
     for option in options:
-        label = option.get("label") or ""
-        # 标签里挑一段有区分度的来比对，整条标签太长不可能被原样说出来
-        for piece in label.replace("　", " ").split():
-            if len(piece) >= 3 and piece in raw:
-                return option["value"]
+        label = (option.get("label") or "").replace("　", " ")
+        hit = sum(len(piece) for piece in label.split()
+                  if len(piece) >= 3 and piece in raw)
+        if hit:
+            scored.append((hit, option["value"]))
+    if scored:
+        best = max(score for score, _ in scored)
+        winners = [value for score, value in scored if score == best]
+        if len(winners) == 1:
+            return winners[0]
+        return ""
 
     compact = raw.strip("，。 ")
     for word, index in _ORDINALS.items():
@@ -430,17 +537,47 @@ def _propose_pay_bill(text, token, backend, context):
         warning=warning)
 
 
-def _propose_cancel_viewing(text, token, backend, context):
+def _live_appointments(token, backend):
     rows = _rows(backend.get("/api/appointments/mine", token=token))
-    pending = [r for r in rows if r.get("status") in ("pending", "confirmed",
-                                                      "待审核", "已确认")]
+    return [r for r in rows if r.get("status") in ("pending", "confirmed",
+                                                   "待审核", "已确认")]
+
+
+def _narrow_by_time(rows, text):
+    """用户话里说了时间就按它先筛一遍。筛不出来就原样返回。
+
+    **不筛的代价是把选择题重新丢回给用户。** 实测「取消之前那个周六的
+    看房」得到的是七条预约的列表——他已经说了是周六那条，助手却当没听见。
+    七选一里挑错一条，取消的就是另一场看房。
+
+    只在筛完仍有结果时才采用：解析错了宁可多问一句，也不能悄悄把
+    候选缩到错误的那一条上。
+    """
+    parsed = parse_datetime(text or "") or {}
+    day = parsed.get("date")
+    if not day:
+        return rows
+    stamp = day.strftime("%Y-%m-%d")
+    hit = [r for r in rows if str(r.get("viewing_time") or "").startswith(stamp)]
+    return hit or rows
+
+
+def _appointment_options(rows):
+    return [_option(str(r.get("id")),
+                    "%s %s" % (str(r.get("viewing_time") or "")[:16],
+                               r.get("house_no", "")))
+            for r in rows]
+
+
+def _propose_cancel_viewing(text, token, backend, context):
+    pending = _live_appointments(token, backend)
     if not pending:
         return NOT_APPLICABLE, "你没有可以取消的预约。", None, None
 
-    options = [_option(str(r.get("id")),
-                       "%s %s" % (r.get("viewing_time", ""), r.get("house_no", "")))
-               for r in pending]
     chosen = context.get("appointment_id") or ""
+    if not chosen:
+        pending = _narrow_by_time(pending, text)
+    options = _appointment_options(pending)
     if not chosen and len(pending) > 1:
         return (NEED_SLOT, "你有 %d 条预约，要取消哪一条？" % len(pending), None,
                 _ask("appointment_id", "要取消哪一条预约？", options))
@@ -459,6 +596,111 @@ def _propose_cancel_viewing(text, token, backend, context):
         RISK_MEDIUM,
         {"appointment_id": target.get("id"), "status": "cancelled"},
         detail=target), None
+
+
+def _propose_reschedule_viewing(text, token, backend, context):
+    """改约：把已有的一条看房换个时间。
+
+    **这件事之前根本做不了。** 实测用户约完说「能不能改成本周日下午三点」，
+    助手回的是「时间没问题，请到具体房源页面点『预约看房』完成提交」——
+    他刚在这儿约成了，助手却让他自己回页面重来一遍。他的原话是
+    「你应该帮我改啊」。
+
+    后端没有「改时间」这个接口（PATCH 只收 confirmed/rejected/cancelled），
+    所以这一项实际是**先约新的、再退旧的**两步。顺序不能反：先取消的话，
+    万一新时段建不出来（时段冲突、房源下架），他就两头落空了。
+    """
+    rows = _live_appointments(token, backend)
+    if not rows:
+        return NOT_APPLICABLE, "你现在没有可以改期的看房预约。", None, None
+
+    chosen = context.get("appointment_id") or ""
+    if not chosen:
+        # **改约这一项刻意不按句子里的时间去筛。**
+        #
+        # 取消时句子里的时间说的是「哪一条」，筛得越准越好；改约不是——
+        # 「改成周日下午三点」里的时间是**新时间**。拿它去筛旧预约，
+        # 万一正好撞上一条已有的，选中的就是错的那条。
+        # 宁可多问一句，也不能默默改错一场看房。
+        if len(rows) > 1:
+            return (NEED_SLOT, "你有 %d 条预约，要改哪一条？" % len(rows), None,
+                    _ask("appointment_id", "要改哪一条预约？",
+                         _appointment_options(rows),
+                         carry={"new_time": context.get("new_time") or text}))
+        chosen = str(rows[0].get("id"))
+
+    target = None
+    for row in rows:
+        if str(row.get("id")) == str(chosen):
+            target = row
+            break
+    if target is None:
+        return FAILED, "没找到那条预约，可能已经取消了。", None, None
+
+    # 新时间：优先用槽位里存的，其次从这句话里读。
+    #
+    # **旧预约的时间要先排除掉。** 「把周六那条改成周日下午三点」里有
+    # 两个时间，`parse_datetime` 只会返回先出现的那个——正好是旧的。
+    # 所以拿 new_time 槽位兜住：追问时问的就是新时间。
+    raw_new = context.get("new_time") or ""
+    parsed = parse_datetime(raw_new or text) or {}
+    day, clock = parsed.get("date"), parsed.get("time")
+    old_when = str(target.get("viewing_time") or "")[:16]
+    same = bool(day and clock) and ("%s %s" % (
+        day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))) == old_when
+    if same:
+        day = clock = None            # 读到的就是它现在的时间，等于没说
+
+    if not day or not clock:
+        # 说清楚为什么还在问。他说「改成周日下午三点」、助手回一句
+        # 「改到什么时候？原来是周日下午三点」，看着像没听懂——
+        # 实际是这条**本来就约在那个时间**。
+        question = ("这条本来就约在 %s，要改到别的时间吗？" % old_when
+                    if same else "改到什么时候？原来是 %s。" % old_when)
+        return (NEED_SLOT, question, None,
+                _ask("new_time", question, [
+                    _option("明天下午三点", "明天下午三点"),
+                    _option("这周六上午十点", "本周六上午十点"),
+                    _option("这周六下午两点", "本周六下午两点"),
+                    _option("这周日下午三点", "本周日下午三点")],
+                     carry={"appointment_id": chosen}))
+
+    when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
+    return CONFIRM, "", _card(
+        "reschedule_viewing", "看房改期",
+        "把 %s 的看房从 %s 改到 %s"
+        % (target.get("house_no", ""), old_when, when),
+        RISK_MEDIUM,
+        {"appointment_id": target.get("id"), "house_no": target.get("house_no"),
+         "viewing_time": when},
+        detail=dict(target, new_time=when),
+        warning="会先按新时间约一条，成功之后再把原来那条退掉；"
+                "新的一条同样要等房东确认。"), None
+
+
+def _exec_reschedule_viewing(params, token, backend):
+    """**先建新的，再退旧的。**
+
+    反过来写的话，新时段一旦建不出来（时段冲突、房源已下架），
+    用户就从「有一条看房」变成了「一条都没有」——而他要的只是换个时间。
+    """
+    created = backend.post("/api/appointments", {
+        "house_no": params["house_no"],
+        "viewing_time": params["viewing_time"],
+    }, token=token)
+
+    try:
+        backend._request("PATCH", "/api/appointments/%s" % params["appointment_id"],
+                         payload={"status": "cancelled"}, token=token)
+    except Exception as exc:                                  # noqa: BLE001
+        # 新的已经约上了，旧的没退掉。**必须说出来**——不说的话他以为
+        # 只剩一条，到时候房东那边收到两次带看请求。
+        return ("新时间已经约上了（%s），但原来那条没能取消（%s）。"
+                "麻烦到「我的预约」里手动取消一下。"
+                % (params["viewing_time"], str(exc)[:40]), created)
+
+    return ("已经改到 %s，原来那条已取消。新的一条要等房东确认。"
+            % params["viewing_time"], created)
 
 
 def _propose_book_viewing(text, token, backend, context):
@@ -1037,6 +1279,7 @@ def _propose_update_profile(text, token, backend, context):
 PROPOSERS = {
     "pay_bill": _propose_pay_bill,
     "cancel_viewing": _propose_cancel_viewing,
+    "reschedule_viewing": _propose_reschedule_viewing,
     "book_viewing": _propose_book_viewing,
     "submit_repair": _propose_submit_repair,
     "renew_contract": _propose_renew_contract,
@@ -1252,6 +1495,7 @@ def _exec_update_profile(params, token, backend):
 EXECUTORS = {
     "pay_bill": _exec_pay_bill,
     "cancel_viewing": _exec_cancel_viewing,
+    "reschedule_viewing": _exec_reschedule_viewing,
     "book_viewing": _exec_book_viewing,
     "submit_repair": _exec_submit_repair,
     "renew_contract": _exec_renew_contract,
@@ -1279,6 +1523,7 @@ EXECUTORS = {
 # 「发布房源」」时手上只有动作名，得能反查。
 LABELS = {
     "pay_bill": "缴费", "cancel_viewing": "取消预约", "book_viewing": "预约看房",
+    "reschedule_viewing": "看房改期",
     "submit_repair": "提交报修", "renew_contract": "续租", "end_contract": "退租",
     "favorite_house": "收藏房源", "unfavorite_house": "取消收藏",
     "read_all_messages": "消息全部已读", "clear_history": "清空浏览足迹",
@@ -1293,6 +1538,7 @@ LABELS = {
 ALLOWED_PARAMS = {
     "pay_bill": {"bill_no", "method"},
     "cancel_viewing": {"appointment_id", "status"},
+    "reschedule_viewing": {"appointment_id", "house_no", "viewing_time"},
     "book_viewing": {"house_no", "viewing_time"},
     "submit_repair": {"house_no", "content", "images"},
     "renew_contract": {"contract_no", "months"},

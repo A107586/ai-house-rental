@@ -26,6 +26,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app import memory  # noqa: E402
 from app.agents.support import agent as support  # noqa: E402
 from app.llm.base import LLMProvider, LLMUnavailable  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
@@ -347,3 +348,66 @@ class TestRentFlow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOrdinalReference(unittest.TestCase):
+    """「第一套」「第二套」指的是上一轮列出来的哪一条。
+
+    实测里这三句全都失败了——助手把上一轮的搜索结果原样又列了一遍：
+
+        「第一套第二套哪个好」「对比第一套和第二套」「帮我介绍下第一套」
+
+    **用户已经看到列表了**，他再开口要的是判断。
+    """
+
+    def test_two_ordinals_resolve_to_two_houses(self):
+        """`resolve_house` 只返回先命中的那一个，拿它做对比等于
+        「拿第一套和第一套比」。"""
+        self.assertEqual(
+            memory.resolve_houses("对比第一套和第二套", ["A", "B", "C"]),
+            ["A", "B"])
+
+    def test_order_follows_the_sentence_not_the_table(self):
+        self.assertEqual(
+            memory.resolve_houses("第三套和第一套差多少", ["A", "B", "C"]),
+            ["C", "A"])
+
+    def test_the_same_house_is_not_listed_twice(self):
+        """重复一次，对比表就会凭空多出一列。"""
+        self.assertEqual(
+            memory.resolve_houses("第2套和第二套", ["A", "B"]), ["B"])
+
+    def test_out_of_range_ordinals_are_dropped(self):
+        self.assertEqual(
+            memory.resolve_houses("第五套和第一套", ["A", "B"]), ["A"])
+
+    def test_no_context_means_nothing_to_resolve(self):
+        self.assertEqual(memory.resolve_houses("对比第一套和第二套", []), [])
+
+
+class TestPitchRouting(unittest.TestCase):
+    """讲解与对比要被认出来，而且**不能把规则问题也拽进去**。"""
+
+    def test_comparison_and_description_are_recognised(self):
+        from app.agents.support.tools import router
+        cases = [("第一套第二套哪个好", "compare_houses"),
+                 ("对比第一套和第二套", "compare_houses"),
+                 ("帮我介绍下第一套", "describe_house"),
+                 ("这套怎么样", "describe_house"),
+                 ("第二套值不值", "describe_house")]
+        for text, want in cases:
+            got = router.route(text, provider=None)
+            self.assertEqual(got["name"], want, "「%s」应判为 %s" % (text, want))
+
+    def test_a_rule_question_that_says_which_is_better_is_not_a_comparison(self):
+        """**必须指着某一套。**
+
+        「押一付三和押一付六哪个好」也含「哪个好」，但它问的是平台规则，
+        该走知识库。少了「指代」这个条件，这类问题会被拽去对比房源。
+        """
+        from app.agents.support.tools import router
+        for text in ["押一付三和押一付六哪个好", "整租和合租哪个划算",
+                     "哪个好"]:
+            got = router.route(text, provider=None)
+            self.assertNotIn(got["name"], ("compare_houses", "describe_house"),
+                             "「%s」问的是规则，不是房源" % text)

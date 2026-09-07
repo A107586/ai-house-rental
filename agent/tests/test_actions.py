@@ -101,6 +101,37 @@ class TestDetection(unittest.TestCase):
             self.assertEqual(actions.detect(question), want,
                              "「%s」应识别为 %s" % (question, want))
 
+    def test_polite_requests_are_still_requests(self):
+        """**中文里请人办事，十有八九是包在问句里的。**
+
+        实测：用户约完看房说「能不能把这个看房改成本周日下午三点」，
+        问句词一票否决，助手回「时间没问题，请到房源页面自己提交」——
+        他刚在这儿约成的。他的原话是「你应该帮我改啊」。
+
+        客气不该被当成犹豫。放行的口子开得很窄：要有祈使成分，
+        而且去掉客气话之后不能再剩别的疑问词。
+        """
+        cases = [("能不能把这个看房改成本周日下午三点", "reschedule_viewing"),
+                 ("可以帮我把房租交了吗", "pay_bill"),
+                 ("能不能帮我约看房", "book_viewing"),
+                 ("可不可以帮我把这套收藏了", "favorite_house")]
+        for question, want in cases:
+            self.assertEqual(actions.detect(question), want,
+                             "「%s」是客气的请求，不是提问" % question)
+
+    def test_politeness_does_not_open_the_door_to_consultations(self):
+        """**口子只开到「说法明确」为止。**
+
+        「能不能帮我看看退租要注意什么」同样又客气又带祈使，但它是咨询。
+        松到宽泛的动词×对象共现，这句里的「退 × 租」就会变成一张
+        退租确认卡——那正是问句否决要防的事，而退租不可撤销。
+        """
+        for question in ["能不能帮我看看退租要注意什么",
+                         "能不能帮我查一下退租流程",
+                         "可不可以帮我说说押金一般什么时候退"]:
+            self.assertEqual(actions.detect(question), "",
+                             "「%s」是咨询，不该被当成指令" % question)
+
     def test_word_order_does_not_matter(self):
         """中文语序自由，动词和宾语之间常常隔着几个字。
 
@@ -535,6 +566,29 @@ class TestMultiTurn(unittest.TestCase):
                          "高风险操作不能凭一句「好的」就执行")
         self.assertIn("点", turns[1]["message"])
 
+    def test_a_polite_answer_is_still_an_answer(self):
+        """**中文里带商量语气的回答，长得就像问句。**
+
+        实测：助手问「你想什么时候去看？」，用户答「本周六上午九点可以吗」，
+        句尾一个「吗」，整句被判成插问、丢去检索知识库，回了一句
+        「暂时没有查到相关规定」——**他明明已经把时间说了**。
+        按问句处理等于惩罚说话客气的人。
+        """
+        turns = self.converse(["帮我约看房", "第一个", "本周六上午九点可以吗"])
+        self.assertEqual(turns[2]["status"], "confirm",
+                         "「…可以吗」是在回答时间，不是在提问")
+        self.assertIn("09:00", turns[2]["action"]["summary"])
+
+    def test_a_real_question_still_interrupts(self):
+        """**放宽只针对「填得进这一格」的话。**
+
+        「押金怎么退」填不进时间那一格，它就是插问：照常去答，
+        并且把没做完的待办原样带回来。
+        """
+        turns = self.converse(["帮我约看房", "第一个", "押金怎么退"])
+        self.assertEqual(turns[2]["status"], "answered")
+        self.assertIsNotNone(turns[2].get("pending"), "待办不该被丢掉")
+
     def test_denial_during_slot_filling_stops_everything(self):
         """**追问途中说「算了」必须停下，不能把它当成槽位值填进去。**
 
@@ -674,6 +728,7 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
     BARE = {
         "pay_bill": "帮我交房租",
         "cancel_viewing": "帮我取消预约",
+        "reschedule_viewing": "帮我改约",
         "book_viewing": "帮我约看房",
         "submit_repair": "帮我报修",
         "renew_contract": "帮我续租",
@@ -914,3 +969,142 @@ class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRescheduleViewing(unittest.TestCase):
+    """看房改期。**后端没有「改时间」这个接口**，所以它其实是两步。"""
+
+    ROWS = {"/api/appointments/mine": {"list": [
+        {"id": 11, "house_no": "DL0007", "status": "pending",
+         "viewing_time": "2026-09-12 10:00:00"},
+        {"id": 12, "house_no": "DL0009", "status": "confirmed",
+         "viewing_time": "2026-09-20 14:00:00"},
+    ]}}
+
+    def test_asks_which_one_then_asks_the_new_time(self):
+        backend = RecordingBackend(self.ROWS)
+        status, message, card, ask = actions.propose(
+            "reschedule_viewing", "帮我改约", "tok", backend, context={})
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertEqual(ask["slot"], "appointment_id")
+        self.assertTrue(ask["options"])
+
+    def test_new_time_is_not_confused_with_the_old_one(self):
+        """**「改到周日下午三点」里的时间是新的，不是旧的。**
+
+        追问选中哪一条之后，`text` 里仍然带着那句话。如果直接拿它去解析，
+        解析器读到的可能是旧预约的日期——用户就会看到一张
+        「从 9-12 改到 9-12」的卡片。
+        """
+        backend = RecordingBackend(self.ROWS)
+        status, message, card, ask = actions.propose(
+            "reschedule_viewing", "改到这周日下午三点", "tok", backend,
+            context={"appointment_id": "11", "new_time": "这周日下午三点"})
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertIn("改到", card["summary"])
+        self.assertNotEqual(card["params"]["viewing_time"],
+                            "2026-09-12 10:00")
+
+    def test_execute_books_the_new_slot_before_dropping_the_old(self):
+        """**顺序不能反。**
+
+        先取消的话，新时段一旦建不出来（时段冲突、房源下架），
+        用户就从「有一条看房」变成了「一条都没有」——而他只是想换个时间。
+        """
+        backend = RecordingBackend(self.ROWS)
+        actions.execute("reschedule_viewing",
+                        {"appointment_id": 11, "house_no": "DL0007",
+                         "viewing_time": "2026-09-13 15:00"}, "tok", backend)
+        wrote = [c for c in backend.writes
+                 if c[0] in ("POST", "PATCH") and "appointment" in c[1]]
+        self.assertEqual(wrote[0][0], "POST", "应当先约新的")
+        self.assertEqual(wrote[1][0], "PATCH", "再退旧的")
+
+    def test_says_so_when_the_old_one_could_not_be_cancelled(self):
+        """新的约上了、旧的没退掉——**必须说出来**。
+
+        不说的话用户以为只剩一条，房东那边却收到了两次带看请求。
+        """
+        class HalfBroken(RecordingBackend):
+            def _request(self, method, path, params=None, payload=None,
+                         token=None):
+                if method == "PATCH":
+                    raise RuntimeError("接口挂了")
+                return super()._request(method, path, params, payload, token)
+
+        backend = HalfBroken(self.ROWS)
+        ok, message, _ = actions.execute(
+            "reschedule_viewing",
+            {"appointment_id": 11, "house_no": "DL0007",
+             "viewing_time": "2026-09-13 15:00"}, "tok", backend)
+        self.assertIn("没能取消", message)
+        self.assertIn("手动", message)
+
+
+class TestCancelNarrowsByTime(unittest.TestCase):
+    """用户已经说了是哪一条，就别再把选择题丢回去。"""
+
+    ROWS = {"/api/appointments/mine": {"list": [
+        {"id": 11, "house_no": "DL0007", "status": "pending",
+         "viewing_time": "2026-09-12 10:00:00"},
+        {"id": 12, "house_no": "DL0009", "status": "confirmed",
+         "viewing_time": "2026-09-20 14:00:00"},
+        {"id": 13, "house_no": "DL0008", "status": "pending",
+         "viewing_time": "2026-09-21 09:00:00"},
+    ]}}
+
+    def test_a_time_in_the_sentence_picks_the_appointment(self):
+        backend = RecordingBackend(self.ROWS)
+        status, message, card, ask = actions.propose(
+            "cancel_viewing", "取消 9 月 20 号那个看房", "tok", backend,
+            context={})
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertEqual(card["params"]["appointment_id"], 12)
+
+    def test_still_asks_when_the_time_matches_nothing(self):
+        """**筛空了要退回全部，不能悄悄缩到错误的那一条上。**
+
+        解析错一次，取消掉的就是另一场看房。
+        """
+        backend = RecordingBackend(self.ROWS)
+        status, message, card, ask = actions.propose(
+            "cancel_viewing", "取消 1 月 1 号那个看房", "tok", backend,
+            context={})
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertEqual(len(ask["options"]), 3)
+
+
+class TestOptionMatchingIsUnambiguous(unittest.TestCase):
+    """选项对应错了，执行的就是**另一件事**。
+
+    这一组全部来自一次实测事故：用户在七条预约里点了
+    「2026-09-12 09:00 DL0007」，助手却把 DL0075 那条改了期。
+    """
+
+    OPTIONS = [{"value": "21", "label": "2026-09-13 15:00 DL0007"},
+               {"value": "22", "label": "2026-09-12 09:00 DL0007"},
+               {"value": "17", "label": "2026-09-06 16:00 DL0075"}]
+
+    def test_a_short_numeric_id_is_not_matched_inside_another_number(self):
+        """**「2026」里含着「20」。**
+
+        预约、工单的选项值是自增 id，两位数很常见。按子串找的话，
+        任何带年份或时间的回答都会随机命中一条。
+        """
+        self.assertEqual(
+            actions.pick_option("2026-09-12 09:00 DL0007", self.OPTIONS), "22")
+
+    def test_saying_the_id_outright_still_works(self):
+        self.assertEqual(actions.pick_option("22", self.OPTIONS), "22")
+
+    def test_the_option_that_matches_most_wins_not_the_first_one(self):
+        """几条预约共用同一个房源编号时，从上往下扫永远选中第一条。"""
+        self.assertEqual(
+            actions.pick_option("2026-09-06 16:00 DL0075", self.OPTIONS), "17")
+
+    def test_an_ambiguous_answer_picks_nothing(self):
+        """**并列第一说明他说的话本身就分不出来。**
+
+        这时候按顺序猜一个，就是在赌；宁可回去再问一次。
+        """
+        self.assertEqual(actions.pick_option("DL0007", self.OPTIONS), "")

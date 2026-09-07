@@ -4661,3 +4661,119 @@ button.account-row:last-child { border-bottom: none; }
   word-break: break-word;
   color: var(--ink-2);
 }
+
+/* ---------------------------------------------------------------
+   对话里的「讲解」与「对比」卡片
+   -----------------------------------------------------------------
+   两张卡都是**替用户拿主意**用的，所以视觉上要压得住一段文字，
+   但不能抢过确认卡片——那一类是要动手做事的，永远排第一。
+
+   亮点用绿、短板用琥珀，两者字号相同：短板做小一号就等于在藏，
+   而这张卡敢把短板写出来，亮点那一栏才有人信。
+   --------------------------------------------------------------- */
+.pitch-card {
+  margin-top: 10px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  background: #fbfcfd;
+  overflow: hidden;
+}
+
+.pitch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-bottom: 1px solid #eef1f4;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pitch-head:hover { background: #f5f8ff; }
+
+.pitch-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2733;
+}
+
+.pitch-rent {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d4560f;
+}
+
+.pitch-price {
+  padding: 7px 11px;
+  border-bottom: 1px solid #eef1f4;
+  font-size: 12px;
+  color: #5b6472;
+}
+
+.pitch-price.good { color: #1c7a4a; background: #f2fbf6; }
+.pitch-price.warn { color: #8a5a12; background: #fffaf0; }
+.pitch-sample { color: #98a1ad; }
+
+.pitch-list {
+  margin: 0;
+  padding: 7px 11px 7px 26px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.pitch-list.good { color: #245c3f; }
+.pitch-list.good li::marker { content: '✓  '; }
+.pitch-list.warn { color: #7d5510; }
+.pitch-list.warn li::marker { content: '!  '; }
+
+.pitch-suits {
+  padding: 8px 11px;
+  border-top: 1px solid #eef1f4;
+  background: #f7f9fc;
+  font-size: 12.5px;
+  color: #3d4653;
+}
+
+.compare-card {
+  margin-top: 10px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  /* 三套并排在窄抽屉里会挤，让表格自己横向滚，别把气泡撑破 */
+  overflow-x: auto;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 6px 9px;
+  border-bottom: 1px solid #eef1f4;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.compare-table thead th { background: #f7f9fc; font-weight: 600; }
+
+.compare-table tbody th {
+  color: #7a828f;
+  font-weight: 400;
+  background: #fcfdfe;
+}
+
+/* 「这一项它更优」。只描边加粗，不铺整片绿——一张表里标绿的格子
+   一多，就分不清哪个是真结论了。 */
+.compare-table td.best {
+  color: #1c7a4a;
+  font-weight: 600;
+  background: #f2fbf6;
+}
