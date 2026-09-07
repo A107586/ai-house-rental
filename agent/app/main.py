@@ -16,6 +16,7 @@ from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
 from app.agents.handoff import agent as handoff
 from app.agents.property_finder import agent as property_finder
+from app.agents.property_finder.tools.parse_query import parse_query
 from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
 from app.agents.repair import agent as repair
@@ -457,6 +458,25 @@ def agent_chat(payload: ChatRequest):
         routed = dict(routed, intent="search", carried_over=True,
                       reason="承接上文的找房需求")
 
+    # 关键词表没认出来，就问一句规则解析器：**这句话里有没有找房的条件？**
+    #
+    # 实测「金州区三千以内的两室」被判成 unknown，回了一句「没太理解你
+    # 想做什么」——而规则解析器同一句话解析出了区域、租价上限、户型
+    # 三个字段，置信度 0.80。意图表里写的是「室一厅」，少一个「厅」就
+    # 认不出，可「三千以内的两室」是再自然不过的说法。
+    #
+    # 与其继续往那张表里塞词，不如让**已经调好的那个解析器**来回答：
+    # 一句话里同时出现两个以上的找房条件，它就是在找房。
+    # 门槛卡在「两个字段」是保守的一侧：「中山区的」只有一个字段，
+    # 可能是别的请求的一部分，交给上面那条承接规则去管。
+    if intent == "unknown":
+        ruled = parse_query(payload.text)
+        if len(ruled["filters"]) >= 2 and ruled["confidence"] >= 0.5:
+            intent = "search"
+            routed = dict(routed, intent="search",
+                          reason="规则解析出 %d 个找房条件"
+                                 % len(ruled["filters"]))
+
     result = _dispatch(payload, routed, intent, slots, feats)
 
     # 非找房的轮次也要把上下文带回去，否则界面上「当前记住」会被
@@ -532,6 +552,39 @@ def _serve(decision, payload, routed):
     # search_house 交回去走原来的找房分支：那里要合并历史槽位
     # （「三千以内的」得接上上一轮的「中山区两室一厅」），这份上下文只有那里有。
     return None
+
+
+def _push_recommendation(result, features):
+    """结果出来之后**主动多说一句**：这几套里哪一套最值得先看，
+    以及接下来可以说什么。
+
+    列表本身只回答「有哪些」，回答不了「我该看哪个」。用户拿到三套
+    条件相近的房，下一步不是挑，是**发愣**——实测里他接着打的三句话
+    全是「哪个好」「对比一下」「介绍下第一套」。既然十有八九要问，
+    不如先说。
+
+    两条自我约束：
+
+    - **挑不出来就不挑。** 头两名分差不够时 `best_of` 返回空，
+      这里也就不加那句话。硬推一套「其实差不多」的，用户点进去
+      发现没区别，这行字下次就没人看了。
+    - **推荐词从这一组结果里长出来。** 写死一张清单，迟早会推出
+      「只看带电梯的」而这批房一套电梯都没有。
+    """
+    items = result.get("items") or []
+    if result.get("status") != "found" or len(items) < 2:
+        return
+
+    lead = pitch.lead_line(items, features)
+    if lead:
+        result["message"] = "%s %s" % (result.get("message", ""), lead)
+        result["recommended"] = pitch.best_of(items, features)[0]
+
+    # 已有的可点选项优先，推荐词补在后面——追问永远比建议要紧
+    options = list(result.get("options") or [])
+    result["options"] = options + [
+        chip for chip in pitch.followups(items, result.get("filters"), features)
+        if chip not in options]
 
 
 def _fetch_houses(house_nos):
@@ -747,6 +800,8 @@ def _dispatch(payload, routed, intent, slots, feats):
         if slots and merged != cur_filters:
             result["message"] = "（延续上文：%s）%s" % (
                 result["context_text"], result.get("message", ""))
+
+        _push_recommendation(result, features)
         return result
 
     if intent == "contract":

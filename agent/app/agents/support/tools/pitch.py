@@ -331,3 +331,224 @@ def compare(backend, houses):
                                           good[0]))
 
     return " ".join(lines), {"rows": rows, "houses": houses}
+
+
+# ---------------------------------------------------------------- 主动推荐
+
+# 打分项：(权重, 说明的写法)。**每一项都必须指得出是哪个字段**——
+# 这段话是要写进「我最推荐第几套」后面的理由里的，编一句就全砸了。
+#
+# 权重之间的相对大小是有讲究的：**单价压倒一切**。租房这件事上，
+# 用户嘴上说的偏好再多，最后决定他签不签的还是每月要掏多少钱；
+# 而「便宜」是这一组里可以客观比出来的，不用猜。
+W_CHEAPEST = 4.0        # 每平米最便宜
+W_WANTED_TAG = 2.0      # 命中一条他明确说过的偏好
+W_RATED = 2.0           # 有口碑（**要够多人评过**，见下）
+W_RATED_THIN = 1.0      # 只有一两条评价
+W_BIGGEST = 0.5         # 面积最大
+W_VERIFIED = 1.0        # 已通过平台核验
+W_TAG = 0.4             # 配套多一条
+
+# 「有口碑」的门槛。**一条五星评价不是口碑，是一个人的看法。**
+# 不设这道门槛的话，一套刚上架、被房东的朋友评了一次五分的房子，
+# 分数就能压过每月便宜一千五的那套——而用户真正在意的是后者。
+ENOUGH_REVIEWS = 3
+
+# 面积那一项的权重压得很低是有意的：这一组里面积最大的，
+# 十有八九也是最贵的那套。给它高权重等于变相奖励「贵」。
+
+# 领先优势不到这个数就不推。
+#
+# **「差不多」的时候硬挑一套出来，是这类功能最容易失信的地方**：
+# 用户点进去发现和第二套没什么区别，下一次就不会再看这行字了。
+# 宁可说一句「这几套各有各的好」，那也是有用的信息。
+MIN_MARGIN = 1.5
+
+
+def rank(houses, features=None):
+    """给这一组房源打分，返回 ``[(分数, 理由列表, 房源), …]``，高分在前。"""
+    houses = [h for h in houses if h]
+    if not houses:
+        return []
+
+    wanted = [f for f in (features or []) if f]
+    units = {}
+    for house in houses:
+        area = _num(house.get("area"))
+        rent = _num(house.get("rent_price"))
+        units[id(house)] = (rent / area) if area > 0 and rent > 0 else None
+
+    live = [u for u in units.values() if u]
+    cheapest = min(live) if live else None
+    areas = [_num(h.get("area")) for h in houses]
+    biggest = max(areas) if areas else 0
+
+    scored = []
+    for house in houses:
+        score = 0.0
+        why = []
+        tags = house.get("tags") or []
+
+        unit = units[id(house)]
+        if unit is not None and cheapest is not None and unit <= cheapest + 0.01:
+            score += W_CHEAPEST
+            why.append("每平米 %.1f 元，是这几套里最便宜的" % unit)
+
+        hit = [tag for tag in wanted if tag in tags]
+        if hit:
+            score += W_WANTED_TAG * len(hit)
+            why.append("你要的「%s」它都有" % "」「".join(hit))
+
+        rating = _num(house.get("rating"))
+        reviews = int(_num(house.get("review_count")))
+        if reviews >= 1 and rating >= 4.5:
+            enough = reviews >= ENOUGH_REVIEWS
+            score += W_RATED if enough else W_RATED_THIN
+            why.append("%d 位住过的租客给了 %.1f 分" % (reviews, rating)
+                       if enough else "住过的租客给了 %.1f 分" % rating)
+
+        if biggest > 0 and _num(house.get("area")) >= biggest:
+            score += W_BIGGEST
+            why.append("面积也是这几套里最大的")
+
+        if str(house.get("verify_status") or "") == "verified":
+            score += W_VERIFIED
+            why.append("已经通过平台核验")
+
+        score += min(len(tags), 5) * W_TAG
+        # 理由太单薄不好使——「最便宜」四个字说完就没了，用户还是不知道
+        # 这套房好在哪。补一两条最拿得出手的配套，仍然只取标签字段。
+        extra = [tag for tag in ("地铁", "电梯", "有家具", "可养宠物", "近学校")
+                 if tag in tags and tag not in hit]
+        if extra and len(why) < 3:
+            why.append("还带%s" % "、".join(extra[:2]))
+        scored.append((score, why, house))
+
+    scored.sort(key=lambda row: -row[0])
+    return scored
+
+
+def best_of(houses, features=None):
+    """从结果里挑**一套**最值得先看的。返回 ``(房源, 一句理由)``。
+
+    挑不出来时返回 ``(None, "")``——这不是失败，是诚实：
+
+    - 只有一套，没什么可挑的；
+    - 头两名分差不到 `MIN_MARGIN`，说明**这几套确实差不多**。
+      硬推一个，用户点进去发现和第二套没区别，这行字从此就白写了。
+    """
+    scored = rank(houses, features)
+    if len(scored) < 2:
+        return None, ""
+    if scored[0][0] - scored[1][0] < MIN_MARGIN:
+        return None, ""
+
+    score, why, house = scored[0]
+    if not why:
+        return None, ""
+    return house, "；".join(why[:2])
+
+
+def _order_of(houses, house):
+    for index, item in enumerate(houses, start=1):
+        if item is house:
+            return index
+    return 0
+
+
+def _where(houses, house):
+    return "第 %d 套（%s）" % (_order_of(houses, house),
+                            house.get("house_no") or "")
+
+
+def lead_line(houses, features=None):
+    """摆在结果前面的那一句「我最推荐哪一套」。
+
+    分不出高下时**不沉默**，改说「这两套各强在哪」。
+
+    这一点想清楚花了点功夫：一开始是挑不出来就什么都不说，理由是
+    「不能硬推」。可用户拿着三套条件相近的房，他要的恰恰就是这句话——
+    沉默把问题原样退回给了他。而「A 最便宜、B 面积最大和评价最好，
+    看你更在意哪个」既没有编造，也真的帮他往前走了一步。
+    **不确定的时候该说的是「凭什么难选」，不是不吭声。**
+    """
+    scored = rank(houses, features)
+    if len(scored) < 2:
+        return ""
+
+    top, second = scored[0], scored[1]
+    if top[0] - second[0] >= MIN_MARGIN and top[1]:
+        return "这几套里我最推荐%s：%s。" % (_where(houses, top[2]),
+                                    "；".join(top[1][:2]))
+
+    if not top[1] or not second[1]:
+        return ""
+    return ("%s和%s差不多，%s胜在%s，%s胜在%s，看你更在意哪一头。"
+            % (_where(houses, top[2]), _where(houses, second[2]),
+               (top[2].get("house_no") or ""), top[1][0],
+               (second[2].get("house_no") or ""), second[1][0]))
+
+
+# ---------------------------------------------------------------- 推荐词
+
+# 能加进来的设施偏好。**只写数据库真有的标签**——推一句
+# 「只看能停车的」，用户点了却搜不出东西，比不推更糟。
+_TAG_CHIPS = [
+    ("地铁", "只看近地铁的"),
+    ("电梯", "只看带电梯的"),
+    ("有家具", "只看带家具的"),
+    ("可养宠物", "只看能养宠物的"),
+    ("近学校", "只看近学校的"),
+]
+
+
+def followups(houses, filters=None, features=None):
+    """结果出来之后，主动递几句「接下来可以说什么」。
+
+    **推荐词必须是从这一组结果里长出来的，不能是一张写死的清单。**
+    推「只看带电梯的」的前提是这批里真有带电梯的、而且**不是全都有**——
+    全都有的话这句话点了等于没点，用户会觉得这个助手在敷衍。
+
+    条数压到 4 条：一屏放得下，也逼着按重要性排。
+    """
+    houses = [h for h in houses if h]
+    if not houses:
+        return []
+
+    filters = filters or {}
+    have = set(features or [])
+    chips = []
+
+    # 一、缩小范围：只推**筛得动**的那些标签
+    for tag, phrase in _TAG_CHIPS:
+        if tag in have:
+            continue
+        hit = sum(1 for h in houses if tag in (h.get("tags") or []))
+        if 0 < hit < len(houses):
+            chips.append(phrase)
+
+    # 二、价格。用户没给上限、而这一组价差明显时才提——
+    # 三套都是 2200 元，推「再便宜点的」是无的放矢
+    prices = [_num(h.get("rent_price")) for h in houses]
+    prices = [p for p in prices if p > 0]
+    if (not filters.get("zujia_max") and len(prices) >= 2
+            and max(prices) - min(prices) >= 500):
+        chips.append("再便宜点的")
+
+    # 三、租赁方式：这一组里不止一种时才值得问
+    kinds = {str(h.get("rent_type") or "") for h in houses}
+    kinds.discard("")
+    if len(kinds) > 1 and "整租" in kinds:
+        chips.append("只看整租")
+
+    # 四、**兜底一定要有**：上面三条都不成立时（结果很齐、条件很全），
+    # 用户面前不能只剩一个光秃秃的输入框。讲解和对比是现成的能力，
+    # 而且正是他看完列表之后最想做的两件事。
+    tail = ["介绍下第一套"]
+    if len(houses) >= 2:
+        tail.append("对比第一套和第二套")
+    tail.append("帮我约看房")
+
+    picked = chips[:2] + tail
+    # 去重但保持顺序
+    return list(dict.fromkeys(picked))[:4]

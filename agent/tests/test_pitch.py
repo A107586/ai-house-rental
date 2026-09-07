@@ -190,5 +190,137 @@ class TestCompare(unittest.TestCase):
         self.assertIsNone(row["best"])
 
 
+BUDGET = {"house_no": "DL0008", "title": "中山区桂林街 两室一厅 62平",
+          "district": "中山区", "layout": "两室一厅", "area": 62.2,
+          "rent_price": 2650, "rating": 0, "review_count": 0,
+          "tags": ["地铁", "可做饭", "电梯", "有阳台", "可养宠物"],
+          "rent_type": "整租", "verify_status": "unverified"}
+
+MID = {"house_no": "DL0009", "title": "中山区青泥洼桥 两室一厅 72平",
+       "district": "中山区", "layout": "两室一厅", "area": 72.6,
+       "rent_price": 3200, "rating": 0, "review_count": 0,
+       "tags": ["有家具", "可做饭"], "rent_type": "公寓",
+       "verify_status": "unverified"}
+
+# 一套「乏善可陈的贵房子」：没人评过、没核验、配套也少。
+# 拿它和 BUDGET 比，胜负是清楚的；GOOD 那种（已核验、三条好评、
+# 面积最大）和 BUDGET 比才是真的难分——两种情形各测一遍。
+PLAIN = {"house_no": "DL0010", "title": "中山区人民路 两室一厅 70平",
+         "district": "中山区", "layout": "两室一厅", "area": 70.0,
+         "rent_price": 4200, "rating": 0, "review_count": 0,
+         "tags": ["可做饭"], "rent_type": "整租",
+         "verify_status": "unverified"}
+
+
+class TestBestOf(unittest.TestCase):
+    """从结果里挑一套先看。**挑错了比不挑更糟**——用户会照着去看房。"""
+
+    def test_picks_the_one_that_wins_on_price(self):
+        house, reason = pitch.best_of([PLAIN, MID, BUDGET])
+        self.assertEqual(house["house_no"], "DL0008")
+        self.assertIn("最便宜", reason)
+
+    def test_the_reason_names_real_fields(self):
+        """理由里的每个数字都要能在房源字段里找到。"""
+        _, reason = pitch.best_of([PLAIN, MID, BUDGET])
+        self.assertIn("42.6", reason)          # 2650 / 62.2
+
+    def test_a_single_five_star_review_does_not_beat_a_much_lower_price(self):
+        """**一条五星评价不是口碑，是一个人的看法。**
+
+        不设门槛的话，刚上架、被评过一次五分的房子就能压过每月便宜
+        一千五的那套——而用户真正在意的是后者。
+        """
+        thin = dict(PLAIN, rating=5.0, review_count=1)
+        house, _ = pitch.best_of([thin, BUDGET])
+        self.assertEqual(house["house_no"], "DL0008")
+
+    def test_one_house_is_nothing_to_choose_from(self):
+        self.assertEqual(pitch.best_of([GOOD])[0], None)
+
+    def test_a_near_tie_refuses_to_pick(self):
+        """**「差不多」的时候硬挑一套，是这类功能最容易失信的地方。**
+
+        用户点进去发现和第二套没区别，下一次就不会再看这行字了。
+        """
+        twin = dict(BUDGET, house_no="DL0088")
+        self.assertEqual(pitch.best_of([BUDGET, twin])[0], None)
+
+    def test_a_stated_preference_counts(self):
+        """他明确说过要「有家具」，那就不该只按价格排。"""
+        scored = pitch.rank([BUDGET, MID], features=["有家具"])
+        by_no = {h["house_no"]: s for s, _, h in scored}
+        self.assertGreater(by_no["DL0009"], 0.8)
+
+
+class TestLeadLine(unittest.TestCase):
+
+    def test_says_which_one_and_why(self):
+        line = pitch.lead_line([PLAIN, MID, BUDGET])
+        self.assertIn("最推荐", line)
+        self.assertIn("DL0008", line)
+
+    def test_a_tie_explains_the_trade_off_instead_of_going_quiet(self):
+        """**不确定的时候该说的是「凭什么难选」，不是不吭声。**
+
+        沉默把问题原样退回给了用户，而他正是因为选不出来才问的。
+
+        GOOD 已核验、三条好评、面积最大，BUDGET 单价最低——
+        这两套**本来就难分**，说「各强在哪」才是实话。
+        """
+        line = pitch.lead_line([GOOD, BUDGET])
+        self.assertTrue(line)
+        self.assertIn("看你更在意", line)
+
+    def test_nothing_to_say_about_a_lone_result(self):
+        self.assertEqual(pitch.lead_line([GOOD]), "")
+
+
+class TestFollowups(unittest.TestCase):
+    """推荐词。**必须从这一组结果里长出来。**"""
+
+    def test_only_suggests_a_tag_that_actually_narrows(self):
+        """全都带电梯时推「只看带电梯的」，点了等于没点。"""
+        both = [dict(BUDGET), dict(MID, tags=["电梯", "有家具"])]
+        chips = pitch.followups(both, {}, [])
+        self.assertNotIn("只看带电梯的", chips)
+
+    def test_suggests_a_tag_that_some_have_and_some_do_not(self):
+        """一半有、一半没有的标签才筛得动，才值得推。
+
+        用两套只在「有家具」上有差别的房源，免得这条断言被
+        排在更前面的地铁、电梯挤掉——推荐词一共只放得下几条。
+        """
+        bare = dict(MID, house_no="DL0011", tags=["可做饭"])
+        chips = pitch.followups([MID, bare], {}, [])
+        self.assertIn("只看带家具的", chips)
+
+    def test_does_not_repeat_what_the_user_already_asked_for(self):
+        chips = pitch.followups([MID, BUDGET], {}, ["有家具"])
+        self.assertNotIn("只看带家具的", chips)
+
+    def test_no_cheaper_suggestion_when_the_prices_are_all_alike(self):
+        """三套都是 2650 元，推「再便宜点的」是无的放矢。"""
+        same = [dict(BUDGET), dict(BUDGET, house_no="DL0088")]
+        self.assertNotIn("再便宜点的", pitch.followups(same, {}, []))
+
+    def test_no_cheaper_suggestion_when_he_already_set_a_ceiling(self):
+        chips = pitch.followups([BUDGET, MID], {"zujia_max": 3000}, [])
+        self.assertNotIn("再便宜点的", chips)
+
+    def test_always_leaves_a_way_forward(self):
+        """条件很全、结果很齐时，用户面前不能只剩一个光秃秃的输入框。"""
+        chips = pitch.followups([BUDGET, MID], {"zujia_max": 3000}, [])
+        self.assertTrue(chips)
+        self.assertIn("介绍下第一套", chips)
+
+    def test_capped_so_they_fit_on_one_line(self):
+        chips = pitch.followups([BUDGET, MID, PLAIN], {}, [])
+        self.assertLessEqual(len(chips), 4)
+
+    def test_no_results_means_no_suggestions(self):
+        self.assertEqual(pitch.followups([], {}, []), [])
+
+
 if __name__ == "__main__":
     unittest.main()

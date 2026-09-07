@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import memory  # noqa: E402
 from app.agents.support import agent as support  # noqa: E402
 from app.llm.base import LLMProvider, LLMUnavailable  # noqa: E402
+from app import main  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
 from unittest import mock  # noqa: E402
 
@@ -411,3 +412,83 @@ class TestPitchRouting(unittest.TestCase):
             got = router.route(text, provider=None)
             self.assertNotIn(got["name"], ("compare_houses", "describe_house"),
                              "「%s」问的是规则，不是房源" % text)
+
+
+class TestProactiveRecommendation(unittest.TestCase):
+    """找完房**主动多说一句**：哪一套最值得先看、接下来能说什么。
+
+    列表只回答「有哪些」，回答不了「我该看哪个」。实测里用户拿到
+    三套条件相近的房之后，接着打的三句话全是「哪个好」「对比一下」
+    「介绍下第一套」——既然十有八九要问，不如先说。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    # 直接喂结果，不连后端——这一层测的是「挑没挑、说没说」，
+    # 不是「后端有没有房」。连了后端反而会在演示库变动时莫名其妙地跳过。
+    ITEMS = [
+        {"house_no": "DL0007", "title": "中山区青泥洼桥 两室一厅 78平",
+         "area": 78.6, "rent_price": 4150, "rent_type": "公寓",
+         "tags": ["可做饭", "有阳台"], "rating": 0, "review_count": 0},
+        {"house_no": "DL0008", "title": "中山区桂林街 两室一厅 62平",
+         "area": 62.2, "rent_price": 2650, "rent_type": "整租",
+         "tags": ["地铁", "电梯", "可做饭", "有阳台", "可养宠物"],
+         "rating": 0, "review_count": 0},
+    ]
+
+    def _result(self):
+        return {"status": "found", "items": [dict(x) for x in self.ITEMS],
+                "message": "为你找到 2 套。", "filters": {}}
+
+    def test_search_result_carries_a_pick_and_some_chips(self):
+        result = self._result()
+        main._push_recommendation(result, [])
+        self.assertIn("最推荐", result["message"])
+        self.assertEqual(result["recommended"]["house_no"], "DL0008")
+        self.assertTrue(result.get("options"), "结果后面要给可点的推荐词")
+
+    def test_chips_never_outnumber_one_line(self):
+        result = self._result()
+        main._push_recommendation(result, [])
+        self.assertLessEqual(len(result.get("options") or []), 4)
+
+    def test_a_single_result_gets_no_pick(self):
+        """就一套房，「我最推荐第 1 套」是句废话。"""
+        result = dict(self._result(), items=[dict(self.ITEMS[0])])
+        main._push_recommendation(result, [])
+        self.assertNotIn("最推荐", result["message"])
+
+    def test_an_empty_search_is_left_alone(self):
+        """一套都没找到时别再推荐——那只会显得没在听。"""
+        result = {"status": "empty", "items": [], "message": "没有找到。"}
+        main._push_recommendation(result, [])
+        self.assertEqual(result["message"], "没有找到。")
+
+
+class TestLayoutWithoutTheHall(unittest.TestCase):
+    """「三千以内的两室」——**少一个「厅」字就不算找房了。**
+
+    实测这句话被判成 unknown，回了一句「没太理解你想做什么」；
+    而规则解析器同一句话解析出了区域、租价上限、户型三个字段。
+    意图关键词表里写的是「室一厅」，可「两室」是再自然不过的说法。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_two_conditions_without_a_keyword_still_mean_search(self):
+        result = ask("金州区三千以内的两室")
+        self.assertEqual(result.get("intent"), "search")
+        self.assertNotIn("没太理解", result.get("message", ""))
+
+    def test_one_lonely_condition_does_not_hijack_other_requests(self):
+        """**门槛卡在两个字段是保守的一侧。**
+
+        「中山区的」只有一个字段，可能是别的请求里的半句话；
+        一个字段就抢过来当找房，代价是把别的意图判错。
+        """
+        for text in ["押金一般收几个月", "水电费怎么算", "我还欠多少房租"]:
+            result = ask(text)
+            self.assertNotEqual(result.get("intent"), "search",
+                                "「%s」不是找房" % text)
