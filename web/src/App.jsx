@@ -75,12 +75,21 @@ function toFilters(parsed) {
 
 // 解析来源。fused 是当前的正常路径：规则先解析一遍，结论作为参考
 // 交给大模型，由它给出最终结果——两者同时参与，不是二选一。
+//
+// **这张表只是兜底。** 正文优先用后端返回的 `source_label`：
+// 同一句话在两处各写一份，早晚会写得不一样——实测就是这么写岔的。
+// 前端这份把 `rules` 说成「未配置大模型」，而大模型明明配着
+// （gpt-5.5），只是规则已经足够确定、按 K-10 跳过了它。
+// 页面上于是出现「未配置大模型」，用户和评委都会以为接入失败了。
 const SOURCE_LABEL = {
-  rules: '规则解析，未配置大模型',
+  rules: '规则解析，未调用大模型',
   fused: '规则 + 大模型融合',
   llm: '大模型解析',
   rules_fallback: '大模型输出不可用，已退回规则结果',
 }
+
+const sourceLabel = (parsed) => (parsed?.source_label
+  || SOURCE_LABEL[parsed?.source] || '')
 
 const PAGE_SIZE = 12
 
@@ -163,6 +172,20 @@ export default function App() {
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, route.param])
+
+  // 关键词输入框跟着**真正生效的那个条件**走。
+  //
+  // 它原先是一份独立的状态，只有用户打字才会变。可清掉 keyword 这个
+  // 条件的路子有三条——智能找房整组覆盖、点掉「包含『桂林街』」这个
+  // 条件、「全部清空」——**其中两条都不会去动这个输入框**。
+  // 于是页面上出现：搜索框里写着「桂林街」，列表里是沙河口区的房，
+  // 已生效条件里也没有它。用户看到的就是「搜索框失灵了」。
+  //
+  // 依赖只写 filters.keyword：打字只改 keyword、不改 filters，
+  // 所以这个副作用不会跟输入过程打架。
+  useEffect(() => {
+    setKeyword(filters.keyword || '')
+  }, [filters.keyword])
 
   // 首屏：恢复登录状态并展示最新房源
   useEffect(() => {
@@ -454,7 +477,7 @@ export default function App() {
             <div className="parsed">
               <div className="parsed-title">
                 智能体把「{searched}」翻译成了下面的筛选条件
-                {SOURCE_LABEL[parsed.source] ? `（${SOURCE_LABEL[parsed.source]}）` : ''}
+                {sourceLabel(parsed) ? `（${sourceLabel(parsed)}）` : ''}
               </div>
               {parsed.divergence?.length > 0 && (
                 <div className="parsed-note">

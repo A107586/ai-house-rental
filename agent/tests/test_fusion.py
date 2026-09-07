@@ -276,3 +276,37 @@ class TestFinderFusion(_FusionAlwaysOn, unittest.TestCase):
             "中山区两室一厅", provider=provider)
         self.assertEqual(filters["suozaidiqu"], "中山区")
         self.assertEqual(source, fusion.SOURCE_FALLBACK)
+
+
+class TestSourceLabel(unittest.TestCase):
+    """解析来源的中文说明。**它是要显示在首页上的**。
+
+    前端曾经自己也维护了一份同样的表，而且写岔了：把 `rules` 说成
+    「规则解析，未配置大模型」。大模型明明配着，只是规则已经足够确定、
+    按 K-10 跳过了它——首页于是挂着一句「未配置大模型」，
+    用户和评委都会以为接入失败了。
+
+    现在前端优先用接口返回的 `source_label`。这一组用例保证那个字段
+    对每一种来源都说得出话，前端不必再自己拼。
+    """
+
+    def test_every_source_has_a_chinese_label(self):
+        for source in (fusion.SOURCE_RULES, fusion.SOURCE_FUSED,
+                       fusion.SOURCE_FALLBACK):
+            label = fusion.describe_source(source)
+            self.assertNotEqual(label, source, "%s 没有中文说明" % source)
+            self.assertTrue(any("一" <= ch <= "龥" for ch in label))
+
+    def test_rules_does_not_claim_the_model_is_unconfigured(self):
+        """**「没调用」和「没配置」是两回事。**
+
+        规则足够确定时本来就不该调大模型，那是设计如此（K-10），
+        不是配置缺失。说成后者是在报告一个并不存在的故障。
+        """
+        label = fusion.describe_source(fusion.SOURCE_RULES)
+        self.assertNotIn("未配置", label)
+        self.assertIn("未调用", label)
+
+    def test_unknown_source_degrades_to_itself(self):
+        """认不出的来源原样返回，别在页面上留一个空括号。"""
+        self.assertEqual(fusion.describe_source("whatever"), "whatever")
