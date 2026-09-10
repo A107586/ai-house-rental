@@ -58,29 +58,40 @@ def _houses_from(params, last_house_nos):
     return nos[:3]
 
 
-def _filters_from(params):
-    """把工具参数翻译成 house_query 认识的筛选键。
+# 工具参数名 → 系统内部的条件键名。
+#
+# **内部键是拼音**（`zujia_max`、`suozaidiqu`…），不是后端接口的
+# `rent_price_max`。两套名字之间的翻译在
+# `search_properties.build_params` 里，这一层不该越过它。
+#
+# 第一版我按后端键名写，于是 build_params 一个都认不出来，
+# 条件被静默丢掉——「租金3000以内」返回了全部 95 套，租价上到 4650，
+# 而 `context` 里明明白白显示条件已经解析出来了。**这类错不报异常**，
+# 界面上看起来一切正常，只是答案是错的。
+#
+# 更糟的是我给它写的单元测试断言的也是后端键名，于是测试绿着、
+# 功能坏着。**翻译层的测试必须拿被调用方真正认识的键去断言**，
+# 不能拿自己以为的。
+_FILTER_KEYS = {
+    "district": "suozaidiqu",
+    "layout": "fangwuhuxing",
+    "keyword": "guanjianci",
+    "rent_min": "zujia_min",
+    "rent_max": "zujia_max",
+    "area_min": "mianji_min",
+    "area_max": "mianji_max",
+}
 
-    **键名对不上是这类翻译层最常见的错**，而且不会报错——
-    传一个 `rent_max` 进去，`apply_filters` 直接忽略它，
-    用户得到的是「全部房源」，看起来完全正常。所以这里一个个显式映射，
-    不做 `dict(params)` 这种偷懒的整体透传。
-    """
+
+def _filters_from(params):
+    """把工具参数翻译成 property_finder 认识的筛选键。"""
     out = {}
-    if params.get("district"):
-        out["district"] = params["district"]
-    if params.get("layout"):
-        out["layout"] = params["layout"]
-    if params.get("keyword"):
-        out["keyword"] = params["keyword"]
-    if params.get("rent_min") is not None:
-        out["rent_price_min"] = params["rent_min"]
-    if params.get("rent_max") is not None:
-        out["rent_price_max"] = params["rent_max"]
-    if params.get("area_min") is not None:
-        out["area_min"] = params["area_min"]
-    if params.get("area_max") is not None:
-        out["area_max"] = params["area_max"]
+    for key, internal in _FILTER_KEYS.items():
+        value = params.get(key)
+        # **用 is not None 而不是真值判断**：0 是个有效的下限，
+        # 「租金 0 起」和「没填」是两件事
+        if value is not None and value != "":
+            out[internal] = value
     return out
 
 

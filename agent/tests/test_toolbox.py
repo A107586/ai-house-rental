@@ -169,31 +169,59 @@ class TestOrdinal(unittest.TestCase):
 
 
 class TestFilterMapping(unittest.TestCase):
-    """工具参数 → house_query 的键名映射。
+    """工具参数 → 内部条件键的映射。
 
-    **键名对不上不会报错**，只会静默地把条件丢掉：传 `rent_max` 进去，
-    apply_filters 直接忽略，用户拿到的是全部房源，看起来完全正常。
-    所以这组用例一条条钉住。
+    **这一组的第一版是错的，而且测试是绿的。** 我按后端接口的键名
+    （rent_price_max）写了映射，也按同一套名字写了断言——两边一起错，
+    自然对得上。实际跑起来 `build_params` 一个都认不出来，
+    「租金3000以内」返回了全部 95 套。
+
+    所以现在的断言**直接引用被调用方的键表**（`_PASS_THROUGH` /
+    `_RANGE_MAP`），而不是我自己写一遍字符串：拿自己以为的名字去断言，
+    测的只是「我和我自己想的一样」。
     """
+
+    def target_keys(self):
+        from app.agents.property_finder.tools import search_properties as sp
+        return set(sp._PASS_THROUGH) | set(sp._RANGE_MAP)
+
+    def test_every_produced_key_is_recognized(self):
+        """产出的每一个键，被调用方都必须认识。"""
+        got = runner._filters_from({
+            "district": "中山区", "layout": "两室一厅", "keyword": "桂林街",
+            "rent_min": 1000, "rent_max": 3000,
+            "area_min": 50, "area_max": 90})
+        unknown = set(got) - self.target_keys()
+        self.assertFalse(unknown, "这些键 build_params 不认识：%s" % unknown)
 
     def test_price_keys(self):
         got = runner._filters_from({"rent_min": 1000, "rent_max": 3000})
-        self.assertEqual(got, {"rent_price_min": 1000, "rent_price_max": 3000})
+        self.assertEqual(got, {"zujia_min": 1000, "zujia_max": 3000})
 
     def test_area_keys(self):
         got = runner._filters_from({"area_min": 50, "area_max": 90})
-        self.assertEqual(got, {"area_min": 50, "area_max": 90})
+        self.assertEqual(got, {"mianji_min": 50, "mianji_max": 90})
 
     def test_passthrough_keys(self):
         got = runner._filters_from({"district": "中山区", "layout": "两室一厅",
                                     "keyword": "桂林街"})
-        self.assertEqual(got, {"district": "中山区", "layout": "两室一厅",
-                               "keyword": "桂林街"})
+        self.assertEqual(got, {"suozaidiqu": "中山区",
+                               "fangwuhuxing": "两室一厅",
+                               "guanjianci": "桂林街"})
 
     def test_zero_is_kept(self):
         """0 是个有效的下限。用 `if params.get(k)` 判断会把它当成没填。"""
         self.assertEqual(runner._filters_from({"rent_min": 0}),
-                         {"rent_price_min": 0})
+                         {"zujia_min": 0})
+
+    def test_filters_actually_reach_the_backend_params(self):
+        """端到端钉一次：走完 build_params，后端参数里必须有租金上限。
+
+        **上面几条只证明我这一步没写错，这一条才证明整条链是通的。**
+        """
+        from app.agents.property_finder.tools import search_properties as sp
+        params = sp.build_params(runner._filters_from({"rent_max": 3000}))
+        self.assertEqual(params.get("rent_price_max"), 3000)
 
 
 class TestCatalog(unittest.TestCase):

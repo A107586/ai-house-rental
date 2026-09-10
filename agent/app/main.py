@@ -884,12 +884,24 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
 
 
 def _support_action(payload, routed, action, plan):
-    """把一个写操作交给客服层出确认卡片。"""
+    """把一个写操作交给客服层出确认卡片。
+
+    **序号要在这里就还原成编号。** 「帮我约第二套看房」里的「第二套」
+    只有结合上一轮的列表才讲得通，而代办层拿不到那份上下文——
+    不还原的话，用户明明指了一套，助手却回一句「想看哪一套？」，
+    还把刚才那句话白问了一遍。
+    """
+    house_no = memory.resolve_house(payload.text, payload.last_house_nos,
+                                    payload.house_no)
+    if house_no is memory.OUT_OF_RANGE:
+        return _out_of_range(routed, {"source": "toolbox"},
+                             len(payload.last_house_nos or []))
+
     result = support.run(
         payload.text, token=payload.token,
         history=list(payload.history or []),
         provider=provider, backend=backend_client,
-        settings=settings, house_no=payload.house_no or None,
+        settings=settings, house_no=house_no or payload.house_no or None,
         house_nos=payload.last_house_nos,
         pending=payload.pending,
         routing={"kind": support_router.KIND_ACTION, "name": action,
