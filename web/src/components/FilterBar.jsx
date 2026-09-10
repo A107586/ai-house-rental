@@ -64,7 +64,14 @@ const SORTS = [
   { key: '-rent_price', label: '租金从高到低' },
   { key: '-area', label: '面积从大到小' },
   { key: 'view_count', label: '最多人看' },
+  // 评分排序。「优选好房」那一栏用的就是它，但排序框里原先没有，
+  // 用户进了那一栏改一下别的条件就再也排不回来了。
+  { key: 'rating', label: '评分从高到低' },
 ]
+
+/** 筛选栏不负责、但要跟着一起走的条件键。
+ *  这些来自列表页的栏目预设与智能体解析结果。 */
+const CARRY_KEYS = ['published_days', 'min_rating', 'keyword', 'features']
 
 const EMPTY = {
   district: '', layout: '', rent_type: '',
@@ -177,12 +184,35 @@ export default function FilterBar({ value, onApply, disabled }) {
       lease_term: next.lease_term,
       available_days: next.available_days,
       sort: next.sort,
+
+      // **把本组件管不着的条件原样带回去。**
+      //
+      // 列表页的四个入口各自带一组预设：「最新发布」是
+      // published_days=30，「优选好房」是 min_rating=4。这两个键
+      // 不是筛选栏的字段，此前 apply 只回传自己认识的那些，
+      // 于是用户一改排序，预设就被整组丢掉——
+      // **「优选好房」当场变成「全部房源按评分排」，标题还挂着，
+      // 内容已经不是那一栏了。**
+      //
+      // 筛选栏改的是它负责的那几项，不该顺手清掉别人的条件。
+      ...carryOver(value),
     })
+  }
+
+  /** 取出本组件不负责、但必须原样保留的条件。 */
+  function carryOver(v) {
+    const keep = {}
+    CARRY_KEYS.forEach((k) => {
+      if (v?.[k] !== undefined && v[k] !== '') keep[k] = v[k]
+    })
+    return keep
   }
 
   function reset() {
     setF(EMPTY)
-    onApply({})
+    // 重置的是「筛选条件」，不是「我在哪一栏」——
+    // 把 published_days / min_rating 留下，用户仍在优选好房里
+    onApply(carryOver(value))
   }
 
   const basicCount =

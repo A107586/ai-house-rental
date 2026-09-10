@@ -11,8 +11,8 @@
  * 画风参照仓库里存的贝壳找房实拍页（docs/贝壳网页下载_2026-09-03.zip）。
  * 逐页看下来，它的语言其实只有五条，且高度自洽：
  *
- *   1. **几乎不用圆角。** 图片 2px，输入框与按钮 0–2px。
- *      满屏 10px 圆角的卡片是模板脸，一眼就看出来不是自己做的。
+ *   1. **圆角克制。** 贝壳自己几乎是直角，我们取中间值 6px：
+ *      3px 试下来边角太生，10–16px 又是那种一眼看出来的模板脸。
  *   2. **不用卡片阴影和四面描边。** 靠留白与一条发丝线分隔。
  *      每块都加投影，页面就没有层次可言了——都浮起来等于都没浮起来。
  *   3. **筛选项是纯文字，选中变蓝。** 不是一堆带底色的胶囊。
@@ -25,15 +25,19 @@
  */
 
 /* ============================================================
-   〇、圆角收敛
+   〇、圆角
    ============================================================
-   原来的 10px / 16px 是"到处都是圆角矩形"的根源。
-   收到 2–3px：仍有一点点柔化，但不再是那种模板感的胖圆角。 */
+   原来 10/16px 是「到处都是圆角矩形」的根源，先收到 3px，
+   实际看下来又太生。最终定在 6px —— 小幅度圆角。 */
 
 :root {
-  --radius: 3px;
-  --radius-lg: 3px;
-  --radius-pill: 2px;
+  /* 3px 试下来太硬——房源卡片、推荐理由这类小方块几乎是直角，
+     边角显得生。往上提一档到 6px：**看得出是圆角，但不是那种
+     10–16px 的胖圆角模板脸**。「小幅度圆角」就是这个位置。
+     小构件（标签、徽章、理由胶囊）用 4px，跟着卡片按比例缩。 */
+  --radius: 6px;
+  --radius-lg: 6px;
+  --radius-pill: 4px;
 }
 
 /* ============================================================
@@ -137,7 +141,90 @@
   max-width: 54ch;
 }
 
-.hero-actions { display: flex; gap: 0; flex-wrap: wrap; }
+/* ---------- 大图上的搜索 ----------
+   原先这里是两个按钮，点了只是滚到下面的搜索框——中间隔了一步
+   没有意义的跳转。现在搜索框本身就在这儿，落地即可输入。
+
+   注意它是 .hero-copy 的兄弟节点，不在里面：轮播换图时
+   .hero-copy 会重放入场动画，输入框跟着闪会打断用户打字。 */
+
+.hero-search {
+  max-width: 720px;
+  margin-top: 30px;
+  animation: heroIn 0.7s var(--ease-out) 0.1s both;
+}
+
+.hero-search .search-row {
+  gap: 0;
+  box-shadow: 0 12px 36px -14px rgba(0, 0, 0, 0.55);
+}
+
+.hero-search .search-row input {
+  height: 54px;
+  font-size: 15.5px;
+  border: none;
+  background: #fff;
+  border-radius: var(--radius) 0 0 var(--radius);
+  padding-left: 18px;
+}
+
+.hero-search .search-row input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.hero-search .search-row .btn {
+  height: 54px;
+  padding: 0 40px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  border: none;
+  /* 蓝色，不是橙色。橙色留给「钱」——租金、待收、佣金。
+     搜索是导航动作，用主色；两种颜色各管一件事，
+     用户看到橙色就知道在说金额，不用再读标签。 */
+  background: var(--brand);
+}
+
+.hero-search .search-row .btn:hover:not(:disabled) { background: var(--brand-deep); }
+
+/* **不做置灰态。** 空框也能搜（按框里正在轮转的那条），
+   所以按钮任何时候都是可点的；置灰只会让首屏唯一的行动点看着失效。
+   只有请求进行中才压暗一点，表示「在办了，别重复点」。 */
+.hero-search .search-row .btn:disabled {
+  background: var(--brand);
+  opacity: 0.72;
+  cursor: progress;
+}
+
+/* 示例词条在深色底上：白字描边，不用浅底胶囊——
+   浅底方块压在照片上会像一排贴纸。 */
+.hero-search .examples {
+  margin-top: 14px;
+  align-items: center;
+}
+
+.hero-search .examples > span {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+}
+
+.hero-search .examples .chip-btn {
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(4px);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+}
+
+.hero-search .examples .chip-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.7);
+  color: #fff;
+}
+
+/* 统计条挪到搜索下面，间距收一点 */
+.hero-actions { display: none; }
 
 /* 直角按钮，两个贴在一起——贝壳的搜索框与蓝色按钮就是零间隙拼接的。
    分开摆会显得两个都不重要。 */
@@ -440,7 +527,7 @@
 
 /* 特色标签：扁平、近直角、灰底小字。它们是补充信息，不该抢戏。 */
 .tag {
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: none;
   color: #64748b;
@@ -512,7 +599,7 @@
 /* 页签上的计数徽标：小、方、淡 */
 .tab .dot,
 .tabs .dot {
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--brand-soft);
   color: var(--brand);
   font-size: 11px;
@@ -551,7 +638,7 @@
 .pill.ok,
 .pill.wa,
 .pill.da {
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   border: none;
   font-size: 12px;
   padding: 3px 8px;
@@ -565,31 +652,294 @@
 
 .noticebar {
   border: none;
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--brand);
   background: var(--surface);
   border-radius: 0;
 }
 
 .notice-tag {
-  border-radius: 2px;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand-deep);
   font-size: 11.5px;
 }
 
-/* ---------- 地图入口：做成下划线式页签 ----------
-   原来是一行孤零零的灰字，看不出可点。贝壳把「按区域 / 按地铁线」
-   做成并列的文字页签，这里照同一个做法。 */
+/* ---------- 地图找房：可折叠面板 ----------
+   搜索框挪到大图之后，这块接管了它原来的位置。
+   原先只是一行灰字「地图找房」，看不出可点、也看不出点了会怎样。
+   现在给它标题、说明和明确的展开态。
 
-.find-switch {
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 0;
+   **默认收起**：地图是「换一种方式找」，不是主路径，
+   展开着会把房源列表整体推下去一屏。 */
+
+.map-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  margin-bottom: 16px;
+  transition: border-color var(--dur) var(--ease);
 }
 
-.find-switch .tab {
-  padding: 10px 2px;
-  margin-right: 24px;
-  font-size: 14.5px;
+.map-panel:hover { border-color: var(--brand-line); }
+.map-panel.open { border-color: var(--brand-line); }
+
+.map-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 18px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+/* 标题前面一个小地图别针，用 CSS 画——
+   引一整套图标库只为一个图形不划算 */
+.map-panel-title {
+  position: relative;
+  padding-left: 22px;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.map-panel-title::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -8px;
+  border: 2.5px solid var(--brand);
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+}
+
+.map-panel-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-panel-arrow {
+  font-size: 13px;
+  color: var(--brand);
+  white-space: nowrap;
+}
+
+/* 展开时上方补一条分隔线，让面板头和地图分开 */
+.map-panel-body {
+  border-top: 1px solid var(--line);
+  padding: 16px 18px 18px;
+  animation: mapOpen 0.28s var(--ease-out) both;
+}
+
+@keyframes mapOpen {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 面板里的地图去掉自己那层边框，免得双层框 */
+.map-panel-body .mapfinder,
+.map-panel-body .amap-finder {
+  border: none;
+  border-radius: 0;
+}
+
+/* ---------- 首页分栏 ----------
+   四栏各回答一个不同的问题：你可能想要什么 / 这两天新上了什么 /
+   别人都在看什么 / 我想自己翻。
+   **每栏只出一排**，右上角「全部 N 套」跳到完整列表页。
+   首页的职责是给入口，不是把九十多套房摆完。 */
+
+.home-sec { margin: 30px 0 8px; }
+
+.home-sec-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.home-sec-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.home-sec-desc {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 跳转在右上角，和标题同一行——国内平台一致的位置。
+   原来是一行纯文字加个「›」，和旁边的说明文字混在一起，
+   看不出可点。改成描边小按钮：**看得出是个能点的东西**，
+   但底色留白，不跟主行动按钮抢。 */
+.home-sec-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  cursor: pointer;
+  padding: 7px 14px;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              background var(--dur) var(--ease);
+}
+
+.home-sec-more:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+/* 数量做成浅底小块，和文案分开——「全部最新房源 30 套」连成一串
+   读起来要断句，分开就一眼看清「去哪」和「有多少」 */
+.home-sec-more em {
+  font-style: normal;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.home-sec-more:hover em { background: #fff; color: var(--brand); }
+
+/* 箭头单独出来，悬停时右移一点——一个很小的「往那边去」的暗示 */
+.home-sec-more .more-arrow {
+  font-size: 15px;
+  line-height: 1;
+  transition: transform var(--dur) var(--ease);
+}
+
+.home-sec-more:hover .more-arrow { transform: translateX(2px); }
+
+/* 「推荐依据」是次要动作，做得更轻，不和「更多推荐」平起平坐 */
+.home-sec-more.ghosty {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.home-sec-more.ghosty:hover {
+  color: var(--brand);
+  background: none;
+  border-color: transparent;
+}
+
+.rec-actions { display: flex; align-items: center; gap: 4px; }
+
+/* 「为你推荐」用同一套栏位版式。它的网格类名是 rec-grid，
+   一并按 home-grid 处理，四栏才对得齐。 */
+.rec.home-sec .rec-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1180px) {
+  .rec.home-sec .rec-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .rec.home-sec .rec-grid > *:nth-child(n + 4) { display: none; }
+}
+
+@media (max-width: 860px) {
+  .rec.home-sec .rec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rec.home-sec .rec-grid > *:nth-child(n + 3) { display: none; }
+}
+
+/* 推荐一共取 6 套，首页只摆 4 套——多的两套不换行占第二排 */
+.rec.home-sec .rec-grid > *:nth-child(n + 5) { display: none; }
+
+/* AI 标记跟在标题后面，小一号、浅底 */
+.home-sec-title .rec-badge {
+  margin-left: 9px;
+  vertical-align: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-radius: var(--radius-pill);
+}
+
+/* 一排四列。窄屏降列数时同步藏掉多出来的卡片，
+   保证任何宽度下都**只有一排**——换行了这栏就变两排，
+   四栏叠起来首页会长得没边。 */
+.home-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1180px) {
+  .home-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .home-grid > *:nth-child(n + 4) { display: none; }
+}
+
+@media (max-width: 860px) {
+  .home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-grid > *:nth-child(n + 3) { display: none; }
+}
+
+@media (max-width: 560px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-grid > *:nth-child(n + 3) { display: none; }
+}
+
+/* ---------- 列表页的紧凑搜索 ---------- */
+
+.list-search { margin: 18px 0 4px; }
+
+.list-search .search-row { gap: 0; max-width: 720px; }
+
+.list-search .search-row input {
+  height: 44px;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.list-search .search-row .btn {
+  height: 44px;
+  padding: 0 28px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* 列表页的「返回首页」推到最右，和标题拉开 */
+.list-head .btn.ghost.small { margin-left: auto; }
+
+/* 地图懒加载时的占位。给固定高度，加载完不会把下面的内容顶一下——
+   高度跳变（CLS）比多等半秒更让人烦。 */
+.map-loading {
+  height: 320px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13.5px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+/* 解析结论区：没有结论时整块不渲染，这里只管有内容时的样子 */
+.search-card.parse-only {
+  border-top-width: 1px;
+  border-top-color: var(--line);
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 /* ---------- 悬浮助手：收成小圆角，不是胶囊 ---------- */
@@ -600,9 +950,110 @@
   font-weight: 500;
 }
 
+/* ---------- 智能客服面板 ----------
+   对话气泡改回原来的形状：它本来就写着 var(--radius)，
+   我把这个 token 从 10px 收到 6px，气泡跟着一起变方了——
+   **气泡是聊天里唯一该圆的东西**，方了就不像在说话，像在填表。
+   所以这里写死 10px，不跟随全局 token。 */
+.bubble {
+  border-radius: 10px;
+}
+
+/* 说话人在哪一侧，靠近头像的那个角收窄，指向说话的人 */
+.bubble.assistant { border-top-left-radius: 3px; }
+.bubble.user { border-top-right-radius: 3px; }
+
+/* 面板里其余的框跟全局走小圆角 */
+.chat-log,
+.chat-quick,
+.chat-context,
+.chat-input,
+.chat-input input,
+.chat-input textarea,
+.support-panel .reply-box textarea,
+.reply {
+  border-radius: var(--radius);
+}
+
+.chat-quick .chip-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+}
+
+.chat-quick .chip-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
 /* ---------- 抽屉与弹窗 ---------- */
 
 .drawer, .dialog { border-radius: 0; }
+
+/* 抽屉加宽。原来是 460px，对房源详情这种信息量太窄了——
+   费用明细的「月租金 / 2,200 元 / 月」要换行，属性块两列挤成一列，
+   相册主图也只有巴掌大。
+   680px 是按内容定的：属性两列各 300 出头 + 内边距，
+   费用明细那几行「标签 …… 金额」不再折行。
+   同时限在视口 92%，窄屏上不会顶满整屏——留一条能点回去的空隙。 */
+.drawer {
+  width: min(680px, 92vw);
+  padding: 26px 30px 60px;
+}
+
+/* 各角色的工作台信息更密（表格、页签、图表），再宽一档。
+   **按类名点名，不用 `:has(.tabs)`**——房源详情里也有页签
+   （预约看房 / 报修），那条选择器会把它一起撑到 880，
+   而它的内容只有 680 的量，右边留一大片空白。
+   选择器写得聪明不如写得准。
+
+   管理后台、房东工作台、中介台本来就带着 `.wide`，直接用现成的；
+   个人中心原先没带，这次一并加上——它也是多页签的密集面板。 */
+.drawer.wide {
+  width: min(880px, 94vw);
+}
+
+/* 相册通栏：用负外边距把抽屉的内边距抵掉，让主图贴满两侧。
+   加宽之后这个问题才明显——图两边各缩进 30px，看起来像
+   「图没有和框一样宽」。房源详情里图是主角，让它顶满边更像
+   在看房子，而不是在看一份带插图的表单。 */
+.drawer .album {
+  margin: -26px -30px 18px;
+}
+
+.drawer .album-main {
+  min-height: 380px;
+  border-radius: 0;
+}
+
+.drawer .album-main img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 缩略图条回到正常的左右留白里，不跟着通栏 */
+.drawer .album-thumbs {
+  padding: 12px 30px 0;
+  margin: 0;
+}
+
+/* 属性块两列。加宽之前挤在一列，标签和值上下堆着看不出配对关系 */
+.drawer .facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 26px;
+}
+
+@media (max-width: 720px) {
+  .drawer { width: 100%; padding: 20px 18px 56px; }
+  .drawer.wide, .drawer:has(.tabs) { width: 100%; }
+  .drawer .facts { grid-template-columns: minmax(0, 1fr); }
+  .drawer .album-main { min-height: 220px; }
+}
 
 /* 抽屉里的分区标题：左侧一道短竖线，比"又一个圆角框"干净 */
 .section-title {
@@ -659,6 +1110,100 @@
   }
 
   .search-row .btn { width: 100%; }
+}
+
+/* ---------- 面板深处的收口 ----------
+   前面按页面改，改到的是首页与几个主面板。全表扫下来，
+   缴费弹窗、审阅面板、客服卡片、对比、长表单这些"点进去才看得到"
+   的地方还留着 8–14px 的胖圆角和投影。
+   **逐个列出来，不用通配符**——通配会把头像、未读圆点、地图价格气泡
+   这些本该是圆的一起压平。 */
+
+.parsed,
+.review-panel,
+.demand-card,
+.form-card,
+.account-card,
+.suggest,
+.contract-text,
+.compare-card,
+.sum,
+.reply,
+.record-list li,
+.demo-accounts,
+.payment-summary,
+.support-panel .stat,
+.support-panel .faq-editor,
+.map-fallback-note,
+.ai-note,
+.risk-list li,
+.flag-excerpt,
+.card.skeleton .sk-photo {
+  border-radius: var(--radius);
+}
+
+/* 输入类统一 3px，聚焦环统一成品牌蓝的细环 */
+.field input,
+.fld input,
+.fld select,
+.fld textarea,
+.dialog select,
+.use-list input {
+  border-radius: var(--radius);
+}
+
+/* 弹窗：去掉那层很重的投影，改用一条描边 + 遮罩来分层。
+   20px 60px 的大投影是"组件库默认值"的典型长相。 */
+.payment-dialog {
+  border-radius: var(--radius);
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
+
+/* 全表扫第二轮扫出来的尾巴。加上这批之后，styles.css 里
+   ≥6px 的圆角只剩下「本来就该圆」的那几个。 */
+.action-card,
+.pitch-card,
+.clause,
+.rfig,
+.mini-house,
+.up-cell,
+.crash-detail,
+.sim-item img,
+.sim-none,
+.saved-searches .rename-input {
+  border-radius: var(--radius);
+}
+
+/* 仍然保持圆形/胶囊的，是那些本来就该圆的：
+   .cw-badge 未读数、.rate 评分、.map-price-marker 与
+   .map-house-popup em 这两个地图气泡、头像。
+   地图上的价格气泡是行业惯例（贝壳、高德都是圆角胶囊），
+   压成直角反而认不出是「可点的标记」。 */
+
+/* 徽章类：99/999px 的全胶囊改成 2px 小方角 */
+.rec-badge,
+.review-badge,
+.tab-n,
+.compare-chip,
+.form-chip {
+  border-radius: var(--radius-pill);
+}
+
+.compare-bar {
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--line);
+}
+
+/* 这几处的投影去掉，改描边。都浮起来等于都没浮起来。 */
+.rec,
+.compare-modal,
+.mapfinder,
+.amap-finder {
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 
 /* ============================================================
@@ -764,4 +1309,546 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------- 公告栏：单行轮转，点击展开 ----------
+   原先只露最新那一条，其余的要点「全部 N 条」才看得到——等于没发。
+   改成一条条轮着上，每条都有几秒露脸的机会。 */
+
+.noticebar {
+  position: relative;
+  /* 一行的高度。**JS 的位移和 CSS 的窗口高度必须用同一个数**——
+     各写各的话，改了一处另一处就对不上，表现就是「第 2 条起看不见」。 */
+  --notice-line-h: 1.6em;
+}
+
+/* 整条做成一个按钮。原先一行公告里可点的只有末尾一个小按钮，
+   多数人根本不会去点；现在点哪儿都能展开。 */
+.noticebar .notice-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 44px 12px 16px;   /* 右边给「×」留位 */
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.noticebar .notice-tag { flex: none; }
+
+/* 轮转窗口：高度锁成一行，里面竖排的内容整体上移。
+   用 transform 而不是切 display——位移才是连续的，
+   切显示会一帧闪过去，看着像内容自己跳了一下。 */
+.notice-track {
+  flex: 1;
+  min-width: 0;
+  height: var(--notice-line-h);
+  overflow: hidden;
+  position: relative;
+}
+
+.notice-reel { display: block; transition: transform 0.45s var(--ease-out); }
+
+.notice-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  height: var(--notice-line-h);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.notice-line b { flex: none; font-weight: 600; font-size: 14px; color: var(--ink); }
+
+.notice-line i {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notice-date { flex: none; font-size: 12.5px; color: var(--muted); }
+
+.notice-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.notice-toggle { flex: none; font-size: 13px; color: var(--brand); }
+
+.noticebar .notice-head:hover .notice-toggle { text-decoration: underline; }
+
+.notice-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.notice-close:hover { color: var(--ink); }
+
+/* 展开的正文只显示当前这条——用户点的是「这一条」，
+   给他一整页列表反而要再找一次。 */
+.notice-detail {
+  padding: 0 16px 14px 46px;
+  animation: mapOpen 0.24s var(--ease-out) both;
+}
+
+.notice-detail p {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--ink-2);
+  max-width: 78ch;
+}
+
+.notice-dots { display: flex; gap: 6px; }
+
+.notice-dot {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.notice-dot::before {
+  content: '';
+  width: 14px;
+  height: 3px;
+  background: var(--line);
+  transition: width var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.notice-dot.on::before { width: 22px; background: var(--brand); }
+
+/* ============================================================
+   本轮改进（清单 A / B / D6）
+   ============================================================ */
+
+/* ---------- D6：页签带计数徽标后错位、挤到第二行 ----------
+   根因是徽标算作独立的行内元素参与换行，页签文字和它之间会断开——
+   「我的账单」和「34」被拆到两行，看着像多了一个空页签。
+   把每个页签做成不换行的整体，徽标绝对不脱离它的文字。 */
+
+.tabs .tab {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex: none;
+}
+
+.tabs .tab .dot,
+.tabs .tab .tab-n {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font: 600 11px/16px system-ui, sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  /* 徽标不参与换行计算，页签整体宽度才稳定 */
+  flex: none;
+}
+
+/* 页签行本身允许换行，但换的是「整个页签」而不是页签的一半 */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 2px;
+}
+
+/* ---------- A1：为你推荐的卡片高矮不一 ----------
+   根因是每张卡的内容行数不同——有的三个标签、有的一个，
+   有的有推荐理由、有的没有。网格默认按内容撑高，于是参差不齐。
+   让同一行的卡片拉伸到等高，内部用 flex 把底部内容压到底。 */
+
+.grid,
+.rec-grid,
+.home-grid {
+  align-items: stretch;
+}
+
+.grid > .card,
+.rec-grid > .rec-item,
+.home-grid > .card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.card .card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* 标签区推到卡片底部，卡片再高也不会让标签飘在中间 */
+.card .tags,
+.card .card-trust {
+  margin-top: auto;
+}
+
+.card .card-trust + .tags { margin-top: 8px; }
+
+/* 推荐卡片的理由区同理：高度不齐时靠底对齐 */
+.rec-item .rec-reasons { margin-top: auto; }
+
+/* ---------- A9：卡片区放宽 ----------
+   原来固定三列，1180px 宽的容器里每张卡只有 273px，
+   标题「金州区光明街道 两室一厅 68平」要挤两行。
+   改成按最小宽度自动排列：宽屏放得下四列就四列，
+   窄了自动降到三列、两列，每张卡不再低于 300px。 */
+
+/* **只放宽列表页的网格，不动首页那三栏。**
+   首页每栏固定 4 套、要求排成一行，上面 858–901 行已经按断点写死了；
+   我一开始在这里写 `.grid, .home-grid { auto-fill }`，
+   结果被前面更具体的 `.home-grid` 规则覆盖，等于白写——
+   **同一个文件里自己和自己打架**，还找了一圈才发现。
+
+   列表页的左栏被右侧地图占掉 380px，三列每张只剩 300 出头，
+   标题要挤两行。改成按最小宽度自动排：放得下三列就三列，
+   放不下自动降到两列，每张不低于 320px。 */
+.list-main .grid {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+/* 首页的卡片也放宽一点：285 → 300，但列数仍由 .home-grid 的断点决定 */
+.grid { gap: 18px; }
+
+/* ---------- A3：列表页的搜索框 ----------
+   列表页顶部原先直接复用大图上那套（白底、无边框、投影），
+   放在浅灰页面上就成了一块没有边界的白条。这里给它一个实的容器。 */
+
+.list-search {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.list-search .search-row { gap: 0; box-shadow: none; }
+
+.list-search .search-row input {
+  height: 44px;
+  border: 1px solid var(--line);
+  border-right: none;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: #fff;
+  font-size: 14.5px;
+}
+
+.list-search .search-row input:focus {
+  border-color: var(--brand);
+  box-shadow: none;
+  outline: none;
+}
+
+.list-search .search-row .btn {
+  height: 44px;
+  padding: 0 30px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--brand);
+  border: none;
+  font-weight: 600;
+}
+
+.list-search .search-row .btn:hover:not(:disabled) { background: var(--brand-deep); }
+.list-search .search-row .btn:disabled { background: var(--brand); opacity: .72; }
+
+/* ---------- B3：搜索记录下拉 ---------- */
+
+.hero-search .search-row,
+.list-search .search-row { position: relative; }
+
+.search-history {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px -12px rgba(20, 34, 56, .28);
+  overflow: hidden;
+  animation: shIn .16s var(--ease-out) both;
+}
+
+@keyframes shIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.sh-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sh-clear {
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.sh-clear:hover { text-decoration: underline; }
+
+.sh-item {
+  display: flex;
+  align-items: center;
+}
+
+.sh-item:hover { background: var(--brand-soft); }
+
+.sh-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 删除键平时是淡的，鼠标移到那一行才明显——
+   一排整齐的「×」会让下拉看着像待办清单 */
+.sh-del {
+  border: none;
+  background: none;
+  color: transparent;
+  font-size: 15px;
+  line-height: 1;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.sh-item:hover .sh-del { color: var(--muted); }
+.sh-del:hover { color: var(--danger); }
+
+/* ---------- A4：筛选与排序 ---------- */
+
+.filter-bar {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.filter-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 「按条件筛选」是这一栏的主入口，给它实一点的样子 */
+.filter-head > .btn.ghost {
+  border-color: var(--line);
+  font-weight: 500;
+}
+
+.filter-head > .btn.ghost:hover,
+.filter-bar.open .filter-head > .btn.ghost {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+/* 排序推到最右，和筛选入口分开——它们是两件事 */
+.sort-select {
+  margin-left: auto;
+  height: 34px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.sort-select:hover { border-color: var(--brand); color: var(--brand); }
+
+/* 展开的筛选面板：每组一行，标签在左、选项在右，
+   贝壳就是这个结构——比一堆胶囊堆在一起好扫得多 */
+.filter-body {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 6px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft, var(--line));
+}
+
+.filter-row:last-child { border-bottom: none; }
+
+.filter-row > .filter-k {
+  flex: none;
+  width: 62px;
+  font-size: 13.5px;
+  color: var(--muted);
+  padding-top: 5px;
+}
+
+/* ---------- A7：列表页左右两栏 ----------
+   左边筛选、结果、翻页；右边地图，跟着滚动粘住。
+
+   原先地图是横在列表上方的折叠条：展开后把房源整体推下一屏，
+   而且「看地图」和「看列表」得来回滚。**这两件事本来就该同时
+   看得见**——在图上点一个区，左边列表当场变，这才是地图找房的用处。 */
+
+.list-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (min-width: 1120px) {
+  .list-layout {
+    /* 左栏自适应，右栏固定 380。地图再窄就看不清路名了，
+       所以宁可压左栏也不压地图。 */
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+}
+
+.list-main { min-width: 0; }
+
+/* 列表页整体左移：容器加宽并去掉居中的富余留白，
+   把省下的横向空间让给右侧地图 */
+.page.list-page {
+  max-width: 1440px;
+  padding-left: 28px;
+  padding-right: 28px;
+}
+
+/* 右栏的地图面板：粘在视口上，左边滚多久它都在 */
+@media (min-width: 1120px) {
+  .list-layout > .map-panel {
+    position: sticky;
+    top: 84px;                    /* 顶栏 68 + 一点呼吸 */
+    margin-bottom: 0;
+  }
+
+  .list-layout > .map-panel .map-panel-body {
+    padding: 12px;
+  }
+
+  /* 给地图一个确定的高度。不给的话它会被内容撑成一条，
+     而地图恰恰是「越高越有用」的那类组件。 */
+  .list-layout > .map-panel .mapfinder,
+  .list-layout > .map-panel .amap-finder,
+  .list-layout > .map-panel .map-loading {
+    height: calc(100vh - 200px);
+    min-height: 420px;
+  }
+}
+
+/* 窄屏回到上下排：地图放在列表前面，收起状态占一行 */
+@media (max-width: 1119px) {
+  .list-layout > .map-panel { order: -1; }
+}
+
+/* ---------- A8：翻页 ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 22px 0 8px;
+}
+
+.pg-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              background var(--dur) var(--ease);
+}
+
+.pg-btn:hover:not(:disabled) {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.pg-btn:disabled {
+  color: #bcc7d4;
+  cursor: not-allowed;
+  background: var(--surface-2);
+}
+
+/* 当前页用实底，不只是描边——一排里必须一眼看出在第几页 */
+.pg-btn.on,
+.pg-btn.on:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pg-gap {
+  padding: 0 4px;
+  color: var(--muted);
+  user-select: none;
+}
+
+/* 总数说明推到最右，和页码分开 */
+.pg-info {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .pg-info { margin-left: 0; width: 100%; padding-top: 6px; }
 }

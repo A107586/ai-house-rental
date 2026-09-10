@@ -123,7 +123,7 @@ textarea {
 }
 
 .dot.up {
-  background: #46a05f;
+  background: var(--ok);
 }
 
 .dot.down {
@@ -272,7 +272,7 @@ textarea {
   padding: 3px 10px;
   border-radius: 5px;
   background: var(--surface);
-  border: 1px solid rgba(15, 111, 104, 0.25);
+  border: 1px solid rgba(26, 111, 219, 0.25);
   color: var(--brand);
   font-size: 12.5px;
   font-weight: 500;
@@ -532,7 +532,7 @@ textarea {
 .reply.created {
   background: #e9f3ec;
   border-left-color: var(--ok);
-  color: #2f5a3e;
+  color: var(--ok);
 }
 
 .reply.pending {
@@ -727,7 +727,7 @@ textarea {
 
 .payment-summary span { color: #70848d; }
 .payment-summary strong { text-align: right; overflow-wrap: anywhere; }
-.receipt-ok { color: #11796f; font-size: 18px; font-weight: 700; }
+.receipt-ok { color: var(--ok); font-size: 18px; font-weight: 700; }
 
 .link {
   border: none;
@@ -812,7 +812,7 @@ textarea {
 
 .pill.status-confirmed {
   background: #e9f3ec;
-  border-color: rgba(63, 107, 79, 0.3);
+  border-color: rgba(23, 160, 107, 0.3);
   color: var(--ok);
 }
 
@@ -1214,7 +1214,7 @@ textarea {
   left: 10px;
   padding: 2px 9px;
   border-radius: 4px;
-  background: rgba(15, 111, 104, 0.92);
+  background: rgba(26, 111, 219, 0.92);
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -1900,7 +1900,7 @@ textarea {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 20px -6px rgba(15, 111, 104, 0.6);
+  box-shadow: 0 6px 20px -6px rgba(26, 111, 219, 0.6);
 }
 
 .chat-fab:hover {
@@ -3665,10 +3665,10 @@ td.accent {
   background: #d3d8e0;
 }
 
-.tl-done .tl-dot { background: #2f7d5d; }
+.tl-done .tl-dot { background: var(--ok); }
 .tl-current .tl-dot {
-  background: #2f7d5d;
-  box-shadow: 0 0 0 3px rgba(47, 125, 93, 0.18);
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(23, 160, 107, 0.18);
 }
 
 .tl-label { font-size: 13px; color: #6b7280; }
@@ -4221,7 +4221,7 @@ button.account-row:last-child { border-bottom: none; }
 }
 
 .verify-bar.ok { border-color: #bfe3d4; background: #f2fbf7; }
-.verify-bar.ok .verify-mark { background: #16875f; }
+.verify-bar.ok .verify-mark { background: var(--ok); }
 .verify-bar.wait { border-color: #e6d9b6; background: var(--warn-soft); }
 .verify-bar.wait .verify-mark { background: #b0862a; }
 .verify-bar.bad { border-color: #e8c4bd; background: #fdf3f1; }
@@ -4435,7 +4435,7 @@ button.account-row:last-child { border-bottom: none; }
 }
 
 .card-trust .verified-mark {
-  color: var(--ok, #2a7d5f);
+  color: var(--ok);
   font-weight: 600;
 }
 
@@ -4732,7 +4732,7 @@ button.account-row:last-child { border-bottom: none; }
   color: #5b6472;
 }
 
-.pitch-price.good { color: #1c7a4a; background: #f2fbf6; }
+.pitch-price.good { color: var(--ok); background: var(--ok-soft); }
 .pitch-price.warn { color: #8a5a12; background: #fffaf0; }
 .pitch-sample { color: #98a1ad; }
 
@@ -4743,7 +4743,7 @@ button.account-row:last-child { border-bottom: none; }
   line-height: 1.7;
 }
 
-.pitch-list.good { color: #245c3f; }
+.pitch-list.good { color: var(--ok); }
 .pitch-list.good li::marker { content: '✓  '; }
 .pitch-list.warn { color: #7d5510; }
 .pitch-list.warn li::marker { content: '!  '; }
@@ -4789,7 +4789,7 @@ button.account-row:last-child { border-bottom: none; }
 /* 「这一项它更优」。只描边加粗，不铺整片绿——一张表里标绿的格子
    一多，就分不清哪个是真结论了。 */
 .compare-table td.best {
-  color: #1c7a4a;
+  color: var(--ok);
   font-weight: 600;
-  background: #f2fbf6;
+  background: var(--ok-soft);
 }

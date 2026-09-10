@@ -48,7 +48,6 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
   const [payMethod, setPayMethod] = useState('alipay')
   const [receipt, setReceipt] = useState(null)
 
-  const isStaff = user.role === 'landlord' || user.role === 'admin'
 
   async function load() {
     setError('')
@@ -134,16 +133,29 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
     }
   }
 
+  // **个人中心对所有角色是同一套。**
+  //
+  // 原先这里按 isStaff 换标签：房东看到的是「出租合同」「收租」
+  // 「收到的预约」，租客看到「我的租约」「我的账单」「我的预约」。
+  // 问题是同一个人可能两者都是——他既租着一套房，又出租着另一套。
+  // 换标签只是把两种身份的数据塞进同一个列表，**用户每看一条
+  // 都要先判断自己在这条里是哪一方**。
+  //
+  // 现在的分界很干脆：
+  //   个人中心 = 我作为租客的事（我租的、我要交的、我约的）
+  //   工作台   = 我作为房东的事（我出租的、我要收的、别人约我的）
+  // 两边各自完整，互不掺和。
+  //
+  // 「我的搜索」整条去掉：搜索记录改成输入时自动出现的下拉，
+  // 不再需要一个专门的页签来管理它。
   const TABS = [
-    { key: 'contracts', label: isStaff ? '出租合同' : '我的租约', n: contracts.length },
-    { key: 'bills', label: isStaff ? '收租' : '我的账单', n: bills.unpaid_count },
-    { key: 'appointments', label: isStaff ? '收到的预约' : '我的预约', n: appointments.length },
+    { key: 'contracts', label: '我的租约', n: contracts.length },
+    { key: 'bills', label: '我的账单', n: bills.unpaid_count },
+    { key: 'appointments', label: '我的预约', n: appointments.length },
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
     { key: 'history', label: '足迹', n: history.length },
-    // K-09 我的搜索。租客侧才有——房东不需要「符合条件的房源上架时提醒我」
-    ...(isStaff ? [] : [{ key: 'searches', label: '我的搜索' }]),
-    { key: 'repairs', label: isStaff ? '工单' : '我的报修',
+    { key: 'repairs', label: '我的报修',
       n: repairs.filter((r) => r.status !== 'done').length },
     { key: 'reviews', label: '待评价', n: pending.length },
     { key: 'profile', label: '账号设置' },
@@ -152,7 +164,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
   return (
     <>
       <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer">
+      <aside className="drawer wide">
         <button className="drawer-close" onClick={onClose} aria-label="关闭">
           ×
         </button>
@@ -180,7 +192,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
         {tab === 'contracts' &&
           (contracts.length === 0 ? (
             <p className="desc">
-              还没有租约。{isStaff ? '确认看房预约后可以为租客发起签约。' : '看房满意后，房东会发起签约。'}
+              还没有租约。看房满意后，房东会发起签约。
             </p>
           ) : (
             <ul className="record-list">
@@ -202,7 +214,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
           <>
             <div className="sum-row">
               <div className="sum">
-                <div className="sum-k">{isStaff ? '待收' : '待缴'}</div>
+                <div className="sum-k">待缴</div>
                 <div className="sum-v money">{bills.unpaid_amount}</div>
                 <div className="sum-d">元 · {bills.unpaid_count} 笔</div>
               </div>
@@ -252,7 +264,7 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                       <div className="record-body">缴费时间 {bill.paid_at}</div>
                     )}
 
-                    {bill.status === 'unpaid' && !isStaff && (
+                    {bill.status === 'unpaid' && (
                       <div className="record-actions">
                         <button
                           className="btn small"
@@ -320,28 +332,10 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
 
                   {item.status === 'pending' && (
                     <div className="record-actions">
-                      {isStaff && (
-                        <>
-                          <button
-                            className="btn small"
-                            onClick={() =>
-                              run(`a${item.id}`, () =>
-                                api.updateAppointment(item.id, 'confirmed'))
-                            }
-                          >
-                            确认
-                          </button>
-                          <button
-                            className="btn ghost small"
-                            onClick={() =>
-                              run(`a${item.id}`, () =>
-                                api.updateAppointment(item.id, 'rejected'))
-                            }
-                          >
-                            拒绝
-                          </button>
-                        </>
-                      )}
+                      {/* 「确认 / 拒绝预约」是**房东动作**，已移到工作台。
+                          个人中心只答「我作为租客的事」——我约了谁、
+                          什么时候、能不能取消。把房东的操作留在这里，
+                          等于让用户在同一个列表里既当申请方又当审批方。 */}
                       <button
                         className="btn ghost small"
                         onClick={() =>

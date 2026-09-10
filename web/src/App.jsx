@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import useHashRoute from './useHashRoute'
+import useScrollLock from './useScrollLock'
+import useSearchHistory from './useSearchHistory'
 
 // 代码分割：整包原先 303 KB，管理后台、房东工作台这些**租客永远用不到的
 // 面板**也一起下载，而租客占访问量的绝大多数。
@@ -26,6 +28,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 // 首屏大图不做懒加载：它是第一眼就要出现的东西，
 // 懒加载会让首屏先白一下再补上，反而更差
 import HeroBanner from './components/HeroBanner'
+import HomeSections from './components/HomeSections'
 import ActiveFilters from './components/ActiveFilters'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
@@ -38,6 +41,14 @@ import RecommendStrip from './components/RecommendStrip'
 // 两个框合成一个之后，「这里也能直接搜小区」这件事就只剩占位符一句话
 // 在说了，而占位符一打字就没了。放一个「桂林街」在例句里，用户点一次
 // 就知道这个框两种说法都吃。
+/** 列表页的标题。四种 kind 共用同一套版式，只有标题和取数条件不同。 */
+const LIST_TITLE = {
+  search: '搜索结果',
+  latest: '最新发布',
+  featured: '优选好房',
+  all: '全部房源',
+}
+
 const EXAMPLES = [
   '中山区两室一厅，租金三千以内，最好带电梯',
   '桂林街',
@@ -124,6 +135,60 @@ export default function App() {
   const { route, go, back } = useHashRoute()
   const [online, setOnline] = useState(null)
 
+  /** 列表页：`#/list/<kind>`。
+   *
+   * 首页与列表页拆成两个**路由**而不是同一页的两种状态，
+   * 是为了让浏览器的后退键能用——原先在原地切换，用户想回首页
+   * 只能自己找「重置」按钮，后退键会直接退出站点。
+   *
+   * kind 取值：search（搜索结果）、latest、featured、all。
+   * 四种共用同一套版式，只是取数条件不同。
+   */
+  // 房源详情是**盖在页面之上的抽屉**，不是另一个页面。
+  // 所以要记住「抽屉底下原本是哪一页」，抽屉开着的时候背景不该变。
+  //
+  // 不记的话有两个后果，都实际发生了：
+  //   1. 从首页点开一套房 → route 变成 house → 大图的渲染条件
+  //      `route.name === 'home'` 不再成立 → **大图整块消失，
+  //      下面的内容往上跳 460px**。这就是「点击有轻微位移」。
+  //   2. 从列表页点开一套房 → 背景从列表变成了首页四栏，
+  //      关掉抽屉才发现列表没了。
+  // 搜索框占位文字轮转到第几条。
+  //
+  // 空框配一句「说说要求或直接搜地名」是句正确的废话——用户还是不知道
+  // 能说什么。改成让示例本身在框里轮着出现：看见「沙河口 合租 单间
+  // 1500以下」这种具体句子，就知道这个框吃什么。
+  // 而且**不用先打字**，直接点找房就按当前这条搜。
+  const [hintIdx, setHintIdx] = useState(0)
+  // 搜索记录。替掉了「保存这组条件」——那个按钮要求用户预判
+  // 自己以后还会不会用这组条件，人在搜的当下不会想这件事。
+  const history = useSearchHistory()
+  const [showHistory, setShowHistory] = useState(false)
+
+  const [bg, setBg] = useState({ name: 'home', param: '' })
+  useEffect(() => {
+    if (route.name !== 'house') setBg(route)
+  }, [route.name, route.param])
+
+  // 占位轮转。只在用户没打字时转——他一开始输入就该停，
+  // 不然框里的提示还在动，很像输入被系统改掉了。
+  useEffect(() => {
+    if (text.trim()) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const timer = setInterval(() => {
+      setHintIdx((i) => (i + 1) % EXAMPLES.length)
+    }, 3200)
+    return () => clearInterval(timer)
+  }, [text])
+
+  const isList = bg.name === 'list'
+  const listKind = isList ? (bg.param || 'all') : ''
+
+  /** 列表页要不要摆筛选与地图。**四种 kind 都要**——
+   * 它们本来就是「进来之后再收窄」的工具，进了列表页就该有。 */
+  const inResults = isList
+
+
   const [user, setUser] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
@@ -136,6 +201,9 @@ export default function App() {
   // 这里同理：带上之后开场白就是关于这套房的，用户说「收藏这套」
   // 「约看房」也不用再报编号。
   const [chatHouseNo, setChatHouseNo] = useState('')
+  // 列表页默认展开地图（贴在右侧），首页默认收起。
+  // 列表页是「在找」的语境，地图和列表并排看才有意义；
+  // 首页展开着只会把房源整体推下去一屏。
   const [showMap, setShowMap] = useState(false)
   const [showTalk, setShowTalk] = useState(false)
   const [talkId, setTalkId] = useState(0)
@@ -144,6 +212,12 @@ export default function App() {
   const [searched, setSearched] = useState('')
   // M-09 公开配置。取不到就用内置文案，配置服务不该拦住首页。
   const [site, setSite] = useState({ site_name: '大连智租', contact_phone: '' })
+
+  // 任何一个抽屉/弹窗开着时都锁住背景页的滚动。
+  // 不锁的话，详情开着滚轮一转，后面的列表跟着动——用户以为在翻详情，
+  // 实际翻的是背景，关掉才发现滚到别处去了。
+  useScrollLock(Boolean(selected) || showMine || showWork
+                || showChat || showTalk || showAuth)
 
   const loadFavorites = useCallback(async () => {
     if (!getToken()) {
@@ -184,6 +258,53 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, route.param])
 
+  // 回到首页时把搜索的痕迹清干净。
+  //
+  // 拆成两个路由之后漏了这一步：从列表页退回首页，`text`、`parsed`、
+  // `searched`、`filters` 全都还在，于是首页上出现三样不该有的东西——
+  // 搜索框里留着上次搜的词、「智能体把『桂林街』翻译成了…」的结论条、
+  // 以及「已生效条件 1」。**连大图上的「在架房源」都显示成 3**，
+  // 因为 total 还是上次搜索的结果数。
+  //
+  // 首页的语义是「什么都没搜」，所以这些状态一个都不该留。
+  useEffect(() => {
+    // 用 route 而不是 bg：只有真的导航回首页才清，
+    // 从列表页点开详情（route=house、bg 仍是 list）不该触发
+    if (route.name !== 'home') return
+    setText('')
+    setParsed(null)
+    setSearched('')
+    setError('')
+    setSaveState('')
+    setShowMap(false)
+    setFilters({})
+    // 重新取一次不带条件的列表，把 total 还原成全站套数——
+    // 大图上的统计读的就是它
+    loadPage(1, true, {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.name])
+
+  // 进列表页时按 kind 取数。
+  //
+  // search 那一路不在这里取——它的条件由 `search()` 解析出来后自己加载，
+  // 这里再取一次会把解析结果冲掉。
+  useEffect(() => {
+    if (!isList || listKind === 'search') return
+    // 和首页那一栏用**同一组条件**。两处写得不一样的话，
+    // 用户点「全部最新房源」会看到一批和上面那排对不上的房子。
+    const preset = {
+      latest: { published_days: 30, sort: 'published_at' },
+      featured: { min_rating: 4, sort: 'rating' },
+      all: {},
+    }[listKind] || {}
+    setSearched('')
+    setParsed(null)
+    setFilters(preset)
+    setShowMap(true)          // 列表页默认展开地图
+    loadPage(1, true, preset)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isList, listKind])
+
   // 首屏：恢复登录状态并展示最新房源
   useEffect(() => {
     if (getToken()) {
@@ -195,7 +316,18 @@ export default function App() {
         })
         .catch(() => setUser(null))
     }
-    loadPage(1, true)
+    // **直接打开列表页时不要在这里取数。**
+    //
+    // 两个 loadPage 会并发：这一个不带任何条件，列表页那个带着栏目预设
+    // （min_rating=4）。谁后返回谁写进 state——实测是不带条件的那个后到，
+    // 于是「优选好房」一进去就是全部 95 套，直到用户碰一下排序才变成 48 套。
+    // 表现很怪：**页面标题是优选好房，内容是全部房源，改个排序反而对了。**
+    //
+    // 判据用 location.hash 而不是 route/bg：那两个要等 effect 跑完才准，
+    // 而这里是挂载时第一件事。
+    if (!window.location.hash.startsWith('#/list/')) {
+      loadPage(1, true)
+    }
     api.publicConfig().then(setSite).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -230,6 +362,9 @@ export default function App() {
 
     setBusy(true)
     setError('')
+    // 搜索一律落到列表页。首页只负责给入口，结果摆在自己的路由上——
+    // 这样后退键能直接回首页，不用去找「重置」在哪
+    if (route.name !== 'list') go('list', 'search')
     try {
       const parsed = await api.agentParse(content)
       setSearched(content)
@@ -371,12 +506,40 @@ export default function App() {
     setShowWork(false)
   }
 
-  const hasMore = houses.length < total
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  /** 跳到第 n 页。**替换而不是追加**，并把视口带回列表顶部——
+   *  翻了页却停在原来的滚动位置，用户会以为没反应。 */
+  function gotoPage(n) {
+    const target = Math.min(Math.max(1, n), totalPages)
+    if (target === page || busy) return
+    loadPage(target, true)
+    const anchor = document.querySelector('.list-head')
+    if (anchor) {
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      anchor.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
+    }
+  }
+
+  /** 页码按钮。页数多时中间省略，首尾与当前页附近始终可见——
+   *  全量列出来的话 20 页就是 20 个按钮，一行摆不下。 */
+  const pageItems = (() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1)
+    }
+    const out = [1]
+    const from = Math.max(2, page - 1)
+    const to = Math.min(totalPages - 1, page + 1)
+    if (from > 2) out.push('...')
+    for (let i = from; i <= to; i += 1) out.push(i)
+    if (to < totalPages - 1) out.push('...')
+    out.push(totalPages)
+    return out
+  })()
   const hasFilters = Object.values(filters).some(
     (v) => v !== '' && v !== null && v !== undefined)
 
   return (
-    <Suspense fallback={null}>
     <>
       <header className="topbar">
         <div className="topbar-inner">
@@ -427,54 +590,93 @@ export default function App() {
 
       {/* 首屏大图。只在首页出现——进了房源详情还压一张大图，
           等于把用户想看的内容往下推一屏。 */}
-      {route.name === 'home' && (
+      {bg.name === 'home' && (
         <HeroBanner
           stats={[
             { value: total || '—', label: '在架房源（套）' },
             { value: '6', label: '覆盖行政区' },
             { value: 'AI', label: '智能找房 · 客服 · 审阅' },
           ]}
-          onCta={(target) => {
-            const anchor = document.querySelector(
-              target === 'search' ? '.search-card' : '.list-head')
-            if (!anchor) return
-            // 用户开了「减少动效」就别做平滑滚动，直接跳过去
-            const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-            anchor.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
-          }}
-        />
-      )}
-
-      <main className={`page${route.name === 'home' ? ' with-hero' : ''}`}>
-        <section className="search-card">
-          {/* 标题从「说一句话，帮你找房」改成功能性说明：
-              那句口号已经由上面的大图承担了，这里再喊一遍等于同一屏
-              重复两次，反而显得没话说。这块是干活的地方，
-              标题就该说清楚「在这儿能干什么」。 */}
-          <h2>智能找房</h2>
-          <p className="hint">
-            描述需求也行，直接打小区、街道名也行。智能体会把它翻译成
-            下面的筛选条件—— 条件看得见、也改得动。
-          </p>
-
+        >
           {/* **一个框。**
               这里原先并排放着两个：一个自然语言、一个纯关键词。分成两个
               的初衷是「智能体挂了还能搜」，可代价是把一个技术上的分工
               摆到了用户面前——他站在两个长得一样的框前面，得先想清楚
               自己这句话算「描述需求」还是「搜小区」才知道往哪打字。
-              两个框还各存一份状态，光是让它们互相同步就已经出过一个 bug。
 
               保底没有丢，只是挪到了代码里：解析不出条件（多半是地名），
               或者智能体压根连不上，`search()` 自动转成关键词检索。 */}
-          <form className="search-row" onSubmit={search}>
+          <form
+            className="search-row"
+            onSubmit={(e) => {
+              e.preventDefault()
+              // **空框也能搜。** 没打字就按框里正在轮转的那条搜——
+              // 用户看到的是什么，点下去就搜什么，所见即所得。
+              const q = text.trim() || EXAMPLES[hintIdx]
+              if (!text.trim()) setText(q)
+              history.remember(q)
+              setShowHistory(false)
+              search(null, q)
+            }}
+          >
             <input
-              placeholder="说说要求或直接搜地名，如：中山区两室一厅三千以内 / 桂林街"
+              placeholder={EXAMPLES[hintIdx]}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => { setText(e.target.value); setShowHistory(true) }}
+              onFocus={() => setShowHistory(true)}
+              // 延迟收起：直接在 blur 里关会赶在点击之前，
+              // 用户点记录时框已经没了，等于点了个空气
+              onBlur={() => setTimeout(() => setShowHistory(false), 160)}
             />
-            <button className="btn" type="submit" disabled={busy || !text.trim()}>
+            {/* **不置灰。** 一个灰掉的主按钮等于告诉用户「这儿现在没用」，
+                可这是首屏唯一的行动点。既然空框也能搜，它就该一直是亮的。 */}
+            <button className="btn" type="submit" disabled={busy}>
               {busy ? '找房中…' : '找房'}
             </button>
+
+            {/* 搜索记录。点开输入框就出现，边打字边过滤。 */}
+            {showHistory && history.match(text).length > 0 && (
+              <div className="search-history">
+                <div className="sh-head">
+                  <span>搜索记录</span>
+                  <button
+                    type="button"
+                    className="sh-clear"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={history.clear}
+                  >
+                    清空
+                  </button>
+                </div>
+                {history.match(text).map((q) => (
+                  <div className="sh-item" key={q}>
+                    <button
+                      type="button"
+                      className="sh-text"
+                      // mousedown 里阻止默认，免得输入框先失焦把下拉关掉
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setText(q)
+                        setShowHistory(false)
+                        history.remember(q)
+                        search(null, q)
+                      }}
+                    >
+                      {q}
+                    </button>
+                    <button
+                      type="button"
+                      className="sh-del"
+                      aria-label={`删除记录：${q}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => history.forget(q)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </form>
 
           <div className="examples">
@@ -492,55 +694,75 @@ export default function App() {
               </button>
             ))}
           </div>
+        </HeroBanner>
+      )}
 
-          {/* 解析结论：只说「听懂了什么、怎么听懂的」。
-              条件本身显示在下面的「已生效条件」里，那一份是可删可改的，
-              两处重复摆一遍反而让人分不清哪个说了算 */}
-          {parsed && !parsed.ok && (
-            <div className="answer error">
-              没听懂这句话，已经保留你原来的筛选条件。
-              可以说得具体一点，比如「中山区两室一厅，租金三千以内」。
-            </div>
-          )}
+      <main
+        className={`page${bg.name === 'home' ? ' with-hero' : ''}`
+          + (isList ? ' list-page' : '')}
+      >
+        {/* 列表页没有大图，搜索框也就跟着没了。补一条紧凑版：
+            用户在结果页想换个说法再搜一次是很常见的动作，
+            让他退回首页再搜是多走两步。 */}
+        {isList && (
+          <div className="list-search">
+            <form className="search-row" onSubmit={search}>
+              <input
+                placeholder="换个说法再找找，如：中山区两室一厅三千以内 / 桂林街"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+              <button className="btn" type="submit" disabled={busy || !text.trim()}>
+                {busy ? '找房中…' : '找房'}
+              </button>
+            </form>
+          </div>
+        )}
 
-          {parsed?.ok && (
-            <div className="parsed">
-              <div className="parsed-title">
-                智能体把「{searched}」翻译成了下面的筛选条件
-                {sourceLabel(parsed) ? `（${sourceLabel(parsed)}）` : ''}
-              </div>
-              {parsed.divergence?.length > 0 && (
-                <div className="parsed-note">
-                  {parsed.divergence.join('；')}
-                </div>
-              )}
-            </div>
-          )}
+        {/* B1：删掉了「智能体把『xx』翻译成了下面的筛选条件」那一条。
+            它和下面的「已生效条件」讲的是同一件事——一个用文字复述、
+            一个用可删的胶囊列出。**同一屏把同一件事说两遍，
+            用户还得先判断哪个才算数。** 留可操作的那个。
 
-          {error && <div className="answer error">{error}</div>}
-        </section>
+            解析来源（规则 / 融合）挪进了「已生效条件」的说明行里，
+            信息没丢，只是不再单占一块。 */}
+        {error && <div className="answer error">{error}</div>}
+        {parsed && !parsed.ok && (
+          <div className="answer error">
+            没听懂这句话，已经保留你原来的筛选条件。
+            可以说得具体一点，比如「中山区两室一厅，租金三千以内」。
+          </div>
+        )}
 
         {/* 无论条件来自哪里都在这里如实列出来，并且每一条都能删。
             这是 K-06 的落点：检索条件只有一份 */}
-        <ActiveFilters
-          value={filters}
-          onChange={(next) => {
-            setFilters(next)
-            setSaveState('')
-            loadPage(1, true, next)
-          }}
-          onSave={saveCurrentSearch}
-          saveState={saveState}
-          note={parsed?.ok
-            ? '这些条件由智能体解析而来，可以直接删改，也可以在下方筛选栏继续调整。'
-            : ''}
-        />
+        {/* 首页不显示：首页的语义就是「什么都没搜」，
+            那里出现一条「已生效条件」只会让人以为自己漏点了什么 */}
+        {isList && (
+          <ActiveFilters
+            value={filters}
+            onChange={(next) => {
+              setFilters(next)
+              setSaveState('')
+              loadPage(1, true, next)
+            }}
+            note={parsed?.ok
+              ? `这些条件由智能体解析而来${sourceLabel(parsed) ? `（${sourceLabel(parsed)}）` : ''}，可以直接删改，也可以在下方筛选栏继续调整。`
+              : ''}
+          />
+        )}
 
-        <ErrorBoundary label="公告">
-          <NoticeBar />
-        </ErrorBoundary>
+        {/* 公告只在首页出现。列表页是「我在找房」的语境，
+            顶上横一条平台公告属于打断——用户是带着目的进来的。 */}
+        {!isList && (
+          <ErrorBoundary label="公告">
+            <NoticeBar />
+          </ErrorBoundary>
+        )}
 
-        {!hasFilters && (
+        {/* 「为你推荐」是首页的第一栏。它要登录、要有浏览记录才出得来，
+            所以由组件自己决定渲不渲染，这里不加条件。 */}
+        {!isList && (
           <RecommendStrip
             user={user}
             favorites={favorites}
@@ -549,44 +771,55 @@ export default function App() {
           />
         )}
 
-        <div className="find-switch">
-            <button
-              className={`tab ${showMap ? 'active' : ''}`}
-              onClick={() => setShowMap(!showMap)}
-            >
-              {showMap ? '收起地图' : '地图找房'}
-            </button>
-            {filters.district && (
-              <span className="chip">已选区域：{filters.district}</span>
-            )}
-        </div>
-
-        {showMap && (
-          <MapFinder
-            selected={filters.district || ''}
-            filters={filters}
-            onPick={pickDistrict}
+        {/* 首页其余三栏：最新发布 / 优选好房 / 全部房源。
+            每栏只出一排，右上角「全部 N 套」跳到对应的列表页。 */}
+        {!isList && (
+          <HomeSections
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
             onOpen={(house) => go('house', house.house_no)}
+            onMore={(kind) => go('list', kind)}
           />
         )}
 
-        {/* 筛选栏不再对智能搜索隐藏。它改的就是智能体填进来的那份条件，
-            两者是同一份东西——藏起来才是把两条路径割裂开的那一刀 */}
-        <FilterBar value={filters} onApply={applyFilters} disabled={busy} />
+        {/* 地图找房：搜索框挪走之后，这块接管了原来的位置。
+            原先只是一行灰字，看不出可点、也看不出点了会发生什么。
+            现在做成一个有标题有说明的折叠面板：**默认收起**——
+            地图是「换一种方式找」，不是主路径，展开着会把房源列表
+            推下去一屏。 */}
+        {/* **列表页是左右两栏。**
+            左边：筛选、结果、翻页；右边：地图，跟着滚动粘住。
+            原先地图是横在列表上方的折叠条，展开后把房源整体推下一屏，
+            而且「看地图」和「看列表」得来回滚——**这两件事本来就该
+            同时看得见**：在图上点一个区，左边列表当场变。 */}
+        <div className={isList ? 'list-layout' : ''}>
+        <div className="list-main">
 
+
+        {/* 筛选栏不再对智能搜索隐藏。它改的就是智能体填进来的那份条件，
+            两者是同一份东西——藏起来才是把两条路径割裂开的那一刀。
+            但它只在结果页出现：首页一进来就摆一排筛选项，
+            等于让人先做题再看房。 */}
+        {inResults && (
+          <FilterBar value={filters} onApply={applyFilters} disabled={busy} />
+        )}
+
+        {/* 底部这条完整列表只属于列表页。
+            首页已经用四个分栏给过入口了，再挂一条九十多套的长列表，
+            等于把「给入口」和「摆全部」两件事做了两遍。 */}
+        {isList && (
         <div className="list-head">
-          <h3>{hasFilters ? '筛选结果' : '最新房源'}</h3>
+          <h3>{LIST_TITLE[listKind] || '房源'}</h3>
           <span className="count">共 {total} 套</span>
-          {hasFilters && (
-            <button className="btn ghost small" onClick={reset}>
-              重置
-            </button>
-          )}
+          <button className="btn ghost small" onClick={() => go('home')}>
+            ‹ 返回首页
+          </button>
         </div>
+        )}
 
         {/* 解析中先摆骨架屏（K-10）。智能体最慢的那一下要等一趟大模型往返，
             这期间如果页面纹丝不动，用户会以为点击没生效，然后再点一次 */}
-        {busy && houses.length === 0 ? (
+        {isList && (busy && houses.length === 0 ? (
           <div className="grid" aria-hidden="true">
             {Array.from({ length: 6 }).map((_, i) => (
               <div className="card skeleton" key={i}>
@@ -621,22 +854,97 @@ export default function App() {
               ))}
             </div>
 
-            {hasMore && (
-              <div className="load-more">
-                {/* 翻页只有一条路径了。原先智能搜索要走另一个接口翻页，
-                    而它的设施筛选是在前端做的，翻页时就出现了
-                    「第二页开始条件不生效」这种说不清的行为 */}
+            {/* **列表页用翻页，不用「加载更多」。**
+                「加载更多」适合无尽流（微博、朋友圈）——那种场景里
+                用户不需要「回到第 3 页」。找房不是：他会来回比较，
+                会记得「刚才那套在第二页」。一路追加下去的话，
+                翻到第五页想回头就得从头滚。
+
+                首页那三栏仍是固定 4 套的预览，不涉及翻页。 */}
+            {totalPages > 1 && (
+              <nav className="pager" aria-label="房源分页">
                 <button
-                  className="btn ghost"
-                  disabled={busy}
-                  onClick={() => loadPage(page + 1, false)}
+                  className="pg-btn"
+                  disabled={busy || page <= 1}
+                  onClick={() => gotoPage(page - 1)}
                 >
-                  {busy ? '加载中…' : `加载更多（已显示 ${houses.length} / ${total}）`}
+                  上一页
                 </button>
-              </div>
+
+                {pageItems.map((it, i) => (
+                  it === '...' ? (
+                    <span className="pg-gap" key={`gap${i}`}>…</span>
+                  ) : (
+                    <button
+                      key={it}
+                      className={`pg-btn num${it === page ? ' on' : ''}`}
+                      disabled={busy}
+                      aria-current={it === page ? 'page' : undefined}
+                      onClick={() => gotoPage(it)}
+                    >
+                      {it}
+                    </button>
+                  )
+                ))}
+
+                <button
+                  className="pg-btn"
+                  disabled={busy || page >= totalPages}
+                  onClick={() => gotoPage(page + 1)}
+                >
+                  下一页
+                </button>
+
+                <span className="pg-info">共 {total} 套 · 第 {page}/{totalPages} 页</span>
+              </nav>
             )}
           </>
+        ))}
+        </div>{/* /.list-main */}
+
+        {isList && (
+        <section className={`map-panel${showMap ? ' open' : ''}`}>
+          <button
+            className="map-panel-head"
+            onClick={() => setShowMap(!showMap)}
+            aria-expanded={showMap}
+          >
+            <span className="map-panel-title">地图找房</span>
+            <span className="map-panel-sub">
+              {filters.district
+                ? `已选区域：${filters.district}`
+                : '在地图上按区域挑，看得见位置和周边'}
+            </span>
+            <span className="map-panel-arrow" aria-hidden="true">
+              {showMap ? '收起' : '展开'}
+            </span>
+          </button>
+
+          {showMap && (
+            <div className="map-panel-body">
+              {/* **地图必须有自己的 Suspense。**
+                  外层那个 Suspense 包着整个页面，地图是懒加载的——
+                  一点击就开始加载，React 会挂起整棵树、渲染 fallback，
+                  于是整页卸载、滚动位置归零，加载完再从头挂上。
+                  表现就是「点地图找房，页面弹回最顶端」。
+                  在这里单独兜一层，挂起的范围就只剩地图这一块。 */}
+              <Suspense
+                fallback={<div className="map-loading">地图加载中…</div>}
+              >
+                <MapFinder
+                  selected={filters.district || ''}
+                  filters={filters}
+                  onPick={pickDistrict}
+                  onOpen={(house) => go('house', house.house_no)}
+                />
+              </Suspense>
+            </div>
+          )}
+        </section>
         )}
+
+        </div>{/* /.list-layout */}
+
       </main>
 
       {/* 悬浮入口。对比栏在底部居中，这个放右下角，两者不重叠。
@@ -654,36 +962,40 @@ export default function App() {
       )}
 
       {showTalk && (
-        <ChatWithLandlord
+        <Suspense fallback={null}>
+          <ChatWithLandlord
           initialId={talkId}
           onClose={() => { setShowTalk(false); setTalkId(0) }}
           onOpenHouse={async (no) => {
-            try {
-              setShowTalk(false)
-              go('house', no)
-            } catch {
-              setError('这套房源已下架或不存在。')
-            }
+          try {
+          setShowTalk(false)
+          go('house', no)
+          } catch {
+          setError('这套房源已下架或不存在。')
+          }
           }}
-        />
+          />
+        </Suspense>
       )}
 
       {showChat && (
-        <ChatPanel
+        <Suspense fallback={null}>
+          <ChatPanel
           user={user}
           houseNo={chatHouseNo}
           onOpenHouse={(house) => {
-            setShowChat(false)
-            go('house', house.house_no)
+          setShowChat(false)
+          go('house', house.house_no)
           }}
           onClose={() => {
-            setShowChat(false)
-            // **房源上下文只跟着这一次「问助手」。**
-            // 不清掉的话，他下次从右下角的按钮打开助手，问的每一句话
-            // 仍然挂在半小时前那套房上——「帮我收藏」收的是那一套。
-            setChatHouseNo('')
+          setShowChat(false)
+          // **房源上下文只跟着这一次「问助手」。**
+          // 不清掉的话，他下次从右下角的按钮打开助手，问的每一句话
+          // 仍然挂在半小时前那套房上——「帮我收藏」收的是那一套。
+          setChatHouseNo('')
           }}
-        />
+          />
+        </Suspense>
       )}
 
       <footer className="site-foot">
@@ -699,19 +1011,20 @@ export default function App() {
       />
 
       {selected && (
-        <HouseDrawer
+        <Suspense fallback={null}>
+          <HouseDrawer
           onOpenHouse={(house) => go('house', house.house_no)}
           onAskAssistant={(house) => {
-            // 关掉详情再开助手：两个抽屉叠着会互相盖住
-            setChatHouseNo(house.house_no)
-            go('home', '', true)
-            setShowChat(true)
+          // 关掉详情再开助手：两个抽屉叠着会互相盖住
+          setChatHouseNo(house.house_no)
+          go('home', '', true)
+          setShowChat(true)
           }}
           onTalk={(id) => {
-            // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
-            go('home', '', true)
-            setTalkId(id)
-            setShowTalk(true)
+          // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
+          go('home', '', true)
+          setTalkId(id)
+          setShowTalk(true)
           }}
           house={selected}
           user={user}
@@ -721,74 +1034,84 @@ export default function App() {
           favorited={favorites.includes(selected.house_no)}
           onToggleFavorite={toggleFavorite}
           onClose={back}
-        />
+          />
+        </Suspense>
       )}
 
       {showAuth && (
-        <AuthDialog
+        <Suspense fallback={null}>
+          <AuthDialog
           onClose={() => setShowAuth(false)}
           onLoggedIn={(u) => {
-            setUser(u)
-            setShowAuth(false)
-            loadFavorites()
+          setUser(u)
+          setShowAuth(false)
+          loadFavorites()
           }}
-        />
+          />
+        </Suspense>
       )}
 
       {showWork && user?.role === 'landlord' && (
         <ErrorBoundary label="工作台">
-          <LandlordPanel
+          <Suspense fallback={null}>
+            <LandlordPanel
             user={user}
             onClose={() => setShowWork(false)}
             onOpenHouse={(house) => {
-              // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
-              // 所以先关掉工作台再打开房源
-              setShowWork(false)
-              go('house', house.house_no)
+            // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
+            // 所以先关掉工作台再打开房源
+            setShowWork(false)
+            go('house', house.house_no)
             }}
-          />
+            />
+          </Suspense>
         </ErrorBoundary>
       )}
 
       {showWork && user?.role === 'agent' && (
         <ErrorBoundary label="中介工作台">
-          <AgentPanel
+          <Suspense fallback={null}>
+            <AgentPanel
             user={user}
             onClose={() => setShowWork(false)}
             onOpenHouse={(house) => {
-              setShowWork(false)
-              go('house', house.house_no)
+            setShowWork(false)
+            go('house', house.house_no)
             }}
-          />
+            />
+          </Suspense>
         </ErrorBoundary>
       )}
 
       {showWork && user?.role === 'admin' && (
         <ErrorBoundary label="管理后台">
-          <AdminPanel user={user} onClose={() => setShowWork(false)} />
+          <Suspense fallback={null}>
+            <AdminPanel user={user} onClose={() => setShowWork(false)} />
+          </Suspense>
         </ErrorBoundary>
       )}
 
       {showMine && user && (
-        <MyPanel
+        <Suspense fallback={null}>
+          <MyPanel
           user={user}
           onUserUpdated={setUser}
           onLogout={logout}
           onClose={() => setShowMine(false)}
           onApplySearch={(conditions) => {
-            // 从「我的搜索」一键恢复：条件原样填回，走同一条检索路径
-            setParsed(null)
-            setSaveState('')
-            setFilters(conditions)
-            loadPage(1, true, conditions)
+          // 从「我的搜索」一键恢复：条件原样填回，走同一条检索路径
+          setParsed(null)
+          setSaveState('')
+          setFilters(conditions)
+          loadPage(1, true, conditions)
           }}
           onOpenHouse={(house) => {
-            setShowMine(false)
-            go('house', house.house_no)
+          setShowMine(false)
+          go('house', house.house_no)
           }}
-        />
+          />
+        </Suspense>
       )}
     </>
-    </Suspense>
   )
 }

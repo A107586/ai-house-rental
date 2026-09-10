@@ -54,7 +54,7 @@ const SLIDES = [
 /** 定时器周期。5 秒是轮播的常见取值：够读完一句标题，又不至于让人等。 */
 const INTERVAL = 5000
 
-export default function HeroBanner({ onCta, stats }) {
+export default function HeroBanner({ stats, children }) {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)   // 用户按了暂停键
   const [reduced, setReduced] = useState(false)
@@ -174,15 +174,15 @@ export default function HeroBanner({ onCta, stats }) {
           <span className="hero-eyebrow">{slide.eyebrow}</span>
           <h1 className="hero-title">{slide.title}</h1>
           <p className="hero-desc">{slide.desc}</p>
-          <div className="hero-actions">
-            <button className="btn hero-cta" onClick={() => onCta?.(slide.target)}>
-              {slide.cta}
-            </button>
-            <button className="btn ghost hero-cta-2" onClick={() => onCta?.('list')}>
-              浏览全部房源
-            </button>
-          </div>
         </div>
+
+        {/* 搜索直接摆在大图上。
+            原先这里是「开始找房 / 浏览全部房源」两个按钮，点了只是
+            滚到下面的搜索框——**中间隔了一步没有意义的跳转**。
+            国内房产平台的首屏一律是「大图 + 搜索框」，用户落地即可输入。
+            搜索框不随轮播切换，所以放在 hero-copy 外面，
+            换图时只有文案重放入场动画，输入框不闪。 */}
+        {children && <div className="hero-search">{children}</div>}
 
         {stats && (
           <div className="hero-stats">
