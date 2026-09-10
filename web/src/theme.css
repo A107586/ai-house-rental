@@ -1852,3 +1852,347 @@
 @media (max-width: 640px) {
   .pg-info { margin-left: 0; width: 100%; padding-top: 6px; }
 }
+
+/* ============================================================
+   E. 顶栏
+   ============================================================ */
+
+/* E3：导航改纯文字 + 竖线分隔。
+   一排描边按钮会让顶栏看着像工具栏，可这些其实只是导航链接。 */
+
+.topnav {
+  display: flex;
+  align-items: center;
+}
+
+.topnav-a {
+  border: none;
+  background: none;
+  padding: 6px 14px;
+  font-size: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+  position: relative;
+  transition: color var(--dur) var(--ease);
+}
+
+.topnav-a:hover { color: var(--brand); }
+
+/* 竖线画在伪元素上，最后一个不画——用 border-right 的话
+   得单独给最后一项写 :last-child 去掉，还容易和别处的边框叠加 */
+.topnav-a + .topnav-a::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 12px;
+  margin-top: -6px;
+  background: var(--line);
+}
+
+/* E2：咨询做成图标按钮。
+   它是**会有新消息的入口**，和「工作台」「退出」这类纯导航不是一类；
+   混在一排文字里，有人找你说话这件事就被淹没了。 */
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink-2);
+  cursor: pointer;
+  position: relative;
+  transition: border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              background var(--dur) var(--ease);
+}
+
+.icon-btn svg { width: 18px; height: 18px; display: block; }
+
+.icon-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+/* 未读红点。数量不重要——「有人找你」和「3 个人找你」
+   对用户的下一步动作是一样的，都是点开看看。 */
+.icon-btn .badge-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.topbar-right { gap: 10px; }
+
+/* ============================================================
+   G1. 登录注册整页
+   ============================================================ */
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+}
+
+@media (min-width: 900px) {
+  /* 左边讲价值、右边填表。左窄右宽——左边是读的，右边是做的。 */
+  .auth-page { grid-template-columns: 42% minmax(0, 1fr); }
+}
+
+.auth-aside {
+  position: relative;
+  padding: 40px 44px;
+  color: #fff;
+  background:
+    linear-gradient(160deg, rgba(8, 24, 44, 0.88), rgba(10, 46, 88, 0.82)),
+    url('/static/houses/h03.jpg') center/cover no-repeat;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 899px) {
+  /* 窄屏把左半边压成一条头部，不占掉整屏 */
+  .auth-aside { padding: 22px 20px; }
+  .auth-points { display: none; }
+}
+
+.auth-back {
+  align-self: flex-start;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  margin-bottom: 42px;
+  transition: background var(--dur) var(--ease);
+}
+
+.auth-back:hover { background: rgba(255, 255, 255, 0.22); }
+
+.auth-brand {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.auth-brand span { color: #7ec2ff; }
+
+.auth-slogan {
+  margin: 8px 0 40px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.auth-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 34ch;
+}
+
+.auth-points li { display: flex; flex-direction: column; gap: 4px; }
+
+/* 每条前面一个短横，比圆点更克制，也不像列表符号 */
+.auth-points b {
+  font-size: 15px;
+  font-weight: 600;
+  position: relative;
+  padding-left: 18px;
+}
+
+.auth-points b::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.68em;
+  width: 10px;
+  height: 2px;
+  background: #7ec2ff;
+}
+
+.auth-points span {
+  font-size: 13px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.72);
+  padding-left: 18px;
+}
+
+.auth-main {
+  display: grid;
+  place-items: center;
+  padding: 40px 24px 60px;
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-title {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.auth-sub {
+  margin: 0 0 26px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.auth-alert,
+.auth-ok {
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+
+.auth-alert {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-left: 3px solid var(--danger);
+}
+
+.auth-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-left: 3px solid var(--ok);
+}
+
+.auth-field { margin-bottom: 15px; }
+
+.auth-field > label {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.auth-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 14.5px;
+  color: var(--ink);
+  transition: border-color var(--dur) var(--ease);
+}
+
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.auth-field.bad input { border-color: var(--danger); }
+
+.auth-err {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* 身份选择做成三张卡而不是一排单选钮：
+   每种身份后面跟着「能做什么」，用户才选得明白 */
+.role-pick {
+  display: grid;
+  gap: 8px;
+}
+
+.role-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 11px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  transition: border-color var(--dur) var(--ease),
+              background var(--dur) var(--ease);
+}
+
+.role-card b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.role-card span { font-size: 12.5px; color: var(--muted); }
+
+.role-card.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.role-card.on b { color: var(--brand); }
+
+/* 「需管理员审核」贴在右上角。**选之前就要看见**——
+   注册完才被告知还要等审核，是那种会让人觉得被耍了的体验。 */
+.role-card em {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+}
+
+.auth-submit {
+  width: 100%;
+  height: 46px;
+  margin-top: 10px;
+  font-size: 15.5px;
+  font-weight: 600;
+  border-radius: var(--radius);
+}
+
+.auth-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+  font-size: 13.5px;
+}
+
+.auth-foot .link {
+  border: none;
+  background: none;
+  color: var(--brand);
+  cursor: pointer;
+  font-size: 13.5px;
+  padding: 2px;
+}
+
+.auth-foot .link:hover { text-decoration: underline; }
+.auth-foot > span { color: var(--line); }
+
+.auth-box .demo-accounts {
+  margin-top: 26px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--muted);
+}

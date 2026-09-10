@@ -28,6 +28,9 @@ import ErrorBoundary from './components/ErrorBoundary'
 // 首屏大图不做懒加载：它是第一眼就要出现的东西，
 // 懒加载会让首屏先白一下再补上，反而更差
 import HeroBanner from './components/HeroBanner'
+// 登录注册整页。也不做懒加载：未登录用户点「登录」是高频路径，
+// 让他先看半秒白屏不值当
+import AuthPage from './components/AuthPage'
 import HomeSections from './components/HomeSections'
 import ActiveFilters from './components/ActiveFilters'
 import CompareBar from './components/CompareBar'
@@ -539,6 +542,32 @@ export default function App() {
   const hasFilters = Object.values(filters).some(
     (v) => v !== '' && v !== null && v !== undefined)
 
+  // G1：登录注册整页。它是**独占一屏的路由**，不是盖在页面上的弹窗，
+  // 所以在这里直接返回，不渲染顶栏、大图、列表那一整套。
+  //
+  // **位置很关键：必须放在所有 hook 与函数定义之后。**
+  // 我一开始把它插在组件靠前的位置，`onDone` 里引用了下面才用
+  // `const` 定义的 `loadFavorites`——登录接口其实成功了、令牌也存进去了，
+  // 但回调一执行就抛 `Cannot access 'j' before initialization`
+  // （压缩后的变量名），页面卡在登录页不动，报错还显示在「登录失败」的
+  // 位置上，看着像是账号密码错了。
+  //
+  // 提前 return 不能提前到「它用到的东西还没初始化」之前。
+  if (route.name === 'auth') {
+    return (
+      <AuthPage
+        mode={route.param || 'login'}
+        onSwitch={(m) => go('auth', m, true)}
+        onBack={() => go('home', '', true)}
+        onDone={(u) => {
+          setUser(u)
+          loadFavorites()
+          go('home', '', true)
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <header className="topbar">
@@ -561,27 +590,49 @@ export default function App() {
 
             {user ? (
               <>
-                {/* 这里写死三个角色而不是 `role !== 'tenant'`：
-                    下面的渲染分支是按角色一个个列出来的，用「不等于租客」
-                    的话，将来加一个新角色就会得到一个点开全白的抽屉 */}
-                {['landlord', 'agent', 'admin'].includes(user.role) && (
-                  <button className="btn ghost small" onClick={() => setShowWork(true)}>
-                    {user.role === 'admin' ? '管理后台' : '工作台'}
+                {/* E2：咨询改成独立图标。
+                    它是**未读会有新消息的入口**，和「工作台」「退出」
+                    这类纯导航不是一类东西——混在一排文字里，
+                    有人找你说话这件事就被淹没了。 */}
+                <button
+                  className="icon-btn"
+                  onClick={() => setShowTalk(true)}
+                  aria-label="咨询消息"
+                  title="咨询消息"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                    <path
+                      d="M3 4.5h14v9H7.5L4 16.5v-3H3z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+
+                {/* E3：其余改成纯文字，用竖线分隔。
+                    一排描边按钮会让顶栏看着像工具栏，而这些其实
+                    只是导航链接——**文字加分隔线才是导航的样子**。 */}
+                <nav className="topnav">
+                  {/* 这里写死三个角色而不是 `role !== 'tenant'`：
+                      下面的渲染分支是按角色一个个列出来的，用「不等于租客」
+                      的话，将来加一个新角色就会得到一个点开全白的抽屉 */}
+                  {['landlord', 'agent', 'admin'].includes(user.role) && (
+                    <button className="topnav-a" onClick={() => setShowWork(true)}>
+                      {user.role === 'admin' ? '管理后台'
+                        : user.role === 'agent' ? '中介台' : '工作台'}
+                    </button>
+                  )}
+                  <button className="topnav-a" onClick={() => setShowMine(true)}>
+                    {user.real_name || user.username}
                   </button>
-                )}
-                <button className="btn ghost small" onClick={() => setShowTalk(true)}>
-                  咨询
-                </button>
-                <button className="btn ghost small" onClick={() => setShowMine(true)}>
-                  {user.real_name || user.username}
-                </button>
-                <button className="btn ghost small" onClick={logout}>
-                  退出
-                </button>
+                  <button className="topnav-a" onClick={logout}>退出</button>
+                </nav>
               </>
             ) : (
-              <button className="btn small" onClick={() => setShowAuth(true)}>
-                登录
+              <button className="btn small" onClick={() => go('auth', 'login')}>
+                登录 / 注册
               </button>
             )}
           </div>
