@@ -18,30 +18,44 @@
 数据本来就不会丢——它们全挂在 `user_id` 上，与 role 无关。这一点
 值得写进测试，因为「升级会不会把我的收藏清空」是用户真正担心的事。
 
-**不提供反向降级。** 名下还有在租房源、生效合同的房东降回租客，
-那些房源就成了没有主人的数据。真要退出出租业务，该走的是
-「下架全部房源 + 结清合同」，那是另一件事，不是一个开关。
+**升级要审核，退回不用（D1/D2）。**
+
+升级原先是点一下当场生效——任何注册用户点一次就能发布房源、签合同、
+收租。在一个要签合同收钱的平台上这不成立：房东是合同甲方，
+平台至少要看一眼这个人是谁。所以改成申请制，管理员在后台通过或驳回。
+**获批之前仍是租客**，找房收藏预约照常，只是发不了房源。
+
+退回则不需要任何审核：那不是权限升级，是主动放弃权限，
+没有需要把关的东西。唯一的前置是名下不能还有在租房源与生效合同——
+那是数据完整性要求（不然那些房源就成了没有主人的数据），
+不是审批。这一条会在接口里明确告诉用户还差哪几套。
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from datetime import datetime
+
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import require_login
-from app.models import House, User
+from app.leasing import notify
+from app.models import Contract, House, RoleRequest, User
 
 router = APIRouter()
 
 
 @router.post("/api/auth/become-landlord")
-def become_landlord(user: User = Depends(require_login),
+def become_landlord(payload: dict = Body(default={}),
+                    user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
-    """把当前账号升级为房东。
+    """提交成为房东的申请（D1）。
 
-    **要求先实名。** 房东要签合同，而合同上的甲方必须是真实姓名
-    （K-03 已经在签约那一步拦了一道）。放在这里再拦一次不是重复——
-    等到发起签约时才发现不能签，房东已经把房源发布、约看房都做完了。
+    **不再当场生效。** 提交后进入待审，管理员在后台通过才变角色。
+    在此之前用户仍是租客，找房、收藏、预约都不受影响。
+
+    实名与手机号仍然是前置：等到管理员审的时候才发现姓名是空的，
+    等于把校验推给了人。
     """
     if user.role == "admin":
         raise HTTPException(status_code=400,
@@ -52,8 +66,6 @@ def become_landlord(user: User = Depends(require_login),
         # **必须拦。** 中介的房源管理权来自「role == agent 且有生效委托」，
         # 一旦角色变成 landlord，他手上在托的房源立刻全部管不了，
         # 而页面上不会有任何提示——房东那边也不知道自己的委托已经失效。
-        # 要转做房东就先把委托解除干净，这是一次需要他自己确认的迁移，
-        # 不该由一个「升级为房东」按钮顺手完成。
         raise HTTPException(
             status_code=400,
             detail="经纪人账号不能直接转为房东。如需自己出租，"
@@ -69,16 +81,132 @@ def become_landlord(user: User = Depends(require_login),
             status_code=400,
             detail="成为房东需要先填手机号，租客要靠它联系你")
 
-    user.role = "landlord"
+    # 已经有一条待审的就别重复提交。返回 200 而不是报错——
+    # 用户想做的事（成为房东）已经在办了，告诉他进度即可
+    exist = session.scalar(select(RoleRequest).where(
+        RoleRequest.user_id == user.id,
+        RoleRequest.target_role == "landlord",
+        RoleRequest.status == "pending"))
+    if exist:
+        return {"ok": True, "pending": True, "request": exist.to_dict(),
+                "message": "你的房东申请正在审核中，通过后会站内通知你。"}
+
+    req = RoleRequest(user_id=user.id, target_role="landlord",
+                      reason=str(payload.get("reason") or "").strip()[:500])
+    session.add(req)
+    session.commit()
+    session.refresh(req)
+
+    return {"ok": True, "pending": True, "request": req.to_dict(),
+            "message": "已提交房东申请，管理员审核通过后即可发布房源。"
+                       "在此之前你仍可以正常找房、收藏和预约。"}
+
+
+@router.post("/api/auth/revert-to-tenant")
+def revert_to_tenant(user: User = Depends(require_login),
+                     session: Session = Depends(get_session)):
+    """房东退回租客（D2）。**不需要审核。**
+
+    放弃权限不需要别人批准。但要先确认名下没有还在运转的东西——
+    在租房源和生效合同一旦失去主人，租客那边的合同就指向一个
+    没有房东权限的账号，报修找不到人、收租收不上来。
+
+    所以这里拦的是**数据完整性**，不是资格：把还差哪几套明确列出来，
+    用户自己去处理，处理完随时可以再来。
+    """
+    if user.role != "landlord":
+        raise HTTPException(status_code=400, detail="当前账号不是房东")
+
+    listed = session.scalars(select(House).where(
+        House.landlord_id == user.id,
+        House.status.in_(("available", "rented", "pending")))).all()
+    active = session.scalar(select(func.count()).select_from(Contract).where(
+        Contract.landlord_id == user.id,
+        Contract.status.in_(("pending", "active"))))
+
+    blockers = []
+    if listed:
+        blockers.append("%d 套房源仍在架（%s）"
+                        % (len(listed),
+                           "、".join(h.house_no for h in listed[:5])
+                           + ("…" if len(listed) > 5 else "")))
+    if active:
+        blockers.append("%d 份合同尚未结束" % active)
+
+    if blockers:
+        raise HTTPException(
+            status_code=400,
+            detail="退回租客前需要先处理：" + "；".join(blockers)
+                   + "。下架房源、结清合同之后再来即可。")
+
+    user.role = "tenant"
     session.commit()
     session.refresh(user)
-
-    # **不吊销令牌。** 角色变了但还是同一个人，没有安全上的理由把他踢下线；
-    # 而踢下线之后他得重新登录才能看到「发布房源」，白白多一步。
-    # 令牌里带的角色由前端用返回的 user 覆盖即可。
     return {"ok": True, "user": user.to_dict(),
-            "message": "已成为房东，现在可以发布房源了。"
-                       "原来的收藏、足迹和租约都还在。"}
+            "message": "已退回租客身份。收藏、足迹、租约与账单都还在，"
+                       "以后想再出租可以重新申请。"}
+
+
+# ---------------------------------------------------------------- 管理端审核
+
+@router.get("/api/admin/role-requests")
+def list_role_requests(status: str = "pending",
+                       admin: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """待审的角色申请。默认只给 pending——管理员打开就是来处理待办的。"""
+    if admin.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    stmt = select(RoleRequest).order_by(RoleRequest.created_at.desc())
+    if status:
+        stmt = stmt.where(RoleRequest.status == status)
+    rows = session.scalars(stmt.limit(200)).all()
+    return {"list": [r.to_dict() for r in rows]}
+
+
+@router.post("/api/admin/role-requests/{request_id}")
+def review_role_request(request_id: int,
+                        payload: dict = Body(default={}),
+                        admin: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """通过或驳回。**驳回必须填理由**——只说「不通过」等于让用户去猜。"""
+    if admin.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    req = session.get(RoleRequest, request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="这条申请已经处理过了")
+
+    action = str(payload.get("action") or "").strip()
+    note = str(payload.get("note") or "").strip()[:500]
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=422, detail="action 只能是 approve 或 reject")
+    if action == "reject" and not note:
+        raise HTTPException(status_code=422, detail="驳回必须填写理由")
+
+    target = session.get(User, req.user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="申请人已不存在")
+
+    req.status = "approved" if action == "approve" else "rejected"
+    req.review_note = note
+    req.reviewer_id = admin.id
+    req.reviewed_at = datetime.now()
+
+    if action == "approve":
+        # 审核期间他可能已经通过别的途径变了角色，这里只在仍是租客时才改
+        if target.role == "tenant":
+            target.role = req.target_role
+        notify(session, target.id, "system", "房东申请已通过",
+               "你的%s申请已通过审核，现在可以发布房源了。"
+               % req.to_dict()["target_role_label"])
+    else:
+        notify(session, target.id, "system", "房东申请未通过",
+               "未通过原因：%s。补充材料后可以再次提交。" % note)
+
+    session.commit()
+    session.refresh(req)
+    return {"ok": True, "request": req.to_dict()}
 
 
 @router.get("/api/auth/landlord-eligibility")

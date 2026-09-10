@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, getToken } from '../api'
+import ChatAvatar from './ChatAvatar'
+import Thinking, { guessIntent } from './Thinking'
 
 /**
  * AI-09 多轮对话面板。
@@ -449,6 +451,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   const [messages, setMessages] = useState(() => loadDraft()?.messages || [OPENING])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [thinkIntent, setThinkIntent] = useState('default')
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
@@ -569,6 +572,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setMessages((prev) => [...prev, { role: 'user', content }])
     setText('')
     setBusy(true)
+    // H1：等待期间显示哪一份阶段清单。猜错只是短语不贴切，
+    // 真正的路由在服务端
+    setThinkIntent(guessIntent(content))
     setError('')
 
     try {
@@ -771,6 +777,12 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
               className={`bubble ${message.role}${message.history ? ' history' : ''}`}
               key={index}
             >
+              {/* E1：头像。助手是固定标记，用户取姓氏首字——
+                  一屏滚下去，靠标记就能扫出哪几段是它说的 */}
+              <ChatAvatar
+                kind={message.role === 'user' ? 'me' : 'ai'}
+                name={message.role === 'user' ? (user?.real_name || user?.username || '我') : ''}
+              />
               <div className="bubble-text">{message.content}</div>
 
               {message.notes?.length > 0 && (
@@ -947,7 +959,12 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
             )
           ))}
 
-          {busy && <div className="bubble assistant"><div className="bubble-text">思考中…</div></div>}
+          {busy && (
+            <div className="bubble assistant thinking-bubble">
+              <ChatAvatar kind="ai" />
+              <Thinking intent={thinkIntent} />
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 

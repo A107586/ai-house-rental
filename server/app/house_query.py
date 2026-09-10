@@ -13,11 +13,11 @@
   查得到就说明匹配。**匹配用的是同一条 SQL，不可能和列表页说法不一致。**
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import Float, cast, literal, or_
+from sqlalchemy import Float, cast, func, literal, or_, select
 
-from app.models import House
+from app.models import House, Review
 
 
 # 低/中/高楼层的比例区间（所在层 ÷ 总层数），左开右闭。
@@ -54,13 +54,18 @@ ALLOWED_KEYS = (
     "rent_price_min", "rent_price_max", "area_min", "area_max",
     "orientation", "floor_level", "elevator", "decoration", "heating",
     "lease_term", "available_days", "features",
+    # 首页分栏用：published_days 取「最近 N 天上架的」，
+    # min_rating 取「均分不低于 N 的」。两者都是筛选不是排序——
+    # 「最新发布」若只排序不筛，翻到第十页仍叫最新发布，名不副实。
+    "published_days", "min_rating",
 )
 
 # 这几个键必须是数字。**存进来的条件之后会被当成可信数据用**
 # （拼提示文案、喂回查询），所以要在入口处就把类型定死，
 # 而不是等到 `describe()` 里 int(float("abc")) 时才炸。
 NUMERIC_KEYS = ("rent_price_min", "rent_price_max",
-                "area_min", "area_max", "available_days")
+                "area_min", "area_max", "available_days",
+                "published_days", "min_rating")
 
 # 取值有限的几个键。不认识的值直接丢掉——`apply_filters` 本来就会
 # 忽略它们（筛不出任何东西），但留在条件里会跟着跑进搜索名称，
@@ -193,6 +198,31 @@ def apply_filters(stmt, params, today=None):
             deadline = today + timedelta(days=max(int(number), 0))
             stmt = stmt.where(or_(House.available_from.is_(None),
                                   House.available_from <= deadline))
+
+    # 最近 N 天上架。用「发布时间」而不是「可入住日」——
+    # 前者是房源出现在平台上的时刻，后者是能搬进去的日子，两回事。
+    days = get("published_days")
+    if days not in (None, ""):
+        number = _as_number(days)
+        if number is not None:
+            since = datetime.combine(today, datetime.min.time())                 - timedelta(days=max(int(number), 0))
+            stmt = stmt.where(House.published_at >= since)
+
+    # 均分不低于 N。
+    #
+    # `House.avg_rating` 是 Python 属性、不是数据库列，SQL 里排不了序也
+    # 筛不了；在应用层算又要把整表实例化一遍。所以这里用子查询：
+    # 按房源聚合出均分，再拿它比较。软删除的评价要排除——
+    # 被管理员屏蔽的差评不该继续压着这套房。
+    low = get("min_rating")
+    if low not in (None, ""):
+        number = _as_number(low)
+        if number is not None:
+            rated = (select(Review.house_id)
+                     .where(Review.deleted_at.is_(None))
+                     .group_by(Review.house_id)
+                     .having(func.avg(Review.rating) >= number))
+            stmt = stmt.where(House.id.in_(rated))
 
     for feature in split_features(get("features")):
         stmt = stmt.where(feature_clause(feature))

@@ -4,9 +4,11 @@ import AgentQueue from './AgentQueue'
 import AgentRoster from './AgentRoster'
 import ConfigPanel from './ConfigPanel'
 import FlagPanel from './FlagPanel'
+import FocusBar from './FocusBar'
 import HouseReportPanel from './HouseReportPanel'
 import LandlordRoster from './LandlordRoster'
 import RepairDataPanel from './RepairDataPanel'
+import RoleRequestPanel from './RoleRequestPanel'
 import LogPanel from './LogPanel'
 import ReportPanel from './ReportPanel'
 import SupportPanel from './SupportPanel'
@@ -28,7 +30,8 @@ const APPOINTMENT_STATUS = {
 }
 
 export default function AdminPanel({ user, onClose }) {
-  const [tab, setTab] = useState('dashboard')
+  // 进来第一屏是待审队列，不是看板（F5）
+  const [tab, setTab] = useState('review')
   const [stats, setStats] = useState(null)
   const [pending, setPending] = useState([])
   const [users, setUsers] = useState([])
@@ -44,6 +47,9 @@ export default function AdminPanel({ user, onClose }) {
   // 只为了页签上那个待审角标。中介档案页自己会再取一次完整口径，
   // 但角标必须在打开后台的第一屏就出现——待审的东西藏在页签里没人点
   const [agentPending, setAgentPending] = useState(0)
+  // 同理：角色升级申请与内容审核的待办数，也得在第一屏就看得见
+  const [rolePending, setRolePending] = useState(0)
+  const [flagPending, setFlagPending] = useState(0)
 
   async function load() {
     setError('')
@@ -75,6 +81,20 @@ export default function AdminPanel({ user, onClose }) {
       setAgentPending(a.license_pending || 0)
     } catch {
       setAgentPending(0)
+    }
+    // 同上，各自 catch。**一个角标取不到不该拖垮另一个**——
+    // 三个并进一个 Promise.all，任何一条挂了就三个数字全没了
+    try {
+      const r = await api.adminRoleRequests('pending')
+      setRolePending((r.list || []).length)
+    } catch {
+      setRolePending(0)
+    }
+    try {
+      const f = await api.adminFlags('pending')
+      setFlagPending((f.list || []).length)
+    } catch {
+      setFlagPending(0)
     }
   }
 
@@ -115,23 +135,49 @@ export default function AdminPanel({ user, onClose }) {
   const maxIncome = Math.max(
     1, ...(stats?.monthly_income || []).map((m) => m.amount))
 
+  const openRepairs = repairs.filter((r) => r.status !== 'done').length
+
+  // F5：十六个页签平铺时，「系统配置」和「房源审核」看着一样重。
+  // 按**这件事有没有人在等**分三组：
+  //
+  //   审核与治理  有人被卡住了，管理员不动他就一直卡着
+  //   运营与数据  没人等，是自己想看才看的
+  //   系统        很少动，动一次影响所有人
+  //
+  // 顺序也跟着换了：原来第一屏是数据看板，管理员进来先看到一堆
+  // 好看的数字，待审队列在第三个。**后台是干活的地方，不是仪表盘。**
   const TABS = [
-    { key: 'dashboard', label: '数据看板' },
-    { key: 'report', label: '经营分析' },
-    { key: 'review', label: '房源审核', n: pending.length },
-    { key: 'users', label: '用户管理', n: users.length },
-    { key: 'landlords', label: '户主档案' },
-    { key: 'agentQueue', label: '资质审核', n: agentPending },
-    { key: 'agents', label: '中介档案' },
-    { key: 'orders', label: '订单总览', n: contracts.length },
-    { key: 'repairs', label: '工单', n: repairs.filter((r) => r.status !== 'done').length },
-    { key: 'notices', label: '公告', n: notices.length },
-    { key: 'support', label: '智能客服' },
-    { key: 'flags', label: '内容审核' },
-    { key: 'houseReports', label: '举报处理' },
-    { key: 'repairdata', label: '维修数据' },
-    { key: 'logs', label: '操作日志' },
-    { key: 'config', label: '系统配置' },
+    { key: 'review', label: '房源审核', n: pending.length, group: '审核与治理' },
+    { key: 'agentQueue', label: '中介资质', n: agentPending, group: '审核与治理' },
+    { key: 'roleRequests', label: '身份升级', n: rolePending, group: '审核与治理' },
+    { key: 'houseReports', label: '举报处理', group: '审核与治理' },
+    { key: 'flags', label: '内容审核', n: flagPending, group: '审核与治理' },
+    { key: 'repairs', label: '工单', n: openRepairs, group: '审核与治理' },
+    { key: 'dashboard', label: '数据看板', group: '运营与数据' },
+    { key: 'report', label: '经营分析', group: '运营与数据' },
+    { key: 'orders', label: '订单总览', n: contracts.length, group: '运营与数据' },
+    { key: 'users', label: '用户管理', n: users.length, group: '运营与数据' },
+    { key: 'landlords', label: '户主档案', group: '运营与数据' },
+    { key: 'agents', label: '中介档案', group: '运营与数据' },
+    { key: 'repairdata', label: '维修数据', group: '运营与数据' },
+    { key: 'notices', label: '公告', n: notices.length, group: '系统' },
+    { key: 'support', label: '智能客服', group: '系统' },
+    { key: 'logs', label: '操作日志', group: '系统' },
+    { key: 'config', label: '系统配置', group: '系统' },
+  ]
+
+  // 待办条只放**审核类**的四件事：它们的共同点是「有一个具体的人
+  // 正在等这个结果」。工单也有人等，但等的是维修师傅上门，
+  // 不是等管理员点一下——放进来会稀释这条的含义
+  const FOCUS = [
+    { key: 'review', label: '房源待审', n: pending.length, urgent: true,
+      hint: '房东发布后卡在这' },
+    { key: 'agentQueue', label: '资质待审', n: agentPending, urgent: true,
+      hint: '中介不能接单' },
+    { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true,
+      hint: '申请人还是租客权限' },
+    { key: 'flags', label: '内容待审', n: flagPending, hint: '命中敏感词的文本' },
+    { key: 'repairs', label: '未完成工单', n: openRepairs, hint: '含处理中' },
   ]
 
   return (
@@ -144,16 +190,23 @@ export default function AdminPanel({ user, onClose }) {
         <h3>管理后台</h3>
         <div className="loc">{user.real_name || user.username} · 管理员</div>
 
-        <div className="tabs scroll">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              className={`tab ${tab === item.key ? 'active' : ''}`}
-              onClick={() => { setTab(item.key); setOk(''); setError('') }}
-            >
-              {item.label}
-              {item.n > 0 && <span className="tab-n">{item.n}</span>}
-            </button>
+        <FocusBar items={FOCUS} onPick={setTab}
+                  hint="这几项都有具体的人在等结果，压着不处理会一直卡着。" />
+
+        <div className="tabs scroll grouped">
+          {TABS.map((item, i) => (
+            <span className="tab-slot" key={item.key}>
+              {item.group && item.group !== TABS[i - 1]?.group && (
+                <span className="tab-group">{item.group}</span>
+              )}
+              <button
+                className={`tab ${tab === item.key ? 'active' : ''}`}
+                onClick={() => { setTab(item.key); setOk(''); setError('') }}
+              >
+                {item.label}
+                {item.n > 0 && <span className="tab-n">{item.n}</span>}
+              </button>
+            </span>
           ))}
         </div>
 
@@ -165,6 +218,9 @@ export default function AdminPanel({ user, onClose }) {
 
         {/* ---------------- 中介治理（J-11） ---------------- */}
         {tab === 'agentQueue' && <AgentQueue onReviewed={load} />}
+
+        {/* D1 身份升级申请。规则在后端，批准的地方在这里 */}
+        {tab === 'roleRequests' && <RoleRequestPanel onReviewed={load} />}
 
         {tab === 'agents' && <AgentRoster />}
 

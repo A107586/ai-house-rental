@@ -237,6 +237,9 @@ class ReviewCreate(BaseModel):
     rating_house: int = Field(default=0, ge=0, le=5)
     rating_landlord: int = Field(default=0, ge=0, le=5)
     content: str = Field(default="", max_length=500)
+    # C1：实拍图。**上限写在 schema 里而不是只在前端拦**——
+    # 前端的 6 张限制是体验，后端的 6 张限制才是约束
+    images: list[str] = Field(default_factory=list, max_length=6)
 
 
 class ChatLog(BaseModel):

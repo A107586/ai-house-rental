@@ -3,6 +3,7 @@ import { api } from '../api'
 import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
 import ProfileForm from './ProfileForm'
+import RecordDetail, { DetailToggle } from './RecordDetail'
 import ReviewForm from './ReviewForm'
 import SavedSearchPanel from './SavedSearchPanel'
 
@@ -30,6 +31,24 @@ const REPAIR_STATUS = {
 // 真正需要一眼看到的只有紧急那一档。
 const URGENCY_CLS = { 紧急: 'urgent' }
 
+const PAY_METHOD = {
+  alipay: '支付宝', wechat: '微信支付', bank: '银行转账', offline: '线下缴纳',
+}
+
+// 支付单三段式状态（D-1）。「发起了」不等于「付成功了」——
+// 这一栏正是用来解释「我明明点过缴费，账单怎么还是待缴」的
+const PAY_STATE = {
+  pending: '已发起，等待到账',
+  succeeded: '已到账',
+  failed: '支付失败',
+  closed: '超时关单，可重新发起',
+}
+
+const MSG_TYPE = {
+  system: '系统通知', appointment: '预约', contract: '合同',
+  bill: '账单', repair: '报修', chat: '会话',
+}
+
 export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                                  onLogout, onApplySearch }) {
   const [tab, setTab] = useState('contracts')
@@ -42,6 +61,9 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
   const [pending, setPending] = useState([])
   const [repairs, setRepairs] = useState([])
   const [detailNo, setDetailNo] = useState('')
+  // D5：哪一条记录被展开了。键是「类型:主键」——
+  // **同一时刻只展开一条**，全展开等于没有折叠
+  const [open, setOpen] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [checkout, setCheckout] = useState(null)
@@ -56,14 +78,16 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
       const [mine, myContracts, myBills, favs, msgs, hist, pend, myRepairs] =
         await Promise.all([
           api.myAppointments(),
-          api.myContracts(),
+          // D3：个人中心一律只问「我作为租客」的那一份。
+          // 房东兼租客时不加 side，这里会混进他出租的合同与
+          // 名下房源的工单——那些属于工作台
+          api.myContracts('', 'tenant'),
           api.myBills(),
           api.listFavorites(),
           api.listMessages(),
           api.history(),
           api.pendingReviews(),
-          // 不带 house_no 时后端按角色过滤：租客只拿到自己提交的工单
-          api.listRepairs(),
+          api.listRepairs({ side: 'tenant' }),
         ])
       setAppointments(mine.list || [])
       setContracts(myContracts.list || [])
@@ -148,6 +172,9 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
   //
   // 「我的搜索」整条去掉：搜索记录改成输入时自动出现的下拉，
   // 不再需要一个专门的页签来管理它。
+  const toggle = (key) => setOpen((cur) => (cur === key ? '' : key))
+  const isOpen = (key) => open === key
+
   const TABS = [
     { key: 'contracts', label: '我的租约', n: contracts.length },
     { key: 'bills', label: '我的账单', n: bills.unpaid_count },
@@ -287,6 +314,31 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                         </button>
                       </div>
                     )}
+
+                    <DetailToggle open={isOpen(`b${bill.bill_no}`)}
+                                  onClick={() => toggle(`b${bill.bill_no}`)} />
+                    {isOpen(`b${bill.bill_no}`) && (
+                      <RecordDetail rows={[
+                        ['账单编号', bill.bill_no, { mono: true }],
+                        ['费用类型', BILL_TYPE[bill.type] || bill.type],
+                        ['所属期', bill.period],
+                        ['金额', `${bill.amount} 元`, { money: true }],
+                        ['到期日', bill.due_date],
+                        ['是否逾期', bill.status === 'paid' ? '否（已结清）'
+                          : bill.overdue ? '是' : '否'],
+                        ['关联合同', bill.contract_no, { mono: true }],
+                        ['房源编号', bill.house_no, { mono: true }],
+                        ['缴费时间', bill.paid_at],
+                        ['支付方式', bill.payment
+                          && (PAY_METHOD[bill.payment.method] || bill.payment.method)],
+                        ['支付状态', bill.payment
+                          && (PAY_STATE[bill.payment.status] || bill.payment.status)],
+                        ['交易流水号', bill.payment && bill.payment.trade_no, { mono: true }],
+                        ['备注', bill.remark, { wide: true }],
+                      ]} note={bill.payment
+                        ? '流水号是与客服核对这笔缴费时要报的号码。'
+                        : ''} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -347,6 +399,29 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                       </button>
                     </div>
                   )}
+
+                  <DetailToggle open={isOpen(`a${item.id}`)}
+                                onClick={() => toggle(`a${item.id}`)} />
+                  {isOpen(`a${item.id}`) && (
+                    <RecordDetail rows={[
+                      ['预约编号', `YY${String(item.id).padStart(6, '0')}`, { mono: true }],
+                      ['房源编号', item.house_no, { mono: true }],
+                      ['房源名称', item.house_title],
+                      ['所在区域', [item.district, item.community].filter(Boolean).join(' · ')],
+                      ['户型', item.layout],
+                      ['月租', item.rent_price ? `${Math.round(item.rent_price)} 元/月` : '',
+                        { money: true }],
+                      ['看房时间', item.viewing_time.slice(0, 16)],
+                      ['当前状态', APPOINTMENT_STATUS[item.status] || item.status],
+                      ['看房联系人', item.contact_name],
+                      // 号码在看房窗口外一律不给（J-07）。给不出来的时候
+                      // 说清楚**什么时候能看到**，比空着一栏强
+                      ['联系电话', item.contact_visible ? item.contact_phone
+                        : '看房当天可见'],
+                      ['我的备注', item.remark, { wide: true }],
+                      ['房东回复', item.reply, { wide: true }],
+                    ]} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -386,6 +461,20 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                         </button>
                       </div>
                     )}
+
+                    <DetailToggle open={isOpen(`m${item.id}`)}
+                                  onClick={() => toggle(`m${item.id}`)} />
+                    {isOpen(`m${item.id}`) && (
+                      <RecordDetail rows={[
+                        ['消息类型', MSG_TYPE[item.type] || item.type],
+                        ['送达时间', item.created_at],
+                        ['阅读状态', item.is_read ? '已读' : '未读'],
+                        // link_no 是这条通知说的那个单子的编号。
+                        // 「您的账单已生成」——**哪一张？** 有它才对得上
+                        ['关联单号', item.link_no, { mono: true }],
+                        ['正文', item.content, { wide: true }],
+                      ]} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -423,6 +512,26 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                         再看看
                       </button>
                     </div>
+
+                    <DetailToggle open={isOpen(`h${h.house_no}`)}
+                                  onClick={() => toggle(`h${h.house_no}`)} />
+                    {isOpen(`h${h.house_no}`) && (
+                      <RecordDetail rows={[
+                        ['房源编号', h.house_no, { mono: true }],
+                        ['小区', h.community],
+                        ['所在区域', h.district],
+                        ['户型', h.layout],
+                        ['面积', h.area ? `${Math.round(h.area)} 平米` : ''],
+                        ['朝向', h.orientation],
+                        ['楼层', h.floor],
+                        ['月租', h.rent_price ? `${Math.round(h.rent_price)} 元/月` : '',
+                          { money: true }],
+                        ['最近浏览', h.viewed_at],
+                        ['我看过', h.my_view_count ? `${h.my_view_count} 次` : ''],
+                        ['当前状态', h.status === 'available' ? '在架可租'
+                          : h.status === 'rented' ? '已出租' : h.status],
+                      ]} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -501,6 +610,33 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                         {item.assignee && ` · 建议派单：${item.assignee}`}
                       </div>
                     )}
+
+                    <DetailToggle open={isOpen(`r${item.id}`)}
+                                  onClick={() => toggle(`r${item.id}`)} />
+                    {isOpen(`r${item.id}`) && (
+                      <RecordDetail rows={[
+                        ['工单号', `GD${String(item.id).padStart(6, '0')}`, { mono: true }],
+                        ['房源编号', item.house_no, { mono: true }],
+                        ['故障类别', item.category],
+                        ['紧急程度', item.urgency],
+                        ['当前状态', st.label],
+                        ['提交时间', item.created_at],
+                        ['报修联系人', item.contact_name],
+                        ['联系电话', item.contact_phone],
+                        ['已等待', item.waited_hours !== undefined
+                          ? `${item.waited_hours} 小时${item.overdue ? '（已超时限）' : ''}` : ''],
+                        ['故障描述', item.content, { wide: true }],
+                        // 智能体的初判要标明出处。**用户得知道这句话是谁说的**——
+                        // 是维修师傅看过之后的结论，还是模型读了描述给的猜测
+                        ['智能体初判', item.analysis, { wide: true }],
+                        ['建议派单', item.assignee],
+                        ['处理人', item.result && item.result.worker_name],
+                        ['完成时间', item.result && item.result.finished_at],
+                        ['处理说明', item.result && item.result.note, { wide: true }],
+                      ]} note={item.analysis
+                        ? '「智能体初判」是模型读故障描述给出的推测，实际以上门检查为准。'
+                        : ''} />
+                    )}
                   </li>
                 )
               })}
@@ -552,6 +688,31 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
                       取消收藏
                     </button>
                   </div>
+
+                  <DetailToggle open={isOpen(`f${house.house_no}`)}
+                                onClick={() => toggle(`f${house.house_no}`)} />
+                  {isOpen(`f${house.house_no}`) && (
+                    <RecordDetail rows={[
+                      ['房源编号', house.house_no, { mono: true }],
+                      ['小区', house.community],
+                      ['所在区域', house.district],
+                      ['户型', house.layout],
+                      ['面积', house.area ? `${Math.round(house.area)} 平米` : ''],
+                      ['朝向', house.orientation],
+                      ['楼层', house.floor],
+                      ['租赁方式', house.rent_type],
+                      ['月租', house.rent_price ? `${Math.round(house.rent_price)} 元/月` : '',
+                        { money: true }],
+                      ['押付方式', house.payment_way],
+                      ['评分', house.rating ? `${house.rating} 分` : ''],
+                      // 收藏是「先存着回头再比」，那么**它还在不在架上**
+                      // 就是打开这一栏最先想知道的事
+                      ['当前状态', house.status === 'available' ? '在架可租'
+                        : house.status === 'rented' ? '已出租'
+                        : house.status === 'offline' ? '已下架' : house.status],
+                      ['配套', (house.features || house.tags || []).join('、'), { wide: true }],
+                    ]} />
+                  )}
                 </li>
               ))}
             </ul>

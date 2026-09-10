@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import ChatAvatar from './ChatAvatar'
 
 /**
  * 租客与房东的会话面板（待完善清单 C-1）。
@@ -14,7 +15,7 @@ import { api } from '../api'
  */
 const POLL_MS = 10000
 
-export default function ChatWithLandlord({ onClose, onOpenHouse, initialId }) {
+export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }) {
   const [list, setList] = useState([])
   const [activeId, setActiveId] = useState(initialId || 0)
   const [lines, setLines] = useState([])
@@ -180,9 +181,17 @@ export default function ChatWithLandlord({ onClose, onOpenHouse, initialId }) {
                   ) : (
                     <div className={`bubble ${line.mine ? 'user' : 'assistant'}`}
                          key={line.id}>
-                      {/* 同一侧里不是自己发的才标名字。委托期间房东一侧
-                          会有两个人（房东本人和受托中介），不标出来
-                          就分不清刚才那句承诺是谁做的 */}
+                      {/* E1：头像取发言人姓氏首字，底色由名字哈希定死。
+                          委托期间房东一侧坐着两个人（房东本人和受托中介），
+                          名字那行滚过去容易略过，**颜色是能一眼跟住的**——
+                          分不清刚才那句承诺是谁做的，是这里最要紧的事 */}
+                      <ChatAvatar
+                        kind={line.mine ? 'me' : 'other'}
+                        name={line.mine
+                          ? (me?.real_name || me?.username || '我')
+                          : (line.sender_label || '对方')}
+                      />
+                      {/* 同一侧里不是自己发的才标名字。 */}
                       {line.sender_label && (
                         <div className="cw-who">{line.sender_label}</div>
                       )}

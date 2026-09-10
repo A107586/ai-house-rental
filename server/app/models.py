@@ -937,6 +937,14 @@ class Review(Base):
     rating_house: Mapped[int] = mapped_column(Integer, default=0)
     rating_landlord: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[str] = mapped_column(Text, default="")
+    # C1：随评价上传的实拍图，存 JSON 数组（最多 6 张）。
+    #
+    # **没有单开一张 review_images 表**，理由和房源相册那边正相反：
+    # 房源图要单独排序、设封面、审核、算哈希查盗图，每张图都是一个
+    # 有自己生命周期的对象；评价图只跟着评价生灭，既不排序也不换封面，
+    # 唯一的操作是「和评价一起展示」和「评价被下架时一起看不见」。
+    # 为它建表只会换来一次 join 和一套用不上的增删改接口。
+    images: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     # 软删除（C-5）。审核下架的评价不能真删——误判之后无法恢复，
     # 用户申诉时也拿不出原文。前台查询一律过滤掉非空的记录。
@@ -955,9 +963,25 @@ class Review(Base):
             "rating_house": self.rating_house,
             "rating_landlord": self.rating_landlord,
             "content": self.content,
+            "images": self.image_list(),
             "tenant_name": name,
             "created_at": self.created_at.strftime("%Y-%m-%d"),
         }
+
+    def image_list(self):
+        """把 images 列还原成列表。
+
+        存的是自己写进去的 JSON，正常不会坏；但**列是后加的**，
+        老记录里是 NULL，脏数据也不是不可能。一条评价的配图解析失败，
+        不该让整个房源详情页 500——返回空列表，图没了，评价还在。
+        """
+        if not self.images:
+            return []
+        try:
+            data = json.loads(self.images)
+        except (ValueError, TypeError):
+            return []
+        return [u for u in data if isinstance(u, str)] if isinstance(data, list) else []
 
 
 class OperationLog(Base):
@@ -1957,4 +1981,67 @@ class AgentCommission(Base):
             "settled_at": (self.settled_at.strftime("%Y-%m-%d")
                            if self.settled_at else ""),
             "created_at": self.created_at.strftime("%Y-%m-%d"),
+        }
+
+
+class RoleRequest(Base):
+    """角色升级申请（D1）。
+
+    原先「成为房东」是**点一下当场生效**的：任何注册用户点一次就能发布
+    房源、签合同、收租。放在演示里没问题，放在一个要签合同收钱的平台上
+    不成立——房东是合同甲方，平台至少要看一眼这个人是谁。
+
+    所以升级改成申请制：提交后进 pending，管理员在后台通过或驳回。
+    **在获批之前用户仍是租客**，找房、收藏、预约照常，只是发不了房源。
+    这一点必须在提交时就说清楚，否则用户会以为账号坏了。
+
+    **退回不需要审核（D2）。** 房东想变回租客，随时可以——
+    这不是权限升级，是主动放弃权限，没有需要把关的东西。
+    唯一的前置是手上不能还有在租房源与生效合同，
+    那是数据完整性要求，不是审批。
+    """
+
+    __tablename__ = "role_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False,
+                                         index=True)
+    # 申请成为哪种角色：landlord / agent
+    target_role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # pending 待审 / approved 通过 / rejected 驳回 / withdrawn 用户自己撤回
+    status: Mapped[str] = mapped_column(String(20), default="pending",
+                                        nullable=False, index=True)
+    # 申请理由，用户自己写。管理员据此判断，别只给一个用户名就让人拍板
+    reason: Mapped[str] = mapped_column(Text, default="")
+    # 驳回理由。**驳回必须填**——只说「不通过」等于让用户去猜
+    review_note: Mapped[str] = mapped_column(Text, default="")
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
+                                             nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id],
+                                        lazy="selectin")
+
+    def to_dict(self):
+        u = self.user
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "username": u.username if u else "",
+            "real_name": u.real_name if u else "",
+            # 手机号给掩码。审核看的是「这个人填没填、填得像不像」，
+            # 不需要完整号码；管理端也不该把它到处摊开
+            "phone": (u.phone[:3] + "****" + u.phone[-4:]
+                      if u and len(u.phone) == 11 else (u.phone if u else "")),
+            "target_role": self.target_role,
+            "target_role_label": {"landlord": "房东",
+                                  "agent": "经纪人"}.get(self.target_role,
+                                                       self.target_role),
+            "status": self.status,
+            "reason": self.reason,
+            "review_note": self.review_note,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+            "reviewed_at": (self.reviewed_at.strftime("%Y-%m-%d %H:%M")
+                            if self.reviewed_at else ""),
         }

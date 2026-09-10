@@ -373,6 +373,17 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                     <span className="own">{r.tenant_name} · {r.created_at}</span>
                   </div>
                   {r.content && <div className="record-body">{r.content}</div>}
+                  {/* C1：实拍图。**放在文字下面而不是上面**——
+                      先读评价再看图，图是佐证不是标题 */}
+                  {r.images?.length > 0 && (
+                    <div className="review-shots">
+                      {r.images.map((url) => (
+                        <a href={url} target="_blank" rel="noreferrer" key={url}>
+                          <img src={url} alt="租客实拍" loading="lazy" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

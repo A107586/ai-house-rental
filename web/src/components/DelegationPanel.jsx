@@ -34,8 +34,33 @@ export default function DelegationPanel({ houses = [] }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
-  // J-09-b 智能派单：给选中的房源推荐几个中介
-  const [suggested, setSuggested] = useState(null)
+  // F1 中介名录。默认就加载，不用先选房源、也不用点「帮我推荐」。
+  const [dir, setDir] = useState([])
+  const [dirQuery, setDirQuery] = useState('')
+  const [dirState, setDirState] = useState('loading')   // loading | ok | fail
+
+  /** 选中房源所在的区。用来在名录里标出「覆盖该区」的中介——
+   *  **房源信息用于排序提示，不用于限制浏览**：
+   *  房东想把中山区的房委托给一个主营沙河口的熟人，那是他的自由。 */
+  const pickedDistrict = (houses.find(
+    (h) => h.house_no === draft.house_no) || {}).district || ''
+
+  // 搜索防抖 300ms。不防抖的话每敲一个字符打一次接口，
+  // 中文输入法一个词就是好几次
+  useEffect(() => {
+    let alive = true
+    const timer = setTimeout(() => {
+      setDirState('loading')
+      api.agentDirectory({ keyword: dirQuery.trim(), limit: 20 })
+        .then((d) => {
+          if (!alive) return
+          setDir(d.list || [])
+          setDirState('ok')
+        })
+        .catch(() => { if (alive) { setDir([]); setDirState('fail') } })
+    }, dirQuery ? 300 : 0)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [dirQuery])
 
   async function load() {
     setError('')
@@ -231,105 +256,100 @@ export default function DelegationPanel({ houses = [] }) {
               </select>
             </label>
             <label className="fld">
-              <span>中介账号</span>
+              <span>佣金比例（%）</span>
               <input
-                value={draft.agent_username}
+                type="number"
+                min="0"
+                max="100"
+                step="0.5"
+                value={draft.commission_rate}
                 onChange={(e) => setDraft(
-                  { ...draft, agent_username: e.target.value })}
-                placeholder="对方的登录用户名"
+                  { ...draft, commission_rate: e.target.value })}
                 required
               />
             </label>
           </div>
-          {/* ---------- J-09-b 智能派单 ---------- */}
-          {draft.house_no && (
-            <div className="suggest">
-              <button
-                type="button"
-                className="btn ghost small"
-                disabled={busy === 'suggest'}
-                onClick={async () => {
-                  setBusy('suggest')
-                  setError('')
-                  try {
-                    setSuggested(await api.suggestAgents(draft.house_no))
-                  } catch (err) {
-                    setError(err.message)
-                    setSuggested(null)
-                  } finally {
-                    setBusy('')
-                  }
-                }}
-              >
-                {busy === 'suggest' ? '匹配中…' : '帮我推荐中介'}
-              </button>
 
-              {suggested && (
-                suggested.list.length === 0 ? (
-                  <p className="desc">
-                    这个区暂时没有可接单的中介。中介要资质过审、开着接单开关，
-                    并且主营区域覆盖 {suggested.district} 才会出现在这里。
-                  </p>
-                ) : (
-                  <>
-                    <ul className="record-list">
-                      {suggested.list.map((a) => (
-                        <li key={a.user_id}>
-                          <div className="record-head">
-                            <strong>{a.name || a.username}</strong>
-                            <span className="pill">{a.score} 分</span>
-                          </div>
-                          <div className="record-body">
-                            {a.districts.length > 0
-                              && `主营 ${a.districts.join('、')} · `}
-                            从业 {a.years} 年
-                            {a.intro && ` · ${a.intro}`}
-                          </div>
-                          <div className="record-body log-path">
-                            {a.reasons.join(' · ')}
-                          </div>
-                          <div className="record-actions">
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => setDraft(
-                                { ...draft, agent_username: a.username })}
-                            >
-                              选他
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="rd-note">
-                      排序完全由规则算出：活跃度 {suggested.weights.activity} 分、
-                      好评 {suggested.weights.praise} 分、
-                      负载 {suggested.weights.load} 分、
-                      成交 {suggested.weights.deals} 分。
-                      <b>没有用大模型</b>——派单决定谁接到这单生意，
-                      必须可复算、可申诉：中介问「为什么不派给我」，
-                      要能拿出一行一行的算式。
-                      「负载」是反向计分，<b>手上二十套的中介接不过来</b>；
-                      评价不满 5 条时好评率按中性算，否则新中介永远排最后。
-                    </p>
-                  </>
-                )
-              )}
+          {/* ---------- F1：中介名录 ----------
+              原先是「先选房 → 点『帮我推荐中介』 → 从结果里选他 →
+              用户名填进输入框 → 再提交」，四步，而且中间那个
+              「中介账号」输入框让人以为**必须知道对方的登录名才能委托**。
+
+              现在一进面板就把可接单的中介列出来，可按姓名或主营区域搜，
+              点一下直接发邀请。选了房源之后，列表会额外标出
+              「主营覆盖这个区」的人——房源信息用来排序，不用来限制浏览。 */}
+          <div className="agent-dir">
+            <div className="agent-dir-head">
+              <span className="section-title">选择中介</span>
+              <input
+                className="agent-dir-search"
+                value={dirQuery}
+                onChange={(e) => setDirQuery(e.target.value)}
+                placeholder="搜姓名、主营区域，如：中山区"
+              />
             </div>
-          )}
 
-          <label className="fld">
-            <span>佣金比例（按月租金的百分比，成交后一次性结算）</span>
-            <input
-              type="number" min="0" max="100"
-              value={draft.commission_rate}
-              onChange={(e) => setDraft(
-                { ...draft, commission_rate: e.target.value })}
-            />
-          </label>
-          <button className="btn" type="submit" disabled={busy === 'invite'}>
-            发出邀请
-          </button>
+            {dirState === 'loading' && <p className="desc">正在加载中介名录…</p>}
+
+            {dirState === 'ok' && dir.length === 0 && (
+              <p className="desc">
+                没有匹配的中介。中介要**资质过审并开着接单开关**才会出现在这里；
+                换个词试试，或者清空搜索看全部。
+              </p>
+            )}
+
+            <ul className="agent-cards">
+              {dir.map((a) => {
+                const covers = pickedDistrict
+                  && a.districts.includes(pickedDistrict)
+                return (
+                  <li
+                    key={a.user_id}
+                    className={`agent-card${covers ? ' covers' : ''}`}
+                  >
+                    <div className="ac-top">
+                      {/* 头像用姓名首字生成，不引头像库也不放占位小人 */}
+                      <span className="ac-avatar" aria-hidden="true">
+                        {(a.name || a.username).slice(0, 1)}
+                      </span>
+                      <div className="ac-id">
+                        <b>{a.name}</b>
+                        <span>
+                          从业 {a.years} 年
+                          {a.districts.length > 0
+                            && ` · 主营 ${a.districts.join('、')}`}
+                        </span>
+                      </div>
+                      <span className="ac-score">{a.score}</span>
+                    </div>
+
+                    {a.intro && <p className="ac-intro">{a.intro}</p>}
+
+                    <div className="ac-meta">
+                      <span>在托 {a.in_progress} 套</span>
+                      <span>累计成交 {a.deal_total} 单</span>
+                      {covers && <em className="ac-cover">覆盖该房源所在区</em>}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn small ac-invite"
+                      disabled={!draft.house_no || busy === 'invite'}
+                      title={draft.house_no ? '' : '请先在上面选择要委托的房源'}
+                      onClick={() => run('invite', () => api.createDelegation({
+                        house_no: draft.house_no,
+                        agent_username: a.username,
+                        commission_rate: Number(draft.commission_rate),
+                      }), `邀请已发给${a.name}，等他确认。他同意之前不会有任何权限。`)}
+                    >
+                      {draft.house_no ? '邀请他代理' : '先选房源'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+
         </form>
       )}
 

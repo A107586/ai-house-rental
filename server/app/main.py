@@ -409,6 +409,9 @@ def list_houses(
     lease_term: str = "",
     available_days: int | None = None,
     features: str = "",
+    # 首页分栏：最近 N 天上架 / 均分不低于 N。都是筛选，不是排序。
+    published_days: int | None = None,
+    min_rating: float | None = None,
     sort: str = "published_at",
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
@@ -446,6 +449,7 @@ def list_houses(
         "elevator": elevator, "decoration": decoration, "heating": heating,
         "lease_term": lease_term, "available_days": available_days,
         "features": features,
+        "published_days": published_days, "min_rating": min_rating,
     })
 
     # 用 count(*) 而不是把匹配的行全捞出来再 len()。
@@ -461,6 +465,24 @@ def list_houses(
         "-area": House.area.desc(),
         "view_count": House.view_count.desc(),
     }.get(sort, House.published_at.desc())
+    # 统一成元组，下面一律 order_by(*order)——
+    # 有的分支给一个排序键，有的给三个，不归一化就得在调用处分叉
+    order = (order,)
+
+    # 按评分排序要单独处理：avg_rating 是 Python 属性，不是列。
+    # 用一个左连接的聚合子查询把均分带进来再排，没有评价的排在最后
+    # （NULL 视作 0），否则「优选好房」第一页会全是没人评过的房子。
+    if sort == "rating":
+        scores = (select(Review.house_id.label("hid"),
+                         func.avg(Review.rating).label("avg_score"),
+                         func.count(Review.id).label("cnt"))
+                  .where(Review.deleted_at.is_(None))
+                  .group_by(Review.house_id)
+                  .subquery())
+        stmt = stmt.outerjoin(scores, scores.c.hid == House.id)
+        order = (func.coalesce(scores.c.avg_score, 0).desc(),
+                 func.coalesce(scores.c.cnt, 0).desc(),
+                 House.published_at.desc())
 
     # 预加载 to_dict() 会用到的三个关联：相册、房东、评价。
     # 不预加载的话每条房源都要再发三次查询（images / landlord /
@@ -470,7 +492,7 @@ def list_houses(
         stmt.options(selectinload(House.images),
                      selectinload(House.reviews),
                      joinedload(House.landlord))
-        .order_by(order).offset((page - 1) * limit).limit(limit)).all()
+        .order_by(*order).offset((page - 1) * limit).limit(limit)).all()
 
     # 列表走精简载荷。完整字典是详情页的，列表用它等于每个请求都白白
     # 序列化一遍房源描述、整个相册数组和费用明细（见 House.to_card_dict）
@@ -1296,6 +1318,22 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
     if exists:
         raise HTTPException(status_code=409, detail="该租约已评价过")
 
+    # C1：配图只收本系统上传出来的地址。
+    #
+    # 放开成任意 URL，评价区就成了一个人人可写的外链位：图片指向哪里，
+    # 哪里就拿得到每个看房人的 IP 与访问时间；换掉远端那张图，
+    # 页面上的内容也就跟着变了——评价本该是**发出去就定了**的东西。
+    images = []
+    for url in payload.images:
+        url = (url or "").strip()
+        if not url:
+            continue
+        if not uploads.is_managed(url):
+            raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+        if url not in images:          # 同一张传两遍不算两张
+            images.append(url)
+    images = images[:6]
+
     review_fields = {"评价内容": payload.content}
     verdict = moderate(review_fields, scene="review")
 
@@ -1304,7 +1342,8 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
         tenant_id=user.id, rating=payload.rating,
         rating_house=payload.rating_house or payload.rating,
         rating_landlord=payload.rating_landlord or payload.rating,
-        content=payload.content)
+        content=payload.content,
+        images=json.dumps(images, ensure_ascii=False) if images else "")
     session.add(review)
     session.flush()
     record_flag(session, verdict, review_fields, "review", user,
@@ -1633,6 +1672,7 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
 
 @app.get("/api/repairs")
 def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
+                 side: Literal["", "tenant", "landlord"] = "",
                  user: User = Depends(current_user),
                  session: Session = Depends(get_session)):
     """报修列表。
@@ -1677,6 +1717,17 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
                 select(House.id).where(House.landlord_id == user.id)).all()]
             stmt = stmt.where(or_(Repair.tenant_id == user.id,
                                   Repair.house_id.in_(house_ids or [-1])))
+
+        # D3：同 contracts/mine。个人中心问「我报的修」，
+        # 工作台问「我要修的」——**这是两份清单，不是一份的两种排序**：
+        # 前者我在等人来修，后者等着我去修，能做的动作完全不同。
+        # 放在 admin 判断之外：管理员看自己那套房时同样需要收窄。
+        if side == "tenant":
+            stmt = stmt.where(Repair.tenant_id == user.id)
+        elif side == "landlord":
+            my_houses = [row[0] for row in session.execute(
+                select(House.id).where(House.landlord_id == user.id)).all()]
+            stmt = stmt.where(Repair.house_id.in_(my_houses or [-1]))
 
     if status:
         stmt = stmt.where(Repair.status == status)
@@ -2014,7 +2065,9 @@ def _visible_contract(session, contract_no, user):
 
 
 @app.get("/api/contracts/mine")
-def my_contracts(status: str = "", user: User = Depends(require_login),
+def my_contracts(status: str = "",
+                 side: Literal["", "tenant", "landlord"] = "",
+                 user: User = Depends(require_login),
                  session: Session = Depends(get_session)):
     """我的合同：**只要我是其中一方就算我的**，管理员看全部。
 
@@ -2030,6 +2083,22 @@ def my_contracts(status: str = "", user: User = Depends(require_login),
     if user.role != "admin":
         stmt = stmt.where(or_(Contract.tenant_id == user.id,
                               Contract.landlord_id == user.id))
+
+    # D3：`side` 指明「我想看我作为哪一方的合同」。
+    #
+    # 上面那段（K-13）解决的是**看不到**，这里解决的是**混在一起**：
+    # 一个既出租又租房的账号，个人中心和工作台请求的是同一个接口，
+    # 拿回同一份列表，于是「我租的房」和「我出租的房」并排躺着，
+    # 每看一条都得先认自己是哪一方。同一个人的两种身份，
+    # 得由**发起请求的那一屏**来说清楚，而不是让人在结果里自己分。
+    #
+    # 不传就还是老行为：外部脚本和老前端不会因为这次改动少拿到数据。
+    # 管理员传了也照样收窄——他也可能是在看自己名下的那几套。
+    if side == "tenant":
+        stmt = stmt.where(Contract.tenant_id == user.id)
+    elif side == "landlord":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+
     if status:
         stmt = stmt.where(Contract.status == status)
 

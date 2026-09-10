@@ -1744,22 +1744,32 @@
   align-items: start;
 }
 
+/* 地图列按屏幕宽度分档加宽。380 试下来太窄——地图上一个区
+   只剩指甲盖大，点都不好点，更别说看清里面的房源分布。
+   地图是**越大越有用**的那类组件，宽屏上就该给它足够的地方。 */
 @media (min-width: 1120px) {
-  .list-layout {
-    /* 左栏自适应，右栏固定 380。地图再窄就看不清路名了，
-       所以宁可压左栏也不压地图。 */
-    grid-template-columns: minmax(0, 1fr) 380px;
-  }
+  .list-layout { grid-template-columns: minmax(0, 1fr) 420px; }
+}
+
+@media (min-width: 1440px) {
+  .list-layout { grid-template-columns: minmax(0, 1fr) 520px; }
+}
+
+@media (min-width: 1720px) {
+  .list-layout { grid-template-columns: minmax(0, 1fr) 620px; }
 }
 
 .list-main { min-width: 0; }
 
 /* 列表页整体左移：容器加宽并去掉居中的富余留白，
    把省下的横向空间让给右侧地图 */
+/* 列表页几乎用满屏宽。首页保持 1180 的居中版心（那是「读」的页面，
+   行宽太长反而难读），但列表页是**并排比较**的页面——
+   左边看卡片、右边看地图，两边都想要更多地方。 */
 .page.list-page {
-  max-width: 1440px;
-  padding-left: 28px;
-  padding-right: 28px;
+  max-width: min(1880px, 96vw);
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 /* 右栏的地图面板：粘在视口上，左边滚多久它都在 */
@@ -1779,8 +1789,8 @@
   .list-layout > .map-panel .mapfinder,
   .list-layout > .map-panel .amap-finder,
   .list-layout > .map-panel .map-loading {
-    height: calc(100vh - 200px);
-    min-height: 420px;
+    height: calc(100vh - 180px);
+    min-height: 560px;
   }
 }
 
@@ -2195,4 +2205,674 @@
   font-size: 12px;
   line-height: 1.9;
   color: var(--muted);
+}
+
+/* ---------- 右侧地图栏：让地图真的占满 ----------
+   截图里地图只有面板左上角一小块，右边全是图例。根因有两个：
+   `.map-body` 是「地图 + 220px 图例」左右并排，而右栏本来就不宽；
+   加上 `.map-svg` 封了 340px 的高（那是为原先横在列表上方的版式定的，
+   防止它把房源顶出首屏）。
+
+   现在地图挪到了独立的右栏，这两条限制都不再成立——
+   **地图是越大越有用的组件**，何况将来要接真实地图 API。 */
+
+.list-layout > .map-panel .map-body {
+  grid-template-columns: minmax(0, 1fr);   /* 图例改到地图下方 */
+  gap: 12px;
+}
+
+.list-layout > .map-panel .map-svg {
+  max-height: none;
+  /* 按视口高度给，屏幕越高地图越大。减掉的是顶栏、面板头、
+     图例与页边距的合计。 */
+  height: clamp(320px, calc(100vh - 430px), 620px);
+  width: 100%;
+}
+
+.list-layout > .map-panel .mapfinder {
+  padding: 0;
+  margin-bottom: 0;
+  border: none;
+  box-shadow: none;
+}
+
+/* 图例横过来排，占的高度小一些，把地方让给地图 */
+.list-layout > .map-panel .map-side {
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px 0 0;
+}
+
+.list-layout > .map-panel .map-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 18px;
+}
+
+@media (min-width: 1720px) {
+  .list-layout > .map-panel .map-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ---------- F1：中介名录 ----------
+   原先要「先选房 → 点帮我推荐 → 选他 → 用户名填进输入框 → 提交」，
+   而且那个「中介账号」输入框让人以为必须知道对方登录名才能委托。
+   现在一进面板就列人，可搜，点一下直接邀请。 */
+
+.agent-dir { margin-top: 6px; }
+
+.agent-dir-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.agent-dir-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 13.5px;
+}
+
+.agent-dir-search:focus { outline: none; border-color: var(--brand); }
+
+.agent-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.agent-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.agent-card:hover { border-color: var(--brand-line); }
+
+/* 主营区覆盖选中房源的，用左侧色条标出来。**只是提示不是限制**——
+   房东想把中山区的房委托给一个主营沙河口的熟人，那是他的自由。 */
+.agent-card.covers {
+  border-left: 3px solid var(--brand);
+  background: linear-gradient(90deg, var(--brand-soft) 0%, #fff 42%);
+}
+
+.ac-top { display: flex; align-items: center; gap: 10px; }
+
+/* 头像用姓名首字生成。不引头像库，也不放一个占位小人——
+   占位小人满屏一模一样，反而分不出谁是谁。 */
+.ac-avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ac-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ac-id b { font-size: 14.5px; font-weight: 600; }
+.ac-id span {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-score {
+  flex: none;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+}
+
+.ac-intro {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ac-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+.ac-cover { font-style: normal; color: var(--brand); }
+
+.ac-invite { align-self: flex-start; }
+
+/* 没选房源时按钮禁用，文字直接说「先选房源」——
+   一个灰掉又不说为什么的按钮只会让人反复点 */
+.ac-invite:disabled { background: var(--surface-2); color: var(--muted); border-color: var(--line); }
+
+/* ============================================================
+   C1. 评价配图
+   ============================================================ */
+
+/* 上传区。刻意不做成和房源相册一样的大格子——
+   评价里的图是**附带的**，占的位置得比评分和正文小一档。 */
+.shot-pick { margin-top: 12px; }
+
+.shot-pick-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+
+.shot-pick-head em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.shot-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shot-cell,
+.shot-add {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+  flex: none;
+}
+
+.shot-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 移除按钮压在右上角。半透明黑底而不是白底：
+   照片明暗不定，深色遮罩上的白叉在哪张图上都看得见。 */
+.shot-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 0 0 0 var(--radius);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.shot-x:hover { background: rgba(0, 0, 0, 0.72); }
+
+.shot-add {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line-strong, var(--line));
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease);
+}
+
+.shot-add:hover { border-color: var(--brand); color: var(--brand); }
+.shot-add.busy { cursor: progress; }
+.shot-add input { display: none; }
+
+/* 展示区。一行排开、可横滚，不换行成一片图墙——
+   评价列表是**读的**，图片墙会把下一条评价挤到屏幕外。 */
+.review-shots {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.review-shots img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  display: block;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.review-shots a:hover img { opacity: 0.86; }
+
+/* ============================================================
+   D5. 记录详情（个人中心就地展开）
+   ============================================================ */
+
+/* 「详情 / 收起」。做成一条贴右的文字按钮而不是整块可点：
+   记录里已经有房源名、缴费、取消好几个可点的东西，
+   再把整个 li 变成按钮，用户就得先猜自己点到了哪一个。 */
+.rec-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.rec-more i {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform var(--dur) var(--ease);
+}
+
+/* 展开时箭头翻上去。方向和内容的开合一致，
+   这样光看箭头就知道再点一次会发生什么 */
+.rec-more.on i { transform: rotate(-135deg) translate(-2px, -2px); }
+.rec-more:hover { text-decoration: underline; }
+
+.rec-detail {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  /* 左边一条竖线把它和原记录连起来——这是**那条记录的**详情，
+     不是一个新的并列区块 */
+  border-left: 2px solid var(--brand);
+  animation: rec-open var(--dur) var(--ease);
+}
+
+@keyframes rec-open {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-detail { animation: none; }
+}
+
+.rec-dl {
+  margin: 0;
+  display: grid;
+  gap: 7px 16px;
+}
+
+/* 两列：标签一列定宽，值一列自适应。
+   标签定宽是为了让所有值**左边对齐**——一列数字参差不齐地排着，
+   眼睛得逐行找起点。 */
+@media (min-width: 560px) {
+  .rec-dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rec-row.wide { grid-column: 1 / -1; }
+}
+
+.rec-row {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.rec-row dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rec-row dd {
+  margin: 0;
+  color: var(--ink);
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* 编号、流水号要照着念或复制，等宽 + tabular 才对得上位 */
+.rec-row dd.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
+}
+
+.rec-row dd.money {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 长文本独占一行时改成上下排，5.5em 的标签列会把正文挤成一条 */
+.rec-row.wide { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.rec-row.wide dd { line-height: 1.8; }
+
+.rec-note {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* ============================================================
+   E1. 聊天头像 + H1. 思考指示
+   ============================================================ */
+
+/* 头像绝对定位，浮在气泡外面而不是挤进气泡里。
+   气泡内部已经有 notes / 卡片 / 引用 / 评分好几层结构，
+   把头像塞进这个流里，每一层都得重新排一遍。 */
+.cav {
+  position: absolute;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  flex: none;
+}
+
+.cav-ai {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.cav-ai svg { width: 18px; height: 18px; }
+
+/* 气泡让出头像的位置。留 40 = 30 头像 + 10 间距。 */
+.bubble {
+  position: relative;
+  max-width: calc(88% - 40px);
+}
+
+.bubble.assistant { margin-left: 40px; }
+.bubble.user { margin-right: 40px; }
+
+.bubble.assistant .cav { left: -40px; }
+.bubble.user .cav { right: -40px; }
+
+/* 连续同一人发言时后一条不再重复头像，会在下面用 :has 处理不了的
+   场景交给 JS——这里先保证单条的样子是对的 */
+
+/* 「谁说的」那行贴在气泡顶部，和头像同高，读起来是一体的 */
+.cw-who {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 3px;
+}
+
+.bubble.user .cw-who { color: rgba(255, 255, 255, 0.86); }
+
+/* ---------- H1：思考中 ---------- */
+
+.thinking-bubble {
+  /* 这不是一条消息，是一个状态。去掉气泡的实底，只留一行字，
+     免得它和真的回答混在一起被人当成「它说了这么一句」 */
+  background: none;
+  border: none;
+  padding: 6px 0;
+}
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+/* 转圈的弧线：一段 270° 的圆弧，不是一个整圈。
+   整圈匀速转起来看不出在转，缺口才是运动的参照物。 */
+.think-arc {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--brand-soft);
+  border-top-color: var(--brand);
+  border-right-color: var(--brand);
+  animation: think-spin 0.72s linear infinite;
+  flex: none;
+}
+
+@keyframes think-spin { to { transform: rotate(360deg); } }
+
+/* 短语上滚。只开一行的窗口，新句子从下面推上来。 */
+.think-steps {
+  --think-line-h: 22px;
+  height: var(--think-line-h);
+  overflow: hidden;
+  display: block;
+}
+
+.think-reel {
+  display: block;
+  transition: transform 0.34s var(--ease);
+}
+
+.think-line {
+  display: block;
+  height: var(--think-line-h);
+  line-height: var(--think-line-h);
+  white-space: nowrap;
+}
+
+/* 三个点做次要的呼吸感。**不承担信息**——真正说明进度的是那句话，
+   点只是告诉眼睛这块区域还活着。 */
+.think-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.think-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: think-blink 1.1s ease-in-out infinite;
+}
+
+.think-dots i:nth-child(2) { animation-delay: 0.16s; }
+.think-dots i:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes think-blink {
+  0%, 60%, 100% { opacity: 0.28; }
+  30%           { opacity: 1; }
+}
+
+/* 减少动态效果时停掉旋转与闪烁，但**保留短语切换**——
+   那是内容，不是装饰，关掉它等于把这个功能关掉了。 */
+@media (prefers-reduced-motion: reduce) {
+  .think-arc { animation: none; border-top-color: var(--brand); }
+  .think-dots i { animation: none; opacity: 0.5; }
+  .think-reel { transition: none; }
+}
+
+/* 窄屏把头像收进内缩，不然气泡只剩半个屏 */
+@media (max-width: 560px) {
+  .cav { width: 26px; height: 26px; font-size: 12px; }
+  .cav-ai svg { width: 15px; height: 15px; }
+  .bubble { max-width: calc(92% - 32px); }
+  .bubble.assistant { margin-left: 32px; }
+  .bubble.user { margin-right: 32px; }
+  .bubble.assistant .cav { left: -32px; }
+  .bubble.user .cav { right: -32px; }
+}
+
+/* ============================================================
+   F5. 后台待办条与页签分组
+   ============================================================ */
+
+.focus-bar {
+  margin: 14px 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+/* 有紧急项时左边亮一条。整块变色会盖过里面每一格自己的状态，
+   一条边既够醒目，又不抢格子里的数字。 */
+.focus-bar.has-urgent { border-left: 3px solid var(--danger); }
+
+.focus-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* 格子之间用 1px 的背景缝隙分隔，不各画一个边框——
+   相邻边框会叠成 2px，一排下来粗细不匀。 */
+.focus-cell {
+  border: none;
+  background: #fff;
+  padding: 11px 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background var(--dur) var(--ease);
+}
+
+.focus-cell:hover { background: var(--brand-soft); }
+
+.focus-n {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  /* 数字为 0 的时候压暗但不隐藏：位置留着，人才记得住哪格是哪件事 */
+  color: var(--line-strong, #c3ccd6);
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-cell.on .focus-n { color: var(--ink); }
+.focus-cell.urgent .focus-n { color: var(--danger); }
+
+.focus-k {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.focus-h {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.focus-note {
+  margin: 9px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- 页签分组 ---------- */
+
+.tabs.grouped {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.tab-slot {
+  display: inline-flex;
+  align-items: flex-end;
+  flex: none;
+}
+
+/* 组名横排贴在这一组前面。
+   一开始把它竖过来省宽度，结果四个字挤成一列窄条，
+   **省下的那点宽度换来了一个读不出来的标签**——
+   十七个页签本来就要横滚，多出三个四字标签的宽度是划算的。 */
+.tab-group {
+  align-self: center;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  user-select: none;
+  padding: 2px 9px 2px 0;
+  margin-right: 8px;
+  border-right: 1px solid var(--line);
+}
+
+/* 第一组紧贴左边缘，前面不需要留白 */
+.tab-slot:first-child .tab-group { padding-left: 0; }
+
+/* ---------- 分段切换（角色申请的待审/已通过/已驳回） ---------- */
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.seg-btn {
+  border: none;
+  background: #fff;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn:hover { background: var(--brand-soft); }
+
+.seg-btn.on {
+  background: var(--brand);
+  color: #fff;
 }

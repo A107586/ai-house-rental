@@ -145,8 +145,9 @@ export const api = {
   contractDetail: (contractNo) =>
     request(`/api/contracts/${contractNo}/detail`),
 
-  myContracts: (status = '') =>
-    request(`/api/contracts/mine?${toQuery({ status })}`),
+  // side：'tenant' 只要我承租的，'landlord' 只要我出租的，不传是两者都要（D3）
+  myContracts: (status = '', side = '') =>
+    request(`/api/contracts/mine?${toQuery({ status, side })}`),
   getContract: (no) => request(`/api/contracts/${no}`),
   createContract: (payload) => post('/api/contracts', payload),
   activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
@@ -278,6 +279,12 @@ export const api = {
 
   // F-02 户主档案
   adminLandlords: (params) => request(`/api/admin/landlords?${toQuery(params)}`),
+
+  // D1 角色升级申请（房东 / 经纪人）
+  adminRoleRequests: (status = 'pending') =>
+    request(`/api/admin/role-requests?${toQuery({ status })}`),
+  reviewRoleRequest: (id, action, note = '') =>
+    post(`/api/admin/role-requests/${id}`, { action, note }),
 
   // M-08 内容审核
   adminFlags: (status = 'pending') =>
@@ -564,6 +571,11 @@ export const api = {
   // 页面把它们一起显示出来——排序规则不该是黑箱
   suggestAgents: (houseNo) =>
     request(`/api/delegations/suggest?${toQuery({ house_no: houseNo })}`),
+
+  // F1：不依赖房源的中介名录。委托面板一进去就用它列人，
+  // 不用先选房、再点「帮我推荐」
+  agentDirectory: (params = {}) =>
+    request(`/api/agents/directory?${toQuery(params)}`),
 
   // ---- J-09 的两个智能体入口（跑在 8000，与业务后端分开）----
 

@@ -420,3 +420,28 @@ def _user_accept_contact(connection, engine):
         # 不回填的话，所有存量用户一夜之间变成「拒绝联系」
         connection.execute(text(
             "UPDATE users SET accept_contact = 1 WHERE accept_contact IS NULL"))
+
+
+@step("0013", "角色升级申请表的待审队列索引（D1）")
+def _role_requests(connection, engine):
+    """role_requests 由 create_all 建出来，这里只补索引。
+
+    管理端「待审申请」每次打开都是同一句查询：status = pending
+    按时间倒序。等值在前、范围在后，和 0005/0010 那两条一个规矩。
+    """
+    if not _table_exists(engine, "role_requests"):
+        return
+    connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_role_requests_status_created "
+        "ON role_requests (status, created_at)"))
+
+
+@step("0014", "评价表：实拍图 JSON 列（C1）")
+def _review_images(connection, engine):
+    """给 reviews 补 images 列。
+
+    默认空串而不是 NULL：`image_list()` 两种都当空处理，但空串
+    在 SQL 里也能直接 `WHERE images != ''` 筛出「带图评价」，
+    NULL 还得多写一个 IS NOT NULL。
+    """
+    _add_column(connection, engine, "reviews", "images", "TEXT DEFAULT ''")

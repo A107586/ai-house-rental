@@ -196,6 +196,23 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
   const [showWork, setShowWork] = useState(false)
+
+  /** F3/F4：经纪人与管理员登录后直接进各自的后台。
+   *
+   * 他们打开这个站不是来找房子的。让他们先看一屏「说一句话帮你找房」、
+   * 再自己去点右上角，等于每次都多走一步——**首页是给租客的，
+   * 不是给所有人的**。
+   *
+   * 做法是登录后立刻把对应面板打开，而不是另建一套路由：
+   * 面板本来就是全屏抽屉，内容与功能都齐；另做一套页面等于把
+   * 同一批功能维护两遍。他们仍可以关掉面板去逛首页——
+   * 这是默认落点，不是牢笼。
+   */
+  useEffect(() => {
+    if (!user) return
+    if (user.role === 'admin' || user.role === 'agent') setShowWork(true)
+  }, [user?.id, user?.role])
+
   const [favorites, setFavorites] = useState([])
   const [filters, setFilters] = useState({})
   const [compare, setCompare] = useState([])
@@ -1015,6 +1032,7 @@ export default function App() {
       {showTalk && (
         <Suspense fallback={null}>
           <ChatWithLandlord
+          me={user}
           initialId={talkId}
           onClose={() => { setShowTalk(false); setTalkId(0) }}
           onOpenHouse={async (no) => {

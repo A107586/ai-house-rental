@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import RatioCell from './RatioCell'
+import FocusBar from './FocusBar'
 
 /**
  * 中介工作台（J-10）。
@@ -136,15 +137,33 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
     + (data?.todo.today_viewings.length || 0) + pendingAppts.length
 
   // 资质没过就只留资质页签——见文件头注释
+  //
+  // F5：顺序按「离带看有多近」排。中介这份工作的主线是
+  // 接单 → 联系 → 带看 → 成交，佣金和数据是**回头看**的东西，
+  // 排在主线后面。原来「接单大厅」夹在在托房源和带看记录中间，
+  // 把一条连贯的动线断成了两截。
   const TABS = approved ? [
-    { key: 'today', label: '今日待办', n: todoCount },
-    { key: 'houses', label: '在托房源', n: data?.delegations.length },
-    { key: 'market', label: '接单大厅' },
-    { key: 'viewings', label: '带看记录' },
-    { key: 'money', label: '佣金' },
-    { key: 'stats', label: '我的数据' },
-    { key: 'profile', label: '资质与档案' },
+    { key: 'today', label: '今日带看与联系', n: todoCount, group: '要做的事' },
+    { key: 'market', label: '接单大厅', group: '要做的事' },
+    { key: 'houses', label: '在托房源', n: data?.delegations.length,
+      group: '要做的事' },
+    { key: 'viewings', label: '带看记录', group: '回头看' },
+    { key: 'money', label: '佣金', group: '回头看' },
+    { key: 'stats', label: '我的数据', group: '回头看' },
+    { key: 'profile', label: '资质与档案', group: '回头看' },
   ] : [{ key: 'profile', label: '资质与档案' }]
+
+  // F5 待办条：三件都是「有人在等你回话」的事。
+  // 邀请不回、预约不确认、带看不去，损失的都是这一单本身
+  const FOCUS = approved ? [
+    { key: 'today', label: '待接受邀请',
+      n: data?.todo.invitations.length || 0, urgent: true,
+      hint: '房东发来的委托' },
+    { key: 'today', label: '待确认预约', n: pendingAppts.length, urgent: true,
+      hint: '租客在等回话' },
+    { key: 'today', label: '今日带看',
+      n: data?.todo.today_viewings.length || 0, hint: '今天要去的场次' },
+  ] : []
 
   return (
     <>
@@ -159,16 +178,27 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
           {profile && `　资质${LICENSE[profile.license_status]?.label || ''}`}
         </div>
 
-        <div className="tabs scroll">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              className={`tab ${tab === item.key ? 'active' : ''}`}
-              onClick={() => { setTab(item.key); setOk(''); setError('') }}
-            >
-              {item.label}
-              {item.n > 0 && <span className="tab-n">{item.n}</span>}
-            </button>
+        {approved && (
+          <FocusBar items={FOCUS} onPick={setTab}
+                    hint="邀请与预约都有时效，超时房东会另找人。" />
+        )}
+
+        <div className="tabs scroll grouped">
+          {TABS.map((item, i) => (
+            <span className="tab-slot" key={item.key}>
+              {/* 分组名只在换组时画一次。写成两个独立的 tabs 容器会让
+                  横向滚动被切成两段，一屏放不下时更难找 */}
+              {item.group && item.group !== TABS[i - 1]?.group && (
+                <span className="tab-group">{item.group}</span>
+              )}
+              <button
+                className={`tab ${tab === item.key ? 'active' : ''}`}
+                onClick={() => { setTab(item.key); setOk(''); setError('') }}
+              >
+                {item.label}
+                {item.n > 0 && <span className="tab-n">{item.n}</span>}
+              </button>
+            </span>
           ))}
         </div>
 

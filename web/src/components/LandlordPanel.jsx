@@ -78,9 +78,11 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
       const [d, h, r, t, c] = await Promise.all([
         api.landlordDashboard(),
         api.landlordHouses(),
-        api.listRepairs(),
+        // D3：工作台一律只问「我作为房东」的那一份。
+        // 他自己在别处租的房、他自己报的修，都归个人中心
+        api.listRepairs({ side: 'landlord' }),
         api.landlordTenants(),
-        api.myContracts(),
+        api.myContracts('', 'landlord'),
       ])
       setDash(d)
       setHouses(h.list || [])

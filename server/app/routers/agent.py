@@ -13,6 +13,7 @@
    所以一律返回 `{rate, hit, total}` 三件套。
 """
 
+import re
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app import leasing
 from app.db import get_session
+from app.security import hash_password
 from app.deps import require_login
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
                         House, HouseDelegation, Review, User, ViewingRecord,
@@ -580,6 +582,82 @@ def _require_admin(user):
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
 
+@router.post("/api/admin/agents")
+def create_agent(payload: dict = Body(default={}),
+                 user: User = Depends(require_login),
+                 session: Session = Depends(get_session)):
+    """管理员直接创建一个中介账号（F2）。
+
+    **为什么需要这个入口。** 原先要一个经纪人上线得走三步：
+    他自己注册 → 提交资质 → 管理员审核。可现实里中介多是平台
+    先签下来、再开账号的——人已经在办公室里坐着了，还要他自己
+    去注册页填一遍，然后等自己人审自己人。
+
+    所以给管理员一条直通路径：填姓名手机号、指定主营区域，
+    账号建出来就是 `role=agent` 且资质已过审（`reviewed_by` 记的是
+    这位管理员，谁开的账号查得到）。
+
+    **初始密码由管理员设定并当面告知，接口不回显。**
+    返回里带明文密码等于把它写进浏览器历史与日志；
+    真要找回走的是重置流程，不是翻记录。
+    """
+    _require_admin(user)
+
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "").strip()
+    real_name = str(payload.get("real_name") or "").strip()
+    phone = str(payload.get("phone") or "").strip()
+    districts = payload.get("service_districts") or []
+    intro = str(payload.get("intro") or "").strip()[:300]
+    years = payload.get("years")
+
+    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
+        raise HTTPException(status_code=422,
+                            detail="用户名需为 3–20 位字母、数字或下划线")
+    if not 6 <= len(password) <= 64 or any(c.isspace() for c in password):
+        raise HTTPException(status_code=422,
+                            detail="初始密码需 6–64 位且不能包含空格")
+    if not re.fullmatch(r"[A-Za-z一-鿿· ]{2,20}", real_name):
+        raise HTTPException(status_code=422, detail="姓名需为 2–20 位中英文")
+    if not re.fullmatch(r"\d{11}", phone):
+        raise HTTPException(status_code=422, detail="请填写 11 位手机号")
+
+    if session.scalar(select(User).where(User.username == username)):
+        raise HTTPException(status_code=409, detail="该用户名已被占用")
+
+    agent = User(username=username, password_hash=hash_password(password),
+                 real_name=real_name, phone=phone, role="agent",
+                 status="active")
+    session.add(agent)
+    session.flush()
+
+    profile = AgentProfile(
+        user_id=agent.id,
+        # 管理员开的账号资质直接算过审——**是他把人签进来的**，
+        # 再让他去审一遍自己刚建的账号只是走形式
+        license_status="approved",
+        reviewed_by=user.id,
+        reviewed_at=datetime.now(),
+        service_districts=",".join(
+            str(d).strip() for d in list(districts)[:6] if str(d).strip()),
+        intro=intro,
+        years=int(years) if str(years).isdigit() else 0,
+        accepting=True,
+    )
+    session.add(profile)
+    session.commit()
+    session.refresh(agent)
+
+    leasing.notify(session, agent.id, "system", "经纪人账号已开通",
+                   "管理员已为你开通经纪人账号，登录后可在中介台接受委托、"
+                   "登记带看。初始密码请向管理员索取。")
+    session.commit()
+
+    return {"ok": True, "user": agent.to_dict(),
+            "message": "已创建经纪人账号 %s，请把初始密码当面告知本人。"
+                       % username}
+
+
 @router.get("/api/admin/agent-queue")
 def license_queue(user: User = Depends(require_login),
                   session: Session = Depends(get_session)):
@@ -800,6 +878,68 @@ def _score_agent(stats):
         reasons.append("累计成交 %d 单" % stats["deal_total"])
 
     return round(activity + quality + load + deals, 1), reasons
+
+
+@router.get("/api/agents/directory")
+def agent_directory(keyword: str = "", district: str = "",
+                    limit: int = Query(20, ge=1, le=50),
+                    user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """可接单的中介名录（F1）。
+
+    与 `/api/delegations/suggest` 的区别是**不需要先选房源**。
+    委托面板原先的流程是：先选一套房 → 点「帮我推荐中介」→ 从结果里
+    「选他」→ 用户名被填进一个输入框 → 再点提交。四步，而且中间那个
+    输入框让人以为**必须知道对方的登录名才能委托**。
+
+    现在改成一进面板就列出可接单的中介，可按姓名或主营区域搜，
+    点一下直接发邀请。名录本身不涉及某一套房，所以不限房主——
+    但仅限已登录用户，且只出**资质过审、开着接单开关**的人：
+    没过审的出现在这里，房东委托过去只会白等。
+
+    返回里不给手机号。要联系先建立委托关系，这是 J-07 定下的规矩。
+    """
+    stmt = (select(User, AgentProfile)
+            .join(AgentProfile, AgentProfile.user_id == User.id)
+            .where(User.role == "agent",
+                   User.status == "active",
+                   AgentProfile.license_status == "approved",
+                   AgentProfile.accepting.is_(True)))
+
+    kw = keyword.strip()
+    if kw:
+        like = "%%%s%%" % kw
+        stmt = stmt.where(or_(User.real_name.like(like),
+                              User.username.like(like),
+                              AgentProfile.service_districts.like(like),
+                              AgentProfile.intro.like(like)))
+    if district.strip():
+        stmt = stmt.where(
+            AgentProfile.service_districts.like("%%%s%%" % district.strip()))
+
+    rows = session.execute(stmt.limit(limit)).all()
+
+    out = []
+    for u, prof in rows:
+        stats = agent_stats(session, u.id)
+        score, reasons = _score_agent(stats)
+        out.append({
+            "user_id": u.id,
+            "username": u.username,
+            "name": u.real_name or u.username,
+            "districts": [d for d in (prof.service_districts or "").split(",") if d],
+            "years": prof.years or 0,
+            "intro": prof.intro or "",
+            "score": score,
+            "reasons": reasons,
+            "in_progress": stats["active_delegations"],
+            "deal_total": stats["deal_total"],
+        })
+
+    # 按评分降序。同分按 user_id，保证顺序稳定——
+    # 每次刷新顺序都变的话，用户会以为名单在动
+    out.sort(key=lambda a: (-a["score"], a["user_id"]))
+    return {"list": out, "total": len(out)}
 
 
 @router.get("/api/delegations/suggest")
