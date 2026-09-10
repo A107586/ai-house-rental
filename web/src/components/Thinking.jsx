@@ -65,9 +65,6 @@ export default function Thinking({ intent = 'default' }) {
           ))}
         </span>
       </span>
-      <span className="think-dots" aria-hidden="true">
-        <i /><i /><i />
-      </span>
     </div>
   )
 }

@@ -36,18 +36,6 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
         }
       }}
     >
-      <button
-        className={`fav ${favorited ? 'on' : ''}`}
-        title={favorited ? '取消收藏' : '收藏'}
-        onClick={(e) => {
-          // 卡片整体可点，收藏按钮不能把点击冒泡上去打开抽屉
-          e.stopPropagation()
-          onToggleFavorite(house.house_no)
-        }}
-      >
-        {favorited ? '★' : '☆'}
-      </button>
-
       <div className="card-photo">
         {/* 加载失败和「本来就没图」显示同一个占位（K-12）。
             原先只判断了地址有没有，图片 404 时会渲染成浏览器的碎图标，
@@ -72,9 +60,33 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
         {house.district} · {house.community} · {house.floor}
       </div>
 
+      {/* D1：收藏从图片右上角挪到价格右边，星星换成爱心。
+          压在图上时它得靠一个半透明白底才看得清，那个白圆片
+          正是「一眼看出是 AI 生成的」的那类元素；而且图片右上角
+          还压着「整租」标签和「对比」勾选，三样东西挤在同一个角上。
+
+          放在价格这一行有个额外的好处：**价格是用户在卡片上停留最久的
+          地方**，想收藏的念头也正是在看到价格那一刻产生的。 */}
       <div className="card-price">
-        {Math.round(house.rent_price)}
-        <small> 元/月</small>
+        <span className="card-price-num">
+          {Math.round(house.rent_price)}
+          <small> 元/月</small>
+        </span>
+        <button
+          className={`fav-heart ${favorited ? 'on' : ''}`}
+          title={favorited ? '取消收藏' : '收藏'}
+          aria-label={favorited ? '取消收藏' : '收藏'}
+          aria-pressed={favorited}
+          onClick={(e) => {
+            // 卡片整体可点，收藏按钮不能把点击冒泡上去打开抽屉
+            e.stopPropagation()
+            onToggleFavorite(house.house_no)
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 20.6 4.3 13a4.8 4.8 0 0 1 0-6.8 4.8 4.8 0 0 1 6.8 0l.9.9.9-.9a4.8 4.8 0 0 1 6.8 0 4.8 4.8 0 0 1 0 6.8Z" />
+          </svg>
+        </button>
       </div>
 
       <div className="card-meta">

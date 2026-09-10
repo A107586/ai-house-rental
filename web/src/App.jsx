@@ -309,6 +309,10 @@ export default function App() {
   // search 那一路不在这里取——它的条件由 `search()` 解析出来后自己加载，
   // 这里再取一次会把解析结果冲掉。
   useEffect(() => {
+    // C6：地图默认展开——**四个入口都展开，包括搜索结果那一路**。
+    // 原来 search 走的是下面那个 early return，于是「说一句话找房」
+    // 进来的人看不到地图，而按栏目进来的人看得到，同一个页面两种样子。
+    if (isList) setShowMap(true)
     if (!isList || listKind === 'search') return
     // 和首页那一栏用**同一组条件**。两处写得不一样的话，
     // 用户点「全部最新房源」会看到一批和上面那排对不上的房子。
@@ -320,7 +324,6 @@ export default function App() {
     setSearched('')
     setParsed(null)
     setFilters(preset)
-    setShowMap(true)          // 列表页默认展开地图
     loadPage(1, true, preset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isList, listKind])
@@ -598,12 +601,20 @@ export default function App() {
           <div className="tagline">基于 AI 智能体的房屋租赁平台</div>
 
           <div className="topbar-right">
-            <span className="status-dot">
-              <span
-                className={`dot ${online === true ? 'up' : online === false ? 'down' : ''}`}
-              />
-              {online === true ? '服务正常' : online === false ? '服务未连接' : '检查中'}
-            </span>
+            {/* B1：服务状态和「退出」都收进个人中心了。
+                顶栏是**每一屏都在的东西**，摆的应该是每一屏都可能要点的入口。
+                「服务正常」一天看一次就够（真出问题时页面自己会报错），
+                「退出」更是几天才点一次——两个低频项占着最贵的位置，
+                把真正高频的「咨询」「工作台」挤到了一排文字里。
+
+                服务未连接时是例外：这时它不再是状态，是一句**要立刻看见**
+                的警告，所以只在异常时留在顶栏。 */}
+            {online === false && (
+              <span className="status-dot offline" title="后端接口连接不上">
+                <span className="dot down" />
+                服务未连接
+              </span>
+            )}
 
             {user ? (
               <>
@@ -641,11 +652,22 @@ export default function App() {
                         : user.role === 'agent' ? '中介台' : '工作台'}
                     </button>
                   )}
-                  <button className="topnav-a" onClick={() => setShowMine(true)}>
-                    {user.real_name || user.username}
-                  </button>
-                  <button className="topnav-a" onClick={logout}>退出</button>
                 </nav>
+
+                {/* 头像 +「个人中心」。**入口该说自己是什么，不是叫什么名字**——
+                    顶栏写着「林小雨」，用户知道自己已经登录了，
+                    但不知道点下去会到哪；写「个人中心」他就知道。
+                    名字改由头像承担：一个字的圆片既认得出是自己，又不占地方。 */}
+                <button
+                  className="me-entry"
+                  onClick={() => setShowMine(true)}
+                  title={user.real_name || user.username}
+                >
+                  <span className="me-avatar" aria-hidden="true">
+                    {(user.real_name || user.username || '我').trim()[0]}
+                  </span>
+                  <span className="me-label">个人中心</span>
+                </button>
               </>
             ) : (
               <button className="btn small" onClick={() => go('auth', 'login')}>
@@ -769,23 +791,6 @@ export default function App() {
         className={`page${bg.name === 'home' ? ' with-hero' : ''}`
           + (isList ? ' list-page' : '')}
       >
-        {/* 列表页没有大图，搜索框也就跟着没了。补一条紧凑版：
-            用户在结果页想换个说法再搜一次是很常见的动作，
-            让他退回首页再搜是多走两步。 */}
-        {isList && (
-          <div className="list-search">
-            <form className="search-row" onSubmit={search}>
-              <input
-                placeholder="换个说法再找找，如：中山区两室一厅三千以内 / 桂林街"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-              />
-              <button className="btn" type="submit" disabled={busy || !text.trim()}>
-                {busy ? '找房中…' : '找房'}
-              </button>
-            </form>
-          </div>
-        )}
 
         {/* B1：删掉了「智能体把『xx』翻译成了下面的筛选条件」那一条。
             它和下面的「已生效条件」讲的是同一件事——一个用文字复述、
@@ -802,23 +807,8 @@ export default function App() {
           </div>
         )}
 
-        {/* 无论条件来自哪里都在这里如实列出来，并且每一条都能删。
-            这是 K-06 的落点：检索条件只有一份 */}
-        {/* 首页不显示：首页的语义就是「什么都没搜」，
-            那里出现一条「已生效条件」只会让人以为自己漏点了什么 */}
-        {isList && (
-          <ActiveFilters
-            value={filters}
-            onChange={(next) => {
-              setFilters(next)
-              setSaveState('')
-              loadPage(1, true, next)
-            }}
-            note={parsed?.ok
-              ? `这些条件由智能体解析而来${sourceLabel(parsed) ? `（${sourceLabel(parsed)}）` : ''}，可以直接删改，也可以在下方筛选栏继续调整。`
-              : ''}
-          />
-        )}
+        {/* C4：这排 chip 已经并进筛选栏（见下方 FilterBar 的 chips），
+            这里不再单独出一块。 */}
 
         {/* 公告只在首页出现。列表页是「我在找房」的语境，
             顶上横一条平台公告属于打断——用户是带着目的进来的。 */}
@@ -863,13 +853,47 @@ export default function App() {
         <div className={isList ? 'list-layout' : ''}>
         <div className="list-main">
 
+        {/* C1 + C2：搜索框搬进左栏。
+            原来它在 `.list-layout` 外面通栏放着——1334px 宽，
+            而它正下方的筛选栏和房源栅格只有 794px。**同一列里，
+            最上面那个框比下面所有框都宽出去一大截**，看着就像没对齐。
+            搬进来之后三个框自然同宽，右侧地图也跟着往上提了 88px，
+            和左栏第一个框齐平。 */}
+        {isList && (
+          <div className="list-search">
+            <form className="search-row" onSubmit={search}>
+              <input
+                placeholder="换个说法再找找，如：中山区两室一厅三千以内 / 桂林街"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+              <button className="btn" type="submit" disabled={busy || !text.trim()}>
+                {busy ? '找房中…' : '找房'}
+              </button>
+            </form>
+          </div>
+        )}
 
         {/* 筛选栏不再对智能搜索隐藏。它改的就是智能体填进来的那份条件，
             两者是同一份东西——藏起来才是把两条路径割裂开的那一刀。
             但它只在结果页出现：首页一进来就摆一排筛选项，
             等于让人先做题再看房。 */}
         {inResults && (
-          <FilterBar value={filters} onApply={applyFilters} disabled={busy} />
+          <FilterBar
+            value={filters}
+            onApply={applyFilters}
+            disabled={busy}
+            chips={(
+              <ActiveFilters
+                value={filters}
+                onChange={(next) => {
+                  setFilters(next)
+                  setSaveState('')
+                  loadPage(1, true, next)
+                }}
+              />
+            )}
+          />
         )}
 
         {/* 底部这条完整列表只属于列表页。
@@ -877,11 +901,21 @@ export default function App() {
             等于把「给入口」和「摆全部」两件事做了两遍。 */}
         {isList && (
         <div className="list-head">
+          {/* C5：返回键移到最左、缩成一个圆圈。
+              **返回是「离开这一页」，不是这一页的一个功能**——
+              摆在标题右边跟「共 95 套」并排，它看着像个筛选项；
+              放在标题前面才是所有网站都在用的那个位置。
+              文字收进 title：图标够认，一行字白占地方。 */}
+          <button
+            className="back-round"
+            onClick={() => go('home')}
+            aria-label="返回首页"
+            title="返回首页"
+          >
+            ‹
+          </button>
           <h3>{LIST_TITLE[listKind] || '房源'}</h3>
           <span className="count">共 {total} 套</span>
-          <button className="btn ghost small" onClick={() => go('home')}>
-            ‹ 返回首页
-          </button>
         </div>
         )}
 
@@ -1018,14 +1052,26 @@ export default function App() {
       {/* 悬浮入口。对比栏在底部居中，这个放右下角，两者不重叠。
           任何抽屉打开时都要收起来——它的层级在抽屉之上，
           不收起就会盖住抽屉右下角的内容，窄屏上尤其明显。 */}
+      {/* E2：图标换掉了那个绿色小圆点。
+          圆点原本想表达「在线」，可它和顶栏的「服务正常」是同一个意思，
+          说了两遍；而且一个纯色小点没有任何含义指向「这是个助手」。
+          换成对话气泡里嵌两格的标记——和聊天面板里的助手头像同一个图形，
+          **点开之前和点开之后看到的是同一个东西**。 */}
       {!showChat && !showMine && !showWork && !selected && (
       <button
         className="chat-fab"
         onClick={() => { setChatHouseNo(''); setShowChat(true) }}
         title="打开租房助手"
       >
-        <span className="fab-dot" />
-        租房助手
+        <span className="fab-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M6.5 4.75h11A1.75 1.75 0 0 1 19.25 6.5v7a1.75 1.75 0 0 1-1.75 1.75H9.74l-3.99 3.19V15.25H6.5A1.75 1.75 0 0 1 4.75 13.5v-7A1.75 1.75 0 0 1 6.5 4.75Z"
+                  stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <rect x="8" y="8.4" width="3" height="3" rx=".6" fill="currentColor" />
+            <rect x="13" y="8.4" width="3" height="3" rx=".6" fill="currentColor" />
+          </svg>
+        </span>
+        <span className="fab-text">租房助手</span>
       </button>
       )}
 
@@ -1067,10 +1113,73 @@ export default function App() {
         </Suspense>
       )}
 
+      {/* E1：页脚重做。
+          原来是三段并排的小灰字，一行了事——页脚是每一页的最后一屏，
+          用户滚到这里通常是**没找到想要的东西**，一行版权信息接不住他。
+          现在给四件事：这个站是什么、常用入口、能问谁、以及必要的
+          免责声明。
+
+          **不做成六列的巨型页脚。** 那是内容站的形态，我们统共只有
+          十几个页面，撑不起六列，硬凑只会得到一堆重复链接。 */}
       <footer className="site-foot">
-        <span>{site.site_name} · 基于 AI 智能体的房屋租赁平台</span>
-        {site.contact_phone && <span>客服电话：{site.contact_phone}</span>}
-        <span>大连理工大学 实习实训课程设计</span>
+        <div className="foot-inner">
+          <div className="foot-brand">
+            <div className="foot-logo">
+              {site.site_name.slice(0, 2)}
+              <span>{site.site_name.slice(2)}</span>
+            </div>
+            <p className="foot-slogan">
+              说一句话就能找房。条件摆在页面上，可以改；
+              从签约到退租每一步都有据可查。
+            </p>
+            <div className="foot-badges">
+              <span>房源人工核验</span>
+              <span>合同电子存证</span>
+              <span>缴费流水可查</span>
+            </div>
+          </div>
+
+          <nav className="foot-links" aria-label="页脚导航">
+            <div className="foot-col">
+              <h4>找房</h4>
+              <button onClick={() => go('list', 'all')}>全部房源</button>
+              <button onClick={() => go('list', 'latest')}>最新发布</button>
+              <button onClick={() => go('list', 'featured')}>优选好房</button>
+            </div>
+            <div className="foot-col">
+              <h4>我的</h4>
+              {user ? (
+                <>
+                  <button onClick={() => setShowMine(true)}>个人中心</button>
+                  <button onClick={() => setShowTalk(true)}>咨询消息</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => go('auth', 'login')}>登录</button>
+                  <button onClick={() => go('auth', 'register')}>注册</button>
+                </>
+              )}
+              <button onClick={() => { setChatHouseNo(''); setShowChat(true) }}>
+                租房助手
+              </button>
+            </div>
+            <div className="foot-col">
+              <h4>联系</h4>
+              {site.contact_phone
+                ? <span className="foot-phone">{site.contact_phone}</span>
+                : <span className="foot-muted">客服电话未配置</span>}
+              <span className="foot-muted">工作日 9:00–18:00</span>
+              <span className="foot-muted">大连理工大学 实习实训</span>
+            </div>
+          </nav>
+        </div>
+
+        {/* **这句话必须有。** 站里的房源、评价、账单全是课程演示数据，
+            界面又做得像个真站；不写清楚，看到的人真按上面的号码打过去
+            就成了我们的问题。 */}
+        <div className="foot-bottom">
+          <span>© 2026 {site.site_name} · 课程设计作品，房源与交易数据均为演示用途，不构成任何真实租赁要约</span>
+        </div>
       </footer>
 
       <CompareBar
@@ -1164,6 +1273,7 @@ export default function App() {
         <Suspense fallback={null}>
           <MyPanel
           user={user}
+          online={online}
           onUserUpdated={setUser}
           onLogout={logout}
           onClose={() => setShowMine(false)}

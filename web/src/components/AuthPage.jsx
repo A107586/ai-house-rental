@@ -123,7 +123,12 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
       {/* 左半边讲「为什么要有账号」。弹窗里塞不下这些，
           于是注册就成了一件纯粹的手续。 */}
       <aside className="auth-aside">
-        <button className="auth-back" onClick={onBack}>‹ 返回首页</button>
+        {/* E3：返回改成一个圆圈里的 ‹。
+            原来是「‹ 返回首页」的描边胶囊，压在左上角的背景图上，
+            四个字加一个框，比它旁边的站名还显眼——**返回是退路，
+            不该抢主视觉**。 */}
+        <button className="auth-back" onClick={onBack}
+                aria-label="返回首页" title="返回首页">‹</button>
         <div className="auth-brand">大连<span>智租</span></div>
         <p className="auth-slogan">基于 AI 智能体的房屋租赁平台</p>
         <ul className="auth-points">
@@ -134,6 +139,14 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
             </li>
           ))}
         </ul>
+
+        {/* E3：左半边原来只填了上半屏，下面空掉一大片。
+            补一条脚注把这一列**撑到底**——顺便把「这是课程作品」
+            这句必须说的话放在了注册按钮看得见的地方，
+            而不是等用户填完信息才在页脚发现。 */}
+        <p className="auth-foot-note">
+          大连理工大学 实习实训课程设计作品 · 房源与交易数据均为演示用途
+        </p>
       </aside>
 
       <main className="auth-main">

@@ -170,9 +170,9 @@ export default function MapFinder({ selected, onPick }) {
                 <span>较全市均价</span>
                 <b>{diffText(activeRow.avg_rent, data)}</b>
               </div>
-              <button className="btn small" onClick={() => onPick(active)}>
-                只看{active}的房源
-              </button>
+              {/* C3：去掉了「只看 xx 的房源」这个按钮。
+                  **点区块本身就已经筛了**——它是同一个动作的第二个入口，
+                  摆在这里反而让人以为「点了区块还不算，得再点一下才生效」。 */}
             </>
           ) : (
             <div className="map-hint">

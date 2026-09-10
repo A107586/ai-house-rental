@@ -66,8 +66,7 @@ const ORDER = ['keyword', 'district', 'rent_price_min', 'rent_price_max',
   'floor_level', 'elevator', 'decoration', 'heating', 'lease_term',
   'available_days']
 
-export default function ActiveFilters({ value = {}, onChange, note,
-                                       onSave, saveState }) {
+export default function ActiveFilters({ value = {}, onChange }) {
   const chips = []
 
   ORDER.forEach((key) => {
@@ -103,43 +102,29 @@ export default function ActiveFilters({ value = {}, onChange, note,
     onChange(next)
   }
 
+  // C4：不再自成一块。
+  //
+  // 原来它是筛选栏上面一个独立的 section，带标题「已生效条件 1」、
+  // 一行说明文字、一个「全部清空」。三样东西加起来占掉将近一屏的
+  // 十分之一，说的却是筛选栏已经在说的事。
+  //
+  // 现在只吐出一排 chip，由 FilterBar 摆进它自己的头部：
+  // **「现在筛的是什么」和「怎么改」应该在同一行上**。
+  // 说明文字整条去掉——「这些条件由智能体解析而来」对用户的下一步
+  // 动作没有任何影响，他要么删掉某一条，要么不删。
   return (
-    <section className="active-filters">
-      <span className="active-filters-label">
-        已生效条件
-        <span className="tab-n">{chips.length}</span>
-      </span>
-
-      <div className="active-filters-chips">
-        {chips.map((chip) => (
-          <button
-            key={chip.key}
-            className="chip removable"
-            onClick={() => drop(chip)}
-            title="点击移除这个条件"
-          >
-            {chip.label}
-            <span aria-hidden="true">×</span>
-          </button>
-        ))}
-        <button className="link" onClick={() => onChange({})}>
-          全部清空
+    <>
+      {chips.map((chip) => (
+        <button
+          key={chip.key}
+          className="chip removable"
+          onClick={() => drop(chip)}
+          title="点击移除这个条件"
+        >
+          {chip.label}
+          <span aria-hidden="true">×</span>
         </button>
-
-        {/* 保存这组条件（K-09）。入口放在条件旁边，
-            因为用户是在「条件终于调顺了」的那一刻才想存下来的；
-            放个人中心里等他想起来去翻，等于没有 */}
-        {onSave && (
-          <button className="link save-search" onClick={onSave}
-                  disabled={saveState === 'saving'}>
-            {saveState === 'saving' ? '保存中…'
-              : saveState === 'saved' ? '✓ 已保存到「我的搜索」'
-              : '保存这组条件'}
-          </button>
-        )}
-      </div>
-
-      {note && <div className="active-filters-note">{note}</div>}
-    </section>
+      ))}
+    </>
   )
 }

@@ -99,14 +99,13 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
   }, [ready, filters])
 
   if (fallback) {
-    return (
-      <>
-        <div className="map-fallback-note">
-          真实地图暂时无法加载，已切换到离线区域图。
-        </div>
-        <OfflineMapFinder selected={selected} onPick={onPick} />
-      </>
-    )
+    // C3：不再挂那条「真实地图暂时无法加载，已切换到离线区域图」。
+    //
+    // 它讲的是**我们的实现细节**，不是用户需要处理的事：区域图照样能
+    // 点、能筛，功能一点没少。摆一条黄字提醒，等于每次进来都跟用户说
+    // 一句「这里有点问题」——而他什么也做不了，只会平白觉得这个站不靠谱。
+    // 真正需要知道这件事的是我们自己，那属于日志，不属于界面。
+    return <OfflineMapFinder selected={selected} onPick={onPick} />
   }
 
   return (

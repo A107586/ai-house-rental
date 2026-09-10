@@ -129,7 +129,7 @@ function stateFromValue(value = {}) {
   }
 }
 
-export default function FilterBar({ value, onApply, disabled }) {
+export default function FilterBar({ value, onApply, disabled, chips }) {
   const [open, setOpen] = useState(false)
   const [more, setMore] = useState(false)
   const [f, setF] = useState(() => stateFromValue(value))
@@ -229,6 +229,13 @@ export default function FilterBar({ value, onApply, disabled }) {
           {open ? '收起筛选' : '按条件筛选'}
           {activeCount > 0 && <span className="tab-n">{activeCount}</span>}
         </button>
+
+        {/* C4：「已生效条件」原来单占一整块，摆在筛选栏上面。
+            **可它们本来就是同一份东西**——筛选栏是「怎么改」，
+            这排 chip 是「现在是什么」，中间隔着一条分割线和一段说明文字，
+            用户要在两个框之间来回看才能确认自己筛的是什么。
+            并进同一行之后，改和看在一个地方完成。 */}
+        {chips}
 
         <select
           className="sort-select"

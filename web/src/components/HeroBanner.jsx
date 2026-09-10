@@ -15,7 +15,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * - **四种情况暂停**：鼠标悬停、键盘焦点进入、滚出视口、切到别的标签页。
  *   最后两种用 IntersectionObserver 与 visibilitychange，
  *   看不见的时候不该继续跑动画耗电。
- * - **有可见的暂停按钮**。自动播放而不给停的手段，对阅读慢的人是干扰。
+ * - **不放暂停按钮**（按验收意见去掉）。停得下来这条保证靠上面四种
+ *   自动暂停实现——真正的问题是「想看清楚时它还在不在动」，
+ *   不是「有没有那个按钮」。键盘左右方向键仍可手动翻。
  * - **prefers-reduced-motion 直接停在当前这张**，不是放慢，是不动。
  * - 卸载时清掉定时器、断开 observer、摘掉全部监听器。
  *
@@ -56,7 +58,6 @@ const INTERVAL = 5000
 
 export default function HeroBanner({ stats, children }) {
   const [index, setIndex] = useState(0)
-  const [paused, setPaused] = useState(false)   // 用户按了暂停键
   const [reduced, setReduced] = useState(false)
   const rootRef = useRef(null)
   const timerRef = useRef(null)
@@ -85,7 +86,7 @@ export default function HeroBanner({ stats, children }) {
     const sync = () => {
       stop()
       const blocked =
-        media.matches || paused || document.hidden ||
+        media.matches || document.hidden ||
         !onscreen || hovering || focused
       if (!blocked) {
         timerRef.current = setInterval(() => {
@@ -137,7 +138,7 @@ export default function HeroBanner({ stats, children }) {
       if (media.removeEventListener) media.removeEventListener('change', sync)
       else if (media.removeListener) media.removeListener(sync)
     }
-  }, [paused])
+  }, [])
 
   const onKeyDown = (event) => {
     if (event.key === 'ArrowLeft') { go(index - 1); event.preventDefault() }
@@ -196,15 +197,14 @@ export default function HeroBanner({ stats, children }) {
         )}
       </div>
 
-      <div className="hero-ctrl">
-        <button
-          className="hero-arrow"
-          onClick={() => go(index - 1)}
-          aria-label="上一张"
-        >
-          ‹
-        </button>
+      {/* 左右箭头与暂停键按验收意见去掉了：三张图的轮播摆四个控件，
+          右下角看着像播放器的操作面板，而这一屏本身是一句标语加一个搜索框。
 
+          **自动播放「停得下来」这条保证没有丢**，只是换了实现：
+          鼠标悬停、键盘焦点进入、滚出视口、切走标签页四种情况都停，
+          `prefers-reduced-motion` 下压根不自动播。真正的问题从来不是
+          「有没有那个按钮」，是「想看清楚的时候它还在不在动」。 */}
+      <div className="hero-ctrl">
         <div className="hero-dots" role="tablist" aria-label="选择要看的介绍">
           {SLIDES.map((item, i) => (
             <button
@@ -217,26 +217,6 @@ export default function HeroBanner({ stats, children }) {
             />
           ))}
         </div>
-
-        <button
-          className="hero-arrow"
-          onClick={() => go(index + 1)}
-          aria-label="下一张"
-        >
-          ›
-        </button>
-
-        {/* 自动播放必须给用户一个停下来的办法。
-            reduced-motion 下本来就不动，这个键也就没有意义，直接不渲染。 */}
-        {!reduced && (
-          <button
-            className="hero-play"
-            onClick={() => setPaused((p) => !p)}
-            aria-label={paused ? '继续自动播放' : '暂停自动播放'}
-          >
-            {paused ? '▶' : '❙❙'}
-          </button>
-        )}
       </div>
 
       {/* 给读屏软件用：切换时播报，但不抢焦点 */}

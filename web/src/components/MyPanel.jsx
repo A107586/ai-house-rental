@@ -49,8 +49,8 @@ const MSG_TYPE = {
   bill: '账单', repair: '报修', chat: '会话',
 }
 
-export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
-                                 onLogout, onApplySearch }) {
+export default function MyPanel({ user, online, onClose, onOpenHouse,
+                                 onUserUpdated, onLogout, onApplySearch }) {
   const [tab, setTab] = useState('contracts')
   const [appointments, setAppointments] = useState([])
   const [contracts, setContracts] = useState([])
@@ -195,9 +195,29 @@ export default function MyPanel({ user, onClose, onOpenHouse, onUserUpdated,
         <button className="drawer-close" onClick={onClose} aria-label="关闭">
           ×
         </button>
-        <h3>{user.real_name || user.username}</h3>
-        <div className="loc">
-          {{ tenant: '租客', landlord: '房东', admin: '管理员' }[user.role]} · {user.phone}
+        {/* B1：顶栏那两个低频项搬到这里。
+            个人中心本来就是「关于我这个账号」的页面，
+            「我是谁、服务通不通、退出」正属于这一层。 */}
+        <div className="me-head">
+          <span className="me-head-avatar" aria-hidden="true">
+            {(user.real_name || user.username || '我').trim()[0]}
+          </span>
+          <div className="me-head-text">
+            <h3>{user.real_name || user.username}</h3>
+            <div className="loc">
+              {{ tenant: '租客', landlord: '房东', agent: '经纪人',
+                 admin: '管理员' }[user.role] || user.role} · {user.phone}
+            </div>
+          </div>
+          <div className="me-head-side">
+            <span className={`status-dot ${online === false ? 'offline' : ''}`}>
+              <span className={`dot ${online === true ? 'up'
+                : online === false ? 'down' : ''}`} />
+              {online === true ? '服务正常'
+                : online === false ? '服务未连接' : '检查中'}
+            </span>
+            <button className="btn ghost small" onClick={onLogout}>退出登录</button>
+          </div>
         </div>
 
         <div className="tabs scroll">
