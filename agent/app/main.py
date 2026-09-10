@@ -26,6 +26,9 @@ from app.agents.support.tools import greeting
 from app.agents.support.tools import house as house_tool
 from app.agents.support.tools import pitch
 from app.agents.support.tools import router as support_router
+from app.agents.toolbox import catalog as tool_catalog
+from app.agents.toolbox import planner as tool_planner
+from app.agents.toolbox import runner as tool_runner
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.agents.support.tools import forms as support_forms
@@ -497,7 +500,46 @@ def agent_chat(payload: ChatRequest):
                           reason="规则解析出 %d 个找房条件"
                                  % len(ruled["filters"]))
 
+    # ---- G1：先让大模型挑工具，挑不出再走规则链路 ----
+    #
+    # **顺序是「模型在前、规则在后」，不是「模型代替规则」。**
+    #
+    # 三层关键词表调了很久，覆盖到的那部分很可靠；它的毛病是
+    # **覆盖不到的那部分会掉进另一条完全无关的路**——「看看第六套」
+    # 被当成新的找房、「评价怎么样」答出一段户型朝向。这类错误
+    # 光靠往表里加词是补不完的，因为说法是无穷的。
+    #
+    # 所以让模型先看一眼。它挑得准就用它的结论，挑不准（或者没配、
+    # 超时、输出坏了）就原样退回规则——**规则链路一行没删**，
+    # 它仍然是这套系统的兜底，也是所有单元测试跑的那条路。
+    #
+    # 带待办的轮次跳过：那一句多半是在回答助手的追问（「都可以」
+    # 「第二笔」），语义只在待办的上下文里成立，单独交给模型
+    # 挑工具必然挑错。
+    plan_note = {}
+    if not (payload.pending or {}).get("action") and not (
+            payload.pending or {}).get("ask"):
+        picked = _try_toolbox(payload, routed, slots, feats, plan_note)
+        if picked is not None:
+            picked.setdefault("context_text", memory.describe(slots, feats))
+            if payload.session_id and payload.token:
+                backend_client.log_chat(payload.session_id, "user",
+                                        payload.text, payload.token,
+                                        intent=picked.get("intent") or intent)
+                backend_client.log_chat(payload.session_id, "assistant",
+                                        picked.get("message", ""),
+                                        payload.token,
+                                        intent=picked.get("intent") or intent)
+            return picked
+
     result = _dispatch(payload, routed, intent, slots, feats)
+
+    # 模型挑过但没被采信时，把它的结论留在 route 里。
+    # **答辩要能当场说清「它为什么走了规则」**，而不是只看到一个结果
+    if plan_note.get("plan"):
+        result.setdefault("route", {})
+        if isinstance(result["route"], dict):
+            result["route"]["tool_plan"] = plan_note["plan"]
 
     # 非找房的轮次也要把上下文带回去，否则界面上「当前记住」会被
     # 一句「帮我报修」清空，用户以为条件丢了
@@ -746,6 +788,117 @@ def _compare_houses(payload, routed, decision):
         "compare": data,
         "options": ["介绍下第一套", "介绍下第二套", "帮我约看房"],
     }
+
+
+def _whoami(token):
+    """当前用户是谁。取不到就当未登录——**不抛异常**：
+    工具选择只用它来少列几个选项，为此让整轮对话失败不值得。"""
+    if not token:
+        return {"logged_in": False, "role": ""}
+    try:
+        me = backend_client.get("/api/auth/me", token=token)
+    except Exception:                                        # noqa: BLE001
+        return {"logged_in": False, "role": ""}
+    if not isinstance(me, dict) or not me.get("id"):
+        return {"logged_in": False, "role": ""}
+    return {"logged_in": True, "role": me.get("role") or "tenant"}
+
+
+# 低于这个把握就不采信，退回规则链路。
+#
+# 0.6 是这么定的：**选错的代价不对称。** 选对了省一次误判，选错了
+# 用户会拿到一个和他的问题毫无关系的回答，而且看不出哪里错了。
+# 所以门槛往高了卡，宁可多走几次规则。
+MIN_CONFIDENCE = 0.6
+
+
+def _try_toolbox(payload, routed, slots, feats, decision_cache):
+    """G1：先让大模型挑工具。挑不出或不采信时返回 None，退回规则链路。
+
+    **这一层没有任何独占能力**——它能做的每一件事，下面的规则链路都
+    做得了（只是更容易误判）。所以它随时可以整段跳过：模型没配、超时、
+    输出坏了、把握不够，通通退回去。这条性质是刻意保住的，
+    它意味着接不接大模型都不影响功能完整性。
+    """
+    if provider is None or not getattr(provider, "available", False):
+        return None
+
+    who = _whoami(payload.token)
+    plan = tool_planner.plan(
+        payload.text, provider,
+        logged_in=who["logged_in"], role=who["role"],
+        house_no=payload.house_no,
+        last_house_nos=list(payload.last_house_nos or []),
+        context_text=memory.describe(slots, feats))
+    decision_cache["plan"] = plan
+
+    name = plan["tool"]
+    if name == "none" or plan["confidence"] < MIN_CONFIDENCE:
+        return None
+
+    tool = tool_catalog.BY_NAME.get(name) or {}
+
+    # 写操作**一步都不执行**，转成已有的两阶段确认卡片。
+    # 这一层只负责说「他想做的是 book_viewing」，卡片长什么样、
+    # 缺哪个槽位要追问、参数能不能过白名单、最后谁去调后端，
+    # 全在原来那条路径上，一行没动。
+    if tool.get("kind") == "write":
+        routed = dict(routed, intent="support", tool=name,
+                      reason=tool_planner.describe(plan))
+        return _support_action(payload, routed, tool["action"], plan)
+
+    ctx = {
+        "text": payload.text,
+        "token": payload.token,
+        "provider": provider,
+        "backend": backend_client,
+        "property_finder": property_finder,
+        "fetch_houses": _fetch_houses,
+        "last_house_nos": list(payload.last_house_nos or []),
+        "house_no": payload.house_no,
+        "slots": slots,
+        "features": feats,
+        "seen": payload.seen,
+    }
+    result = tool_runner.run_read(name, plan["params"], ctx)
+    if result is None:
+        return None
+
+    if result.get("_out_of_range"):
+        return _out_of_range(routed, {"source": "toolbox"},
+                             len(payload.last_house_nos or []))
+
+    result.setdefault("intent", "search" if name in
+                      ("search_houses", "more_houses") else "support")
+    result.setdefault("status", "answered")
+    result.setdefault("ok", True)
+    result.setdefault("alternatives", [])
+    result["route"] = dict(routed, intent=result["intent"], tool=name,
+                           reason=tool_planner.describe(plan))
+    result["route_source"] = "toolbox"
+    if name in ("search_houses", "more_houses"):
+        _push_recommendation(
+            result, feats,
+            offset=int(payload.seen or 0) if result.get("page", 1) > 1 else 0)
+    return result
+
+
+def _support_action(payload, routed, action, plan):
+    """把一个写操作交给客服层出确认卡片。"""
+    result = support.run(
+        payload.text, token=payload.token,
+        history=list(payload.history or []),
+        provider=provider, backend=backend_client,
+        settings=settings, house_no=payload.house_no or None,
+        house_nos=payload.last_house_nos,
+        pending=payload.pending,
+        routing={"kind": support_router.KIND_ACTION, "name": action,
+                 "source": "toolbox"})
+    if result is None:
+        return None
+    result["route"] = routed
+    result["route_source"] = "toolbox"
+    return result
 
 
 def _dispatch(payload, routed, intent, slots, feats):

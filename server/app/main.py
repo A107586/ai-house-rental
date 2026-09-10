@@ -631,8 +631,20 @@ def house_landlord(house_no: str, session: Session = Depends(get_session)):
         Repair, RepairRecord.repair_id == Repair.id).join(
         House, Repair.house_id == House.id).where(
         House.landlord_id == landlord.id)).all()
-    spans = [(r.finished_at - r.repair.created_at).total_seconds() / 3600
-             for r in records if r.repair and r.finished_at]
+    # **负数要丢掉，不能取绝对值也不能照样平均。**
+    #
+    # 实测这里算出过「报修平均 -24 小时处理完」——完成时间早于报修时间。
+    # 那是数据本身有问题（种子数据里两个时间独立随机），
+    # 不是「处理得特别快」。照样算进去会把均值往下拽，
+    # 一个 -24 能抵掉一条真实的 24 小时记录；取绝对值更糟，
+    # 等于把一条坏数据当成一条好数据用。
+    #
+    # 全是坏数据时 spans 为空，下面返回 None，前端那一栏直接不显示——
+    # **不显示比显示一个假数字强**。
+    spans = [span for span in (
+        (r.finished_at - r.repair.created_at).total_seconds() / 3600
+        for r in records if r.repair and r.finished_at)
+        if span >= 0]
 
     return {
         "name": masked,

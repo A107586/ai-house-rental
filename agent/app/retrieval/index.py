@@ -411,7 +411,20 @@ class KnowledgeIndex(object):
             if term:
                 return term
 
-        tokens = set(tokenize(query))
+        # **保序去重，不能用 set。**
+        #
+        # 原来写的是 `set(tokenize(query))`，下面 `max` 在 IDF 打平时
+        # 取哪一个，就取决于这次运行的字符串哈希种子——**同一个问题
+        # 两次跑出不同的关键词**，可答性闸门跟着翻转，测试于是时红时绿
+        # （实测同一份代码连跑三次，失败数在 2 和 3 之间跳）。
+        #
+        # 这类不确定性最坏的地方不是测试不稳，是**线上同一个用户
+        # 问同一句话，今天能答明天拒答**，而谁也复现不出来。
+        #
+        # 去重后按出现顺序排：并列时取句子里先出现的那个。这个选择
+        # 本身是任意的，但**它是稳定的**，而且和句子有关系，
+        # 比按哈希取讲得通。
+        tokens = list(dict.fromkeys(tokenize(query)))
         if not tokens:
             return ""
 
@@ -470,7 +483,9 @@ class KnowledgeIndex(object):
         两步都标定在调参集上：回答 24/29 → 25/29 → 27/29，
         拒答 13/14 全程不变。
         """
-        words = [w for w in topic_words(query)
+        # 同样保序去重：`topic_words` 可能返回重复词，而并列时
+        # 取哪一个必须是确定的（理由见 `key_term` 里那段）
+        words = [w for w in dict.fromkeys(topic_words(query))
                  if len(w) >= 2 and not w.isascii()
                  and not (w[0] in _FUNCTION_CHARS or w[-1] in _FUNCTION_CHARS)]
         if not words:

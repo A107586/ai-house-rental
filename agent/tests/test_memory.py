@@ -214,9 +214,20 @@ class TestResolveHouse(unittest.TestCase):
     def test_last(self):
         self.assertEqual(memory.resolve_house("最后一套", ["A", "B"]), "B")
 
-    def test_out_of_range_returns_none(self):
-        """说了第五套但只有两套，宁可不认，也不能随手给一套。"""
-        self.assertIsNone(memory.resolve_house("第五套", ["A", "B"]))
+    def test_out_of_range_is_distinguishable(self):
+        """说了第五套但只有两套，宁可不认，也不能随手给一套。
+
+        **返回值从 None 改成了 OUT_OF_RANGE**（G1）。原来越界和
+        「压根没说序号」都返回 None，上层分不开这两种情况，于是
+        「第二十套怎么样」和「今天天气不错」得到同一句回话——
+        而前者该回「这一组只有 10 套」，后者才该退回去问条件。
+        """
+        self.assertIs(memory.resolve_house("第五套", ["A", "B"]),
+                      memory.OUT_OF_RANGE)
+
+    def test_out_of_range_needs_a_list_first(self):
+        """还没列过任何房源时说「第五套」，是「没有上下文」不是「越界」。"""
+        self.assertIsNone(memory.resolve_house("第五套", []))
 
     def test_no_reference(self):
         self.assertIsNone(memory.resolve_house("中山区两室一厅", ["A"]))

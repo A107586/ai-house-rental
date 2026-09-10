@@ -451,18 +451,25 @@ def main():
         session.flush()
 
         print("结案部分工单，生成维修记录 ...")
-        # 结掉前三张，留下几张待处理，看板上「待处理」才不是 0
+        # 结掉前三张，留下几张待处理，看板上「待处理」才不是 0。
+        #
+        # 每条多给一个「报修后多少小时修完」。**原来写的是
+        # `datetime.now() - timedelta(days=index+1)`，而工单的
+        # created_at 默认是 now——完成时间比报修时间还早**，
+        # 房东概要里于是算出「报修平均 -24 小时处理完」。
+        # 造数据时把两个时间各自随手取值，是最容易埋这种反常识记录的写法：
+        # 有先后关系的两个时间，后一个必须从前一个推出来。
         plans = [
-            (0, 0, 1.5, 80, [(0, 1), (1, 2)]),
-            (1, 2, 2.0, 120, [(5, 1)]),
-            (2, 1, 0.5, 40, [(2, 2)]),
+            (0, 0, 1.5, 80, 6, [(0, 1), (1, 2)]),
+            (1, 2, 2.0, 120, 28, [(5, 1)]),
+            (2, 1, 0.5, 40, 3, [(2, 2)]),
         ]
-        for repair_index, worker_index, hours, labor, uses in plans:
+        for repair_index, worker_index, hours, labor, after_hours, uses in plans:
             repair = made[repair_index]
             record = RepairRecord(
                 repair_id=repair.id, worker_id=workers[worker_index].id,
                 hours=hours, labor_cost=labor,
-                finished_at=datetime.now() - timedelta(days=repair_index + 1),
+                finished_at=repair.created_at + timedelta(hours=after_hours),
                 note="已完成并回访确认")
             session.add(record)
             session.flush()

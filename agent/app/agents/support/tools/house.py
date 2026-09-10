@@ -208,7 +208,9 @@ def landlord_reviews(backend, house_no, name):
         parts.append("还没有租客评价过他。")
 
     hours = data.get("avg_repair_hours")
-    if hours is not None:
+    # 后端已经把负数滤掉了，这里再挡一次。**这句话会被用户当成
+    # 「这个房东靠不靠谱」的依据**，宁可少说一句，不能说一句错的
+    if hours is not None and hours >= 0:
         # 报修响应是房东口碑里**唯一可量化**的一项，比任何形容词都硬
         parts.append("名下报修平均 %s 小时处理完。" % _fmt(hours))
 
