@@ -23,6 +23,9 @@ const ChatWithLandlord = lazy(() => import('./components/ChatWithLandlord'))
 const MapFinder = lazy(() => import('./components/AmapFinder'))
 const AuthDialog = lazy(() => import('./components/AuthDialog'))
 import ErrorBoundary from './components/ErrorBoundary'
+// 首屏大图不做懒加载：它是第一眼就要出现的东西，
+// 懒加载会让首屏先白一下再补上，反而更差
+import HeroBanner from './components/HeroBanner'
 import ActiveFilters from './components/ActiveFilters'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
@@ -422,9 +425,33 @@ export default function App() {
         </div>
       </header>
 
-      <main className="page">
+      {/* 首屏大图。只在首页出现——进了房源详情还压一张大图，
+          等于把用户想看的内容往下推一屏。 */}
+      {route.name === 'home' && (
+        <HeroBanner
+          stats={[
+            { value: total || '—', label: '在架房源（套）' },
+            { value: '6', label: '覆盖行政区' },
+            { value: 'AI', label: '智能找房 · 客服 · 审阅' },
+          ]}
+          onCta={(target) => {
+            const anchor = document.querySelector(
+              target === 'search' ? '.search-card' : '.list-head')
+            if (!anchor) return
+            // 用户开了「减少动效」就别做平滑滚动，直接跳过去
+            const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            anchor.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
+          }}
+        />
+      )}
+
+      <main className={`page${route.name === 'home' ? ' with-hero' : ''}`}>
         <section className="search-card">
-          <h2>说一句话，帮你找房</h2>
+          {/* 标题从「说一句话，帮你找房」改成功能性说明：
+              那句口号已经由上面的大图承担了，这里再喊一遍等于同一屏
+              重复两次，反而显得没话说。这块是干活的地方，
+              标题就该说清楚「在这儿能干什么」。 */}
+          <h2>智能找房</h2>
           <p className="hint">
             描述需求也行，直接打小区、街道名也行。智能体会把它翻译成
             下面的筛选条件—— 条件看得见、也改得动。

@@ -1,0 +1,767 @@
+/* 视觉层：首页大图 + 全站外观统一 + 动效。
+ *
+ * 单独成文件而不是塞进 styles.css：那个文件已经 4795 行，
+ * 再往里加更难找；而且这是「后加的皮」，出问题把 main.jsx 里那行
+ * import 注释掉就回到改版前，排查范围立刻缩到一个文件。
+ *
+ * 加载顺序必须在 styles.css 之后，靠顺序覆盖，不用 !important——
+ * !important 会让后面的人没法再覆盖回去。
+ *
+ * ------------------------------------------------------------------
+ * 画风参照仓库里存的贝壳找房实拍页（docs/贝壳网页下载_2026-09-03.zip）。
+ * 逐页看下来，它的语言其实只有五条，且高度自洽：
+ *
+ *   1. **几乎不用圆角。** 图片 2px，输入框与按钮 0–2px。
+ *      满屏 10px 圆角的卡片是模板脸，一眼就看出来不是自己做的。
+ *   2. **不用卡片阴影和四面描边。** 靠留白与一条发丝线分隔。
+ *      每块都加投影，页面就没有层次可言了——都浮起来等于都没浮起来。
+ *   3. **筛选项是纯文字，选中变蓝。** 不是一堆带底色的胶囊。
+ *      胶囊在选项多的时候会糊成一片色块。
+ *   4. **图片上的标签用直角角标**，贴着边，不是浮在上面的圆片。
+ *   5. **价格橙红、字号大、右对齐。** 全站只有钱用这个颜色。
+ *
+ * 它页面上简陋的部分（右侧二维码广告位、底部下载 APP 浮条、
+ * 密集的运营标签）不参照。
+ */
+
+/* ============================================================
+   〇、圆角收敛
+   ============================================================
+   原来的 10px / 16px 是"到处都是圆角矩形"的根源。
+   收到 2–3px：仍有一点点柔化，但不再是那种模板感的胖圆角。 */
+
+:root {
+  --radius: 3px;
+  --radius-lg: 3px;
+  --radius-pill: 2px;
+}
+
+/* ============================================================
+   一、首页大图
+   ============================================================ */
+
+.hero {
+  position: relative;
+  min-height: 460px;
+  overflow: hidden;
+  background: #10243c;               /* 图没加载出来时也不是白板 */
+  isolation: isolate;
+}
+
+.hero-stage { position: absolute; inset: 0; z-index: 0; }
+
+.hero-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.9s var(--ease);
+}
+
+.hero-slide.on { opacity: 1; }
+
+.hero-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.06);
+  transition: transform 6s linear;
+}
+
+/* Ken Burns：只有当前这张缓慢推近。横滑位移大、容易显廉价。 */
+.hero-slide.on img { transform: scale(1); }
+
+/* 压暗层左重右轻——文字在左，右边留给照片本身。
+   全图均匀压暗会把照片压成灰板，白白浪费一张好图。 */
+/* 压暗必须按最亮的那张图定，不是按平均。
+   三张图里 h07 明显更亮，原先 0.86 的左端在它上面文字直接糊掉——
+   **可读性不能赌素材**，宁可暗一点。
+   左端加到 0.92 并把过渡拉长，右侧仍留出照片本身。 */
+.hero-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(6, 18, 34, 0.92) 0%,
+                           rgba(6, 18, 34, 0.82) 34%,
+                           rgba(6, 18, 34, 0.46) 62%,
+                           rgba(6, 18, 34, 0.16) 100%),
+    linear-gradient(180deg, rgba(6, 18, 34, 0.34) 0%,
+                            rgba(6, 18, 34, 0.10) 40%,
+                            rgba(6, 18, 34, 0.46) 100%);
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 88px 24px 96px;
+  color: #fff;
+}
+
+.hero-copy {
+  max-width: 660px;
+  animation: heroIn 0.62s var(--ease-out) both;
+}
+
+/* 眉题是小字、不是胶囊——贝壳首页那句「要找真房源还是贝壳全」
+   就是一行普通小字压在大标题上面。 */
+.hero-eyebrow {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.86);
+  margin-bottom: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* 标题要足够重。首屏靠它立住，字号小了整块就散。 */
+.hero-title {
+  margin: 0 0 16px;
+  font-size: 44px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.28);
+}
+
+.hero-desc {
+  margin: 0 0 28px;
+  font-size: 15.5px;
+  line-height: 1.85;
+  color: rgba(255, 255, 255, 0.86);
+  max-width: 54ch;
+}
+
+.hero-actions { display: flex; gap: 0; flex-wrap: wrap; }
+
+/* 直角按钮，两个贴在一起——贝壳的搜索框与蓝色按钮就是零间隙拼接的。
+   分开摆会显得两个都不重要。 */
+.hero-cta,
+.hero-cta-2 {
+  border-radius: 0;
+  padding: 13px 30px;
+  font-size: 15.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.hero-cta {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.hero-cta:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  transform: none;
+}
+
+.hero-cta-2 {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+  border-left: none;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(4px);
+}
+
+.hero-cta-2:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.8);
+  color: #fff;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 44px;
+  flex-wrap: wrap;
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 660px;
+}
+
+.hero-stat b {
+  display: block;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-stat span { font-size: 12.5px; color: rgba(255, 255, 255, 0.7); }
+
+.hero-ctrl {
+  position: absolute;
+  z-index: 2;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 控件也是直角。圆形箭头按钮是那种"一看就是组件库拖出来的"长相。 */
+.hero-arrow,
+.hero-play {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 0;
+  background: rgba(12, 26, 44, 0.34);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.hero-play { font-size: 10px; }
+
+.hero-arrow:hover,
+.hero-play:hover { background: rgba(12, 26, 44, 0.62); }
+
+.hero-dots { display: flex; gap: 4px; align-items: center; }
+
+/* 视觉是 18×3 的短横条，可点区域 24×24——手指点得中。
+   横条比圆点更贴"简约"，也不像组件库默认样式。 */
+.hero-dot {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.hero-dot::before {
+  content: '';
+  width: 16px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.45);
+  transition: width var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.hero-dot.on::before { width: 26px; background: #fff; }
+
+@keyframes heroIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 搜索区压在大图底边上，把首屏和内容缝起来 */
+.page.with-hero { margin-top: -46px; position: relative; z-index: 3; }
+
+@media (max-width: 900px) {
+  .hero { min-height: 340px; }
+  .hero-inner { padding: 56px 18px 78px; }
+  .hero-title { font-size: 28px; }
+  .hero-eyebrow { font-size: 13px; }
+  .hero-desc { font-size: 14.5px; margin-bottom: 22px; }
+  .hero-stats { gap: 26px; margin-top: 26px; }
+  .hero-stat b { font-size: 21px; }
+  .hero-ctrl { right: 12px; bottom: 12px; }
+  .page.with-hero { margin-top: -34px; }
+}
+
+/* ============================================================
+   二、结构与外观
+   ============================================================ */
+
+.topbar {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+/* 注意：不碰 z-index。顶栏本来是 20，抽屉是 31。
+   一开始顺手写成 40，结果打开管理后台时顶栏按钮浮在面板之上。
+   **改外观就只改外观**，层级是别处算好的。 */
+
+/* ---------- 内容块：去阴影、去胖圆角 ---------- */
+
+.search-card,
+.filter-bar,
+.noticebar,
+.card,
+.hcard,
+.stat,
+.fee-table,
+.ld-card {
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.search-card {
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--brand);   /* 顶部一道品牌色，代替四面阴影 */
+}
+
+.filter-bar {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ---------- 搜索：直角输入框 + 直角蓝按钮，零间隙 ---------- */
+
+.search-row { gap: 0; }
+
+.search-row input,
+.search-row .field {
+  border-radius: 0;
+  border-right: none;
+  height: 46px;
+  font-size: 15px;
+}
+
+.search-row .btn {
+  border-radius: 0;
+  height: 46px;
+  padding: 0 34px;
+  font-size: 15.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+/* ---------- 按钮 ---------- */
+
+.btn {
+  border-radius: var(--radius);
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.btn.ghost {
+  background: #fff;
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+.btn.ghost:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: #fff;
+}
+
+/* ---------- 筛选项：纯文字，选中变蓝 ----------
+   贝壳的筛选面板没有一个胶囊，全是文字，选中项蓝色加粗。
+   选项一多，带底色的胶囊会糊成一片色块，反而看不清选了哪个。 */
+
+.chip-btn,
+.pill {
+  border-radius: var(--radius-pill);
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 5px 10px;
+}
+
+.chip-btn:hover,
+.pill:hover {
+  color: var(--brand);
+  background: transparent;
+  border-color: transparent;
+}
+
+.chip-btn.on,
+.pill.on {
+  color: var(--brand);
+  font-weight: 600;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* 示例词条例外：它是"可以点我试试"的诱导项，
+   保留一点底色才看得出可点，但也收成直角。 */
+.examples .chip-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+}
+
+.examples .chip-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+/* ---------- 房源卡片 ---------- */
+
+.card {
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: #fff;
+}
+
+.card-photo { border-radius: 0; }
+.card-photo img { border-radius: 0; }
+
+/* 直角角标，贴着左上角——不是浮在上面的圆片 */
+.kind-tag {
+  border-radius: 0;
+  top: 0;
+  left: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(26, 111, 219, 0.94);
+  letter-spacing: 0.02em;
+}
+
+.card-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* 价格：橙红、大、等宽数字。全站只有钱用这个颜色，
+   看到橙色就知道在说金额，不用再读标签。 */
+.card-price,
+.price,
+.fee-total,
+.hero-stat.money b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-price { font-size: 21px; font-weight: 700; }
+
+/* 特色标签：扁平、近直角、灰底小字。它们是补充信息，不该抢戏。 */
+.tag {
+  border-radius: 2px;
+  background: var(--surface-2);
+  border: none;
+  color: #64748b;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+/* 收藏星标做成半透明方块，跟角标是一套语言。
+   选择器必须写成 `.card .fav`——styles.css:1227 那条把它做成了 50% 的
+   白色圆片，单写 `.fav` 权重不够，改不动。 */
+.card .fav {
+  border-radius: 0;
+  width: 28px;
+  height: 28px;
+  background: rgba(14, 28, 46, 0.34);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  border: none;
+  top: 0;
+  right: 0;
+}
+
+.card .fav:hover { background: rgba(14, 28, 46, 0.62); color: #fff; }
+.card .fav.on { background: rgba(14, 28, 46, 0.62); color: #ffc53d; }
+
+/* 排序下拉：直角、白底，和筛选按钮同一套 */
+.sort-select {
+  border-radius: var(--radius);
+  background: #fff;
+  border-color: var(--line);
+  padding: 7px 12px;
+}
+
+.sort-select:hover { border-color: var(--brand); color: var(--brand); }
+
+/* ---------- 列表头：粗标题 + 灰色数量，数字用品牌色 ---------- */
+
+.list-head h3 {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.count { color: var(--muted); font-size: 13.5px; }
+.count b, .count strong { color: var(--brand); }
+
+/* ---------- 页签：下划线式，不是带底色的胶囊 ---------- */
+
+.tabs { gap: 4px 26px; }
+
+.tab {
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  padding: 8px 2px;
+  color: var(--ink-2);
+}
+
+.tab:hover { color: var(--brand); background: transparent; }
+
+.tab.active,
+.tab.on {
+  color: var(--brand);
+  font-weight: 700;
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+
+/* 页签上的计数徽标：小、方、淡 */
+.tab .dot,
+.tabs .dot {
+  border-radius: 2px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ---------- 指标卡：去四面描边，改用左侧一道色条 ----------
+   管理端与工作台的指标卡类名是 `.dcell`（不是 `.stat`），
+   两个都要写——只写 .stat 的话后台那四张卡纹丝不动。 */
+
+.stat,
+.dcell {
+  border: none;
+  border-left: 3px solid var(--brand-line);
+  border-radius: 0;
+  background: var(--surface-2);
+  padding-left: 14px;
+}
+
+.stat .v,
+.dcell .dd {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* 钱的那一格用橙色色条，和数字同色——一眼分得出哪张卡在说钱 */
+.dcell.money { border-left-color: var(--accent); }
+.dcell.money .dd { color: var(--accent); }
+
+/* 图表配色跟品牌走 */
+.bar-fill, .dist-bar > i, .dist-bar span { background: var(--brand); }
+
+/* ---------- 状态徽标：小、方、淡底 ---------- */
+
+.status-tag,
+.pill.ok,
+.pill.wa,
+.pill.da {
+  border-radius: 2px;
+  border: none;
+  font-size: 12px;
+  padding: 3px 8px;
+  font-weight: 500;
+}
+
+.status-dot .dot.up { background: var(--ok); }
+.status-dot .dot.down { background: var(--danger); }
+
+/* ---------- 公告条：左侧竖线，无卡片感 ---------- */
+
+.noticebar {
+  border: none;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0;
+}
+
+.notice-tag {
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 11.5px;
+}
+
+/* ---------- 地图入口：做成下划线式页签 ----------
+   原来是一行孤零零的灰字，看不出可点。贝壳把「按区域 / 按地铁线」
+   做成并列的文字页签，这里照同一个做法。 */
+
+.find-switch {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0;
+}
+
+.find-switch .tab {
+  padding: 10px 2px;
+  margin-right: 24px;
+  font-size: 14.5px;
+}
+
+/* ---------- 悬浮助手：收成小圆角，不是胶囊 ---------- */
+
+.chat-fab {
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px -8px rgba(26, 111, 219, 0.7);
+  font-weight: 500;
+}
+
+/* ---------- 抽屉与弹窗 ---------- */
+
+.drawer, .dialog { border-radius: 0; }
+
+/* 抽屉里的分区标题：左侧一道短竖线，比"又一个圆角框"干净 */
+.section-title {
+  border-left: 3px solid var(--brand);
+  padding-left: 9px;
+  font-weight: 700;
+}
+
+/* 房源详情的属性格：去掉四面描边，只留分隔线 */
+.fact {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 核验条与房东卡：靠左侧色条区分，不再是圆角方块 */
+.verify-bar,
+.ld-card {
+  border-radius: 0;
+  border: none;
+  border-left: 3px solid var(--line);
+  background: var(--surface-2);
+}
+
+.verify-bar.ok { border-left-color: var(--ok); }
+.verify-bar.none { border-left-color: var(--warn); }
+
+/* 费用明细：表格化，不是卡片 */
+.fee-table {
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 「入住前共需支付」原本是品牌蓝（styles.css:4302）。
+   它是全页最大的一个金额，必须和房源卡片上的租金同色——
+   同一个概念在两个地方两种颜色，用户得重新判断一次「这是什么」。
+   选择器要跟原规则同样具体才压得住。 */
+.fee-lines .fee-total dd {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 窄屏：搜索框与按钮改为上下排，输入框才不会被挤到出框 */
+@media (max-width: 560px) {
+  .search-row { flex-direction: column; }
+
+  .search-row input,
+  .search-row .field {
+    border-right: 1px solid var(--line);
+    width: 100%;
+  }
+
+  .search-row .btn { width: 100%; }
+}
+
+/* ============================================================
+   三、动效
+   ============================================================
+   两条自律：
+   1. 只给"有意义"的变化配动画——状态切换、层级出现、可点反馈。
+      纯装饰的动效多了，页面就开始晃。
+   2. 时长按距离与复杂度分档，不是一个数字抄到所有地方。 */
+
+.card, .hcard, .stat {
+  transition: transform var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+
+/* 悬停不抬起、不加投影，只把边框变蓝、图片轻推。
+   抬起 + 投影是最容易显廉价的一组动效，满页卡片一起"呼吸"很晃眼。 */
+.card:hover {
+  border-color: var(--brand);
+  box-shadow: none;
+  transform: none;
+}
+
+.card-photo { overflow: hidden; }
+.card-photo img { transition: transform var(--dur-slow) var(--ease); }
+.card:hover .card-photo img { transform: scale(1.045); }
+
+.btn {
+  transition: background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              transform 0.1s var(--ease);
+}
+
+.btn:active { transform: translateY(1px); }
+
+.chip-btn, .pill, .tab, .tag, .fav {
+  transition: background var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+
+/* 抽屉与弹窗从下浮起 12px，比直接闪现更容易看懂"它是新出现的" */
+.drawer, .dialog { animation: panelIn 0.26s var(--ease-out) both; }
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.drawer-mask { animation: fadeIn 0.18s var(--ease) both; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 列表进场错开 40ms，读起来像"依次出现"而不是"一起闪"。
+   只排前 8 个——再往后用户已经在滚动了，延迟只会显得卡。 */
+.grid > .card { animation: cardIn 0.36s var(--ease-out) both; }
+
+.grid > .card:nth-child(1) { animation-delay: 0ms; }
+.grid > .card:nth-child(2) { animation-delay: 40ms; }
+.grid > .card:nth-child(3) { animation-delay: 80ms; }
+.grid > .card:nth-child(4) { animation-delay: 120ms; }
+.grid > .card:nth-child(5) { animation-delay: 160ms; }
+.grid > .card:nth-child(6) { animation-delay: 200ms; }
+.grid > .card:nth-child(7) { animation-delay: 240ms; }
+.grid > .card:nth-child(8) { animation-delay: 280ms; }
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 焦点环统一。别去掉——键盘用户全靠它知道自己在哪。 */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+
+.hero :focus-visible { outline-color: #fff; }
+
+/* 关掉动效的用户，一律直接给最终状态，不是放慢 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hero-slide.on img { transform: none; }
+  .card:hover .card-photo img { transform: none; }
+}
+
+/* 只给读屏软件的文本 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

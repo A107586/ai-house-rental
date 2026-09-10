@@ -1,26 +1,48 @@
 :root {
-  --bg: #f2f4f7;
+  /* 蓝色现代简约。取色参考国内成熟房产平台的通行做法：
+     主色用一支沉稳的商务蓝（信任感），价格与促单信息用橙色——
+     蓝色适合承载导航与结构，橙色只留给「钱」和「要你点的那一下」，
+     两者分工明确，页面上就不会到处都在抢注意力。 */
+  --bg: #f5f7fa;
   --surface: #ffffff;
-  --surface-2: #f7f9fb;
-  --ink: #16202b;
-  --ink-2: #44586b;
-  --muted: #7a8b9c;
-  --line: #dfe5ec;
-  --agent: #0f6f68;
+  --surface-2: #f8fafc;
+  --ink: #1a2233;
+  --ink-2: #44546b;
+  --muted: #7b8aa0;
+  --line: #e4eaf2;
+  --agent: #1a6fdb;
 
-  --brand: #0f6f68;
-  --brand-soft: #e3f1ef;
-  --accent: #a8452f;
-  --accent-soft: #f8ece8;
+  --brand: #1a6fdb;
+  --brand-2: #4b93f2;      /* 渐变与高亮 */
+  --brand-deep: #0f4fa8;   /* 按下、悬停加深 */
+  --brand-soft: #eaf2fe;
+  --brand-line: #cfe0fa;
 
-  --ok: #3f6b4f;
-  --warn: #8a6212;
-  --warn-soft: #f8f0dc;
-  --danger: #b5342a;
-  --danger-soft: #f9e8e6;
+  /* 价格与主行动按钮。国内房产站几乎一致地把价格做成橙红色，
+     它在蓝色底面上跳得出来，又不像正红那样带警示意味。 */
+  --accent: #ff6a2b;
+  --accent-deep: #e8551a;
+  --accent-soft: #fff1ea;
+
+  --ok: #17a06b;
+  --ok-soft: #e6f7f0;
+  --warn: #b7791f;
+  --warn-soft: #fdf5e3;
+  --danger: #e0483d;
+  --danger-soft: #fdedeb;
 
   --radius: 10px;
-  --shadow: 0 1px 2px rgba(20, 30, 40, 0.05), 0 10px 28px -16px rgba(20, 30, 40, 0.22);
+  --radius-lg: 16px;
+  --shadow: 0 1px 2px rgba(26, 44, 74, 0.04), 0 10px 28px -16px rgba(26, 44, 74, 0.2);
+  --shadow-lift: 0 2px 6px rgba(26, 44, 74, 0.06), 0 18px 40px -20px rgba(26, 44, 74, 0.28);
+  --shadow-brand: 0 8px 22px -10px rgba(26, 111, 219, 0.55);
+
+  /* 动效统一在这里定，别处不要各写各的时长——
+     不一致的缓动会让页面显得"每块是不同人做的"。 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 0.22s;
+  --dur-slow: 0.5s;
 }
 
 * {
