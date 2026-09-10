@@ -169,9 +169,18 @@ export default function App() {
   const history = useSearchHistory()
   const [showHistory, setShowHistory] = useState(false)
 
+  // 房源抽屉底下压着的是哪一屏。
+  //
+  // **只记「有内容的那几种」**：house 是抽屉不换背景，work / auth 是
+  // 整页、根本走不到这段渲染。其余一概当首页——不这么兜的话，
+  // 一个拼错的 hash（#/wrok）会让首页少掉大图，而页面其余部分照常，
+  // 排查起来完全看不出是路由的问题。
+  const BG_ROUTES = ['home', 'list']
   const [bg, setBg] = useState({ name: 'home', param: '' })
   useEffect(() => {
-    if (route.name !== 'house') setBg(route)
+    if (route.name === 'house') return
+    setBg(BG_ROUTES.includes(route.name) ? route : { name: 'home', param: '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.name, route.param])
 
   // 占位轮转。只在用户没打字时转——他一开始输入就该停，
@@ -585,6 +594,17 @@ export default function App() {
   // 放前面的话，它引用到的 `user` / `go` 还没初始化，
   // 页面会白屏在一句 `Cannot access ... before initialization` 上——
   // 这个坑 9-10 已经踩过一次了。
+  // 进不去 work 就把地址栏退回首页。
+  //
+  // 不退的话会停在一个「谁也进不去」的 hash 上：整页工作台不渲染，
+  // 下面的常规分支又因为 `bg.name` 是 'work' 而不认这是首页，
+  // **首屏大图整块消失**，看着像页面加载了一半。
+  // 退出登录、或者把 #/work 链接发给一个租客账号，都会撞上。
+  if (route.name === 'work'
+      && !(user && ['landlord', 'agent'].includes(user.role))) {
+    go('home', '', true)
+  }
+
   if (route.name === 'work' && user
       && ['landlord', 'agent'].includes(user.role)) {
     return (
