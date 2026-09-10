@@ -77,7 +77,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
       // 一次性拉齐，切标签时不再等待
       const [mine, myContracts, myBills, favs, msgs, hist, pend, myRepairs] =
         await Promise.all([
-          api.myAppointments(),
+          // D3：个人中心只要「我约的」，不要「别人约我的」
+          api.myAppointments('tenant'),
           // D3：个人中心一律只问「我作为租客」的那一份。
           // 房东兼租客时不加 side，这里会混进他出租的合同与
           // 名下房源的工单——那些属于工作台

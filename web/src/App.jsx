@@ -20,6 +20,7 @@ const MyPanel = lazy(() => import('./components/MyPanel'))
 const HouseDrawer = lazy(() => import('./components/HouseDrawer'))
 const ChatPanel = lazy(() => import('./components/ChatPanel'))
 const ChatWithLandlord = lazy(() => import('./components/ChatWithLandlord'))
+const Workbench = lazy(() => import('./components/Workbench'))
 // 真实地图（高德）。没配 Key 或加载失败时它内部会退回
 // 离线的行政区示意图（MapFinder），所以这里只引这一个
 const MapFinder = lazy(() => import('./components/AmapFinder'))
@@ -210,7 +211,12 @@ export default function App() {
    */
   useEffect(() => {
     if (!user) return
-    if (user.role === 'admin' || user.role === 'agent') setShowWork(true)
+    // 管理员进抽屉式后台，中介进新的整页工作台。
+    // **只在首页时才自动跳**：用户点开一套房又被弹去工作台，
+    // 会以为自己点错了
+    if (user.role === 'admin') setShowWork(true)
+    else if (user.role === 'agent' && route.name === 'home') go('work', '', true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role])
 
   const [favorites, setFavorites] = useState([])
@@ -573,6 +579,26 @@ export default function App() {
   // 位置上，看着像是账号密码错了。
   //
   // 提前 return 不能提前到「它用到的东西还没初始化」之前。
+  // F1：工作台是整页，不是抽屉。
+  //
+  // 和上面 auth 那一条同理，这个 return 也**必须排在所有 hook 之后**。
+  // 放前面的话，它引用到的 `user` / `go` 还没初始化，
+  // 页面会白屏在一句 `Cannot access ... before initialization` 上——
+  // 这个坑 9-10 已经踩过一次了。
+  if (route.name === 'work' && user
+      && ['landlord', 'agent'].includes(user.role)) {
+    return (
+      <Suspense fallback={<div className="page"><div className="empty">加载中…</div></div>}>
+        <Workbench
+          user={user}
+          onClose={() => go('home', '', true)}
+          onOpenHouse={(no) => go('house', no)}
+          onOpenLegacy={() => { go('home', '', true); setShowWork(true) }}
+        />
+      </Suspense>
+    )
+  }
+
   if (route.name === 'auth') {
     return (
       <AuthPage
@@ -647,9 +673,18 @@ export default function App() {
                       下面的渲染分支是按角色一个个列出来的，用「不等于租客」
                       的话，将来加一个新角色就会得到一个点开全白的抽屉 */}
                   {['landlord', 'agent', 'admin'].includes(user.role) && (
-                    <button className="topnav-a" onClick={() => setShowWork(true)}>
+                    <button
+                      className="topnav-a"
+                      onClick={() => {
+                        // 房东与中介走新的整页工作台；管理后台还是抽屉——
+                        // 它是十七个页签的治理后台，不是沟通台，
+                        // 两者本来就不该长成一个样子
+                        if (user.role === 'admin') setShowWork(true)
+                        else go('work')
+                      }}
+                    >
                       {user.role === 'admin' ? '管理后台'
-                        : user.role === 'agent' ? '中介台' : '工作台'}
+                        : user.role === 'agent' ? '中介工作台' : '房东工作台'}
                     </button>
                   )}
                 </nav>

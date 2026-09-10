@@ -3410,3 +3410,260 @@
   .auth-main { place-items: start center; padding: 28px 20px 48px; }
   .auth-box { max-width: 420px; }
 }
+
+/* ============================================================
+   F1. 工作台整页
+   ============================================================ */
+
+.wb {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.wb-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.wb-top h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.wb-who { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+.wb-body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  /* 窄屏左栏横过来。**不做成汉堡菜单**——一共六项，
+     横向滚一下就全看到了，藏起来反而每次都要多点一下 */
+  .wb-body { grid-template-columns: minmax(0, 1fr); }
+  .wb-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 8px;
+  }
+  .wb-nav { min-width: 130px; }
+  .wb-nav-hint { display: none; }
+  .wb-nav.legacy { margin-top: 0; }
+}
+
+.wb-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  background: #fff;
+  border-right: 1px solid var(--line);
+}
+
+.wb-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  cursor: pointer;
+  color: var(--ink-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.wb-nav:hover { background: var(--surface-2); }
+
+/* 当前项用实底 + 左侧色条。**只换文字颜色是不够的**——
+   一列十几个同样大小的按钮，颜色差一档扫过去看不出来。 */
+.wb-nav.on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.wb-nav-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.wb-nav-n {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-nav-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.wb-nav.on .wb-nav-hint { color: rgba(26, 111, 219, 0.72); }
+
+/* 事务面板入口和上面五项分开。它去的是另一个界面，
+   不是这一页里的一栏——**不该看着像同一组东西**。 */
+.wb-nav.legacy {
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding-top: 14px;
+}
+
+.wb-main {
+  min-width: 0;
+  padding: 18px 22px 40px;
+  overflow: auto;
+}
+
+/* ---------- 会话两栏 ---------- */
+
+.wb-chat {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  height: calc(100vh - 60px - 58px);
+}
+
+@media (max-width: 980px) {
+  .wb-chat { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .wb-conv { max-height: 240px; }
+}
+
+.wb-conv {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.wb-conv-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: background var(--dur) var(--ease);
+}
+
+.wb-conv li + li .wb-conv-item { border-top: 1px solid var(--line); }
+.wb-conv-item:hover { background: var(--surface-2); }
+.wb-conv-item.on { background: var(--brand-soft); }
+
+/* 会话列表里的头像回到正常文档流——ChatAvatar 默认是绝对定位的，
+   那是为了浮在气泡外面，在这里会脱离行内布局 */
+.wb-conv-item .cav { position: static; }
+
+.wb-conv-text { min-width: 0; flex: 1 1 auto; display: block; }
+
+.wb-conv-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.wb-conv-top em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* 最后一条消息只留一行。**换行会让每一项高度不一**，
+   一列参差不齐的卡片比截断更难扫 */
+.wb-conv-last {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+  flex: none;
+}
+
+.wb-thread {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 320px;
+}
+
+.wb-thread-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 4px;
+}
+
+.wb-empty {
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 13.5px;
+  line-height: 1.9;
+  color: var(--muted);
+}
+
+.wb-houses { display: grid; gap: 16px; }
+
+.wb-main .record-head .cav { position: static; }

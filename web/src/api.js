@@ -129,7 +129,8 @@ export const api = {
   // ---------------- 预约 ----------------
   listAppointments: (houseNo) =>
     request(`/api/appointments?${toQuery({ house_no: houseNo })}`),
-  myAppointments: () => request('/api/appointments/mine'),
+  myAppointments: (side = '') =>
+    request(`/api/appointments/mine?${toQuery({ side })}`),
   updateAppointment: (id, status, reply = '') =>
     request(`/api/appointments/${id}`, {
       method: 'PATCH',

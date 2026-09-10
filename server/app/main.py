@@ -1498,12 +1498,36 @@ def list_appointments(
 
 
 @app.get("/api/appointments/mine")
-def my_appointments(user: User = Depends(require_login),
+def my_appointments(side: Literal["", "tenant", "landlord"] = "",
+                    user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
     """我的预约：我提交的，加上我名下房源收到的（K-13）。
 
     不再按角色二选一——房东升级前约看过的房，升级后仍然是他的预约。
+
+    `side` 同 contracts/mine（D3）：个人中心问「我约了谁」，
+    工作台问「谁约了我」。**这是两份清单**——前者我在等回话，
+    后者等着我回话，能做的动作正好相反。
     """
+    if side == "tenant":
+        stmt = select(Appointment).where(Appointment.tenant_id == user.id)
+        rows = session.scalars(
+            stmt.order_by(Appointment.viewing_time.desc())).all()
+        return _appointment_page(session, user, rows)
+
+    if side == "landlord":
+        house_ids = [row[0] for row in session.execute(
+            select(House.id).where(House.landlord_id == user.id)).all()]
+        delegated = select(HouseDelegation.house_id).where(
+            HouseDelegation.agent_id == user.id,
+            HouseDelegation.status == "active")
+        stmt = select(Appointment).where(
+            or_(Appointment.house_id.in_(house_ids or [-1]),
+                Appointment.house_id.in_(delegated)))
+        rows = session.scalars(
+            stmt.order_by(Appointment.viewing_time.desc())).all()
+        return _appointment_page(session, user, rows)
+
     if user.role == "admin":
         stmt = select(Appointment)
     else:
@@ -1519,7 +1543,15 @@ def my_appointments(user: User = Depends(require_login),
                 Appointment.house_id.in_(delegated)))
 
     rows = session.scalars(stmt.order_by(Appointment.viewing_time.desc())).all()
-    # 联系方式按窗口给（J-07）。房源一次性取回来，避免每行查一次
+    return _appointment_page(session, user, rows)
+
+
+def _appointment_page(session, user, rows):
+    """把预约列表转成响应体。
+
+    联系方式按窗口给（J-07）。房源**一次性取回来**，
+    不在循环里逐行查——五十条预约就是五十次往返。
+    """
     houses = {h.id: h for h in session.scalars(select(House).where(
         House.id.in_({a.house_id for a in rows} or {-1}))).all()}
     return {"total": len(rows),
