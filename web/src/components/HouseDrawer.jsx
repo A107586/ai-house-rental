@@ -273,6 +273,22 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
               {landlord.avg_repair_hours !== null &&
                 <span>报修平均 {landlord.avg_repair_hours} 小时处理</span>}
             </div>
+
+            {/* 租客写给这个房东的话。**分数说明不了「他哪里好」**——
+                4.5 分和 4.2 分之间没什么可判断的，而「押金一周退到账」
+                和「报修拖了三周」是完全不同的两个房东。 */}
+            {landlord.comments?.length > 0 && (
+              <ul className="ld-says">
+                {landlord.comments.map((c, i) => (
+                  <li key={i}>
+                    <span className="ld-says-who">
+                      {c.name} · {c.rating} 分 · {c.created_at}
+                    </span>
+                    {c.content}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

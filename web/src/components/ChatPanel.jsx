@@ -556,7 +556,17 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       if (messages[i].items?.length) {
         const nos = messages[i].items.map((h) => h.house_no)
-        return houseNo ? [houseNo, ...nos.filter((n) => n !== houseNo)] : nos
+        // **不能把当前房源插到队首。**
+        //
+        // 原来是 [houseNo, ...其余]，用意是「从房源页打开助手时，
+        // 『这套』该指它」。可这么一插，整份列表的下标全体后移一位：
+        // 屏幕上标着 1 的那套，助手数出来是第 2 套。用户说「介绍下第一套」，
+        // 拿到的是他压根没在列表里看见的另一套房——
+        // **这正是「名字和序号对不上」的来源。**
+        //
+        // 「这套」指当前房源这件事另有出路：`house_no` 已经随请求
+        // 单独传给了后端，指代解析在那边处理，不该靠篡改列表顺序实现。
+        return houseNo && !nos.includes(houseNo) ? [...nos, houseNo] : nos
       }
     }
     return houseNo ? [houseNo] : []
@@ -578,7 +588,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setError('')
 
     try {
-      const res = await api.agentChat(content, sessionId, history, houseNos, pending)
+      const res = await api.agentChat(content, sessionId, history, houseNos,
+                                     pending, { seen: houseNos.length, houseNo })
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -602,10 +613,41 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         return
       }
 
+      // 翻页：接在上一批后面，不另起一列。
+      //
+      // 另起一列的话序号会从 1 重新数——用户刚记住的「第 3 套」
+      // 换成了另一套房，而 `last_house_nos` 也只剩新的这一批，
+      // 「介绍下第二套」会指到错的地方。
+      if (res.append && (res.items || []).length) {
+        setMessages((prev) => {
+          const next = [...prev]
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].items?.length) {
+              const have = new Set(next[i].items.map((h) => h.house_no))
+              next[i] = {
+                ...next[i],
+                items: [...next[i].items,
+                        ...res.items.filter((h) => !have.has(h.house_no))],
+                total: res.total || next[i].total,
+              }
+              break
+            }
+          }
+          return [...next, { role: 'assistant', content: res.message || '' }]
+        })
+        setBusy(false)
+        return
+      }
+
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: res.message || '（没有返回内容）',
         items: res.items || [],
+        // 库里一共有多少套。「还有几套」要拿它算，不能拿手上这批算
+        total: res.total || 0,
+        // 助手挑出来的那一套，列表里给它一个标记——
+        // 光在文字里说「我推荐第 6 套」，用户还得自己往下数
+        recommended: res.recommended || null,
         notes: res.notes || [],
         intent: res.intent,
         ok: res.ok,
@@ -935,9 +977,17 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
               {message.items?.length > 0 && (
                 <div className="bubble-items">
-                  {message.items.slice(0, 5).map((house, i) => (
+                  {/* **列出智能体给的全部，不再只切前 5 条。**
+                      它说「我最推荐第 6 套」，界面上却只有 5 行——
+                      用户找不到第 6 套，也点不开它。序号是助手和用户之间
+                      唯一的共同坐标，一边数 10 个一边显示 5 个，
+                      这个坐标就失效了。 */}
+                  {message.items.map((house, i) => (
                     <button
-                      className="mini-house"
+                      className={`mini-house${
+                        message.recommended
+                        && message.recommended.house_no === house.house_no
+                          ? ' picked' : ''}`}
                       key={house.house_no}
                       onClick={() => onOpenHouse(house)}
                     >
@@ -948,9 +998,13 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                       </span>
                     </button>
                   ))}
-                  {message.items.length > 5 && (
+                  {/* 「还有几套」算的是**库里还剩多少**，不是「我藏了几套」。
+                      原来写的是 items.length - 5：那 5 套早就传过来了，
+                      说「还有 5 套」既不准（实际还有 51 套），
+                      也让人以为要再点一次才看得到已经在手上的东西。 */}
+                  {message.total > message.items.length && (
                     <div className="mini-more">
-                      还有 {message.items.length - 5} 套，说「再多看几套」
+                      还有 {message.total - message.items.length} 套，说「再多看几套」
                     </div>
                   )}
                 </div>

@@ -418,13 +418,18 @@ export const api = {
 
   // AI-09 多轮对话。history 是未登录时的兜底：
   // 登录用户的上下文存在后端，未登录用户由前端自己带着走。
-  agentChat: (text, sessionId, history = [], lastHouseNos = [], pending = null) =>
+  agentChat: (text, sessionId, history = [], lastHouseNos = [], pending = null,
+              extra = {}) =>
     post(agentUrl('/agent/chat'), {
       text,
       session_id: sessionId,
       token: getToken(),
       history,
       last_house_nos: lastHouseNos,
+      // 已经列出来几套（翻页要接着往下数），以及用户此刻打开的那一套
+      // （「这套」指它，不指列表第一条）
+      seen: extra.seen || 0,
+      house_no: extra.houseNo || '',
       // 上一轮没做完的代办：助手问了哪个槽、已经填了什么、
       // 或者已经摆出的确认卡片。服务端不存会话态，由前端带着走。
       pending,

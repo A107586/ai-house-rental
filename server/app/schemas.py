@@ -236,6 +236,11 @@ class ReviewCreate(BaseModel):
     rating: int = Field(ge=1, le=5)
     rating_house: int = Field(default=0, ge=0, le=5)
     rating_landlord: int = Field(default=0, ge=0, le=5)
+    # 0 = 这一栏没评。不是「0 分」——聚合时要能区分「评了很差」
+    # 和「没评」，两者混在一起算出来的均分没有意义
+    rating_agent: int = Field(default=0, ge=0, le=5)
+    content_landlord: str = Field(default="", max_length=300)
+    content_agent: str = Field(default="", max_length=300)
     content: str = Field(default="", max_length=500)
     # C1：实拍图。**上限写在 schema 里而不是只在前端拦**——
     # 前端的 6 张限制是体验，后端的 6 张限制才是约束

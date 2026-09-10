@@ -445,3 +445,25 @@ def _review_images(connection, engine):
     NULL 还得多写一个 IS NOT NULL。
     """
     _add_column(connection, engine, "reviews", "images", "TEXT DEFAULT ''")
+
+
+@step("0015", "评价表：中介评分与分对象留言")
+def _review_subjects(connection, engine):
+    """评价从「只评房子」扩到「房源 / 房东 / 中介」三个对象。
+
+    四列都可空、默认 0 或空串：存量评价一条也不用回填——
+    它们本来就没有中介这一栏，补一个 0 正好表示「没评」。
+    `agent_id` 加索引是因为中介档案页要按它反查「评我的那些评价」，
+    这是一句会被反复执行的等值查询。
+    """
+    _add_column(connection, engine, "reviews", "rating_agent",
+                "INTEGER DEFAULT 0")
+    _add_column(connection, engine, "reviews", "agent_id", "INTEGER")
+    _add_column(connection, engine, "reviews", "content_landlord",
+                "TEXT DEFAULT ''")
+    _add_column(connection, engine, "reviews", "content_agent",
+                "TEXT DEFAULT ''")
+    if _table_exists(engine, "reviews"):
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_reviews_agent "
+            "ON reviews (agent_id)"))

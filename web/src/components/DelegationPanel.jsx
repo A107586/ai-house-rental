@@ -328,6 +328,12 @@ export default function DelegationPanel({ houses = [] }) {
                     <div className="ac-meta">
                       <span>在托 {a.in_progress} 套</span>
                       <span>累计成交 {a.deal_total} 单</span>
+                      {/* 租客评分。**一定连样本量一起给**——
+                          「5.0 分」后面是 1 条还是 40 条，
+                          对「要不要把房子交给他」是两回事 */}
+                      {a.rated_count > 0
+                        ? <span>租客评分 {a.rating}（{a.rated_count} 条）</span>
+                        : <span className="muted">暂无租客评价</span>}
                       {covers && <em className="ac-cover">覆盖该房源所在区</em>}
                     </div>
 

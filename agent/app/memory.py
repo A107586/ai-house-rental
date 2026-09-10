@@ -16,6 +16,8 @@
   只有在已经有对应槽位时才成立。这是多轮记忆最能体现价值的一类。
 """
 
+import re
+
 from app.agents.property_finder.tools.parse_query import parse_query
 
 # 明确要求从头开始。命中后此前所有槽位作废。
@@ -264,31 +266,127 @@ def describe(slots, features):
 # 指代消解
 # ------------------------------------------------------------------
 
-ORDINALS = (("第一", 0), ("第二", 1), ("第三", 2), ("第四", 3), ("第五", 4),
-            ("第1", 0), ("第2", 1), ("第3", 2), ("第4", 3), ("第5", 4),
-            ("头一", 0), ("最后", -1))
+# 序数词 → 下标。
+#
+# **原来是一张写死的表，只到「第五」。** 而搜索一次返回 10 套、
+# 界面也列 10 套，助手自己还会说「我最推荐第 6 套」——用户照着这句话
+# 回一句「看看第六套」，表里查不到，被当成一次新的搜索，
+# 回一句「没听懂你的找房需求」。
+#
+# 往表里继续加「第六」「第七」不解决问题，只是把墙往后挪：翻页之后
+# 列表会到第 20 套、第 30 套。所以改成**解析数字本身**——
+# 中文数字和阿拉伯数字都认，多长都认。
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9}
 
-# 「那套」「这个」指代上一轮结果里的第一套
+_ORDINAL_RE = re.compile(r"第\s*([0-9]+|[零一二两三四五六七八九十]+)\s*(?:套|个|条|间|号)?")
+
+
+def _cn_number(raw):
+    """把「十二」「二十」「三」这类写法读成整数。读不出来返回 None。
+
+    只处理 100 以内：**序号超过两位数就不是人在数东西了**，
+    多半是把电话号码或价格里的数字误认成了序号。
+    """
+    raw = (raw or "").strip()
+    if raw.isdigit():
+        value = int(raw)
+        return value if 0 < value <= 99 else None
+    if "十" not in raw:
+        total = 0
+        for ch in raw:
+            if ch not in _CN_DIGITS:
+                return None
+            total = total * 10 + _CN_DIGITS[ch]
+        return total or None
+    head, _, tail = raw.partition("十")
+    tens = _CN_DIGITS.get(head, 1) if head else 1
+    ones = 0
+    if tail:
+        if tail not in _CN_DIGITS:
+            return None
+        ones = _CN_DIGITS[tail]
+    value = tens * 10 + ones
+    return value if 0 < value <= 99 else None
+
+
+def ordinal_indexes(text):
+    """一句话里出现的全部序号，按出现顺序返回下标（从 0 起）。
+
+    「最后」「头一」这两个不是数字，单独认。
+    """
+    raw = text or ""
+    found = []
+    for match in _ORDINAL_RE.finditer(raw):
+        value = _cn_number(match.group(1))
+        if value:
+            found.append((match.start(), value - 1))
+    for word, index in (("头一", 0), ("最后", -1)):
+        if word in raw:
+            found.append((raw.index(word), index))
+    found.sort(key=lambda pair: pair[0])
+    return [index for _, index in found]
+
+
+# 序号越界的哨兵。用一个独有的对象而不是字符串或 None——
+# 它要能和「真的没解析出来」区分开，也不可能和任何房源编号相等。
+OUT_OF_RANGE = object()
+
+# 「那套」「这个」：有当前房源就指它，否则指上一轮结果里的第一套
 DEICTIC = ("那套", "这套", "那个", "这个", "刚才那", "刚说的")
 
 
-def resolve_house(text, last_house_nos):
+# 房源编号：DL 加四位数字。**用户会直接把编号打出来**——
+# 助手自己在每句话里都带着「（DL0041）」，他照抄一个再问下去是最自然的
+# 反应。原来只认「第几套」和「这套」，于是「DL0041 评价怎么样」
+# 解析不出任何房源，被当成一次新的找房请求。
+_HOUSE_NO_RE = re.compile(r"(?<![A-Za-z0-9])(DL\s*[0-9]{3,6})(?![0-9])", re.IGNORECASE)
+
+
+def house_no_in(text):
+    """从一句话里认出房源编号。认不出返回空串。
+
+    大小写和中间的空格都放过：用户打的是「dl 0041」也该认。
+
+    边界不能用 `\b`：中文在 Unicode 下也算词字符，「0041评价」的
+    数字和汉字之间**没有词边界**，一加 `\b` 就整句匹配不上——
+    而「dl0041评价怎么样」恰恰是最常见的问法。
+    """
+    match = _HOUSE_NO_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(1).replace(" ", "").upper()
+
+
+def resolve_house(text, last_house_nos, current=None):
     """把「第二套」「那套」解析成房源编号。
 
     上一轮的结果由前端回传——前端本来就持有展示状态，
     智能体不必为了指代消解再存一份可能过期的列表。
+
+    `current` 是用户此刻打开着的那套房。**「这套」优先指它**：
+    从房源详情页唤起助手时，屏幕上占满整页的就是这一套，
+    这时候把「这套」解释成列表里的第一条，是在跟用户看到的东西对着干。
+
+    序号越界返回 `OUT_OF_RANGE` 而不是 None：两者都是「解析不出来」，
+    但**该说的话完全不同**——「第二十套」要回「只有 10 套」，
+    没说序号才该退回去问条件。混成一个返回值，上层就分不清了。
     """
-    if not last_house_nos:
-        return None
     text = text or ""
-    for word, index in ORDINALS:
-        if word in text:
-            try:
-                return last_house_nos[index]
-            except IndexError:
-                return None
+    # 直接打出来的编号最明确，优先于序号与指代
+    typed = house_no_in(text)
+    if typed:
+        return typed
+    indexes = ordinal_indexes(text)
+    if indexes:
+        if not last_house_nos:
+            return None
+        try:
+            return last_house_nos[indexes[0]]
+        except IndexError:
+            return OUT_OF_RANGE
     if any(word in text for word in DEICTIC):
-        return last_house_nos[0]
+        return current or (last_house_nos[0] if last_house_nos else None)
     return None
 
 
@@ -304,11 +402,8 @@ def resolve_houses(text, last_house_nos):
     """
     if not last_house_nos:
         return []
-    raw = text or ""
     seen = []
-    for word, index in sorted(
-            ((w, i) for w, i in ORDINALS if w in raw),
-            key=lambda pair: raw.index(pair[0])):
+    for index in ordinal_indexes(text):
         try:
             house_no = last_house_nos[index]
         except IndexError:

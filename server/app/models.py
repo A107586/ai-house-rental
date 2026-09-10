@@ -629,6 +629,12 @@ class Contract(Base):
 
     house: Mapped["House"] = relationship(lazy="selectin")
     bills: Mapped[list["Bill"]] = relationship(back_populates="contract")
+    # 受托中介。**必须写明 foreign_keys**：这张表上有三个指向 users 的
+    # 外键（tenant_id / landlord_id / agent_id），不指定的话
+    # SQLAlchemy 无从判断该走哪一个，映射直接报错。
+    # selectin 是因为「待评价」列表要逐条读中介名，懒加载会变成 N+1
+    agent: Mapped["User"] = relationship(foreign_keys=[agent_id],
+                                         lazy="selectin")
 
     @property
     def days_left(self):
@@ -670,6 +676,10 @@ class Contract(Base):
                                if self.deposit_refund is not None else None),
             "signed_at": self.signed_at.strftime("%Y-%m-%d %H:%M") if self.signed_at else "",
             "review_result": self.review_summary,
+            # 这份合同有没有中介参与。评价表单靠它决定要不要显示
+            # 「中介」那一栏——没中介却摆一排星星，用户会以为漏填了什么
+            "agent_id": self.agent_id,
+            "agent_name": mask_name(self.agent) if self.agent else "",
         }
 
 
@@ -936,6 +946,24 @@ class Review(Base):
     # 分项评分，便于展示「房源真实度」「房东响应」这类维度
     rating_house: Mapped[int] = mapped_column(Integer, default=0)
     rating_landlord: Mapped[int] = mapped_column(Integer, default=0)
+    # 受托中介的评分。**和房源评分必须分开。**
+    #
+    # 中介的口碑原来是拿这套房的总体评分算的，可这两件事经常相反：
+    # 房子采光差、隔音烂，中介带看准时、协调修东西很上心——
+    # 把房源的 2 分算到他头上，他做得再好也翻不了身；反过来
+    # 房子好中介失约，也会给他一个他不配的高分。
+    #
+    # 0 表示这一栏没评（没有中介参与，或租客跳过了）。评分聚合时
+    # 一律过滤掉 0，不能当成「0 分」拉低均值
+    rating_agent: Mapped[int] = mapped_column(Integer, default=0)
+    # 这份合同当时的受托中介。**在评价上冗余一份，不靠合同去 join。**
+    # 委托关系会解除、会换人，而「这条评价评的是谁」是当时就定死的事实
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                          index=True)
+    # 分开写给房东、写给中介的话。挤进同一个 content 里，
+    # 房东概要页展示时就得原样把评中介的那半句也贴出去
+    content_landlord: Mapped[str] = mapped_column(Text, default="")
+    content_agent: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")
     # C1：随评价上传的实拍图，存 JSON 数组（最多 6 张）。
     #
@@ -950,7 +978,15 @@ class Review(Base):
     # 用户申诉时也拿不出原文。前台查询一律过滤掉非空的记录。
     deleted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
-    tenant: Mapped["User"] = relationship(lazy="selectin")
+    # **加了 agent_id 之后这两个都必须写明 foreign_keys。**
+    # reviews 表现在有两个外键指向 users（tenant_id / agent_id），
+    # SQLAlchemy 无从判断 `tenant` 该走哪一个，映射在**第一次真正使用时**
+    # 才抛 AmbiguousForeignKeysError——import 阶段是过得去的，
+    # 所以「导入成功」证明不了映射是好的。
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id],
+                                          lazy="selectin")
+    agent: Mapped["User"] = relationship(foreign_keys=[agent_id],
+                                         lazy="selectin")
 
     def to_dict(self):
         name = ""
@@ -962,6 +998,9 @@ class Review(Base):
             "rating": self.rating,
             "rating_house": self.rating_house,
             "rating_landlord": self.rating_landlord,
+            "rating_agent": self.rating_agent,
+            "content_landlord": self.content_landlord or "",
+            "content_agent": self.content_agent or "",
             "content": self.content,
             "images": self.image_list(),
             "tenant_name": name,

@@ -59,6 +59,7 @@
 从「危险」变成了「可以试」。
 """
 
+from app import memory
 from app.agents.support.tools import actions, classify_ask
 from app.llm.base import LLMUnavailable
 
@@ -124,6 +125,8 @@ SERVICE_HINTS = {
     "contract_review": "用户要你审阅合同正文：有没有坑、条款有没有风险",
     "describe_house": "用户指着已经列出来的某一套问「介绍一下」「怎么样」"
                       "「值不值」——他要的是判断，不是再看一遍清单",
+    "house_reviews": "用户问某一套房的租后评价、评分、口碑、有没有人住过",
+    "landlord_reviews": "用户问某一套房的房东怎么样、房东口碑、房东靠不靠谱",
     "compare_houses": "用户要在已经列出来的两套之间比较、问哪个好、哪个划算",
 }
 
@@ -133,13 +136,31 @@ SERVICE_HINTS = {
 _COMPARE_WORDS = ("对比", "比较", "哪个好", "哪套好", "哪个划算", "哪套划算",
                   "哪个值", "选哪个", "选哪套", "哪个更", "哪套更", "差别",
                   "区别")
+# 「看看」单独出现不算——「看看有什么房源」是找房。但它要先过
+# `_refers_to_house`，句子里已经指着某一套了，这时的「看看第六套」
+# 只可能是要讲解。界面上那句「还有 5 套」旁边用户最常打的就是这句。
 _DESCRIBE_WORDS = ("介绍", "讲讲", "说说", "详细说", "怎么样", "咋样",
-                   "好不好", "值不值", "值得", "看看这套", "多讲")
+                   "好不好", "值不值", "值得", "看看", "多讲", "详情")
 
 # 指代：这句话在指着列表里的某一套。没有指代就不是讲解/对比——
 # 「哪个好」也可能是在问「押一付三和押一付六哪个好」这种规则问题。
-_REFERS = ("第一", "第二", "第三", "第四", "第五", "这套", "那套", "这个房",
-           "那个房", "这间", "上面", "1号", "2号", "第1", "第2", "第3")
+#
+# 序号不再写死。**这里曾经只列到「第五」**，而助手自己会说
+# 「我最推荐第 6 套」；用户回一句「看看第六套」，这张表认不出指代，
+# 于是整句被当成一次新的找房请求，回一句「没听懂你的找房需求」。
+# 同一张写死的表在 memory 和 house.py 里各有一份，三处都得改——
+# 所以统一改成调 `memory.ordinal_indexes()` 解析数字，只留非数字的说法。
+_REFERS = ("这套", "那套", "这个房", "那个房", "这间", "上面", "1号", "2号")
+
+
+def _refers_to_house(raw):
+    return bool(memory.ordinal_indexes(raw)) or any(w in raw for w in _REFERS)
+
+# 问的是租后评价。**和「介绍一下」是两件事**：介绍出自房源字段，
+# 评价出自住过的人，后者才是他真正拿不到、也最想要的那部分。
+_REVIEW_HOUSE_WORDS = ("评价", "评分", "口碑", "住过", "有人租过",
+                       "好评", "差评", "打分", "几分", "靠谱", "靠不靠谱",
+                       "人怎么样")
 
 # 「帮我看看合同有没有坑」——既有「合同」又有「帮我看看」，
 # 不单独认出来就会被判成「查我的租约」，答出一份合同清单，
@@ -161,16 +182,24 @@ def _rule_service(question):
 
     # 讲解与对比都必须**指着某一套**。少了这个条件，「押一付三和
     # 押一付六哪个好」这种规则问题会被拽进对比，而它该走知识库。
-    if any(word in raw for word in _REFERS):
+    if _refers_to_house(raw):
+        # **评价要排在讲解前面。** 「第一套评价怎么样」里的「怎么样」
+        # 是讲解词，先判讲解就会答出一段户型朝向的推销词——
+        # 用户问的是别人住过之后怎么说，那是这套房**唯一不由房东撰写**
+        # 的一段信息，拿别的东西顶替它等于把问题吃掉了。
+        if any(word in raw for word in _REVIEW_HOUSE_WORDS):
+            # 问的是房东还是房子？**同一句「评价怎么样」，
+            # 主语不同答案完全不同**——房子好房东差是很常见的组合
+            if any(word in raw for word in ("房东", "业主")):
+                return "landlord_reviews"
+            return "house_reviews"
         if any(word in raw for word in _COMPARE_WORDS):
             return "compare_houses"
         if any(word in raw for word in _DESCRIBE_WORDS):
             return "describe_house"
     # 两个序号同时出现，本身就是在要对比：「第一套第二套哪个好」
     # 里「哪个好」已经被上面吃掉了，但「第一套和第二套呢」没有动词。
-    hits = [w for w in ("第一", "第二", "第三", "第1", "第2", "第3")
-            if w in raw]
-    if len(hits) >= 2:
+    if len(memory.ordinal_indexes(raw)) >= 2:
         return "compare_houses"
     return ""
 

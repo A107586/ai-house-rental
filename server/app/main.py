@@ -42,7 +42,8 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
                         Message, Notice, OperationLog, Payment, Refund, Repair,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
-                        RepairWorker, Review, SystemConfig, User)
+                        RepairWorker, Review, SystemConfig, User,
+                        mask_name)
 from app import (config_store, idcard, map_service, moderation, oplog,
                  pricing,
                  ratelimit,
@@ -613,11 +614,16 @@ def house_landlord(house_no: str, session: Session = Depends(get_session)):
     rented = session.scalar(select(func.count(House.id)).where(
         House.landlord_id == landlord.id, House.status == "rented")) or 0
 
-    # 评价按房东名下所有房源汇总，单套房的评价太少，说明不了什么
-    ratings = session.scalars(select(Review.rating_landlord).join(
+    # 评价按房东名下所有房源汇总，单套房的评价太少，说明不了什么。
+    # **取整条记录而不是只取分数**：分数说明不了「他哪里好」，
+    # 而租客决定要不要跟这个房东打交道时，看的正是那几句话
+    landlord_reviews = session.scalars(select(Review).join(
         House, Review.house_id == House.id).where(
         House.landlord_id == landlord.id,
-        Review.rating_landlord > 0)).all()
+        Review.rating_landlord > 0,
+        Review.deleted_at.is_(None))
+        .order_by(Review.created_at.desc())).all()
+    ratings = [r.rating_landlord for r in landlord_reviews]
 
     # 处理速度用「已结案工单的平均耗时」衡量。这是租客最关心的一项——
     # 房子出问题时，房东多久会管
@@ -635,6 +641,15 @@ def house_landlord(house_no: str, session: Session = Depends(get_session)):
         "rented_count": rented,
         "review_count": len(ratings),
         "rating": round(sum(ratings) / len(ratings), 1) if ratings else 0,
+        # 最近三条写给房东的话。**只取写了字的**——
+        # 一串「（未填写）」比没有这一栏更让人怀疑
+        "comments": [
+            {"name": mask_name(r.tenant) if r.tenant else "租客",
+             "rating": r.rating_landlord,
+             "content": r.content_landlord.strip(),
+             "created_at": r.created_at.strftime("%Y-%m-%d")}
+            for r in landlord_reviews if (r.content_landlord or "").strip()
+        ][:3],
         # 小时数取整到 0.5，精确到分钟既没意义也显得可疑
         "avg_repair_hours": (round(sum(spans) / len(spans) * 2) / 2
                              if spans else None),
@@ -1334,15 +1349,30 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
             images.append(url)
     images = images[:6]
 
-    review_fields = {"评价内容": payload.content}
+    # 三段文字一起送审。**漏掉任何一段，敏感词就从那一段流出去了**——
+    # 「对中介说」和「对房源说」在审核面前没有区别
+    review_fields = {"评价内容": payload.content,
+                     "对房东的评价": payload.content_landlord,
+                     "对中介的评价": payload.content_agent}
     verdict = moderate(review_fields, scene="review")
+
+    # 中介评分只在这份合同确实有受托中介时才收。
+    # 没有中介却给了分，那个分落不到任何人头上，还会让「多少人评过我」
+    # 这类统计对不上账
+    agent_id = contract.agent_id
+    rating_agent = payload.rating_agent if agent_id else 0
+    content_agent = payload.content_agent if agent_id else ""
 
     review = Review(
         contract_id=contract.id, house_id=contract.house_id,
         tenant_id=user.id, rating=payload.rating,
         rating_house=payload.rating_house or payload.rating,
         rating_landlord=payload.rating_landlord or payload.rating,
+        rating_agent=rating_agent,
+        agent_id=agent_id,
         content=payload.content,
+        content_landlord=payload.content_landlord,
+        content_agent=content_agent,
         images=json.dumps(images, ensure_ascii=False) if images else "")
     session.add(review)
     session.flush()

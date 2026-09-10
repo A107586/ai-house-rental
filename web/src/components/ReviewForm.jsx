@@ -30,7 +30,13 @@ export default function ReviewForm({ contract, onDone }) {
   const [rating, setRating] = useState(0)
   const [house, setHouse] = useState(0)
   const [landlord, setLandlord] = useState(0)
+  // 中介那一栏只在这份合同确实有中介时才出现。没有中介却摆一排星星，
+  // 用户会以为自己漏填了什么，评完的分也落不到任何人头上
+  const [agent, setAgent] = useState(0)
   const [content, setContent] = useState('')
+  const [toLandlord, setToLandlord] = useState('')
+  const [toAgent, setToAgent] = useState('')
+  const hasAgent = Boolean(contract.agent_id)
   const [shots, setShots] = useState([])
   const [uploading, setUploading] = useState('')
   const [error, setError] = useState('')
@@ -89,7 +95,10 @@ export default function ReviewForm({ contract, onDone }) {
         rating,
         rating_house: house,
         rating_landlord: landlord,
+        rating_agent: hasAgent ? agent : 0,
         content,
+        content_landlord: toLandlord,
+        content_agent: hasAgent ? toAgent : '',
         images: shots,
       })
       onDone()
@@ -114,16 +123,45 @@ export default function ReviewForm({ contract, onDone }) {
         <Stars label="总体" value={rating} onPick={setRating} />
         <Stars label="房源" value={house} onPick={setHouse} />
         <Stars label="房东" value={landlord} onPick={setLandlord} />
+        {hasAgent && (
+          <Stars label={`中介${contract.agent_name ? `（${contract.agent_name}）` : ''}`}
+                 value={agent} onPick={setAgent} />
+        )}
 
+        {/* 三段话分开写，不合成一段。
+            合成一段的话，房东概要页要展示「租客怎么评价这个房东」时，
+            只能把评中介、评房子的那半句一起贴出去。 */}
         <label className="fld" style={{ marginTop: 8 }}>
-          <span>说点什么（可选）</span>
+          <span>说说这套房（可选）</span>
           <textarea
             rows={3}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="房源与描述是否相符？房东响应是否及时？"
+            placeholder="房源与描述是否相符？隔音、采光、周边怎么样？"
           />
         </label>
+
+        <label className="fld">
+          <span>说说房东（可选）</span>
+          <textarea
+            rows={2}
+            value={toLandlord}
+            onChange={(e) => setToLandlord(e.target.value)}
+            placeholder="响应是否及时？报修处理得怎么样？押金退得顺不顺？"
+          />
+        </label>
+
+        {hasAgent && (
+          <label className="fld">
+            <span>说说中介（可选）</span>
+            <textarea
+              rows={2}
+              value={toAgent}
+              onChange={(e) => setToAgent(e.target.value)}
+              placeholder="带看是否准时？信息说得准不准？"
+            />
+          </label>
+        )}
 
         <div className="shot-pick">
           <div className="shot-pick-head">

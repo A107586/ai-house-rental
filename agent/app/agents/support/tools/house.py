@@ -29,6 +29,12 @@ ASPECTS = [
     ("orientation", ["朝向", "朝南", "采光"]),
     ("location", ["位置", "在哪", "地址", "小区", "附近"]),
     ("status", ["还在吗", "租出去了", "能租吗", "可以租吗", "有没有人租"]),
+    # 「评价怎么样」原来一个分支都不命中，于是掉进通用讲解里，
+    # 回了一段房源介绍——**问的是别人住过之后怎么说，答的是户型朝向**。
+    # 放在最后一位：它的关键词最泛（「口碑」「评分」），
+    # 排前面会把「押金评价」这种半截话也抢走
+    ("reviews", ["评价", "评分", "口碑", "住过", "怎么说", "有人租过",
+                 "好评", "差评", "打分"]),
 ]
 
 # **规则型问法**：这些词一出现，问的就是平台规则而不是这套房的属性。
@@ -41,8 +47,10 @@ _RULE_WORDS = ["怎么退", "怎么算", "怎么交", "如何", "流程", "规�
                "谁承担", "谁交", "算谁的"]
 
 # 判断这句话是不是在问「这套房」。带指代词或直接给了编号都算。
-REFERS = ["这套", "那套", "这个房", "那个房", "第一套", "第二套", "第三套",
-          "这房子", "该房源", "这间"]
+#
+# 序号从这张表里拿掉了：原来写死到「第三套」，第四套往后一律认不出来。
+# 数字交给 `memory.ordinal_indexes()` 解析，这里只留非数字的指代词。
+REFERS = ["这套", "那套", "这个房", "那个房", "这房子", "该房源", "这间"]
 
 
 def asks_about_house(text, house_no):
@@ -139,7 +147,128 @@ def describe(backend, house_no, aspect):
         label = STATUS_LABELS.get(house.get("status"), house.get("status") or "")
         return ("%s（%s）当前状态：%s。" % (name.strip(), house_no, label)), house
 
+    if aspect == "reviews":
+        return reviews(backend, house_no, name.strip()), house
+
     return "", house
+
+
+def _grade(score):
+    """把分数说成一句人话。
+
+    **不能只给「4.2 分」就完事。** 用户问的是「怎么样」，要的是一个判断，
+    而 4.2 分算好算坏，他心里并没有标尺。
+    """
+    if score >= 4.5:
+        return "很好"
+    if score >= 4.0:
+        return "不错"
+    if score >= 3.0:
+        return "一般"
+    return "偏低"
+
+
+def _quote_review(row):
+    """摘一条评价原文。**照抄不改写**——这是别人说的话，
+    替他润色一遍就不再是他说的了。"""
+    text = " ".join((row.get("content") or "").split())
+    if len(text) > 60:
+        text = text[:60] + "…"
+    return "%s（%s，%d 分）：%s" % (row.get("tenant_name") or "租客",
+                                row.get("created_at") or "",
+                                int(row.get("rating") or 0), text)
+
+
+def landlord_reviews(backend, house_no, name):
+    """这套房的房东口碑。
+
+    和房源评价分开答：**「房子怎么样」和「房东怎么样」是两个问题**，
+    而租客最怕的那类事（报修不管、押金不退）全在后一个问题里。
+    数据来自房东概要接口，它按这个房东名下**所有**房源汇总——
+    单套房的两三条评价说明不了任何事。
+    """
+    try:
+        data = backend.get("/api/houses/%s/landlord" % house_no)
+    except Exception:                                        # noqa: BLE001
+        return "房东信息暂时取不到，稍后再问我一次。"
+    if not isinstance(data, dict):
+        return "房东信息暂时取不到，稍后再问我一次。"
+
+    count = int(data.get("review_count") or 0)
+    parts = ["%s的房东是%s，%s加入平台。"
+             % (name, data.get("name") or "（未公开）",
+                data.get("joined_at") or "")]
+    if data.get("verified"):
+        parts.append("已完成实名。")
+    if count:
+        score = float(data.get("rating") or 0)
+        parts.append("%d 位租客给他打了分，平均 %.1f，%s。"
+                     % (count, score, _grade(score)))
+    else:
+        parts.append("还没有租客评价过他。")
+
+    hours = data.get("avg_repair_hours")
+    if hours is not None:
+        # 报修响应是房东口碑里**唯一可量化**的一项，比任何形容词都硬
+        parts.append("名下报修平均 %s 小时处理完。" % _fmt(hours))
+
+    for row in (data.get("comments") or [])[:2]:
+        text = " ".join((row.get("content") or "").split())
+        if not text:
+            continue
+        if len(text) > 60:
+            text = text[:60] + "…"
+        parts.append("%s（%s 分）：%s" % (row.get("name") or "租客",
+                                      row.get("rating") or 0, text))
+    return " ".join(parts)
+
+
+def reviews(backend, house_no, name):
+    """这套房的租后评价。
+
+    三条自我约束：
+
+    - **一条评价都没有时要说「还没有」，不能沉默。** 空着退回一段房源
+      介绍，用户会以为助手没听懂；说「还没人评价过」他才知道该实地看房。
+    - **差评一起说。** 只挑好评念是把这一栏变成广告位，
+      而看房的人当场就能验证——骗到一次，以后这行字就没人看了。
+    - **数字从字段里取，不经过大模型。** 平均分错一位，
+      整段话就从「懂行」变成「不可信」。
+    """
+    try:
+        data = backend.get("/api/houses/%s/reviews" % house_no)
+    except Exception:                                        # noqa: BLE001
+        return "评价暂时取不到，稍后再问我一次。"
+    rows = (data or {}).get("list") or []
+    if not rows:
+        return ("%s（%s）还没有人评价过——这套房要么刚上架，"
+                "要么还没有租客住满一期。没有评价不代表不好，"
+                "但更建议实地看一次。" % (name, house_no))
+
+    average = float((data or {}).get("average") or 0)
+    good = [r for r in rows if int(r.get("rating") or 0) >= 4]
+    bad = [r for r in rows if int(r.get("rating") or 0) <= 2]
+
+    parts = ["%s（%s）共 %d 条评价，平均 %.1f 分，%s。"
+             % (name, house_no, len(rows), average, _grade(average))]
+    if good:
+        parts.append("%d 条给了 4 分以上。" % len(good))
+    if bad:
+        # 差评条数单独说。埋进平均分里等于没说——4.2 分背后是
+        # 「全是 4 分」还是「一片 5 分加两个 1 分」，
+        # 对「要不要去看这套房」是完全不同的信息
+        parts.append("有 %d 条 2 分及以下。" % len(bad))
+
+    # 各摘一条原文，**先说差的**：好话用户默认会有，
+    # 真正影响决定的是那条不好的
+    quoted = [r for r in bad if (r.get("content") or "").strip()][:1]
+    quoted += [r for r in good if (r.get("content") or "").strip()][:1]
+    parts.extend(_quote_review(row) for row in quoted)
+
+    shots = sum(len(r.get("images") or []) for r in rows)
+    if shots:
+        parts.append("其中 %d 张实拍图，点开房源详情能看。" % shots)
+    return " ".join(parts)
 
 
 # ---------------------------------------------------------------- 「我要租」

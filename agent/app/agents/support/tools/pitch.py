@@ -307,28 +307,31 @@ def compare(backend, houses):
             "best": best,
         })
 
+    # **对比正文里一律不写序号，只写名字。**
+    #
+    # `houses` 是被挑出来对比的那两三套，它们在这个列表里的位次
+    # （1、2）和用户屏幕上搜索结果里的位次（可能是 3、5）不是一回事。
+    # 写「第 1 套更便宜」，而用户问的是「第三套和第五套哪个好」——
+    # 又一次把同一套房换了个号码。序号只在搜索结果那一屏里有意义。
     lines = []
     cheap = min(houses, key=lambda h: _num(h.get("rent_price"), 1e9))
     big = max(houses, key=lambda h: _num(h.get("area")))
     if cheap is big:
-        lines.append("%s 又便宜又大，这一组里它占优。"
-                     % (cheap.get("house_no") or ""))
+        lines.append("%s 又便宜又大，这一组里它占优。" % _name(cheap))
     else:
         gap = _num(big.get("rent_price")) - _num(cheap.get("rent_price"))
         area_gap = _num(big.get("area")) - _num(cheap.get("area"))
         lines.append(
             "%s 每月便宜 %s 元，%s 多出 %s 平米——多花的钱买的就是这点空间。"
-            % (cheap.get("house_no") or "", _money(gap),
-               big.get("house_no") or "", _money(area_gap)))
-        lines.append("预算紧就看 %s，两个人住、东西多就看 %s。"
-                     % (cheap.get("house_no") or "", big.get("house_no") or ""))
+            % (_name(cheap), _money(gap), _name(big), _money(area_gap)))
+        lines.append("预算紧就看%s，两个人住、东西多就看%s。"
+                     % (_name(cheap), _name(big)))
 
     # 各自最拿得出手的一条
     for house in houses:
         good = highlights(house)
         if good:
-            lines.append("%s 的长处：%s。" % (house.get("house_no") or "",
-                                          good[0]))
+            lines.append("%s 的长处：%s。" % (_name(house), good[0]))
 
     return " ".join(lines), {"rows": rows, "houses": houses}
 
@@ -456,12 +459,37 @@ def _order_of(houses, house):
     return 0
 
 
-def _where(houses, house):
-    return "第 %d 套（%s）" % (_order_of(houses, house),
-                            house.get("house_no") or "")
+def _name(house):
+    """一套房在对话里怎么称呼。
+
+    **用户看得见的是小区名，不是编号。** 列表里写着「沙河口区黑石礁
+    一室一厅 46平」，对比表里却只写 DL0041，同一套房换了个叫法，
+    用户得自己在两者之间连线。编号仍然给——报给客服、发起预约时要用它——
+    但放进括号里，让人先认出是哪一套。
+    """
+    title = (house.get("title") or "").strip()
+    no = (house.get("house_no") or "").strip()
+    if title and no:
+        return "%s（%s）" % (title, no)
+    return title or no
 
 
-def lead_line(houses, features=None):
+def _where(houses, house, offset=0):
+    """「第 N 套 小区名（编号）」。三种叫法合成一种，别让用户来回换算。
+
+    `offset` 是这一批在整份列表里的起点。翻到第二页时，这批的第 1 条
+    在用户屏幕上是第 11 条——**序号必须按屏幕上的数，不是按这批的数**，
+    否则「我最推荐第 5 套」指着的是用户眼里的第 15 套。
+    """
+    order = _order_of(houses, house)
+    name = _name(house)
+    if not order:
+        return name
+    order += offset
+    return "第 %d 套 %s" % (order, name) if name else "第 %d 套" % order
+
+
+def lead_line(houses, features=None, offset=0):
     """摆在结果前面的那一句「我最推荐哪一套」。
 
     分不出高下时**不沉默**，改说「这两套各强在哪」。
@@ -478,15 +506,15 @@ def lead_line(houses, features=None):
 
     top, second = scored[0], scored[1]
     if top[0] - second[0] >= MIN_MARGIN and top[1]:
-        return "这几套里我最推荐%s：%s。" % (_where(houses, top[2]),
+        return "这几套里我最推荐%s：%s。" % (_where(houses, top[2], offset),
                                     "；".join(top[1][:2]))
 
     if not top[1] or not second[1]:
         return ""
-    return ("%s和%s差不多，%s胜在%s，%s胜在%s，看你更在意哪一头。"
-            % (_where(houses, top[2]), _where(houses, second[2]),
-               (top[2].get("house_no") or ""), top[1][0],
-               (second[2].get("house_no") or ""), second[1][0]))
+    return ("%s和%s差不多，前者胜在%s，后者胜在%s，看你更在意哪一头。"
+            % (_where(houses, top[2], offset),
+               _where(houses, second[2], offset),
+               top[1][0], second[1][0]))
 
 
 # ---------------------------------------------------------------- 推荐词

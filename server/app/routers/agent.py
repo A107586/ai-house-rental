@@ -480,7 +480,19 @@ def agent_stats(session, agent_id):
         reviews = session.scalars(select(Review).where(
             Review.contract_id.in_(contract_ids),
             Review.deleted_at.is_(None))).all()
-    good = len([r for r in reviews if r.rating >= 4])
+
+    # **好评率按「评中介的那一栏」算，不再拿房源总体评分顶替。**
+    #
+    # 原来用的是 `r.rating`——那是对这套房的总体评价。房子采光差、
+    # 隔音烂，中介带看准时、协调修东西很上心，他照样被算成差评；
+    # 反过来房子好中介失约，他也能白得一个高分。**这个数字原本
+    # 度量的根本不是他的服务。**
+    #
+    # 只统计真的评了中介的那些（rating_agent > 0）。没评的不能当 0 分：
+    # 那是「没说」，不是「很差」。
+    rated = [r for r in reviews if (r.rating_agent or 0) > 0]
+    good = len([r for r in rated if r.rating_agent >= 4])
+    agent_scores = [r.rating_agent for r in rated]
 
     return {
         "active_delegations": active,
@@ -493,7 +505,13 @@ def agent_stats(session, agent_id):
         # 放鸽子率要单列。这个数高通常说明预约确认流程有问题，
         # 不是中介的服务质量问题——两者必须能分开看
         "no_show": _ratio(no_show, recent_viewings),
-        "praise": _ratio(good, len(reviews)),
+        "praise": _ratio(good, len(rated)),
+        # 评过他的有几个人。**好评率必须和样本量一起给**——
+        # 「100% 好评（1 条）」和「92% 好评（48 条）」不是一回事，
+        # 只给百分比会让前者看起来更强
+        "rated_count": len(rated),
+        "rating": (round(sum(agent_scores) / len(agent_scores), 1)
+                   if agent_scores else 0),
         "commission_pending": sum(float(c.amount) for c in commissions
                                   if c.status == "pending"),
         "commission_settled": sum(float(c.amount) for c in commissions
@@ -934,6 +952,11 @@ def agent_directory(keyword: str = "", district: str = "",
             "reasons": reasons,
             "in_progress": stats["active_delegations"],
             "deal_total": stats["deal_total"],
+            # 租客给他打的分，与撮合评分 score 分开列。
+            # **score 是平台算的（活跃度、成交量、负载），rating 是人评的**，
+            # 混成一个数字，房东就分不清「平台推荐他」和「租客喜欢他」
+            "rating": stats["rating"],
+            "rated_count": stats["rated_count"],
         })
 
     # 按评分降序。同分按 user_id，保证顺序稳定——

@@ -23,6 +23,7 @@ from app.agents.repair import agent as repair
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
 from app.agents.support.tools import greeting
+from app.agents.support.tools import house as house_tool
 from app.agents.support.tools import pitch
 from app.agents.support.tools import router as support_router
 from app.agents.viewing import agent as viewing
@@ -66,8 +67,18 @@ class ChatRequest(BaseModel):
     session_id: str = ""
     token: str = ""
     history: list[str] = []
-    # 上一轮结果的房源编号，用于消解「第二套」「那套」这类指代
+    # 上一轮结果的房源编号，用于消解「第二套」「那套」这类指代。
+    # **顺序必须和用户屏幕上看到的一致**：序号是双方唯一的共同坐标
     last_house_nos: list[str] = []
+    # 已经看过几套（翻页用）。前端把当前列表的长度回传上来——
+    # 服务端不存会话态，「接着往下翻」这件事只能由持有列表的一方来说。
+    seen: int = 0
+    # 用户此刻正打开的那套房（从房源详情页唤起助手时才有）。
+    #
+    # 单开一个字段，而不是把它插进 last_house_nos 的队首。插队首会让
+    # 整份列表的下标后移一位——屏幕上标着 1 的那套，助手数出来是第 2 套。
+    # 「这套」指哪一套和「第几套」是两个问题，用两个字段回答。
+    house_no: str = ""
 
 
 class SupportRequest(BaseModel):
@@ -458,6 +469,15 @@ def agent_chat(payload: ChatRequest):
         routed = dict(routed, intent="search", carried_over=True,
                       reason="承接上文的找房需求")
 
+    # 「再多看几套」里一个筛选条件都没有，`continues_search` 认不出来
+    # （它要求「确实说出了可执行的条件变化」，这句话没有）。
+    # 但只要上文在找房，它就只可能是在翻页——**这是界面亲口教用户说的话，
+    # 必须认得**。放在上面那条之后：它是承接的一种特例，不是新需求。
+    if intent != "search" and slots and _wants_more(payload.text):
+        intent = "search"
+        routed = dict(routed, intent="search", carried_over=True,
+                      reason="承接上文，翻下一批")
+
     # 关键词表没认出来，就问一句规则解析器：**这句话里有没有找房的条件？**
     #
     # 实测「金州区三千以内的两室」被判成 unknown，回了一句「没太理解你
@@ -491,6 +511,21 @@ def agent_chat(payload: ChatRequest):
                                 result.get("message", ""), payload.token,
                                 intent=intent)
     return result
+
+
+# 一次给几套。**这个数字同时是三件事的口径**：搜索取几条、
+# 界面列几条、助手说「第几套」时数到几——三者必须是同一个数。
+PAGE_SIZE = 10
+
+# 「再多看几套」的各种说法。写成前缀匹配而不是精确相等：
+# 界面上印的是「再多看几套」，但人打字时会写成「多看几套」「还有呢」
+_WANT_MORE = ("再多看几套", "多看几套", "再看几套", "再来几套", "还有别的",
+              "还有其他", "还有呢", "下一页", "换一批", "再换一批",
+              "更多房源", "看更多")
+
+
+def _wants_more(text):
+    return any(word in (text or "") for word in _WANT_MORE)
 
 
 # 「你看着办」型的找房请求。这类话里一个可解析的条件都没有，
@@ -546,6 +581,12 @@ def _serve(decision, payload, routed):
     if name == "describe_house":
         return _describe_house(payload, routed, decision)
 
+    if name == "house_reviews":
+        return _house_reviews(payload, routed, decision)
+
+    if name == "landlord_reviews":
+        return _house_reviews(payload, routed, decision, subject="landlord")
+
     if name == "compare_houses":
         return _compare_houses(payload, routed, decision)
 
@@ -554,7 +595,7 @@ def _serve(decision, payload, routed):
     return None
 
 
-def _push_recommendation(result, features):
+def _push_recommendation(result, features=None, offset=0):
     """结果出来之后**主动多说一句**：这几套里哪一套最值得先看，
     以及接下来可以说什么。
 
@@ -575,7 +616,7 @@ def _push_recommendation(result, features):
     if result.get("status") != "found" or len(items) < 2:
         return
 
-    lead = pitch.lead_line(items, features)
+    lead = pitch.lead_line(items, features, offset=offset)
     if lead:
         result["message"] = "%s %s" % (result.get("message", ""), lead)
         result["recommended"] = pitch.best_of(items, features)[0]
@@ -614,10 +655,27 @@ def _no_reference(routed, decision, what):
     }
 
 
+def _out_of_range(routed, decision, count):
+    """用户说了个不存在的序号。**要说清楚有几套**——
+    回一句「没听懂」会让人以为是自己表达有问题，其实是数字超了。"""
+    return {
+        "intent": "support", "status": "answered", "ok": True,
+        "route": routed, "route_source": decision["source"],
+        "alternatives": [],
+        "message": ("这一组我只列了 %d 套，没有你说的那一套。"
+                    "说个 1 到 %d 之间的序号，或者说「再多看几套」。"
+                    % (count, count)),
+    }
+
+
 def _describe_house(payload, routed, decision):
     """讲解某一套。"""
-    resolved = memory.resolve_house(payload.text, payload.last_house_nos)
-    target = resolved or (payload.last_house_nos or [None])[0]
+    resolved = memory.resolve_house(payload.text, payload.last_house_nos,
+                                    payload.house_no)
+    if resolved is memory.OUT_OF_RANGE:
+        return _out_of_range(routed, decision, len(payload.last_house_nos))
+    target = resolved or payload.house_no or (payload.last_house_nos
+                                              or [None])[0]
     rows = _fetch_houses([target]) if target else []
     if not rows:
         return _no_reference(routed, decision, "介绍")
@@ -632,6 +690,41 @@ def _describe_house(payload, routed, decision):
         # 讲完就给下一步。用户听完「适合谁」之后最想做的就是这两件事，
         # 让他再打一遍字是白白丢掉一次转化。
         "options": ["帮我约看房", "收藏这套", "看看类似的"],
+    }
+
+
+def _house_reviews(payload, routed, decision, subject="house"):
+    """某一套房的租后评价。
+
+    单独成一路，不并进讲解：**讲解出自房源字段，评价出自住过的人**。
+    前者由房东填写，后者是这套房唯一不由卖方撰写的信息——
+    用户问「评价怎么样」而得到一段户型朝向的推销词，
+    等于把他最想要的那部分吃掉了。
+    """
+    resolved = memory.resolve_house(payload.text, payload.last_house_nos,
+                                    payload.house_no)
+    if resolved is memory.OUT_OF_RANGE:
+        return _out_of_range(routed, decision, len(payload.last_house_nos))
+    target = resolved or payload.house_no or (payload.last_house_nos
+                                              or [None])[0]
+    rows = _fetch_houses([target]) if target else []
+    if not rows:
+        return _no_reference(routed, decision, "查评价")
+
+    house = rows[0]
+    name = "%s %s" % (house.get("community") or "", house.get("layout") or "")
+    if subject == "landlord":
+        message = house_tool.landlord_reviews(backend_client,
+                                              house["house_no"], name.strip())
+    else:
+        message = house_tool.reviews(backend_client, house["house_no"],
+                                     name.strip())
+    return {
+        "intent": "support", "status": "answered", "ok": True,
+        "route": routed, "route_source": decision["source"],
+        "alternatives": [], "message": message,
+        "house_no": house.get("house_no"),
+        "options": ["介绍下这套", "帮我约看房", "看看类似的"],
     }
 
 
@@ -671,7 +764,12 @@ def _dispatch(payload, routed, intent, slots, feats):
     #
     # 房源编号在这里就要解析好——「第一套帮我预约看房」里的「第一套」
     # 只有结合上一轮的搜索结果才还原得出来，而代办层拿不到那份上下文。
-    resolved_house = memory.resolve_house(text, payload.last_house_nos)
+    resolved_house = memory.resolve_house(text, payload.last_house_nos,
+                                          payload.house_no)
+    # 序号超了就当没解析出来，交给客服层去问「哪一套」。
+    # **不能把哨兵原样传下去**——它不是编号，会被当成房源号拿去查库
+    if resolved_house is memory.OUT_OF_RANGE:
+        resolved_house = None
     decision = support_router.route(text, provider=provider,
                                     history=list(payload.history or []),
                                     pending=payload.pending)
@@ -779,9 +877,23 @@ def _dispatch(payload, routed, intent, slots, feats):
         merged, features, notes = memory.apply_turn(
             slots, feats, text, filters=cur_filters, feats=cur_features)
 
+        # 「再多看几套」——**这句话原来是界面上一句没人接的空话。**
+        #
+        # 列表底下印着「还有 51 套，说『再多看几套』」，用户照做，
+        # 却走进了普通的找房分支：这句话里一个条件都解析不出来，
+        # 于是回一句「没听懂你的找房需求」。**在界面上教用户说的话，
+        # 代码里必须有人接。**
+        more = _wants_more(text)
+        page = 1
+        if more and slots:
+            # 接着上一批往下翻。条件用合并后的 merged——它是历史轮次
+            # 重放出来的，正是上一批用的那一组
+            page = max(1, int(payload.seen or 0) // PAGE_SIZE + 1)
+
         result = property_finder.run(text, provider=provider,
                                      filters=merged, features=features,
-                                     source=source)
+                                     source=source, page=page,
+                                     limit=PAGE_SIZE)
 
         # 一个条件都没说、而话里又在要推荐 —— 给推荐，别把问题推回去。
         if result.get("status") == "unparsed" and _wants_recommendation(text):
@@ -793,6 +905,19 @@ def _dispatch(payload, routed, intent, slots, feats):
         result["context"] = merged
         result["context_text"] = memory.describe(merged, features)
         result["notes"] = notes
+        result["page"] = page
+        if page > 1:
+            # 追加而不是另起一列。**序号必须接着数下去**——
+            # 翻一页就从 1 重新数，用户刚记住的「第 3 套」就换了一套房
+            result["append"] = True
+            start = int(payload.seen or 0) + 1
+            end = start + len(result.get("items") or []) - 1
+            if end >= start:
+                result["message"] = ("接着往下，第 %d–%d 套（共 %d 套）。"
+                                     % (start, end, result.get("total") or 0))
+            else:
+                result["message"] = ("没有更多了，这 %d 套就是全部符合条件的。"
+                                     % (result.get("total") or 0))
         # 大模型改了规则的哪些字段。答辩时能当场展示「规则说什么、
         # 模型改了什么」，比只给一个最终结果有说服力。
         result["divergence"] = divergence
@@ -801,7 +926,9 @@ def _dispatch(payload, routed, intent, slots, feats):
             result["message"] = "（延续上文：%s）%s" % (
                 result["context_text"], result.get("message", ""))
 
-        _push_recommendation(result, features)
+        # 翻页时序号要接着上一批数下去
+        _push_recommendation(result, features,
+                             offset=int(payload.seen or 0) if page > 1 else 0)
         return result
 
     if intent == "contract":
@@ -854,7 +981,14 @@ def _dispatch(payload, routed, intent, slots, feats):
     if intent == "booking":
         # 统一入口本来拿不到房源编号，多轮会话下可以从「第二套」
         # 这类指代里还原出来，省掉用户回头去翻列表的一步
-        house_no = memory.resolve_house(text, payload.last_house_nos)
+        house_no = memory.resolve_house(text, payload.last_house_nos,
+                                        payload.house_no)
+        if house_no is memory.OUT_OF_RANGE:
+            # 约看房说错序号必须当场纠正。让它退化成「没指定房源」，
+            # 用户就会拿到一份选房列表，而**他刚才明明已经指了一套**，
+            # 只是指错了——不说破，他会以为助手没听见
+            return _out_of_range(routed, {"source": "rules"},
+                                 len(payload.last_house_nos))
         result = booking.run(text, house_no=house_no, taken=[])
         result["route"] = routed
         if house_no:
