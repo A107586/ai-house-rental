@@ -42,24 +42,88 @@ class UpgradeCase(ApiTestCase):
 
 class TestUpgrade(UpgradeCase):
 
-    def test_tenant_becomes_landlord(self):
+    def approve_latest(self):
+        """以管理员身份批掉最新一条待审申请，返回审核响应。"""
+        admin = make_admin(self.client, "root_rr")
+        queue = self.client.get("/api/admin/role-requests",
+                                headers=admin).json()["list"]
+        self.assertTrue(queue, "提交之后队列里应该有一条待审")
+        return self.client.post("/api/admin/role-requests/%d" % queue[0]["id"],
+                                headers=admin, json={"action": "approve"})
+
+    def test_submit_creates_pending_request(self):
+        """D1：提交之后**不当场变角色**，先进待审队列。
+
+        这条断言在 D1 之前是反的（原来直接返回 user.role == landlord）。
+        改的是产品规则不是实现细节，所以测试跟着改，
+        而不是想办法让老断言继续通过。
+        """
         response = self.upgrade()
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["user"]["role"], "landlord")
+        body = response.json()
+        self.assertTrue(body["pending"])
+        self.assertEqual(body["request"]["status"], "pending")
+        self.assertEqual(body["request"]["target_role"], "landlord")
+        # 角色没动：在审的这段时间他仍然是租客
+        me = self.client.get("/api/auth/me", headers=self.tenant).json()
+        self.assertEqual(me["role"], "tenant")
 
-    def test_can_publish_after_upgrading(self):
-        """升级的意义就在这里：之前发不了房源，现在发得了。"""
+    def test_submitting_twice_does_not_queue_twice(self):
+        """重复点击不该攒出两条待审——管理员会看到同一个人排两次。"""
+        self.upgrade()
+        second = self.upgrade()
+        self.assertEqual(second.status_code, 200, second.text)
+        admin = make_admin(self.client, "root_dup")
+        queue = self.client.get("/api/admin/role-requests",
+                                headers=admin).json()["list"]
+        mine = [r for r in queue if r["username"] == "tenant1"]
+        self.assertEqual(len(mine), 1, mine)
+
+    def test_cannot_publish_while_pending(self):
+        """**待审期间发不了房源。** 这是审核这道闸的全部意义所在——
+        闸门放在那里却拦不住人，等于没有审核。"""
+        self.upgrade()
+        blocked = self.client.post("/api/houses", headers=self.tenant, json={
+            "title": "待审期间的房源", "district": "中山区",
+            "rent_price": 2600, "area": 70})
+        self.assertEqual(blocked.status_code, 403, blocked.text)
+
+    def test_can_publish_after_approval(self):
+        """升级的意义就在这里：批准之前发不了房源，批准之后发得了。"""
         before = self.client.post("/api/houses", headers=self.tenant, json={
             "title": "升级前的房源", "district": "中山区",
             "rent_price": 2600, "area": 70})
         self.assertEqual(before.status_code, 403)
 
         self.upgrade()
+        reviewed = self.approve_latest()
+        self.assertEqual(reviewed.status_code, 200, reviewed.text)
+        self.assertEqual(reviewed.json()["request"]["status"], "approved")
 
         after = self.client.post("/api/houses", headers=self.tenant, json={
             "title": "升级后的房源", "district": "中山区",
             "rent_price": 2600, "area": 70})
         self.assertEqual(after.status_code, 200, after.text)
+
+    def test_reject_requires_a_reason(self):
+        """驳回必须写理由。只说「不通过」等于让用户去猜该补什么。"""
+        self.upgrade()
+        admin = make_admin(self.client, "root_rej")
+        queue = self.client.get("/api/admin/role-requests",
+                                headers=admin).json()["list"]
+        rid = queue[0]["id"]
+        blank = self.client.post("/api/admin/role-requests/%d" % rid,
+                                 headers=admin, json={"action": "reject"})
+        self.assertEqual(blank.status_code, 422, blank.text)
+
+        done = self.client.post("/api/admin/role-requests/%d" % rid,
+                                headers=admin,
+                                json={"action": "reject",
+                                      "note": "请补充房产证"})
+        self.assertEqual(done.status_code, 200, done.text)
+        # 驳回之后仍是租客
+        me = self.client.get("/api/auth/me", headers=self.tenant).json()
+        self.assertEqual(me["role"], "tenant")
 
     def test_token_still_works(self):
         """**不吊销令牌。** 角色变了但还是同一个人。
