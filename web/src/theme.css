@@ -3045,30 +3045,42 @@
 }
 
 /* C5：返回键。圆圈 + 一个 ‹，不带文字。 */
+/* D4：返回键要显眼。
+   原来是 28px 的白底描边小圆圈，和旁边的标题一样轻，扫过去看不见——
+   而它是这一页唯一的退路。加大到 36、给品牌色底与阴影，
+   让它**看起来像个可以按下去的东西**。 */
 .back-round {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   flex: none;
-  border: 1px solid var(--line);
+  border: none;
   border-radius: 50%;
-  background: #fff;
-  color: var(--ink-2);
-  font-size: 17px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 21px;
+  font-weight: 600;
   line-height: 1;
   /* ‹ 这个字形本身偏右，往左挪一点才在圆心上 */
-  padding: 0 2px 2px 0;
+  padding: 0 3px 2px 0;
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease),
-              color var(--dur) var(--ease),
-              background var(--dur) var(--ease);
+  box-shadow: 0 1px 3px rgba(15, 32, 56, 0.12);
+  transition: background var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              transform var(--dur) var(--ease);
 }
 
 .back-round:hover {
-  border-color: var(--brand);
-  color: var(--brand);
-  background: var(--brand-soft);
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 3px 8px -2px rgba(26, 111, 219, 0.5);
+}
+
+.back-round:active { transform: scale(0.94); }
+
+@media (prefers-reduced-motion: reduce) {
+  .back-round:active { transform: none; }
 }
 
 /* 返回键排到标题最前面 */
@@ -3745,3 +3757,44 @@
 
 .rc-note { margin: 9px 0 0; font-size: 12.5px; color: var(--ink-2); }
 .rc-warn { margin: 5px 0 0; font-size: 12.5px; color: var(--warn); line-height: 1.8; }
+
+
+
+/* ============================================================
+   F2. 地图收起 = 把地方让出来
+   ============================================================ */
+
+@media (min-width: 1120px) {
+  /* 收起时回到单栏：房源栅格铺满整行，地图退成最上面一条细带。
+     **不做成悬浮球**——悬浮球要盖在内容上，而这一页右下角已经有
+     「租房助手」了；再多一个圆球，两个都会变得难认。 */
+  .list-layout.map-closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list-layout.map-closed > .map-panel {
+    position: static;
+    max-height: none;
+    /* 排到列表前面：它是「要不要换个方式找」的入口，
+       不是看完房源之后才想起来的东西 */
+    order: -1;
+    margin-bottom: 14px;
+  }
+
+  /* 收起状态下的那一条：矮、横排、右边一个「展开」 */
+  .list-layout.map-closed > .map-panel .map-panel-head {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+}
+
+/* 收起时标题那一行要读得出「点这里会展开地图」。
+   只留一个「展开」两个字太含糊——展开什么？ */
+.map-panel:not(.open) .map-panel-sub { color: var(--muted); }
+
+.map-panel-arrow {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--brand);
+  flex: none;
+}

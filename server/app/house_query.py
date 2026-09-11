@@ -13,6 +13,8 @@
   查得到就说明匹配。**匹配用的是同一条 SQL，不可能和列表页说法不一致。**
 """
 
+import re
+
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import Float, cast, func, literal, or_, select
@@ -118,6 +120,51 @@ def _as_bool(value):
     return None
 
 
+# 关键词要搜的字段。**标签和房源编号原先不在里面**，
+# 于是「有电梯的」搜不到（电梯在 tags 里），直接贴一个「DL0041」也搜不到。
+_KEYWORD_COLUMNS = ("title", "description", "community", "address",
+                    "business_area", "tags", "house_no", "layout",
+                    "district", "orientation")
+
+# 切词用的分隔符。中文不靠空格断句，但用户输入时常常自己加空格或标点
+# 来分隔几个条件（「桂林街 两室」「中山区,电梯」）。
+_SPLIT = re.compile(r"[\s,，、;；/|]+")
+
+
+def _apply_keyword(stmt, raw):
+    """普通关键词检索：多个词之间是**且**的关系。
+
+    原先是把整串话直接 LIKE 一遍。于是「桂林街 两室」一条也搜不出来——
+    没有任何一个字段同时包含这两个词加中间那个空格。而用户输入两个词，
+    意思显然是「两个都要满足」，不是「有这么一整串字符」。
+
+    现在按分隔符切开，**每个词各自在所有字段里找一遍，词与词之间取交集**：
+
+        桂林街 两室  →  (任一字段含「桂林街」) 且 (任一字段含「两室」)
+
+    切不出多个词时（纯中文没有空格）就退回整串匹配，行为和以前一致。
+
+    为什么不上分词器：房源字段是短文本，用户输入也短，
+    切词切错的代价（搜不到）比不切大。**空格是用户自己给的信号**，
+    顺着它走最稳妥。
+    """
+    words = [w for w in _SPLIT.split(raw.strip()) if w]
+    if not words:
+        return stmt
+    for word in words[:6]:      # 超过六个词基本是粘贴了一整段话，截断
+        like = "%" + word + "%"
+        any_field = None
+        for name in _KEYWORD_COLUMNS:
+            column = getattr(House, name, None)
+            if column is None:
+                continue
+            clause = column.like(like)
+            any_field = clause if any_field is None else (any_field | clause)
+        if any_field is not None:
+            stmt = stmt.where(any_field)
+    return stmt
+
+
 def _as_number(value):
     try:
         return float(value)
@@ -153,11 +200,7 @@ def apply_filters(stmt, params, today=None):
         stmt = stmt.where(column >= number if op == "ge" else column <= number)
 
     if get("keyword"):
-        like = "%" + str(get("keyword")) + "%"
-        stmt = stmt.where(House.title.like(like) | House.description.like(like)
-                          | House.community.like(like)
-                          | House.address.like(like)
-                          | House.business_area.like(like))
+        stmt = _apply_keyword(stmt, str(get("keyword")))
 
     if get("orientation"):
         stmt = stmt.where(House.orientation == get("orientation"))

@@ -204,6 +204,15 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
+  // D1/D2：从哪一层打开的房源详情。
+  //
+  // 面板原先只有「开」和「全关」两种动作：在个人中心里点开一套房，
+  // 代码顺手 `setShowMine(false)` 把个人中心也关了；关掉详情之后
+  // 用户回到的是首页，而他明明是从「我的收藏」进去的——
+  // **回不去意味着他得从头再点一遍**：个人中心 → 收藏 → 往下翻。
+  //
+  // 记一个来处就够了，不必上完整的路由栈：详情之上不会再叠第三层。
+  const [cameFrom, setCameFrom] = useState('')
 
   /** F3/F4：经纪人与管理员登录后直接进各自的后台。
    *
@@ -451,6 +460,19 @@ export default function App() {
    * 再补一句「桂林街」，想要的显然是在刚才的结果里缩小，而不是
    * 把区和户型都丢掉。
    */
+  /** 跳转并回到页面顶部（D3）。
+   *
+   * 单纯换路由不会动滚动位置——这在从页脚跳转时尤其别扭：
+   * 用户滚到底才看见那几个入口，点完停在新页面的底部。
+   *
+   * 用 `auto` 不用 `smooth`：这是一次换页，不是同一页里的移动。
+   * 平滑滚动会让人以为页面还是刚才那一页，只是往上挪了挪。
+   */
+  function goTop(name, param) {
+    go(name, param)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
   function byKeyword(word) {
     const next = { ...filters, keyword: (word || '').trim() }
     if (!next.keyword) delete next.keyword
@@ -918,7 +940,13 @@ export default function App() {
             原先地图是横在列表上方的折叠条，展开后把房源整体推下一屏，
             而且「看地图」和「看列表」得来回滚——**这两件事本来就该
             同时看得见**：在图上点一个区，左边列表当场变。 */}
-        <div className={isList ? 'list-layout' : ''}>
+        {/* F2：地图收起时整个布局回到单栏。
+            原先收起只是把地图内容藏了，**右边那一栏 520–620px 的宽度
+            还占着**——于是屏幕右半边空一大片，左边的房源卡片也挤在
+            原来的窄栏里不肯铺开。收起本该是「把地方让出来」。 */}
+        <div className={isList
+          ? `list-layout${showMap ? '' : ' map-closed'}`
+          : ''}>
         <div className="list-main">
 
         {/* C1 + C2：搜索框搬进左栏。
@@ -1148,7 +1176,12 @@ export default function App() {
           <ChatWithLandlord
           me={user}
           initialId={talkId}
-          onClose={() => { setShowTalk(false); setTalkId(0) }}
+          onClose={() => {
+          setShowTalk(false)
+          setTalkId(0)
+          if (cameFrom === 'mine') setShowMine(true)
+          setCameFrom('')
+          }}
           onOpenHouse={async (no) => {
           try {
           setShowTalk(false)
@@ -1176,6 +1209,8 @@ export default function App() {
           // 不清掉的话，他下次从右下角的按钮打开助手，问的每一句话
           // 仍然挂在半小时前那套房上——「帮我收藏」收的是那一套。
           setChatHouseNo('')
+          if (cameFrom === 'mine') setShowMine(true)
+          setCameFrom('')
           }}
           />
         </Suspense>
@@ -1210,9 +1245,13 @@ export default function App() {
           <nav className="foot-links" aria-label="页脚导航">
             <div className="foot-col">
               <h4>找房</h4>
-              <button onClick={() => go('list', 'all')}>全部房源</button>
-              <button onClick={() => go('list', 'latest')}>最新发布</button>
-              <button onClick={() => go('list', 'featured')}>优选好房</button>
+              {/* D3：从页脚跳过去要**回到顶部**。
+                  用户是滚到页面最底下才看到这几个入口的，点完页面换了
+                  但滚动位置没动，他看到的是新页面的底部——一片页脚，
+                  而他刚点的是「全部房源」。第一反应是「没反应」。 */}
+              <button onClick={() => goTop('list', 'all')}>全部房源</button>
+              <button onClick={() => goTop('list', 'latest')}>最新发布</button>
+              <button onClick={() => goTop('list', 'featured')}>优选好房</button>
             </div>
             <div className="foot-col">
               <h4>我的</h4>
@@ -1261,14 +1300,18 @@ export default function App() {
           <HouseDrawer
           onOpenHouse={(house) => go('house', house.house_no)}
           onAskAssistant={(house) => {
-          // 关掉详情再开助手：两个抽屉叠着会互相盖住
+          // D2：关掉详情再开助手——两个抽屉叠着会互相盖住。
+          // **但只关详情，不动背景**：原先这里还 `go('home')`，
+          // 于是用户从列表页点进一套房、再点「问助手」，
+          // 关掉助手之后人在首页，刚才那一页搜索结果全没了。
           setChatHouseNo(house.house_no)
-          go('home', '', true)
+          setCameFrom(showMine ? 'mine' : '')
+          back()
           setShowChat(true)
           }}
           onTalk={(id) => {
-          // 从房源详情发起咨询：关掉详情、打开会话面板并定位到这条
-          go('home', '', true)
+          // D2：同上——只关详情，背景留在原处
+          back()
           setTalkId(id)
           setShowTalk(true)
           }}
@@ -1279,7 +1322,14 @@ export default function App() {
           demandText={searched}
           favorited={favorites.includes(selected.house_no)}
           onToggleFavorite={toggleFavorite}
-          onClose={back}
+          // D1：关掉详情要**回到打开它的那一层**，不是一路回首页。
+          // 从「我的收藏」点进来的，关掉就该重新看到收藏列表——
+          // 否则用户得重走一遍：个人中心 → 收藏 → 往下翻到刚才那个位置。
+          onClose={() => {
+          back()
+          if (cameFrom === 'mine') setShowMine(true)
+          setCameFrom('')
+          }}
           />
         </Suspense>
       )}
@@ -1317,6 +1367,9 @@ export default function App() {
           loadPage(1, true, conditions)
           }}
           onOpenHouse={(house) => {
+          // 记住是从个人中心进来的。**自己不关**——关了的话
+          // 用户关掉详情就回到首页，而他是从收藏列表点进来的
+          setCameFrom('mine')
           setShowMine(false)
           go('house', house.house_no)
           }}
