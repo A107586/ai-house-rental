@@ -3,6 +3,9 @@ import { api } from '../api'
 import ChatAvatar from './ChatAvatar'
 
 const MapFinder = lazy(() => import('./MapFinder'))
+const LandlordPanel = lazy(() => import('./LandlordPanel'))
+const AgentPanel = lazy(() => import('./AgentPanel'))
+const AdminPanel = lazy(() => import('./AdminPanel'))
 
 /**
  * 房东 / 中介工作台（F1）。
@@ -19,15 +22,22 @@ const MapFinder = lazy(() => import('./MapFinder'))
  * 左栏竖排能一屏列完全部功能，当前位置一直可见——这是所有后台
  * 都长成这样的原因，不是审美偏好。
  *
- * ## 「只有沟通管理」这条边界怎么落
+ * ## 全部功能都在一级，没有「再打开一个面板」
  *
- * 验收意见是「中介和房东应只有沟通管理功能」。按字面把发布房源、
- * 合同、工单、佣金全删掉，房东就没法上架房子了——那不是收窄，是拆功能。
+ * 第一版把事务性功能（发布房源、合同、工单、佣金）留在原面板，
+ * 左栏最下方给一个「房源与账目」入口。验收意见明确否了这个做法：
+ * **所有功能都要在一级界面**。
  *
- * 所以这里的做法是：**新工作台只装「与人打交道」的四件事**——
- * 会话、预约、带看、客户；其余的事务性功能仍留在原来的面板里，
- * 从最下面那个入口进。工作台答「谁在等我回话」，
- * 事务面板答「我的资产和账目怎么样」，两件事分开。
+ * 现在左栏一次列全：沟通类（会话、看房预约、今日带看、房源分布）
+ * 由本组件自己渲染，事务类直接嵌入原面板——
+ *
+ * **没有把三个面板重写一遍。** 每个页签下的内容都已经调好、
+ * 也都有人在用；重写只会得到两套各自漂移的逻辑，改一处忘另一处
+ * 会变成常态。面板要脱掉的只是抽屉那层壳（遮罩、关闭键、
+ * 标题、横向页签），正文原样复用，页签改由这里的左栏控制。
+ *
+ * 管理后台同样走这一套：它原来是十七个页签横向排开、多到要横滚，
+ * 左栏竖排一屏就能列完，当前位置也一直看得见。
  */
 
 const APPT_STATUS = {
@@ -52,8 +62,30 @@ function isToday(text) {
   return t >= start && t < new Date(start.getTime() + 86400000)
 }
 
-export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) {
-  const [nav, setNav] = useState('chat')
+const ROLE_TITLE = {
+  landlord: '房东工作台', agent: '中介工作台', admin: '管理后台',
+}
+
+// 本组件自己渲染的那几栏（沟通类）。其余栏目由嵌入的角色面板渲染，
+// 清单由面板通过 onSections 报上来——**计数得是面板算的那一份**，
+// 在这里再算一遍迟早会和正文对不上。
+//
+// 分角色是因为**中介面板自己就有「今日带看与联系」**，那一栏比这里的
+// 简单列表多了「房东邀请我接管」和「等我确认的预约」。两边 key 撞在
+// 一起时，过滤会把面板那一栏挤掉，中介就再也看不到邀请了——
+// 实测就是这么丢的。房东面板没有对应栏目，所以由这里补上。
+const COMM_BY_ROLE = {
+  landlord: ['chat', 'appt', 'today', 'map'],
+  agent: ['chat', 'map'],
+  admin: [],
+}
+
+export default function Workbench({ user, onClose, onOpenHouse }) {
+  const isAdmin = user.role === 'admin'
+  // 管理员没有「与租客沟通」这一路，直接从后台的第一栏开始
+  const [nav, setNav] = useState(
+    { admin: 'review', agent: 'chat', landlord: 'chat' }[user.role] || 'chat')
+  const [sections, setSections] = useState([])
   const [convs, setConvs] = useState([])
   const [activeId, setActiveId] = useState(0)
   const [lines, setLines] = useState([])
@@ -68,8 +100,7 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
   const bottomRef = useRef(null)
   const lastIdRef = useRef(0)
 
-  const isAgent = user.role === 'agent'
-  const title = isAgent ? '中介工作台' : '房东工作台'
+  const title = ROLE_TITLE[user.role] || '工作台'
 
   const loadConvs = useCallback(async () => {
     try {
@@ -95,6 +126,8 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
   }
 
   useEffect(() => {
+    // 管理员不进会话这一路，别白拉一遍
+    if (isAdmin) return
     loadConvs().then((list) => {
       if (list.length && !activeId) setActiveId(list[0].id)
     })
@@ -203,13 +236,23 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
   const today = appts.filter(
     (a) => a.status === 'confirmed' && isToday(a.viewing_time))
 
-  const NAV = [
-    { key: 'chat', label: '会话', n: unread, hint: '与租客直接沟通' },
-    { key: 'appt', label: '看房预约', n: pending.length, hint: '待我确认的申请' },
-    { key: 'today', label: '今日带看', n: today.length, hint: '今天要去的场次' },
-    { key: 'houses', label: '房源分布', hint: '名下房源与区域' },
-    { key: 'tenants', label: '客户', n: tenants.length, hint: '在租与历史租客' },
-  ]
+  // 左栏 = 沟通类（本组件渲染）+ 面板报上来的业务类。
+  //
+  // **两段拼成一条竖列，不是两条**：分成两块的话，用户要先判断
+  // 「我要找的东西属于哪一块」才知道往哪看，而他并不关心这个分界。
+  const commKeys = COMM_BY_ROLE[user.role] || []
+  const ALL_COMM = {
+    chat: { key: 'chat', label: '会话', n: unread, hint: '与租客直接沟通',
+            group: '要做的事' },
+    appt: { key: 'appt', label: '看房预约', n: pending.length,
+            hint: '待我确认的申请', group: '要做的事' },
+    today: { key: 'today', label: '今日带看', n: today.length,
+             hint: '今天要去的场次', group: '要做的事' },
+    map: { key: 'map', label: '房源分布', hint: '在地图上看铺在哪几个区',
+           group: '要做的事' },
+  }
+  const COMM = commKeys.map((k) => ALL_COMM[k])
+  const NAV = [...COMM, ...sections.filter((x) => !commKeys.includes(x.key))]
 
   const active = convs.find((c) => c.id === activeId)
 
@@ -226,27 +269,25 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
         {/* 左栏。竖排、带计数、当前项高亮——**一屏能列完，
             所以任何时候都看得见「我在哪、还有几件事等着」** */}
         <nav className="wb-rail" aria-label="工作台功能">
-          {NAV.map((item) => (
-            <button
-              key={item.key}
-              className={`wb-nav${nav === item.key ? ' on' : ''}`}
-              onClick={() => { setNav(item.key); setOk('') }}
-            >
-              <span className="wb-nav-main">
-                {item.label}
-                {item.n > 0 && <span className="wb-nav-n">{item.n}</span>}
-              </span>
-              <span className="wb-nav-hint">{item.hint}</span>
-            </button>
+          {NAV.map((item, i) => (
+            <span className="wb-nav-slot" key={item.key}>
+              {/* 组名只在换组时画一次。管理后台十七项分三组，
+                  不分组的话一整列同样大小的按钮，扫下去找不到边界 */}
+              {item.group && item.group !== NAV[i - 1]?.group && (
+                <span className="wb-rail-group">{item.group}</span>
+              )}
+              <button
+                className={`wb-nav${nav === item.key ? ' on' : ''}`}
+                onClick={() => { setNav(item.key); setOk('') }}
+              >
+                <span className="wb-nav-main">
+                  {item.label}
+                  {item.n > 0 && <span className="wb-nav-n">{item.n}</span>}
+                </span>
+                {item.hint && <span className="wb-nav-hint">{item.hint}</span>}
+              </button>
+            </span>
           ))}
-
-          {/* 事务性功能仍在原面板里。**入口摆出来，不藏**——
-              房东总要发布房源、看合同、处理工单，
-              把它们从工作台移走不等于让他找不到 */}
-          <button className="wb-nav legacy" onClick={onOpenLegacy}>
-            <span className="wb-nav-main">房源与账目</span>
-            <span className="wb-nav-hint">发布、合同、工单、佣金</span>
-          </button>
         </nav>
 
         <main className="wb-main">
@@ -359,7 +400,7 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
             />
           )}
 
-          {nav === 'houses' && (
+          {nav === 'map' && (
             <div className="wb-houses">
               {/* 地图按验收意见保留。它在这里的用处和列表页不同：
                   房东看的是**自己的房子铺在哪几个区**，
@@ -394,7 +435,46 @@ export default function Workbench({ user, onClose, onOpenHouse, onOpenLegacy }) 
             </div>
           )}
 
-          {nav === 'tenants' && (
+          {/* 业务类栏目交给原面板渲染。
+              **面板始终挂着，不随栏目切换而卸载**——卸载会让它每次
+              重新拉一遍数据，切回来还得再等一次；而且它自己维护的
+              表单草稿（发布房源填到一半）会全部丢掉。
+              不显示的时候用 hidden 藏起来就够了。 */}
+          <div className="wb-embed-host" hidden={commKeys.includes(nav)}>
+            <Suspense fallback={<div className="wb-empty">加载中…</div>}>
+              {user.role === 'landlord' && (
+                <LandlordPanel
+                  user={user} embedded
+                  onSections={setSections}
+                  activeTab={commKeys.includes(nav) ? '' : nav}
+                  onTabChange={setNav}
+                  onOpenHouse={onOpenHouse}
+                  onClose={onClose}
+                />
+              )}
+              {user.role === 'agent' && (
+                <AgentPanel
+                  user={user} embedded
+                  onSections={setSections}
+                  activeTab={commKeys.includes(nav) ? '' : nav}
+                  onTabChange={setNav}
+                  onOpenHouse={onOpenHouse}
+                  onClose={onClose}
+                />
+              )}
+              {user.role === 'admin' && (
+                <AdminPanel
+                  user={user} embedded
+                  onSections={setSections}
+                  activeTab={commKeys.includes(nav) ? '' : nav}
+                  onTabChange={setNav}
+                  onClose={onClose}
+                />
+              )}
+            </Suspense>
+          </div>
+
+          {nav === 'tenants-unused' && (
             <ul className="record-list">
               {tenants.length === 0 && (
                 <li className="wb-empty">还没有租客。签约之后会出现在这里。</li>

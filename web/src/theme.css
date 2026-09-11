@@ -3667,3 +3667,36 @@
 .wb-houses { display: grid; gap: 16px; }
 
 .wb-main .record-head .cav { position: static; }
+
+/* 嵌入整页工作台的角色面板：脱掉抽屉那层壳之后的容器。
+   宽度由工作台的内容区给，这里只负责不再自己造滚动条。 */
+.wb-embed {
+  display: block;
+  min-width: 0;
+}
+
+.wb-embed-host { min-width: 0; }
+
+/* 左栏的分组名。管理后台十七项分三组，不分组的话一整列同样大小的
+   按钮，扫下去找不到边界。 */
+.wb-nav-slot { display: contents; }
+
+.wb-rail-group {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  padding: 12px 12px 4px;
+  user-select: none;
+}
+
+/* 第一组紧贴顶部，不留那 12px */
+.wb-rail > .wb-nav-slot:first-child .wb-rail-group { padding-top: 2px; }
+
+/* 嵌入的面板里，原来为抽屉写的那几条宽度限制要让位 */
+.wb-embed .filter-bar,
+.wb-embed .record-list,
+.wb-embed .grid { max-width: none; }
+
+/* 待办条在整页里可以铺开一些 */
+.wb-main .focus-bar { margin-top: 0; }

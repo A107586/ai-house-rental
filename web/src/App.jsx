@@ -13,9 +13,6 @@ import useSearchHistory from './useSearchHistory'
 // 每块外面都要包 Suspense，否则加载那一瞬间会抛错。fallback 给的是空节点
 // 而不是转圈：这些块只有几十 KB，本地几乎瞬间到位，闪一下加载动画
 // 反而更晃眼。
-const AdminPanel = lazy(() => import('./components/AdminPanel'))
-const AgentPanel = lazy(() => import('./components/AgentPanel'))
-const LandlordPanel = lazy(() => import('./components/LandlordPanel'))
 const MyPanel = lazy(() => import('./components/MyPanel'))
 const HouseDrawer = lazy(() => import('./components/HouseDrawer'))
 const ChatPanel = lazy(() => import('./components/ChatPanel'))
@@ -203,9 +200,10 @@ export default function App() {
 
 
   const [user, setUser] = useState(null)
+  // 登录态查过了没有。首帧 user 一定是 null，但那不等于「未登录」
+  const [authReady, setAuthReady] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
-  const [showWork, setShowWork] = useState(false)
 
   /** F3/F4：经纪人与管理员登录后直接进各自的后台。
    *
@@ -220,11 +218,12 @@ export default function App() {
    */
   useEffect(() => {
     if (!user) return
-    // 管理员进抽屉式后台，中介进新的整页工作台。
+    // 中介与管理员登录后直接进各自的工作台。
     // **只在首页时才自动跳**：用户点开一套房又被弹去工作台，
     // 会以为自己点错了
-    if (user.role === 'admin') setShowWork(true)
-    else if (user.role === 'agent' && route.name === 'home') go('work', '', true)
+    if (['agent', 'admin'].includes(user.role) && route.name === 'home') {
+      go('work', '', true)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role])
 
@@ -251,7 +250,7 @@ export default function App() {
   // 任何一个抽屉/弹窗开着时都锁住背景页的滚动。
   // 不锁的话，详情开着滚轮一转，后面的列表跟着动——用户以为在翻详情，
   // 实际翻的是背景，关掉才发现滚到别处去了。
-  useScrollLock(Boolean(selected) || showMine || showWork
+  useScrollLock(Boolean(selected) || showMine
                 || showChat || showTalk || showAuth)
 
   const loadFavorites = useCallback(async () => {
@@ -353,6 +352,13 @@ export default function App() {
           loadFavorites()
         })
         .catch(() => setUser(null))
+        // **不管成没成，都要标记「查过了」。** 整页路由的权限守卫
+        // 靠它区分「还没查出来是谁」和「查出来了，没这个权限」——
+        // 不区分的话，带着有效令牌直接打开 #/work 会在首帧被踢回首页，
+        // 因为那一刻 user 还是 null
+        .finally(() => setAuthReady(true))
+    } else {
+      setAuthReady(true)
     }
     // **直接打开列表页时不要在这里取数。**
     //
@@ -600,20 +606,33 @@ export default function App() {
   // 下面的常规分支又因为 `bg.name` 是 'work' 而不认这是首页，
   // **首屏大图整块消失**，看着像页面加载了一半。
   // 退出登录、或者把 #/work 链接发给一个租客账号，都会撞上。
-  if (route.name === 'work'
-      && !(user && ['landlord', 'agent'].includes(user.role))) {
+  // 房东、中介、管理员都走整页工作台。
+  //
+  // 管理后台原来是抽屉 + 十七个横向页签，多到要横滚；改成同一套
+  // 左栏竖排之后一屏列完，当前位置也一直看得见。三个角色用同一个
+  // 外壳，是因为他们要的形态本来就是同一种：**长时间停留、
+  // 功能多、要随时知道自己在哪一栏**。
+  const WORK_ROLES = ['landlord', 'agent', 'admin']
+  const canWork = user && WORK_ROLES.includes(user.role)
+
+  // **查清楚了再踢人。** authReady 之前 user 必然是 null，
+  // 这时候判「没权限」就会把带着有效令牌直接打开 #/work 的人
+  // 在首帧弹回首页——而他明明有权限。
+  if (route.name === 'work' && authReady && !canWork) {
     go('home', '', true)
   }
 
-  if (route.name === 'work' && user
-      && ['landlord', 'agent'].includes(user.role)) {
+  if (route.name === 'work' && !authReady) {
+    return <div className="page"><div className="empty">加载中…</div></div>
+  }
+
+  if (route.name === 'work' && canWork) {
     return (
       <Suspense fallback={<div className="page"><div className="empty">加载中…</div></div>}>
         <Workbench
           user={user}
           onClose={() => go('home', '', true)}
           onOpenHouse={(no) => go('house', no)}
-          onOpenLegacy={() => { go('home', '', true); setShowWork(true) }}
         />
       </Suspense>
     )
@@ -695,13 +714,7 @@ export default function App() {
                   {['landlord', 'agent', 'admin'].includes(user.role) && (
                     <button
                       className="topnav-a"
-                      onClick={() => {
-                        // 房东与中介走新的整页工作台；管理后台还是抽屉——
-                        // 它是十七个页签的治理后台，不是沟通台，
-                        // 两者本来就不该长成一个样子
-                        if (user.role === 'admin') setShowWork(true)
-                        else go('work')
-                      }}
+                      onClick={() => go('work')}
                     >
                       {user.role === 'admin' ? '管理后台'
                         : user.role === 'agent' ? '中介工作台' : '房东工作台'}
@@ -1112,7 +1125,7 @@ export default function App() {
           说了两遍；而且一个纯色小点没有任何含义指向「这是个助手」。
           换成对话气泡里嵌两格的标记——和聊天面板里的助手头像同一个图形，
           **点开之前和点开之后看到的是同一个东西**。 */}
-      {!showChat && !showMine && !showWork && !selected && (
+      {!showChat && !showMine && !selected && (
       <button
         className="chat-fab"
         onClick={() => { setChatHouseNo(''); setShowChat(true) }}
@@ -1284,45 +1297,9 @@ export default function App() {
         </Suspense>
       )}
 
-      {showWork && user?.role === 'landlord' && (
-        <ErrorBoundary label="工作台">
-          <Suspense fallback={null}>
-            <LandlordPanel
-            user={user}
-            onClose={() => setShowWork(false)}
-            onOpenHouse={(house) => {
-            // 工作台是抽屉，房源详情也是抽屉。叠两层看不清，
-            // 所以先关掉工作台再打开房源
-            setShowWork(false)
-            go('house', house.house_no)
-            }}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-
-      {showWork && user?.role === 'agent' && (
-        <ErrorBoundary label="中介工作台">
-          <Suspense fallback={null}>
-            <AgentPanel
-            user={user}
-            onClose={() => setShowWork(false)}
-            onOpenHouse={(house) => {
-            setShowWork(false)
-            go('house', house.house_no)
-            }}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-
-      {showWork && user?.role === 'admin' && (
-        <ErrorBoundary label="管理后台">
-          <Suspense fallback={null}>
-            <AdminPanel user={user} onClose={() => setShowWork(false)} />
-          </Suspense>
-        </ErrorBoundary>
-      )}
+      {/* 三个角色的面板都搬进了整页工作台（#/work），这里不再挂抽屉。
+          面板组件本身没删——它们仍然是唯一一份业务实现，
+          只是换了个壳；抽屉那条路没有人再走，留着就是死代码。 */}
 
       {showMine && user && (
         <Suspense fallback={null}>

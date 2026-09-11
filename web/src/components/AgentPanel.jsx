@@ -33,8 +33,17 @@ const APPOINTMENT_STATUS = {
   rejected: '已拒绝', cancelled: '已取消',
 }
 
-export default function AgentPanel({ user, onClose, onOpenHouse }) {
-  const [tab, setTab] = useState('today')
+export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
+                            onSections, activeTab, onTabChange }) {
+  // 嵌入整页工作台时当前页签由左栏说了算；独立抽屉时自己管。
+  // **两套状态不能并存**——并存会出现「左栏高亮 A、正文显示 B」，
+  // 而这种不一致要切换几次之后才显形，最难查
+  const [ownTab, setOwnTab] = useState('today')
+  const tab = embedded && activeTab ? activeTab : ownTab
+  const setTab = (key) => {
+    if (embedded && onTabChange) onTabChange(key)
+    else setOwnTab(key)
+  }
   const [data, setData] = useState(null)
   const [openList, setOpenList] = useState([])
   const [viewings, setViewings] = useState([])
@@ -165,24 +174,46 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
       n: data?.todo.today_viewings.length || 0, hint: '今天要去的场次' },
   ] : []
 
+  // 把页签清单（含计数）报给外面的左栏。
+  //
+  // **必须走 useEffect，不能在渲染里直接调**：那是在渲染子组件的过程中
+  // 去改父组件的状态，React 会直接报错。依赖用序列化后的字符串——
+  // 数组每次都是新对象，按引用比会无限重渲染。
+  const sectionsKey = JSON.stringify(
+    TABS.map((t) => [t.key, t.label, t.n || 0, t.group || '']))
+  useEffect(() => {
+    if (embedded && onSections) onSections(TABS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, sectionsKey])
+
+      {/* 嵌入模式：整页工作台接管了左栏与标题，这里只出正文。
+          **没有把面板重写一遍**——每个页签下的内容都已经调好并在用，
+          重写只会得到两套各自漂移的逻辑。要脱掉的只有抽屉那层壳。
+          待办条留着：它是「现在该做什么」，和左栏的「有哪些功能」
+          不是一回事。 */}
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer wide">
-        <button className="drawer-close" onClick={onClose} aria-label="关闭">
-          ×
-        </button>
-        <h3>中介工作台</h3>
-        <div className="loc">
-          {user.real_name || user.username} · 经纪人
-          {profile && `　资质${LICENSE[profile.license_status]?.label || ''}`}
-        </div>
+      {!embedded && <div className="drawer-mask" onClick={onClose} />}
+      <div className={embedded ? 'wb-embed' : 'drawer wide'}>
+        {!embedded && (
+          <>
+            <button className="drawer-close" onClick={onClose} aria-label="关闭">
+              ×
+            </button>
+            <h3>中介工作台</h3>
+            <div className="loc">
+              {user.real_name || user.username} · 经纪人
+              {profile && `　资质${LICENSE[profile.license_status]?.label || ''}`}
+            </div>
+          </>
+        )}
 
         {approved && (
           <FocusBar items={FOCUS} onPick={setTab}
                     hint="邀请与预约都有时效，超时房东会另找人。" />
         )}
 
+        {!embedded && (
         <div className="tabs scroll grouped">
           {TABS.map((item, i) => (
             <span className="tab-slot" key={item.key}>
@@ -201,6 +232,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
             </span>
           ))}
         </div>
+        )}
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
@@ -846,7 +878,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse }) {
             </p>
           </>
         )}
-      </aside>
+      </div>
     </>
   )
 }

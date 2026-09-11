@@ -29,9 +29,19 @@ const APPOINTMENT_STATUS = {
   rejected: '已拒绝', cancelled: '已取消',
 }
 
-export default function AdminPanel({ user, onClose }) {
+export default function AdminPanel({ user, onClose, embedded,
+                                    onSections, activeTab, onTabChange }) {
+  // 嵌入整页后台时当前页签由左栏说了算；独立抽屉时自己管。
+  // **两套状态不能并存**——并存会出现「左栏高亮 A、正文显示 B」，
+  // 而这种不一致要切换几次之后才显形，最难查。
+  //
   // 进来第一屏是待审队列，不是看板（F5）
-  const [tab, setTab] = useState('review')
+  const [ownTab, setOwnTab] = useState('review')
+  const tab = embedded && activeTab ? activeTab : ownTab
+  const setTab = (key) => {
+    if (embedded && onTabChange) onTabChange(key)
+    else setOwnTab(key)
+  }
   const [stats, setStats] = useState(null)
   const [pending, setPending] = useState([])
   const [users, setUsers] = useState([])
@@ -180,19 +190,41 @@ export default function AdminPanel({ user, onClose }) {
     { key: 'repairs', label: '未完成工单', n: openRepairs, hint: '含处理中' },
   ]
 
+  // 把页签清单（含计数）报给外面的左栏。
+  //
+  // **必须走 useEffect，不能在渲染里直接调**：那是在渲染子组件的过程中
+  // 去改父组件的状态，React 会直接报错。依赖用序列化后的字符串——
+  // 数组每次都是新对象，按引用比会无限重渲染。
+  const sectionsKey = JSON.stringify(
+    TABS.map((t) => [t.key, t.label, t.n || 0, t.group || '']))
+  useEffect(() => {
+    if (embedded && onSections) onSections(TABS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, sectionsKey])
+
+      {/* 嵌入模式：整页工作台接管了左栏与标题，这里只出正文。
+          **没有把面板重写一遍**——每个页签下的内容都已经调好并在用，
+          重写只会得到两套各自漂移的逻辑。要脱掉的只有抽屉那层壳。
+          待办条留着：它是「现在该做什么」，和左栏的「有哪些功能」
+          不是一回事。 */}
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer wide">
-        <button className="drawer-close" onClick={onClose} aria-label="关闭">
-          ×
-        </button>
-        <h3>管理后台</h3>
-        <div className="loc">{user.real_name || user.username} · 管理员</div>
+      {!embedded && <div className="drawer-mask" onClick={onClose} />}
+      <div className={embedded ? 'wb-embed' : 'drawer wide'}>
+        {!embedded && (
+          <>
+            <button className="drawer-close" onClick={onClose} aria-label="关闭">
+              ×
+            </button>
+            <h3>管理后台</h3>
+            <div className="loc">{user.real_name || user.username} · 管理员</div>
+          </>
+        )}
 
         <FocusBar items={FOCUS} onPick={setTab}
                   hint="这几项都有具体的人在等结果，压着不处理会一直卡着。" />
 
+        {!embedded && (
         <div className="tabs scroll grouped">
           {TABS.map((item, i) => (
             <span className="tab-slot" key={item.key}>
@@ -209,6 +241,7 @@ export default function AdminPanel({ user, onClose }) {
             </span>
           ))}
         </div>
+        )}
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
@@ -579,7 +612,7 @@ export default function AdminPanel({ user, onClose }) {
             </ul>
           </>
         )}
-      </aside>
+      </div>
     </>
   )
 }

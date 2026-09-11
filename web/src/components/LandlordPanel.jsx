@@ -38,8 +38,17 @@ const RENT_TYPES = ['整租', '合租', '公寓']
 const ALL_TAGS = ['电梯', '地铁', '近学校', '近医院', '有阳台', '可做饭',
   '有家具', '可养宠物', '采光好']
 
-export default function LandlordPanel({ user, onClose, onOpenHouse}) {
-  const [tab, setTab] = useState('dashboard')
+export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
+                                       onSections, activeTab, onTabChange }) {
+  // 嵌入整页工作台时，当前页签由外面的左栏说了算；独立抽屉时自己管。
+  // **两套状态不能并存**——并存就会出现「左栏高亮 A、正文显示 B」，
+  // 而这种不一致在切换几次之后才显形，最难查
+  const [ownTab, setOwnTab] = useState('dashboard')
+  const tab = embedded && activeTab ? activeTab : ownTab
+  const setTab = (key) => {
+    if (embedded && onTabChange) onTabChange(key)
+    else setOwnTab(key)
+  }
   const [dash, setDash] = useState(null)
   const [houses, setHouses] = useState([])
   const [repairs, setRepairs] = useState([])
@@ -221,33 +230,52 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
     { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
   ]
 
+      {/* 嵌入模式：工作台整页把左栏和标题接管过去了，这里只出正文。
+          **没有把三个面板重写一遍**——每个页签下的内容都已经调好、
+          也都有人在用，重写只会得到两套各自漂移的逻辑。
+          抽屉那层壳（遮罩、关闭键、标题、横向页签）是唯一要脱掉的东西。 */}
+  // 把页签清单（含计数）报给外面的左栏。
+  //
+  // **必须走 useEffect，不能在渲染里直接调**：那是在渲染这个组件的
+  // 过程中去改父组件的状态，React 会直接报错。依赖用序列化后的字符串，
+  // 数组每次都是新对象，按引用比会无限重渲染。
+  const sectionsKey = JSON.stringify(TABS.map((t) => [t.key, t.label, t.n || 0]))
+  useEffect(() => {
+    if (embedded && onSections) onSections(TABS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, sectionsKey])
+
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer wide">
-        <button className="drawer-close" onClick={onClose} aria-label="关闭">
-          ×
-        </button>
-        <h3>房东工作台</h3>
-        <div className="loc">{user.real_name || user.username}</div>
-
-        <div className="tabs scroll">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              className={`tab ${tab === item.key ? 'active' : ''}`}
-              onClick={() => {
-                setTab(item.key)
-                setOk('')
-                setError('')
-                if (item.key !== 'publish') { setEditing(''); setForm(EMPTY_FORM) }
-              }}
-            >
-              {item.label}
-              {item.n > 0 && <span className="tab-n">{item.n}</span>}
+      {!embedded && <div className="drawer-mask" onClick={onClose} />}
+      <div className={embedded ? 'wb-embed' : 'drawer wide'}>
+        {!embedded && (
+          <>
+            <button className="drawer-close" onClick={onClose} aria-label="关闭">
+              ×
             </button>
-          ))}
-        </div>
+            <h3>房东工作台</h3>
+            <div className="loc">{user.real_name || user.username}</div>
+
+            <div className="tabs scroll">
+              {TABS.map((item) => (
+                <button
+                  key={item.key}
+                  className={`tab ${tab === item.key ? 'active' : ''}`}
+                  onClick={() => {
+                    setTab(item.key)
+                    setOk('')
+                    setError('')
+                    if (item.key !== 'publish') { setEditing(''); setForm(EMPTY_FORM) }
+                  }}
+                >
+                  {item.label}
+                  {item.n > 0 && <span className="tab-n">{item.n}</span>}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {error && <div className="reply failed">{error}</div>}
         {ok && <div className="reply created">{ok}</div>}
@@ -680,7 +708,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse}) {
             图片要挂到房源编号上，新房源还没有编号。
           </p>
         )}
-      </aside>
+      </div>
 
       {detailNo && (
         <ContractDetail
