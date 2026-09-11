@@ -418,7 +418,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
             <ApptList
               rows={nav === 'appt' ? pending : today}
               emptyText={nav === 'appt'
-                ? '没有待确认的看房申请。'
+                ? '没有待确认的看房申请'
                 : '今天没有已确认的带看。'}
               showActions={nav === 'appt'}
               busy={busy}

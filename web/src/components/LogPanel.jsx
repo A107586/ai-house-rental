@@ -104,7 +104,7 @@ export default function LogPanel() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="empty">没有符合条件的日志。</div>
+        <div className="empty">没有符合条件的日志</div>
       ) : (
         <div className="table-wrap">
           <table className="log-table">

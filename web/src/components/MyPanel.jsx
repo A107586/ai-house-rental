@@ -408,7 +408,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
         {/* ---------------- 预约 ---------------- */}
         {tab === 'appointments' &&
           (appointments.length === 0 ? (
-            <p className="desc">还没有预约记录。</p>
+            <p className="desc">还没有预约记录</p>
           ) : (
             <ul className="record-list">
               {appointments.map((item) => (
@@ -722,7 +722,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
         {/* ---------------- 收藏 ---------------- */}
         {tab === 'favorites' &&
           (favorites.length === 0 ? (
-            <p className="desc">还没有收藏房源。</p>
+            <p className="desc">还没有收藏房源</p>
           ) : (
             <ul className="record-list">
               {favorites.map((house) => (

@@ -51,7 +51,7 @@ export default function AgentQueue({ onReviewed }) {
       await api.reviewLicense(row.user_id, approved, reason)
       setOk(approved
         ? `已通过 ${row.name || row.username} 的资质，他现在可以接单了。`
-        : '已驳回并通知本人。')
+        : '已驳回并通知本人')
       await load()
       if (onReviewed) onReviewed()
     } catch (err) {
@@ -67,7 +67,7 @@ export default function AgentQueue({ onReviewed }) {
       {ok && <div className="reply created">{ok}</div>}
 
       {rows.length === 0 ? (
-        <div className="empty">没有待审的资质。</div>
+        <div className="empty">没有待审的资质</div>
       ) : (
         <ul className="record-list">
           {rows.map((row) => (

@@ -91,7 +91,7 @@ export default function RoleRequestPanel({ onReviewed }) {
       {list.length === 0 ? (
         <p className="desc">
           {status === 'pending'
-            ? '没有待审的申请。'
+            ? '没有待审的申请'
             : '这一档下还没有记录。'}
         </p>
       ) : (

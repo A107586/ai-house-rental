@@ -98,7 +98,7 @@ export default function HouseReportPanel() {
       {rows.length === 0 ? (
         <div className="empty">
           {status === 'pending'
-            ? '没有待处理的举报。'
+            ? '没有待处理的举报'
             : '这个状态下暂时没有记录。'}
         </div>
       ) : (

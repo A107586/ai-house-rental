@@ -141,7 +141,7 @@ export default function AdminPanel({ user, onClose, embedded,
   function reject(houseNo) {
     const reason = window.prompt('驳回理由（会通知房东）', '房源描述与实际不符')
     if (reason === null) return
-    run(houseNo, () => api.reviewHouse(houseNo, false, reason), '已驳回并通知房东。')
+    run(houseNo, () => api.reviewHouse(houseNo, false, reason), '已驳回并通知房东')
   }
 
   // 月度收入柱状图的最大值，用于算每根柱子的高度
@@ -307,7 +307,7 @@ export default function AdminPanel({ user, onClose, embedded,
 
             <div className="section-title">月度收租</div>
             {stats.monthly_income.length === 0 ? (
-              <p className="desc">还没有收租记录。</p>
+              <p className="desc">还没有收租记录</p>
             ) : (
               <div className="bar-chart">
                 {stats.monthly_income.map((m) => (
@@ -386,7 +386,7 @@ export default function AdminPanel({ user, onClose, embedded,
                       disabled={busy === house.house_no}
                       onClick={() => run(house.house_no,
                         () => api.reviewHouse(house.house_no, true),
-                        '已通过审核并上架。')}
+                        '已通过审核并上架')}
                     >
                       通过
                     </button>
@@ -408,7 +408,7 @@ export default function AdminPanel({ user, onClose, embedded,
           <>
             <div className="section-title">租约（{contracts.length}）</div>
             {contracts.length === 0 ? (
-              <p className="desc">暂无租约。</p>
+              <p className="desc">暂无租约</p>
             ) : (
               <ul className="record-list">
                 {contracts.map((c) => {
@@ -432,7 +432,7 @@ export default function AdminPanel({ user, onClose, embedded,
 
             <div className="section-title">看房预约（{appointments.length}）</div>
             {appointments.length === 0 ? (
-              <p className="desc">暂无预约。</p>
+              <p className="desc">暂无预约</p>
             ) : (
               <ul className="record-list">
                 {appointments.slice(0, 20).map((a) => (

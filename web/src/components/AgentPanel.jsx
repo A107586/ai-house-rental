@@ -297,7 +297,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                         disabled={busy === `n${row.id}`}
                         onClick={() => run(`n${row.id}`,
                           () => api.respondDelegation(row.id, false),
-                          '已婉拒。')}
+                          '已婉拒')}
                       >
                         婉拒
                       </button>
@@ -355,7 +355,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
             )}
             <div className="section-title">等我确认的预约</div>
             {pendingAppts.length === 0 ? (
-              <p className="desc">没有待确认的预约。</p>
+              <p className="desc">没有待确认的预约</p>
             ) : (
               <div className="table-wrap">
                 <table className="log-table">
@@ -615,7 +615,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
 
             <div className="section-title">历史记录</div>
             {viewings.length === 0 ? (
-              <div className="empty">还没有带看记录。</div>
+              <div className="empty">还没有带看记录</div>
             ) : (
             <div className="table-wrap">
               <table className="log-table">

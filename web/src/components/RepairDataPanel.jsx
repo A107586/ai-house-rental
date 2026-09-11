@@ -154,7 +154,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>故障类型分布</h5>
             {stats.by_category.length === 0 ? (
-              <div className="empty">还没有报修记录。</div>
+              <div className="empty">还没有报修记录</div>
             ) : (
               <div className="rd-bars">
                 {stats.by_category.map((row) => (
@@ -179,7 +179,7 @@ export default function RepairDataPanel() {
               同一套房反复报修，往往不是又坏了一次，而是上次没修好，或房子本身有问题。
             </p>
             {stats.top_houses.length === 0 ? (
-              <div className="empty">暂无数据。</div>
+              <div className="empty">暂无数据</div>
             ) : (
               <table className="log-table">
                 <thead>
@@ -201,7 +201,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>物品消耗</h5>
             {stats.by_item.length === 0 ? (
-              <div className="empty">还没有领用记录。</div>
+              <div className="empty">还没有领用记录</div>
             ) : (
               <table className="log-table">
                 <thead>
@@ -223,7 +223,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>人员工作量</h5>
             {stats.by_worker.length === 0 ? (
-              <div className="empty">还没有维修记录。</div>
+              <div className="empty">还没有维修记录</div>
             ) : (
               <table className="log-table">
                 <thead>
@@ -246,7 +246,7 @@ export default function RepairDataPanel() {
       )}
 
       {sub === 'records' && (
-        records.length === 0 ? <div className="empty">还没有维修记录。</div> : (
+        records.length === 0 ? <div className="empty">还没有维修记录</div> : (
           <div className="table-wrap">
             <table className="log-table">
               <thead>
@@ -293,7 +293,7 @@ export default function RepairDataPanel() {
             <button className="btn small" type="submit">添加</button>
           </form>
 
-          {workers.length === 0 ? <div className="empty">还没有维修人员。</div> : (
+          {workers.length === 0 ? <div className="empty">还没有维修人员</div> : (
             <table className="log-table">
               <thead>
                 <tr><th>姓名</th><th>电话</th><th>擅长</th><th>状态</th><th /></tr>
@@ -337,7 +337,7 @@ export default function RepairDataPanel() {
             调价只影响以后的领用。历史维修记录保存的是领用时的单价快照，不受调价影响。
           </p>
 
-          {items.length === 0 ? <div className="empty">还没有物品。</div> : (
+          {items.length === 0 ? <div className="empty">还没有物品</div> : (
             <table className="log-table">
               <thead>
                 <tr><th>物品</th><th>单位</th><th>单价</th><th>库存</th><th /></tr>

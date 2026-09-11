@@ -966,7 +966,7 @@
   "file": "AgentQueue.jsx",
   "screen": "AgentQueue",
   "line": 54,
-  "text": "已驳回并通知本人。",
+  "text": "已驳回并通知本人",
   "purpose": "界面文字",
   "lines": [
    "AgentQueue.jsx:54"
@@ -976,7 +976,7 @@
   "file": "AgentQueue.jsx",
   "screen": "AgentQueue",
   "line": 70,
-  "text": "没有待审的资质。",
+  "text": "没有待审的资质",
   "purpose": "空态提示",
   "lines": [
    "AgentQueue.jsx:70"
@@ -1137,7 +1137,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 142,
-  "text": "没有符合条件的中介。",
+  "text": "没有符合条件的中介",
   "purpose": "空态提示",
   "lines": [
    "AgentRoster.jsx:142"
@@ -1914,7 +1914,7 @@
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
   "line": 47,
-  "text": "已保留该内容。",
+  "text": "已保留该内容",
   "purpose": "界面文字",
   "lines": [
    "FlagPanel.jsx:47"
@@ -1924,7 +1924,7 @@
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
   "line": 47,
-  "text": "已下架该内容。",
+  "text": "已下架该内容",
   "purpose": "界面文字",
   "lines": [
    "FlagPanel.jsx:47"
@@ -1944,7 +1944,7 @@
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
   "line": 82,
-  "text": "没有待复核的内容。",
+  "text": "没有待复核的内容",
   "purpose": "界面文字",
   "lines": [
    "FlagPanel.jsx:82"
@@ -1954,7 +1954,7 @@
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
   "line": 82,
-  "text": "暂无记录。",
+  "text": "暂无记录",
   "purpose": "界面文字",
   "lines": [
    "FlagPanel.jsx:82"
@@ -2144,7 +2144,7 @@
   "file": "HouseReportPanel.jsx",
   "screen": "HouseReportPanel",
   "line": 101,
-  "text": "没有待处理的举报。",
+  "text": "没有待处理的举报",
   "purpose": "界面文字",
   "lines": [
    "HouseReportPanel.jsx:101"
@@ -2468,7 +2468,7 @@
   "file": "LandlordRoster.jsx",
   "screen": "LandlordRoster",
   "line": 88,
-  "text": "没有符合条件的房东。",
+  "text": "没有符合条件的房东",
   "purpose": "空态提示",
   "lines": [
    "LandlordRoster.jsx:88"
@@ -2561,7 +2561,7 @@
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 107,
-  "text": "没有符合条件的日志。",
+  "text": "没有符合条件的日志",
   "purpose": "空态提示",
   "lines": [
    "LogPanel.jsx:107"
@@ -2934,7 +2934,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 157,
-  "text": "还没有报修记录。",
+  "text": "还没有报修记录",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:157"
@@ -2964,7 +2964,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 182,
-  "text": "暂无数据。",
+  "text": "暂无数据",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:182"
@@ -3025,7 +3025,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 204,
-  "text": "还没有领用记录。",
+  "text": "还没有领用记录",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:204"
@@ -3076,7 +3076,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 226,
-  "text": "还没有维修记录。",
+  "text": "还没有维修记录",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:226",
@@ -3229,7 +3229,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 296,
-  "text": "还没有维修人员。",
+  "text": "还没有维修人员",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:296"
@@ -3353,7 +3353,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 340,
-  "text": "还没有物品。",
+  "text": "还没有物品",
   "purpose": "空态提示",
   "lines": [
    "RepairDataPanel.jsx:340"
@@ -3626,7 +3626,7 @@
   "file": "RoleRequestPanel.jsx",
   "screen": "RoleRequestPanel",
   "line": 94,
-  "text": "没有待审的申请。",
+  "text": "没有待审的申请",
   "purpose": "界面文字",
   "lines": [
    "RoleRequestPanel.jsx:94"
@@ -4805,101 +4805,31 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
+  "line": 170,
+  "text": "支付已发起，但确认到账时出了问题：",
+  "purpose": "错误提示",
+  "lines": [
+   "MyPanel.jsx:170"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 171,
+  "text": "　可以稍后在账单里点「查看缴费凭证」确认。",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:171"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
   "line": 18,
   "text": "租金",
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:18"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 180,
-  "text": "我的租约",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:180"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 181,
-  "text": "我的账单",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:181"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 182,
-  "text": "我的预约",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:182"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 183,
-  "text": "消息",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:183"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 184,
-  "text": "收藏",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:184"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 185,
-  "text": "足迹",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:185"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 186,
-  "text": "我的报修",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:186"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 188,
-  "text": "待评价",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:188"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 189,
-  "text": "账号设置",
-  "purpose": "选项／页签名",
-  "lines": [
-   "MyPanel.jsx:189"
   ]
  },
  {
@@ -4915,16 +4845,6 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 196,
-  "text": "关闭",
-  "purpose": "无障碍标签（读屏用，界面上看不见）",
-  "lines": [
-   "MyPanel.jsx:196"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
   "line": 20,
   "text": "水电",
   "purpose": "界面文字",
@@ -4935,39 +4855,19 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 204,
-  "text": "我",
-  "purpose": "界面文字",
+  "line": 208,
+  "text": "我的租约",
+  "purpose": "选项／页签名",
   "lines": [
-   "MyPanel.jsx:204"
+   "MyPanel.jsx:208"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 209,
-  "text": "租客",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:209"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 209,
-  "text": "房东",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:209"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 209,
-  "text": "经纪人",
-  "purpose": "界面文字",
+  "text": "我的账单",
+  "purpose": "选项／页签名",
   "lines": [
    "MyPanel.jsx:209"
   ]
@@ -4986,8 +4886,8 @@
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 210,
-  "text": "管理员",
-  "purpose": "界面文字",
+  "text": "我的预约",
+  "purpose": "选项／页签名",
   "lines": [
    "MyPanel.jsx:210"
   ]
@@ -4995,9 +4895,59 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
+  "line": 211,
+  "text": "消息",
+  "purpose": "选项／页签名",
+  "lines": [
+   "MyPanel.jsx:211"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 212,
+  "text": "收藏",
+  "purpose": "选项／页签名",
+  "lines": [
+   "MyPanel.jsx:212"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 213,
+  "text": "足迹",
+  "purpose": "选项／页签名",
+  "lines": [
+   "MyPanel.jsx:213"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 214,
+  "text": "我的报修",
+  "purpose": "选项／页签名",
+  "lines": [
+   "MyPanel.jsx:214"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 216,
+  "text": "待评价",
+  "purpose": "选项／页签名",
+  "lines": [
+   "MyPanel.jsx:216"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
   "line": 217,
-  "text": "服务正常",
-  "purpose": "界面文字",
+  "text": "账号设置",
+  "purpose": "选项／页签名",
   "lines": [
    "MyPanel.jsx:217"
   ]
@@ -5005,41 +4955,101 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 218,
+  "line": 224,
+  "text": "关闭",
+  "purpose": "无障碍标签（读屏用，界面上看不见）",
+  "lines": [
+   "MyPanel.jsx:224"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 232,
+  "text": "我",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:232"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 237,
+  "text": "租客",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:237"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 237,
+  "text": "房东",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:237"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 237,
+  "text": "经纪人",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:237"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 238,
+  "text": "管理员",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:238"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 245,
+  "text": "服务正常",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:245"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 246,
   "text": "服务未连接",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:218"
+   "MyPanel.jsx:246"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 218,
+  "line": 246,
   "text": "检查中",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:218"
+   "MyPanel.jsx:246"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 220,
+  "line": 248,
   "text": "退出登录",
   "purpose": "按钮文案",
   "lines": [
-   "MyPanel.jsx:220"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 242,
-  "text": "还没有租约。看房满意后，房东会发起签约。",
-  "purpose": "说明文字",
-  "lines": [
-   "MyPanel.jsx:242"
+   "MyPanel.jsx:248"
   ]
  },
  {
@@ -5076,8 +5086,8 @@
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 270,
-  "text": "逾期",
-  "purpose": "界面文字",
+  "text": "还没有租约。看房满意后，房东会发起签约。",
+  "purpose": "说明文字",
   "lines": [
    "MyPanel.jsx:270"
   ]
@@ -5085,193 +5095,72 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 274,
+  "line": 298,
+  "text": "逾期",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:298"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 302,
   "text": "笔",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:274"
+   "MyPanel.jsx:302"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 279,
+  "line": 307,
   "text": "还没有账单。合同生效后会自动排出整个租期的账单。",
   "purpose": "说明文字",
   "lines": [
-   "MyPanel.jsx:279"
+   "MyPanel.jsx:307"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 299,
+  "line": 327,
   "text": "已缴",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:299"
+   "MyPanel.jsx:327"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 301,
+  "line": 329,
   "text": "已作废",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:301"
+   "MyPanel.jsx:329"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 303,
+  "line": 331,
   "text": "已逾期",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:303"
+   "MyPanel.jsx:331"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 304,
+  "line": 332,
   "text": "待缴",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:304",
-   "MyPanel.jsx:265"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 326,
-  "text": "支付中",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:326"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 326,
-  "text": "立即缴费",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:326"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 333,
-  "text": "查看缴费凭证",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:333"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 343,
-  "text": "账单编号",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:343"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 344,
-  "text": "费用类型",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:344"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 345,
-  "text": "所属期",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:345"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 346,
-  "text": "金额",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:346"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 346,
-  "text": "${bill.amount} 元",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:346"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 347,
-  "text": "到期日",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:347",
-   "MyPanel.jsx:750"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 348,
-  "text": "是否逾期",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:348"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 348,
-  "text": "否（已结清）",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:348"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 349,
-  "text": "是",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:349"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 349,
-  "text": "否",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:349"
+   "MyPanel.jsx:332",
+   "MyPanel.jsx:293"
   ]
  },
  {
@@ -5282,7 +5171,7 @@
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:35",
-   "MyPanel.jsx:778"
+   "MyPanel.jsx:816"
   ]
  },
  {
@@ -5293,7 +5182,7 @@
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:35",
-   "MyPanel.jsx:778"
+   "MyPanel.jsx:816"
   ]
  },
  {
@@ -5319,64 +5208,8 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 350,
-  "text": "关联合同",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:350"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 351,
-  "text": "房源编号",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:351",
-   "MyPanel.jsx:429",
-   "MyPanel.jsx:541",
-   "MyPanel.jsx:640",
-   "MyPanel.jsx:717"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 352,
-  "text": "缴费时间",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:352"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 353,
-  "text": "支付方式",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:353",
-   "MyPanel.jsx:753",
-   "MyPanel.jsx:778"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 355,
-  "text": "支付状态",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:355"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
   "line": 357,
-  "text": "交易流水号",
+  "text": "支付中",
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:357"
@@ -5385,51 +5218,228 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 358,
+  "line": 357,
+  "text": "立即缴费",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:357"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 364,
+  "text": "这笔暂时不能在线支付",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:364"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 365,
+  "text": "租约已结束，这笔欠款请与房东线下结清",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:365"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 371,
+  "text": "查看缴费凭证",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:371"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 381,
+  "text": "账单编号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:381"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 382,
+  "text": "费用类型",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:382"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 383,
+  "text": "所属期",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:383"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 384,
+  "text": "金额",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:384"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 384,
+  "text": "${bill.amount} 元",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:384"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 385,
+  "text": "到期日",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:385",
+   "MyPanel.jsx:788"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 386,
+  "text": "是否逾期",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:386"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 386,
+  "text": "否（已结清）",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:386"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 387,
+  "text": "是",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:387"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 387,
+  "text": "否",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:387"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 388,
+  "text": "关联合同",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:388"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 389,
+  "text": "房源编号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:389",
+   "MyPanel.jsx:467",
+   "MyPanel.jsx:579",
+   "MyPanel.jsx:678",
+   "MyPanel.jsx:755"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 390,
+  "text": "缴费时间",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:390"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 391,
+  "text": "支付方式",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:391",
+   "MyPanel.jsx:791",
+   "MyPanel.jsx:816"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 393,
+  "text": "支付状态",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:393"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 395,
+  "text": "交易流水号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:395"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 396,
   "text": "备注",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:358"
+   "MyPanel.jsx:396"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 360,
+  "line": 398,
   "text": "流水号是与客服核对这笔缴费时要报的号码。",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:360"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 373,
-  "text": "还没有预约记录。",
-  "purpose": "说明文字",
-  "lines": [
-   "MyPanel.jsx:373"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 397,
-  "text": " · ${Math.round(item.rent_price)} 元/月",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:397"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 401,
-  "text": " · 联系人 ${item.contact_name}",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:401"
+   "MyPanel.jsx:398"
   ]
  },
  {
@@ -5445,11 +5455,11 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 418,
-  "text": "取消",
-  "purpose": "界面文字",
+  "line": 411,
+  "text": "还没有预约记录",
+  "purpose": "说明文字",
   "lines": [
-   "MyPanel.jsx:418"
+   "MyPanel.jsx:411"
   ]
  },
  {
@@ -5465,16 +5475,6 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 428,
-  "text": "预约编号",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:428"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
   "line": 43,
   "text": "支付失败",
   "purpose": "界面文字",
@@ -5485,65 +5485,9 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 430,
-  "text": "房源名称",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:430"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 431,
-  "text": "所在区域",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:431",
-   "MyPanel.jsx:543",
-   "MyPanel.jsx:719"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 432,
-  "text": "户型",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:432",
-   "MyPanel.jsx:544",
-   "MyPanel.jsx:720"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 433,
-  "text": "月租",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:433",
-   "MyPanel.jsx:548",
-   "MyPanel.jsx:725"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 433,
-  "text": "${Math.round(item.rent_price)} 元/月",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:433"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
   "line": 435,
-  "text": "看房时间",
-  "purpose": "界面文字",
+  "text": " · ${Math.round(item.rent_price)} 元/月",
+  "purpose": "带变量的句子",
   "lines": [
    "MyPanel.jsx:435"
   ]
@@ -5551,24 +5495,11 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 436,
-  "text": "当前状态",
-  "purpose": "界面文字",
+  "line": 439,
+  "text": " · 联系人 ${item.contact_name}",
+  "purpose": "带变量的句子",
   "lines": [
-   "MyPanel.jsx:436",
-   "MyPanel.jsx:552",
-   "MyPanel.jsx:643",
-   "MyPanel.jsx:731"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 437,
-  "text": "看房联系人",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:437"
+   "MyPanel.jsx:439"
   ]
  },
  {
@@ -5584,62 +5515,131 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 440,
+  "line": 456,
+  "text": "取消",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:456"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 466,
+  "text": "预约编号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:466"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 468,
+  "text": "房源名称",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:468"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 469,
+  "text": "所在区域",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:469",
+   "MyPanel.jsx:581",
+   "MyPanel.jsx:757"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 470,
+  "text": "户型",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:470",
+   "MyPanel.jsx:582",
+   "MyPanel.jsx:758"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 471,
+  "text": "月租",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:471",
+   "MyPanel.jsx:586",
+   "MyPanel.jsx:763"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 471,
+  "text": "${Math.round(item.rent_price)} 元/月",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:471"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 473,
+  "text": "看房时间",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:473"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 474,
+  "text": "当前状态",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:474",
+   "MyPanel.jsx:590",
+   "MyPanel.jsx:681",
+   "MyPanel.jsx:769"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 475,
+  "text": "看房联系人",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:475"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 478,
   "text": "联系电话",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:440",
-   "MyPanel.jsx:646"
+   "MyPanel.jsx:478",
+   "MyPanel.jsx:684"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 441,
+  "line": 479,
   "text": "看房当天可见",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:441"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 442,
-  "text": "我的备注",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:442"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 443,
-  "text": "房东回复",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:443"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 459,
-  "text": "全部标为已读",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:459"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 465,
-  "text": "还没有消息。预约结果、账单与合同变动都会通知到这里。",
-  "purpose": "说明文字",
-  "lines": [
-   "MyPanel.jsx:465"
+   "MyPanel.jsx:479"
   ]
  },
  {
@@ -5676,10 +5676,20 @@
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 480,
-  "text": "标为已读",
+  "text": "我的备注",
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:480"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 481,
+  "text": "房东回复",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:481"
   ]
  },
  {
@@ -5690,7 +5700,7 @@
   "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:49",
-   "MyPanel.jsx:749"
+   "MyPanel.jsx:787"
   ]
  },
  {
@@ -5716,99 +5726,49 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 490,
+  "line": 497,
+  "text": "全部标为已读",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:497"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 503,
+  "text": "还没有消息。预约结果、账单与合同变动都会通知到这里。",
+  "purpose": "说明文字",
+  "lines": [
+   "MyPanel.jsx:503"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 518,
+  "text": "标为已读",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:518"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 528,
   "text": "消息类型",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:490"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 491,
-  "text": "送达时间",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:491"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 492,
-  "text": "阅读状态",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:492"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 492,
-  "text": "已读",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:492"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 492,
-  "text": "未读",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:492"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 495,
-  "text": "关联单号",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:495"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 496,
-  "text": "正文",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:496"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 509,
-  "text": "还没有浏览记录。看过的房源会自动出现在这里。",
-  "purpose": "说明文字",
-  "lines": [
-   "MyPanel.jsx:509"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 514,
-  "text": "清空足迹",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:514"
+   "MyPanel.jsx:528"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 529,
-  "text": " · 共 ${h.my_view_count} 次",
-  "purpose": "带变量的句子",
+  "text": "送达时间",
+  "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:529"
   ]
@@ -5816,295 +5776,225 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 532,
-  "text": "再看看",
-  "purpose": "按钮文案",
-  "lines": [
-   "MyPanel.jsx:532"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 542,
-  "text": "小区",
+  "line": 530,
+  "text": "阅读状态",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:542",
-   "MyPanel.jsx:718"
+   "MyPanel.jsx:530"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 545,
-  "text": "面积",
+  "line": 530,
+  "text": "已读",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:545",
-   "MyPanel.jsx:721"
+   "MyPanel.jsx:530"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 545,
-  "text": "${Math.round(h.area)} 平米",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:545"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 546,
-  "text": "朝向",
+  "line": 530,
+  "text": "未读",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:546",
-   "MyPanel.jsx:722"
+   "MyPanel.jsx:530"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 533,
+  "text": "关联单号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:533"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 534,
+  "text": "正文",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:534"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 547,
-  "text": "楼层",
-  "purpose": "界面文字",
+  "text": "还没有浏览记录。看过的房源会自动出现在这里。",
+  "purpose": "说明文字",
   "lines": [
-   "MyPanel.jsx:547",
-   "MyPanel.jsx:723"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 548,
-  "text": "${Math.round(h.rent_price)} 元/月",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:548"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 550,
-  "text": "最近浏览",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:550"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 551,
-  "text": "我看过",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:551"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 551,
-  "text": "${h.my_view_count} 次",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:551"
+   "MyPanel.jsx:547"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 552,
-  "text": "在架可租",
+  "text": "清空足迹",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:552",
-   "MyPanel.jsx:731"
+   "MyPanel.jsx:552"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 553,
-  "text": "已出租",
-  "purpose": "界面文字",
+  "line": 567,
+  "text": " · 共 ${h.my_view_count} 次",
+  "purpose": "带变量的句子",
   "lines": [
-   "MyPanel.jsx:553",
-   "MyPanel.jsx:732"
+   "MyPanel.jsx:567"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 570,
+  "text": "再看看",
+  "purpose": "按钮文案",
+  "lines": [
+   "MyPanel.jsx:570"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 580,
+  "text": "小区",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:580",
+   "MyPanel.jsx:756"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 583,
+  "text": "面积",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:583",
+   "MyPanel.jsx:759"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 583,
+  "text": "${Math.round(h.area)} 平米",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:583"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 584,
+  "text": "朝向",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:584",
+   "MyPanel.jsx:760"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 585,
+  "text": "楼层",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:585",
+   "MyPanel.jsx:761"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 586,
+  "text": "${Math.round(h.rent_price)} 元/月",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:586"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 588,
+  "text": "最近浏览",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:588"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 589,
+  "text": "我看过",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:589"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 589,
+  "text": "${h.my_view_count} 次",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:589"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 590,
+  "text": "在架可租",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:590",
+   "MyPanel.jsx:769"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 591,
+  "text": "已出租",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:591",
+   "MyPanel.jsx:770"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 618,
   "text": "还没有报修记录。房子有问题可以在房源详情页提交， 也可以直接跟租房助手说。",
   "purpose": "说明文字",
   "lines": [
-   "MyPanel.jsx:580"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 631,
-  "text": " · 建议派单：${item.assignee}",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:631"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 639,
-  "text": "工单号",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:639"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 641,
-  "text": "故障类别",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:641"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 642,
-  "text": "紧急程度",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:642"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 644,
-  "text": "提交时间",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:644"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 645,
-  "text": "报修联系人",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:645"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 647,
-  "text": "已等待",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:647"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 648,
-  "text": "${item.waited_hours} 小时${item.overdue ? '（已超时限）' : ''}",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:648"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 649,
-  "text": "故障描述",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:649"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 652,
-  "text": "智能体初判",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:652"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 653,
-  "text": "建议派单",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:653"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 654,
-  "text": "处理人",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:654"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 655,
-  "text": "完成时间",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:655"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 656,
-  "text": "处理说明",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:656"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 658,
-  "text": "「智能体初判」是模型读故障描述给出的推测，实际以上门检查为准。",
-  "purpose": "段落说明",
-  "lines": [
-   "MyPanel.jsx:658"
+   "MyPanel.jsx:618"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 669,
-  "text": "没有待评价的租约。租约结束后可以对房源与房东评分。",
-  "purpose": "说明文字",
+  "text": " · 建议派单：${item.assignee}",
+  "purpose": "带变量的句子",
   "lines": [
    "MyPanel.jsx:669"
   ]
@@ -6112,9 +6002,79 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
+  "line": 677,
+  "text": "工单号",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:677"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 679,
+  "text": "故障类别",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:679"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 680,
+  "text": "紧急程度",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:680"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 682,
+  "text": "提交时间",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:682"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 683,
+  "text": "报修联系人",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:683"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 685,
+  "text": "已等待",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:685"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 686,
+  "text": "${item.waited_hours} 小时${item.overdue ? '（已超时限）' : ''}",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:686"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
   "line": 687,
-  "text": "还没有收藏房源。",
-  "purpose": "说明文字",
+  "text": "故障描述",
+  "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:687"
   ]
@@ -6122,49 +6082,79 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 700,
-  "text": "查看",
-  "purpose": "按钮文案",
-  "lines": [
-   "MyPanel.jsx:700"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 708,
-  "text": "取消收藏",
+  "line": 690,
+  "text": "智能体初判",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:708"
+   "MyPanel.jsx:690"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 721,
-  "text": "${Math.round(house.area)} 平米",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:721"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 724,
-  "text": "租赁方式",
+  "line": 691,
+  "text": "建议派单",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:724"
+   "MyPanel.jsx:691"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 692,
+  "text": "处理人",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:692"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 693,
+  "text": "完成时间",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:693"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 694,
+  "text": "处理说明",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:694"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 696,
+  "text": "「智能体初判」是模型读故障描述给出的推测，实际以上门检查为准。",
+  "purpose": "段落说明",
+  "lines": [
+   "MyPanel.jsx:696"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 707,
+  "text": "没有待评价的租约。租约结束后可以对房源与房东评分。",
+  "purpose": "说明文字",
+  "lines": [
+   "MyPanel.jsx:707"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 725,
-  "text": "${Math.round(house.rent_price)} 元/月",
-  "purpose": "带变量的句子",
+  "text": "还没有收藏房源",
+  "purpose": "说明文字",
   "lines": [
    "MyPanel.jsx:725"
   ]
@@ -6172,79 +6162,19 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 727,
-  "text": "押付方式",
-  "purpose": "界面文字",
+  "line": 738,
+  "text": "查看",
+  "purpose": "按钮文案",
   "lines": [
-   "MyPanel.jsx:727"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 728,
-  "text": "评分",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:728"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 728,
-  "text": "${house.rating} 分",
-  "purpose": "带变量的句子",
-  "lines": [
-   "MyPanel.jsx:728"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 728,
-  "text": "暂无评分",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:728"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 733,
-  "text": "已下架",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:733"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 734,
-  "text": "配套",
-  "purpose": "标签",
-  "lines": [
-   "MyPanel.jsx:734"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 745,
-  "text": "模拟收银台",
-  "purpose": "区块标题",
-  "lines": [
-   "MyPanel.jsx:745"
+   "MyPanel.jsx:738"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 746,
-  "text": "本功能仅用于课程项目演示，不会产生真实扣款。",
-  "purpose": "说明文字",
+  "text": "取消收藏",
+  "purpose": "界面文字",
   "lines": [
    "MyPanel.jsx:746"
   ]
@@ -6252,90 +6182,89 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 748,
-  "text": "房源",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:748",
-   "MyPanel.jsx:777"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 751,
-  "text": "应付金额",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:751"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 755,
-  "text": "支付宝（模拟）",
-  "purpose": "下拉选项",
-  "lines": [
-   "MyPanel.jsx:755"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 756,
-  "text": "微信支付（模拟）",
-  "purpose": "下拉选项",
-  "lines": [
-   "MyPanel.jsx:756"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 757,
-  "text": "银行卡（模拟）",
-  "purpose": "下拉选项",
-  "lines": [
-   "MyPanel.jsx:757"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 760,
-  "text": "暂不支付",
-  "purpose": "按钮文案",
-  "lines": [
-   "MyPanel.jsx:760"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 762,
-  "text": "处理中…",
-  "purpose": "界面文字",
-  "lines": [
-   "MyPanel.jsx:762"
-  ]
- },
- {
-  "file": "MyPanel.jsx",
-  "screen": "个人中心",
-  "line": 762,
-  "text": "确认支付 ¥${Number(checkout.amount).toFixed(2)}",
+  "line": 759,
+  "text": "${Math.round(house.area)} 平米",
   "purpose": "带变量的句子",
   "lines": [
+   "MyPanel.jsx:759"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 762,
+  "text": "租赁方式",
+  "purpose": "界面文字",
+  "lines": [
    "MyPanel.jsx:762"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 763,
+  "text": "${Math.round(house.rent_price)} 元/月",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:763"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 765,
+  "text": "押付方式",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:765"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 766,
+  "text": "评分",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:766"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 766,
+  "text": "${house.rating} 分",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:766"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 766,
+  "text": "暂无评分",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:766"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 771,
+  "text": "已下架",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:771"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
   "line": 772,
-  "text": "缴费凭证",
-  "purpose": "区块标题",
+  "text": "配套",
+  "purpose": "标签",
   "lines": [
    "MyPanel.jsx:772"
   ]
@@ -6343,71 +6272,182 @@
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 773,
+  "line": 783,
+  "text": "模拟收银台",
+  "purpose": "区块标题",
+  "lines": [
+   "MyPanel.jsx:783"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 784,
+  "text": "本功能仅用于课程项目演示，不会产生真实扣款。",
+  "purpose": "说明文字",
+  "lines": [
+   "MyPanel.jsx:784"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 786,
+  "text": "房源",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:786",
+   "MyPanel.jsx:815"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 789,
+  "text": "应付金额",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:789"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 793,
+  "text": "支付宝（模拟）",
+  "purpose": "下拉选项",
+  "lines": [
+   "MyPanel.jsx:793"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 794,
+  "text": "微信支付（模拟）",
+  "purpose": "下拉选项",
+  "lines": [
+   "MyPanel.jsx:794"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 795,
+  "text": "银行卡（模拟）",
+  "purpose": "下拉选项",
+  "lines": [
+   "MyPanel.jsx:795"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 798,
+  "text": "暂不支付",
+  "purpose": "按钮文案",
+  "lines": [
+   "MyPanel.jsx:798"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 800,
+  "text": "处理中…",
+  "purpose": "界面文字",
+  "lines": [
+   "MyPanel.jsx:800"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 800,
+  "text": "确认支付 ¥${Number(checkout.amount).toFixed(2)}",
+  "purpose": "带变量的句子",
+  "lines": [
+   "MyPanel.jsx:800"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 810,
+  "text": "缴费凭证",
+  "purpose": "区块标题",
+  "lines": [
+   "MyPanel.jsx:810"
+  ]
+ },
+ {
+  "file": "MyPanel.jsx",
+  "screen": "个人中心",
+  "line": 811,
   "text": "✓ 支付成功",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:773"
+   "MyPanel.jsx:811"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 775,
+  "line": 813,
   "text": "交易号",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:775"
+   "MyPanel.jsx:813"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 776,
+  "line": 814,
   "text": "账单号",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:776"
+   "MyPanel.jsx:814"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 778,
+  "line": 816,
   "text": "银行卡",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:778"
+   "MyPanel.jsx:816"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 779,
+  "line": 817,
   "text": "支付时间",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:779"
+   "MyPanel.jsx:817"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 780,
+  "line": 818,
   "text": "实付金额",
   "purpose": "界面文字",
   "lines": [
-   "MyPanel.jsx:780"
+   "MyPanel.jsx:818"
   ]
  },
  {
   "file": "MyPanel.jsx",
   "screen": "个人中心",
-  "line": 783,
+  "line": 821,
   "text": "完成",
   "purpose": "按钮文案",
   "lines": [
-   "MyPanel.jsx:783"
+   "MyPanel.jsx:821"
   ]
  },
  {
@@ -6783,7 +6823,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 300,
-  "text": "已婉拒。",
+  "text": "已婉拒",
   "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:300"
@@ -6991,7 +7031,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 358,
-  "text": "没有待确认的预约。",
+  "text": "没有待确认的预约",
   "purpose": "说明文字",
   "lines": [
    "AgentPanel.jsx:358"
@@ -7362,7 +7402,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 618,
-  "text": "还没有带看记录。",
+  "text": "还没有带看记录",
   "purpose": "空态提示",
   "lines": [
    "AgentPanel.jsx:618"
@@ -7915,7 +7955,7 @@
   "file": "ReportDialog.jsx",
   "screen": "举报",
   "line": 59,
-  "text": "请选择举报类型。",
+  "text": "请选择举报类型",
   "purpose": "错误提示",
   "lines": [
    "ReportDialog.jsx:59"
@@ -8016,7 +8056,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1037,
-  "text": "暂时还没有房源。",
+  "text": "暂时还没有房源",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1037"
@@ -9090,168 +9130,158 @@
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 104,
+  "line": 105,
   "text": " · 每 ${contract.pay_months} 个月一付",
   "purpose": "带变量的句子",
   "lines": [
-   "ContractCard.jsx:104"
+   "ContractCard.jsx:105"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 110,
+  "line": 111,
   "text": " · 即将到期，可发起续租",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:110"
+   "ContractCard.jsx:111"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 118,
+  "line": 119,
   "text": "（扣款 ${(contract.deposit - contract.deposit_refund).toFixed(0)} 元）",
   "purpose": "带变量的句子",
   "lines": [
-   "ContractCard.jsx:118"
+   "ContractCard.jsx:119"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 130,
+  "line": 131,
   "text": "查看档案",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:130"
+   "ContractCard.jsx:131"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 136,
+  "line": 137,
   "text": "收起合同",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:136"
+   "ContractCard.jsx:137"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 136,
+  "line": 137,
   "text": "查看合同",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:136"
+   "ContractCard.jsx:137"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 140,
+  "line": 141,
   "text": "审阅中…",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:140"
+   "ContractCard.jsx:141"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 140,
+  "line": 141,
   "text": "重新审阅",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:140"
+   "ContractCard.jsx:141"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 140,
+  "line": 141,
   "text": "智能审阅",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:140"
+   "ContractCard.jsx:141"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 148,
+  "line": 149,
   "text": " · ${saved.risk_count} 条风险",
   "purpose": "带变量的句子",
   "lines": [
-   "ContractCard.jsx:148"
+   "ContractCard.jsx:149"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 159,
+  "line": 160,
   "text": "处理中",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:159"
+   "ContractCard.jsx:160"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 159,
+  "line": 160,
   "text": "确认签约",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:159"
+   "ContractCard.jsx:160"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 164,
+  "line": 165,
   "text": "等待租客确认",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:164"
+   "ContractCard.jsx:165"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 170,
+  "line": 171,
   "text": "退租",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:170"
+   "ContractCard.jsx:171"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 177,
+  "line": 178,
   "text": "续租一年",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:177"
-  ]
- },
- {
-  "file": "ContractCard.jsx",
-  "screen": "合同卡片",
-  "line": 193,
-  "text": "规则解析，未调用大模型",
-  "purpose": "界面文字",
-  "lines": [
-   "ContractCard.jsx:193"
+   "ContractCard.jsx:178"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
   "line": 194,
-  "text": "大模型解析",
+  "text": "规则解析，未调用大模型",
   "purpose": "界面文字",
   "lines": [
    "ContractCard.jsx:194"
@@ -9261,7 +9291,7 @@
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
   "line": 195,
-  "text": "大模型不可用，已降级为规则解析",
+  "text": "大模型解析",
   "purpose": "界面文字",
   "lines": [
    "ContractCard.jsx:195"
@@ -9270,41 +9300,61 @@
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 216,
+  "line": 196,
+  "text": "大模型不可用，已降级为规则解析",
+  "purpose": "界面文字",
+  "lines": [
+   "ContractCard.jsx:196"
+  ]
+ },
+ {
+  "file": "ContractCard.jsx",
+  "screen": "合同卡片",
+  "line": 217,
   "text": "签前必谈",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:216"
+   "ContractCard.jsx:217"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 217,
+  "line": 218,
   "text": "需注意",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:217"
+   "ContractCard.jsx:218"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 217,
+  "line": 218,
   "text": "提示",
   "purpose": "界面文字",
   "lines": [
-   "ContractCard.jsx:217"
+   "ContractCard.jsx:218"
   ]
  },
  {
   "file": "ContractCard.jsx",
   "screen": "合同卡片",
-  "line": 229,
+  "line": 238,
+  "text": "写清楚了",
+  "purpose": "状态徽标",
+  "lines": [
+   "ContractCard.jsx:238"
+  ]
+ },
+ {
+  "file": "ContractCard.jsx",
+  "screen": "合同卡片",
+  "line": 247,
   "text": "收起审阅结果",
   "purpose": "按钮文案",
   "lines": [
-   "ContractCard.jsx:229"
+   "ContractCard.jsx:247"
   ]
  },
  {
@@ -9685,7 +9735,7 @@
   "file": "ImageUploader.jsx",
   "screen": "图片上传",
   "line": 113,
-  "text": "还没有图片。",
+  "text": "还没有图片",
   "purpose": "空态提示",
   "lines": [
    "ImageUploader.jsx:113"
@@ -10237,16 +10287,6 @@
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 162,
-  "text": "已拒绝。",
-  "purpose": "界面文字",
-  "lines": [
-   "DelegationPanel.jsx:162"
-  ]
- },
- {
-  "file": "DelegationPanel.jsx",
-  "screen": "委托中介",
   "line": 163,
   "text": "拒绝",
   "purpose": "界面文字",
@@ -10258,7 +10298,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 176,
-  "text": "还没有委托出去的房源。",
+  "text": "还没有委托出去的房源",
   "purpose": "说明文字",
   "lines": [
    "DelegationPanel.jsx:176"
@@ -10384,7 +10424,8 @@
   "text": "已拒绝",
   "purpose": "选项／页签名",
   "lines": [
-   "DelegationPanel.jsx:26"
+   "DelegationPanel.jsx:26",
+   "DelegationPanel.jsx:162"
   ]
  },
  {
@@ -10827,7 +10868,7 @@
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
   "line": 421,
-  "text": "没有待确认的看房申请。",
+  "text": "没有待确认的看房申请",
   "purpose": "界面文字",
   "lines": [
    "Workbench.jsx:421"
@@ -12105,7 +12146,7 @@
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
   "line": 560,
-  "text": "还没有签约租客。",
+  "text": "还没有签约租客",
   "purpose": "说明文字",
   "lines": [
    "LandlordPanel.jsx:560"
@@ -13468,7 +13509,7 @@
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
   "line": 467,
-  "text": "暂无报修记录。",
+  "text": "暂无报修记录",
   "purpose": "说明文字",
   "lines": [
    "HouseDrawer.jsx:467"
@@ -13642,7 +13683,7 @@
   "purpose": "界面文字",
   "lines": [
    "api.js:112",
-   "api.js:293"
+   "api.js:300"
   ]
  },
  {
@@ -13668,11 +13709,11 @@
  {
   "file": "api.js",
   "screen": "接口层（网络错误提示）",
-  "line": 302,
+  "line": 309,
   "text": "上传失败（${response.status}）",
   "purpose": "带变量的句子",
   "lines": [
-   "api.js:302"
+   "api.js:309"
   ]
  },
  {
@@ -15212,7 +15253,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 144,
-  "text": "已驳回并通知房东。",
+  "text": "已驳回并通知房东",
   "purpose": "界面文字",
   "lines": [
    "AdminPanel.jsx:144"
@@ -15710,7 +15751,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 310,
-  "text": "还没有收租记录。",
+  "text": "还没有收租记录",
   "purpose": "说明文字",
   "lines": [
    "AdminPanel.jsx:310"
@@ -15790,7 +15831,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 389,
-  "text": "已通过审核并上架。",
+  "text": "已通过审核并上架",
   "purpose": "界面文字",
   "lines": [
    "AdminPanel.jsx:389"
@@ -15820,7 +15861,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 411,
-  "text": "暂无租约。",
+  "text": "暂无租约",
   "purpose": "说明文字",
   "lines": [
    "AdminPanel.jsx:411"
@@ -15840,7 +15881,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 435,
-  "text": "暂无预约。",
+  "text": "暂无预约",
   "purpose": "说明文字",
   "lines": [
    "AdminPanel.jsx:435"
@@ -16479,7 +16520,7 @@
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
   "line": 57,
-  "text": "已允许经纪人主动联系你。",
+  "text": "已允许经纪人主动联系你",
   "purpose": "界面文字",
   "lines": [
    "ProfileForm.jsx:57"

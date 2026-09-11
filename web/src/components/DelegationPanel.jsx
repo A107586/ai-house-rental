@@ -159,7 +159,7 @@ export default function DelegationPanel({ houses = [] }) {
                     disabled={busy === `n${row.id}`}
                     onClick={() => run(`n${row.id}`,
                       () => api.respondDelegation(row.id, false),
-                      '已拒绝。')}
+                      '已拒绝')}
                   >
                     拒绝
                   </button>
@@ -173,7 +173,7 @@ export default function DelegationPanel({ houses = [] }) {
       {/* --------------------------------------- 委托中 */}
       <div className="section-title">委托中</div>
       {active.length === 0 ? (
-        <p className="desc">还没有委托出去的房源。</p>
+        <p className="desc">还没有委托出去的房源</p>
       ) : (
         <ul className="record-list">
           {active.map((row) => (

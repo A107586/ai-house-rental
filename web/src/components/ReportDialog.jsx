@@ -56,7 +56,7 @@ export default function ReportDialog({ house, user, onClose, onNeedLogin }) {
       return
     }
     if (!kind) {
-      setError('请选择举报类型。')
+      setError('请选择举报类型')
       return
     }
     setBusy(true)

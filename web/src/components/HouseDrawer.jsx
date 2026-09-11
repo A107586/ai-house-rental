@@ -464,7 +464,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           <>
             <div className="section-title">该房源的报修记录</div>
             {repairs.length === 0 ? (
-              <p className="desc">暂无报修记录。</p>
+              <p className="desc">暂无报修记录</p>
             ) : (
               <ul className="booked-list">
                 {repairs.map((item) => (

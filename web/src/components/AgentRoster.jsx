@@ -139,7 +139,7 @@ export default function AgentRoster() {
 
       <div className="section-title">中介档案</div>
       {rows.length === 0 ? (
-        <div className="empty">没有符合条件的中介。</div>
+        <div className="empty">没有符合条件的中介</div>
       ) : (
         <div className="table-wrap">
           <table className="log-table wide">

@@ -110,7 +110,7 @@ export default function ImageUploader({ mode = 'house', houseNo, repairId,
       {error && <div className="reply failed">{error}</div>}
 
       {images.length === 0 ? (
-        <div className="empty">还没有图片。</div>
+        <div className="empty">还没有图片</div>
       ) : (
         <div className="up-grid">
           {images.map((image) => (

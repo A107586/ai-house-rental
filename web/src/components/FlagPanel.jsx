@@ -44,7 +44,7 @@ export default function FlagPanel() {
     setOk('')
     try {
       await api.handleFlag(id, action)
-      setOk(action === 'approve' ? '已保留该内容。' : '已下架该内容。')
+      setOk(action === 'approve' ? '已保留该内容' : '已下架该内容')
       await load(status)
     } catch (err) {
       setError(err.message)
@@ -79,7 +79,7 @@ export default function FlagPanel() {
 
       {rows.length === 0 ? (
         <div className="empty">
-          {status === 'pending' ? '没有待复核的内容。' : '暂无记录。'}
+          {status === 'pending' ? '没有待复核的内容' : '暂无记录'}
         </div>
       ) : (
         rows.map((row) => (

@@ -557,7 +557,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
         {tab === 'tenants' &&
           (tenants.length === 0 ? (
-            <p className="desc">还没有签约租客。</p>
+            <p className="desc">还没有签约租客</p>
           ) : (
             <ul className="record-list">
               {tenants.map((t) => (

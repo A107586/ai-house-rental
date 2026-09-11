@@ -54,7 +54,7 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
       const data = await api.updateProfile({ accept_contact: next })
       onUpdated(data.user)
       setMsg({ ok: true,
-               text: next ? '已允许经纪人主动联系你。'
+               text: next ? '已允许经纪人主动联系你'
                           : '已设为免打扰。经纪人不能再主动发起会话，'
                             + '但你的预约和带看通知照常送达。' })
     } catch (err) {

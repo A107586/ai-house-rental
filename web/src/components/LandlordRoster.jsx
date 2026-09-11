@@ -85,7 +85,7 @@ export default function LandlordRoster() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="empty">没有符合条件的房东。</div>
+        <div className="empty">没有符合条件的房东</div>
       ) : (
         <div className="table-wrap">
           <table className="log-table">
