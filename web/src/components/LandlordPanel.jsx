@@ -23,8 +23,31 @@ const REPAIR_STATUS = {
 const EMPTY_FORM = {
   title: '', district: '中山区', community: '', address: '',
   rent_price: '', deposit: '', area: '', layout: '两室一厅',
-  rent_type: '整租', floor: '', orientation: '朝南', description: '',
+  rent_type: '整租', orientation: '朝南', description: '',
+  // A5：楼栋、单元、第几层、共几层各占一格。
+  // 原先是一个自由文本「如 11/33层」，什么格式都填得进来，
+  // 既筛不了，又会和按层数算出来的「低楼层」并排出现
+  building: '', unit: '', floor_no: '', floor_total: '',
   tags: [],
+}
+
+/** E2：标题按「区域 + 小区 + 户型 + 面积」拼。
+ *
+ * **这几样表单里都已经填过了**，再让房东自己组一遍标题，
+ * 得到的多半是「精装修拎包入住！！」这种——对搜索和比较毫无帮助，
+ * 而且每个人的写法都不一样，列表页看上去就很乱。
+ *
+ * 仍然允许改：拼出来的是默认值不是锁死的值。有人确实想突出
+ * 「近地铁 5 号线」，那是他比我们更了解这套房。
+ */
+function autoTitle(form) {
+  const parts = []
+  if (form.district) parts.push(form.district + (form.community || ''))
+  else if (form.community) parts.push(form.community)
+  if (form.layout) parts.push(form.layout)
+  const area = Number(form.area)
+  if (area > 0) parts.push(Math.round(area) + '平')
+  return parts.join(' ')
 }
 
 const DISTRICTS = ['中山区', '西岗区', '沙河口区', '甘井子区', '旅顺口区', '金州区']
@@ -146,7 +169,9 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       title: house.title, district: house.district, community: house.community,
       address: house.address, rent_price: house.rent_price,
       deposit: house.deposit, area: house.area, layout: house.layout,
-      rent_type: house.rent_type, floor: house.floor,
+      rent_type: house.rent_type,
+      building: house.building || '', unit: house.unit || '',
+      floor_no: house.floor_no || '', floor_total: house.floor_total || '',
       orientation: house.orientation, description: house.description,
       tags: house.tags || [],
     })
@@ -157,12 +182,23 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
     e.preventDefault()
     const payload = {
       ...form,
+      // 标题没填就现拼一个。**校验之前拼**——否则「标题必填」会拦下
+      // 一个我们本来就能替他填好的字段
+      title: (form.title || '').trim() || autoTitle(form),
       rent_price: Number(form.rent_price),
       deposit: Number(form.deposit || form.rent_price),
       area: Number(form.area),
+      // 空字符串要转成 undefined 而不是 0：0 层不是一个合法楼层，
+      // 传 0 上去会被 schema 的 ge=1 拒掉，而房东只是没填
+      floor_no: form.floor_no ? Number(form.floor_no) : undefined,
+      floor_total: form.floor_total ? Number(form.floor_total) : undefined,
     }
-    if (!payload.title || !payload.rent_price || !payload.area) {
-      setError('标题、租金、面积必须填写')
+    if (!payload.rent_price || !payload.area) {
+      setError('租金和面积必须填写')
+      return
+    }
+    if (!payload.title) {
+      setError('请填写区域与小区，标题会自动生成')
       return
     }
 
@@ -203,7 +239,9 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
         district: form.district, community: form.community,
         layout: form.layout, area: Number(form.area) || 0,
         rent_price: Number(form.rent_price) || 0,
-        rent_type: form.rent_type, floor: form.floor,
+        rent_type: form.rent_type,
+        floor: form.floor_no && form.floor_total
+          ? `${form.floor_no}/${form.floor_total}层` : '',
         orientation: form.orientation, tags: form.tags,
       })
       if (r.ok) {
@@ -556,10 +594,16 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
               </p>
             )}
 
+            {/* E2：标题不再要求手填。placeholder 里实时显示会拼成什么，
+                房东一眼看得到结果，想改再改——**比一个空框加一句
+                「如：……」有用得多**，后者他还得自己套格式。 */}
             <label className="fld">
               <span>标题</span>
               <input value={form.title} onChange={set('title')}
-                placeholder="如：中山区桂林街 两室一厅 62平" />
+                placeholder={autoTitle(form) || '填完区域、小区、户型和面积后自动生成'} />
+              <small className="fld-hint">
+                留空就按「区域 + 小区 + 户型 + 面积」自动生成，想突出别的再自己写
+              </small>
             </label>
 
             <div className="fld-row">
@@ -642,8 +686,32 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                 </select>
               </label>
               <label className="fld">
-                <span>楼层</span>
-                <input value={form.floor} onChange={set('floor')} placeholder="如 11/33层" />
+                <span>楼栋</span>
+                <input value={form.building} onChange={set('building')}
+                       placeholder="如 12号楼" />
+              </label>
+            </div>
+
+            {/* A5：楼栋、单元、楼层各占一格。
+                原先是一个自由文本框「如 11/33层」——什么格式都填得进来
+                （「11层」「十一楼」），筛选用不上，而且卡片上会和按层数
+                算出来的「低楼层」并排出现，同一套房两个楼层说法。
+                带看时要报「几号楼几单元」，从一行自由文本里也取不出来。 */}
+            <div className="fld-row">
+              <label className="fld">
+                <span>单元</span>
+                <input value={form.unit} onChange={set('unit')}
+                       placeholder="如 3单元" />
+              </label>
+              <label className="fld">
+                <span>所在楼层</span>
+                <input value={form.floor_no} onChange={set('floor_no')}
+                       inputMode="numeric" placeholder="第几层" />
+              </label>
+              <label className="fld">
+                <span>总楼层</span>
+                <input value={form.floor_total} onChange={set('floor_total')}
+                       inputMode="numeric" placeholder="共几层" />
               </label>
             </div>
 

@@ -137,7 +137,12 @@ class HouseCreate(HouseFacets):
     area: float = Field(gt=0, le=10000)
     layout: str = Field(default="", max_length=20)
     rent_type: str = "整租"
+    # A5：楼层展示串由 floor_no/floor_total 拼，房东不再手填。
+    # 字段保留是为了**不破坏老客户端**——传上来照收，但入库时
+    # 会被拼出来的那个覆盖
     floor: str = Field(default="", max_length=20)
+    building: str = Field(default="", max_length=20)
+    unit: str = Field(default="", max_length=20)
     orientation: str = ""
     description: str = Field(default="", max_length=2000)
     tags: list[str] = []
@@ -192,6 +197,8 @@ class HouseUpdate(HouseFacets):
     layout: str | None = Field(default=None, max_length=20)
     rent_type: str | None = None
     floor: str | None = Field(default=None, max_length=20)
+    building: str | None = Field(default=None, max_length=20)
+    unit: str | None = Field(default=None, max_length=20)
     orientation: str | None = None
     description: str | None = Field(default=None, max_length=2000)
     tags: list[str] | None = None

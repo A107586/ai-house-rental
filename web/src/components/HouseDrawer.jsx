@@ -314,7 +314,21 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           {house.floor && (
             <dl className="fact">
               <dt>楼层</dt>
-              <dd>{house.floor}</dd>
+              <dd>{house.floor}{house.floor_level ? `（${house.floor_level}）` : ''}</dd>
+            </dl>
+          )}
+          {/* A5：楼栋与单元单独两栏。带看约在楼下时报的就是这两个数，
+              埋在地址那一长串自由文本里等于没有 */}
+          {house.building && (
+            <dl className="fact">
+              <dt>楼栋</dt>
+              <dd>{house.building}</dd>
+            </dl>
+          )}
+          {house.unit && (
+            <dl className="fact">
+              <dt>单元</dt>
+              <dd>{house.unit}</dd>
             </dl>
           )}
           {house.orientation && (

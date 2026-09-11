@@ -25,21 +25,77 @@ const agentUrl = (path) => AGENT_BASE + path
 
 const TOKEN_KEY = 'rental_token'
 
-export function getToken() {
+/**
+ * 令牌**按标签页隔离**，不是按浏览器。
+ *
+ * ## 这里修的是什么
+ *
+ * 原先令牌只存在 `localStorage` 里。`localStorage` 是**同源共享**的：
+ * 同一个浏览器开两个标签页，A 登录 landlord1、B 登录 landlord2，
+ * 第二次登录会把 A 的令牌一起换掉。A 的界面还停在原样，
+ * 请求却已经是以 landlord2 的身份发出去的。
+ *
+ * 于是出现了三个看起来毫无关联的「bug」，其实是同一件事：
+ *
+ * - **「所有房东共享房源」**：A 页请求 /api/landlord/houses，
+ *   带的是 landlord2 的令牌，看到的自然是 landlord2 的房源
+ * - **「谁发的消息都显示成自己发的」**：`mine` 由服务端按令牌里的
+ *   身份算。两个标签页共用一个令牌，两边看到的「我」就是同一个人
+ * - **「私信只能发一条」**：第一条以 A 的身份发出，切换后第二条
+ *   以 B 的身份发，而 B 不是这个会话的当事人 → 403
+ *
+ * 三条都不在会话逻辑里，接口和渲染其实都是对的——**错的是
+ * 「现在是谁」这件事在标签页之间被共享了**。
+ *
+ * ## 为什么是 sessionStorage + localStorage 两层
+ *
+ * 只用 `sessionStorage`：每开一个新标签页都要重新登录，
+ * 而「关了再开还在登录状态」是所有网站的默认行为，砍掉太粗暴。
+ *
+ * 所以：`sessionStorage` 存**这个标签页现在是谁**，
+ * `localStorage` 存**上一次用的是谁**，只在标签页第一次要令牌时
+ * 拿来做种子。此后这个标签页只认自己那一份，别处再登录也不影响它。
+ */
+function readSession() {
   try {
-    return localStorage.getItem(TOKEN_KEY) || ''
+    return sessionStorage.getItem(TOKEN_KEY) || ''
   } catch {
-    // 隐私模式下 localStorage 可能直接抛异常，此时按未登录处理
+    return ''
+  }
+}
+
+export function getToken() {
+  const own = readSession()
+  if (own) return own
+  try {
+    // 本标签页还没有身份：从「上次用的」继承一次，并**立刻落到
+    // 自己的 sessionStorage 里**。不落的话，每次取令牌都会回头去读
+    // localStorage，别的标签页一登录这里就跟着变了，等于没隔离
+    const remembered = localStorage.getItem(TOKEN_KEY) || ''
+    if (remembered) {
+      try { sessionStorage.setItem(TOKEN_KEY, remembered) } catch { /* 忽略 */ }
+    }
+    return remembered
+  } catch {
+    // 隐私模式下两个 storage 都可能直接抛异常，此时按未登录处理
     return ''
   }
 }
 
 export function setToken(token) {
   try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token)
+    else sessionStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // 存不进去不影响本次会话使用，忽略
+  }
+  try {
+    // localStorage 里那份只是「下次开新标签页默认用谁」。
+    // 退出登录时一并清掉——否则新开标签页又会自动变回已登录
     if (token) localStorage.setItem(TOKEN_KEY, token)
     else localStorage.removeItem(TOKEN_KEY)
   } catch {
-    // 存不进去不影响本次会话使用，忽略
+    // 忽略
   }
 }
 

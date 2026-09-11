@@ -128,6 +128,21 @@ class House(Base):
     floor_no: Mapped[int] = mapped_column(Integer, nullable=True)
     floor_total: Mapped[int] = mapped_column(Integer, nullable=True)
 
+    # A5：楼栋与单元。
+    #
+    # 原先地址里这两样是**混在 `address` 那一行自由文本里**的
+    # （「中山区青泥洼桥路 12 号楼 3 单元」），而楼层又另有 `floor`
+    # 一个自由文本（「2/28层」）。于是同一套房在卡片上出现两处楼层：
+    # 地址行里一个「2/28层」，属性行里一个「低楼层」——
+    # 看的人会以为是两套房的数据串了。
+    #
+    # 拆成独立字段之后：楼栋、单元、第几层、共几层各自一个格子，
+    # `floor` 那个自由文本退成**由这几项拼出来的展示串**，不再手填。
+    # 好处不只是好看：带看要报「几号楼几单元」，而从一行自由文本里
+    # 是取不出这两个值的。
+    building: Mapped[str] = mapped_column(String(20), default="")
+    unit: Mapped[str] = mapped_column(String(20), default="")
+
     # 集中供暖 / 自采暖。大连的租房广告里这一条几乎每个租客都会问
     heating: Mapped[str] = mapped_column(String(20), default="")
 
@@ -213,7 +228,8 @@ class House(Base):
             "area": float(self.area),
             "layout": self.layout,
             "rent_type": self.rent_type,
-            "floor": self.floor,
+            # 展示串由楼层数字拼出来；老数据没有数字时才回落到手填原文
+            "floor": self.floor_text,
             "orientation": self.orientation,
             "description": self.description,
             "tags": [t for t in self.tags.split(",") if t],
@@ -232,6 +248,9 @@ class House(Base):
             "decoration": self.decoration,
             "floor_no": self.floor_no,
             "floor_total": self.floor_total,
+            "building": self.building or "",
+            "unit": self.unit or "",
+            "address_full": self.address_full,
             "floor_level": self.floor_level,
             "heating": self.heating,
             "available_from": (self.available_from.strftime("%Y-%m-%d")
@@ -299,6 +318,35 @@ class House(Base):
         """
         full = self.to_dict()
         return {key: full[key] for key in self.CARD_FIELDS if key in full}
+
+    @property
+    def address_full(self):
+        """带楼栋单元的完整地址。**只在详情页与合同里用**。
+
+        列表卡片上不显示——那里已经有区域和小区，再加「12号楼3单元」
+        既占地方又帮不上忙：**在挑房的阶段没有人靠单元号做决定**，
+        到了要去看房那一步才需要。
+        """
+        parts = [self.address or ""]
+        if self.building:
+            parts.append(self.building)
+        if self.unit:
+            parts.append(self.unit)
+        return " ".join(x for x in parts if x)
+
+    @property
+    def floor_text(self):
+        """楼层的展示串，由 floor_no / floor_total 拼出来。
+
+        **不再让房东手填。** 手填的那一版什么格式都有——「11/33层」
+        「11层」「十一楼」——既没法筛选，也会和按 floor_no 算出来的
+        「低楼层」并排出现，同一张卡片上两个楼层说法。
+        """
+        if self.floor_no and self.floor_total:
+            return "%d/%d层" % (self.floor_no, self.floor_total)
+        if self.floor_no:
+            return "%d层" % self.floor_no
+        return self.floor or ""
 
     @property
     def floor_level(self):

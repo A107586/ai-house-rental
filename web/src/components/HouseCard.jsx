@@ -56,8 +56,12 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
 
       <div className="card-body">
       <div className="card-title">{house.title}</div>
+      {/* A5：地址行不再印楼层。
+          原来这里是「沙河口区 · 黑石礁 · 2/28层」，而下面的属性行里
+          还有一个「低楼层」——**同一张卡片上两个楼层说法**，
+          看的人会以为是两套房的数据串了。楼层归属性行，这里只讲位置。 */}
       <div className="card-loc">
-        {house.district} · {house.community} · {house.floor}
+        {house.district} · {house.community}
       </div>
 
       {/* D1：收藏从图片右上角挪到价格右边，星星换成爱心。

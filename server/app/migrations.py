@@ -467,3 +467,14 @@ def _review_subjects(connection, engine):
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_reviews_agent "
             "ON reviews (agent_id)"))
+
+
+@step("0015", "房源表：楼栋与单元（A5）")
+def _house_building_unit(connection, engine):
+    """给 houses 补 building / unit 两列。
+
+    默认空串而不是 NULL：前端一律按「空就不显示」处理，
+    而 NULL 在拼接地址时会变成字面的 "None"。
+    """
+    _add_column(connection, engine, "houses", "building", "VARCHAR(20) DEFAULT ''")
+    _add_column(connection, engine, "houses", "unit", "VARCHAR(20) DEFAULT ''")
