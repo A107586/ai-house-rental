@@ -106,6 +106,9 @@ def run(text, provider=None):
         "missing": extracted["missing"],
         "coverage": extracted["coverage"],
         "risks": result["risks"],
+        # 对租客有保障的条款也要给出来。**只报风险的审阅是偏的**——
+        # 用户看不到「这份合同哪里写得清楚」，就没法判断它到底比别的好在哪
+        "favourable": result.get("favourable", []),
         "levels": result["levels"],
         "score": result["score"],
         "message": summarize(result, extracted),

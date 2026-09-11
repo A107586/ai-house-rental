@@ -33,6 +33,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
           score: result.score ?? 0,
           summary: result.message || '',
           risk_count: (result.risks || []).length,
+          good_count: (result.favourable || []).length,
           source: result.source || '',
         })
         onChanged?.()
@@ -221,6 +222,23 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
                   <div className="risk-quote">「{r.quote}」</div>
                   <div className="record-body">{r.why}</div>
                   <div className="risk-advice">建议：{r.advice}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* E1：有保障的条款也要列出来。
+              **只报风险的审阅是偏的**——用户看不到「这份合同哪里写得清楚」，
+              就没法判断它到底比别的好在哪，也就理解不了那个分数是怎么来的。 */}
+          {(review.favourable || []).length > 0 && (
+            <ul className="good-list">
+              {review.favourable.map((g) => (
+                <li key={g.id}>
+                  <div className="risk-head">
+                    <span className="pill good-tag">写清楚了</span>
+                    <strong>{g.title}</strong>
+                  </div>
+                  <div className="record-body">{g.note}</div>
                 </li>
               ))}
             </ul>

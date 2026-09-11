@@ -3798,3 +3798,27 @@
   color: var(--brand);
   flex: none;
 }
+
+/* E1：合同审阅里「写清楚了」的那些条款。
+   用绿色系和风险列表区分开——**同一套配色会让人以为它们也是问题**。 */
+.good-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.good-list li {
+  border-left: 3px solid var(--ok);
+  background: var(--ok-soft);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+}
+
+.pill.good-tag {
+  background: var(--ok);
+  color: #fff;
+  border: none;
+}

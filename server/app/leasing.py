@@ -144,12 +144,121 @@ def create_contract(session, house, tenant, start_date, months=12,
     return contract
 
 
+_CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
+           13: "十三", 14: "十四", 15: "十五"}
+
+
+def house_specific_clauses(house, deposit, pay_months):
+    """按这套房的实际情况拼出来的附加条款（E1）。
+
+    ## 为什么要有它
+
+    验收意见是「所有的审阅条款长得都一样，评分也是」。原因不在审阅那一侧：
+    **每一份合同都是同一个模板渲染出来的**，正文一字不差，
+    审阅读到的自然是同一段文字，找出同一批风险，给出同一个分数。
+
+    合同审阅这个功能因此变成了摆设——它永远只能告诉你同一件事。
+
+    ## 拼什么
+
+    只拼**这套房真实具备、而且真会引起纠纷**的条款。判断标准是
+    「不写清楚的话，事后会为这件事吵架吗」：
+
+    - 有电梯 → 停梯期间怎么算
+    - 带家具 → 清单与自然损耗的边界（退租时最常吵的一类）
+    - 可养宠物 → 写进合同，否则房东事后反悔租客毫无依据
+    - 供暖方式 → 取暖费谁承担，集中与自采暖的惯例不一样
+    - 合租 → 公共区域与室友变更
+    - 免押 → 免的是押金，不是赔偿责任，这一点必须点明
+    - 付款周期长 → 一次付多期，提前退租那部分钱怎么退
+
+    **没有的特征不写。** 给一套没电梯的房子写电梯条款比不写更糟——
+    那说明这份合同是套出来的，不是为这套房拟的。
+    """
+    tags = set((house.tags or "").split(",")) if house.tags else set()
+    clauses = []
+
+    if getattr(house, "elevator", False):
+        clauses.append(
+            "电梯\n"
+            "本房屋所在楼栋配有电梯。电梯因检修或故障连续停运超过 48 小时的，\n"
+            "乙方可要求甲方按停运天数相应减免租金；乙方搬入搬出需使用电梯的，\n"
+            "应提前一日告知物业。")
+    elif (getattr(house, "floor_no", None) or 0) >= 4:
+        clauses.append(
+            "楼层\n"
+            "本房屋位于第 %d 层且无电梯。乙方搬运大件物品的费用由乙方自理，\n"
+            "甲方应予以必要配合。" % house.floor_no)
+
+    if "有家具" in tags:
+        clauses.append(
+            "家具家电\n"
+            "房屋内家具家电由甲方提供，双方应于交房时共同清点并签署\n"
+            "《物品交接清单》，作为本合同附件。正常使用产生的自然损耗由甲方承担；\n"
+            "乙方人为损坏或遗失的，按实际维修或重置费用赔偿。\n"
+            "未签署清单的，退租时甲方不得就物品缺损主张扣款。")
+
+    if "可养宠物" in tags:
+        clauses.append(
+            "饲养宠物\n"
+            "甲方同意乙方在本房屋内饲养宠物。乙方应做好清洁与噪音管理，\n"
+            "因饲养宠物造成的房屋损坏由乙方承担；甲方不得在租期内\n"
+            "以饲养宠物为由要求乙方搬离。")
+    else:
+        clauses.append(
+            "饲养宠物\n"
+            "乙方饲养宠物前应取得甲方书面同意。")
+
+    heating = getattr(house, "heating", "") or ""
+    if "集中" in heating:
+        clauses.append(
+            "取暖费\n"
+            "本房屋为集中供暖，取暖费由甲方承担。供暖期内室温不达标的，\n"
+            "乙方可要求甲方协调供热单位处理。")
+    elif heating:
+        clauses.append(
+            "取暖费\n"
+            "本房屋为%s。取暖能耗费用由乙方按实际用量承担，\n"
+            "设备本身的维修与更换由甲方负责。" % heating)
+
+    if (getattr(house, "rent_type", "") or "") == "合租":
+        clauses.append(
+            "合租\n"
+            "本房屋为合租，乙方承租其中一间卧室，享有厨房、卫生间、客厅等\n"
+            "公共区域的共同使用权。甲方调整其他房间承租人的，不影响本合同的效力，\n"
+            "但应提前告知乙方。")
+
+    if float(deposit or 0) <= 0:
+        clauses.append(
+            "免押说明\n"
+            "本合同不收取押金。免收押金不免除乙方对房屋及屋内物品的损坏\n"
+            "赔偿责任，相关费用于退租时据实结算。")
+
+    if (pay_months or 1) >= 3:
+        clauses.append(
+            "提前退租的租金退还\n"
+            "乙方按每 %d 个月一次性支付租金。租期内经双方协商一致提前退租的，\n"
+            "甲方应退还已付但尚未居住月份的租金，不得以「已缴不退」为由拒绝。"
+            % pay_months)
+
+    if not clauses:
+        return ""
+
+    parts = []
+    for index, text in enumerate(clauses, start=8):
+        parts.append("第%s条 %s" % (_CN_NUM.get(index, str(index)), text))
+    return "\n\n" + "\n\n".join(parts)
+
+
 def render_contract_text(house, tenant, start_date, end_date, rent,
                          deposit, pay_months):
     """生成合同正文。
 
-    模板化生成即可——AI-02 合同智能审阅要读的就是这段文本，
-    所以条款必须写全，包括故意留下的、对租客不利的条款供审阅演示。
+    前七条是所有合同共有的主干；**第八条起按这套房的实际情况拼**
+    （见 `house_specific_clauses`）——不然每份合同一字不差，
+    合同审阅永远只能告诉你同一件事。
+
+    模板里故意留了几条对租客不利的条款，供 AI-02 审阅演示。
     """
     return """房屋租赁合同
 
@@ -181,8 +290,9 @@ def render_contract_text(house, tenant, start_date, end_date, rent,
 
 第七条 其他约定
 乙方不得擅自转租、改变房屋结构或用于非居住用途。
-本合同一式两份，甲乙双方各执一份，自双方确认之日起生效。
+本合同一式两份，甲乙双方各执一份，自双方确认之日起生效。{extra}
 """.format(
+        extra=house_specific_clauses(house, deposit, pay_months),
         # 姓名不再有 `or username` 兜底。到得了这一行，双方实名都已经
         # 在 create_contract 里校验过了；留着兜底只会把「没实名」这个
         # 问题藏进一份看起来正常的合同里（K-03）

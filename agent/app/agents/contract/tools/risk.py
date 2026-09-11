@@ -91,6 +91,98 @@ RULES = [
 ]
 
 
+# ---------------------------------------------------------------- 有利条款
+
+# **评分原先只减不加。**
+#
+# 于是四份不同的合同——带家具的、可养宠物的、集中供暖的、合租的——
+# 审出来全是 87 分、同样两条风险。用户的原话是「所有的审阅条款长得都
+# 一样，评分也是」，说的就是这个。
+#
+# 光让合同正文分化还不够：新加的那些条款一条规则都不命中，
+# 审阅照旧只看得见主干里那两条坑。**一份把责任划清楚的合同，
+# 和一份什么都没写的合同，不该得同一个分。**
+#
+# 所以补一侧：写明了、对租客有保障的条款要加回分。
+#
+# 权重按**这一条实际值多少钱**分层，不是一律给同一个数：
+#
+#   3 分 —— 直接决定钱能不能拿回来（多付的租金可退、没清单不能扣款）
+#   2 分 —— 划清了责任（家具清单、取暖费归属、停梯减租、免押边界）
+#   1 分 —— 把口头约定写进了合同（养宠物）
+#
+# 一律给同一个数的后果试过：四份条款数不同的合同全都撞到加分上限，
+# 又变成同一个分了——**分层不是讲究，是让分数真的能分出高下的前提**。
+#
+# 加分幅度刻意小于扣分（最高 3 对 25 / 10 / 3）：
+# **合同审阅的本职是提醒风险**，有利条款是锦上添花，
+# 不能靠堆几条好条款把一条高风险盖过去。
+FAVOURABLE = [
+    {
+        "id": "inventory_signed",
+        "weight": 2,
+        "title": "家具清单写进了合同",
+        "patterns": [r"物品交接清单", r"共同清点"],
+        "note": "家具家电有清单可依，退租时不容易为「东西是不是你弄坏的」扯皮。",
+    },
+    {
+        "id": "no_claim_without_inventory",
+        "weight": 3,
+        "title": "没清单就不能扣款",
+        "patterns": [r"未签署清单.{0,20}不得.{0,10}(?:扣款|主张)"],
+        "note": "这一条对租客很实在：清单是甲方该准备的，没准备就不能反过来扣你钱。",
+    },
+    {
+        "id": "pet_allowed",
+        "weight": 1,
+        "title": "养宠物写进了合同",
+        "patterns": [r"同意乙方.{0,15}饲养宠物"],
+        "note": "口头答应养宠物、事后反悔要求搬离的情况很常见，写进合同才作数。",
+    },
+    {
+        "id": "prepaid_refundable",
+        "weight": 3,
+        "title": "多付的租金可退",
+        "patterns": [r"退还已付但尚未居住月份的租金",
+                     r"不得以.{0,10}已缴不退.{0,10}为由拒绝"],
+        "note": "一次付三个月以上时，这一条决定了提前退租能不能把钱拿回来。",
+    },
+    {
+        "id": "elevator_downtime",
+        "weight": 2,
+        "title": "停梯可减租金",
+        "patterns": [r"停运.{0,20}减免租金"],
+        "note": "高层住户遇到长时间停梯时，有据可依。",
+    },
+    {
+        "id": "heating_on_landlord",
+        "weight": 2,
+        "title": "取暖费由房东承担",
+        "patterns": [r"取暖费由甲方承担"],
+        "note": "北方冬季取暖费是一笔不小的开支，写清由谁承担能省掉一次争执。",
+    },
+    {
+        "id": "deposit_free_explained",
+        "weight": 2,
+        "title": "免押的边界写清楚了",
+        "patterns": [r"免收押金不免除.{0,20}赔偿责任"],
+        "note": "免押不等于不用赔，说清楚反而对双方都好。",
+    },
+]
+
+
+def check_favourable(text):
+    """找出对租客有保障的条款。"""
+    found = []
+    for rule in FAVOURABLE:
+        for pattern in rule["patterns"]:
+            if re.search(pattern, text, re.S):
+                found.append({"id": rule["id"], "title": rule["title"],
+                              "note": rule["note"], "weight": rule["weight"]})
+                break
+    return found
+
+
 def check_risks(text, clauses=None):
     """检查合同风险。
 
@@ -98,7 +190,8 @@ def check_risks(text, clauses=None):
     `score` 越高越安全，供前端用颜色表达整体印象。
     """
     if not text or not text.strip():
-        return {"risks": [], "levels": {"high": 0, "medium": 0, "low": 0},
+        return {"risks": [], "favourable": [],
+                "levels": {"high": 0, "medium": 0, "low": 0},
                 "score": 0}
 
     clauses = clauses or {}
@@ -123,9 +216,27 @@ def check_risks(text, clauses=None):
     for risk in risks:
         levels[risk["level"]] = levels.get(risk["level"], 0) + 1
 
-    # 高风险扣 25 分，中风险 10 分，低风险 3 分，下限 0
+    # 高风险扣 25 分，中风险 10 分，低风险 3 分
     score = 100 - levels["high"] * 25 - levels["medium"] * 10 - levels["low"] * 3
-    return {"risks": risks, "levels": levels, "score": max(score, 0)}
+
+    # 写明了、对租客有保障的条款加回一些分。
+    #
+    # **加分封顶在 100，也封顶在「不能把高风险盖过去」**：
+    # 单条最多 8 分，而一条高风险扣 25——堆三条好条款也翻不过来。
+    # 合同审阅的本职是提醒风险，不是给合同评好评。
+    good = check_favourable(text)
+    # **加分总额封顶。**
+    #
+    # 不封的话，一份条款写得细的合同能靠六条有利条款把 87 分顶到 100——
+    # 而那两条真实存在的风险（不允许提前退租、禁止转租）还在那儿。
+    # 满分会让人以为这份合同没问题，恰恰是审阅最不该传达的印象。
+    #
+    # 12 分的上限，比一条中风险（10 分）多一点、比一条高风险（25 分）
+    # 少得多：条款写得好能把分数抬上去一档，但抬不过一条硬伤。
+    score += min(sum(item["weight"] for item in good), 12)
+
+    return {"risks": risks, "favourable": good, "levels": levels,
+            "score": max(0, min(score, 100))}
 
 
 def _numeric_risks(text, clauses):
