@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 
 /**
@@ -28,6 +28,21 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
   const [payMonths, setPayMonths] = useState(1)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // B5：这套房可以签给谁。选了房源才有意义，所以跟着 houseNo 取
+  const [candidates, setCandidates] = useState([])
+
+  useEffect(() => {
+    if (!houseNo) { setCandidates([]); return }
+    let alive = true
+    api.contractCandidates(houseNo)
+      .then((d) => alive && setCandidates(d.list || []))
+      // 取不到就当没有候选：**手填那条路一直留着**，
+      // 不能因为这个辅助功能挂了就签不了约
+      .catch(() => alive && setCandidates([]))
+    return () => { alive = false }
+  }, [houseNo])
+
+  const matched = candidates.find((c) => c.username === tenant.trim())
 
   // 只有「可租」的房源能签。已租的再签一份会出现两份生效合同，
   // 待审核的还没上架就更不该签
@@ -37,7 +52,7 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
   async function submit(e) {
     e.preventDefault()
     if (!houseNo || !tenant.trim()) {
-      setError('请选择房源并填写租客用户名。')
+      setError('请选择房源，并指定合同乙方。')
       return
     }
     setBusy(true)
@@ -92,10 +107,41 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
               </select>
             </label>
 
+            {/* B5：乙方从候选里选，不靠手打。
+                原先这里要房东**手打租客用户名**——打错一个字符得到的是
+                「租客不存在」，而他手上多半只有一个微信昵称或者一句
+                「小李」，平台用户名压根不知道。
+                候选只列在这套房上约过看房或被带看过的人：真要签约的那个人
+                一定在这两张表里留过痕迹，而列出全站用户等于做了个通讯录。 */}
             <label className="fld">
-              <span>租客用户名</span>
-              <input value={tenant} onChange={(e) => setTenant(e.target.value)}
-                     placeholder="如 tenant1" />
+              <span>乙方（租客）</span>
+              {candidates.length > 0 ? (
+                <select value={tenant} onChange={(e) => setTenant(e.target.value)}>
+                  <option value="">请选择</option>
+                  {candidates.map((c) => (
+                    <option key={c.username} value={c.username}>
+                      {c.real_name || c.username}（{c.username}）· {c.source}
+                      {c.last_at ? ` · ${c.last_at}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input value={tenant} onChange={(e) => setTenant(e.target.value)}
+                       placeholder="填租客的平台用户名，如 tenant1" />
+              )}
+              {houseNo && candidates.length === 0 && (
+                <small className="fld-hint">
+                  这套房还没有人约过看房，只能手填用户名
+                </small>
+              )}
+              {/* 选中之后把真名摆出来。**合同上的乙方写的就是这个名字**，
+                  签之前必须让他核对一眼「我要签的是不是这个人」 */}
+              {matched && (
+                <small className="fld-hint">
+                  合同乙方将写：<strong>{matched.real_name || '（该租客未填真实姓名）'}</strong>
+                  {!matched.ready && '　·　该租客的姓名或手机号不全，签约后需补齐'}
+                </small>
+              )}
             </label>
 
             <div className="fld-row">

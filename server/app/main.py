@@ -43,12 +43,14 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatLine,
                         RepairImage,
                         RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, SystemConfig, User,
+                        ViewingRecord,
                         mask_name)
 from app import (config_store, idcard, map_service, moderation, oplog,
                  pricing,
                  ratelimit,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
+                         ContractUpdate,
                          ContractCreate, ContractEnd, ContractRenew,
                          HouseCreate, HouseReview, HouseUpdate,
                          LoginRequest, NoticeCreate, PasswordChange,
@@ -847,6 +849,76 @@ def update_house_status(house_no: str, status: str,
     house.status = status
     session.commit()
     return {"ok": True, "house": house.to_dict()}
+
+
+@app.get("/api/landlord/houses/{house_no}/candidates")
+def contract_candidates(house_no: str,
+                        user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """这套房可以签给谁——**在这套房上有过往来的租客**。
+
+    ## 为什么需要它
+
+    签约表单原先要房东**手打租客用户名**。打错一个字符的结果是
+    「租客不存在」，而他手上多半只有一个微信昵称或者一句「小李」——
+    平台用户名他压根不知道。这就是「乙方姓名不自动匹配」那条反馈。
+
+    ## 候选人从哪来
+
+    只列**在这套房上约过看房或被带看过**的人。理由和「主动联系」那条
+    限制一样（见 conversation.start_conversation）：把全站用户列出来，
+    这个接口就成了一个通讯录。而真要签约的那个人，一定在这两张表里
+    留下过痕迹——没看过房就签约的情况不存在。
+
+    ## 为什么给真名而不是掩码
+
+    别处的姓名一律只露姓氏，这里例外：**房东正要和这个人签一份合同**，
+    合同上写的就是真名，他必须能核对「我要签的是不是这个人」。
+    掩码在这里不保护任何人，只会让他签错。
+    """
+    house = _house_or_404(session, house_no)
+    _require_house_owner(session, user, house)
+
+    seen = {}
+
+    def add(uid, source, when):
+        if not uid:
+            return
+        row = seen.get(uid)
+        # 同一个人两条记录时留更近的那条，并把来源都记上
+        if row:
+            row["sources"].add(source)
+            if when and (not row["last_at"] or when > row["last_at"]):
+                row["last_at"] = when
+            return
+        seen[uid] = {"sources": {source}, "last_at": when}
+
+    for appt in session.scalars(select(Appointment).where(
+            Appointment.house_id == house.id)).all():
+        add(appt.tenant_id, "约过看房", appt.viewing_time)
+    for record in session.scalars(select(ViewingRecord).where(
+            ViewingRecord.house_id == house.id)).all():
+        add(record.tenant_id, "带看过", getattr(record, "viewed_at", None))
+
+    users = {u.id: u for u in session.scalars(
+        select(User).where(User.id.in_(seen or {-1}))).all()}
+
+    rows = []
+    for uid, meta in seen.items():
+        person = users.get(uid)
+        if not person or person.status != "active":
+            continue
+        rows.append({
+            "username": person.username,
+            "real_name": person.real_name or "",
+            # 真名没填时要说清楚——合同上的乙方不能是空的
+            "ready": bool(person.real_name and person.phone),
+            "source": "、".join(sorted(meta["sources"])),
+            "last_at": meta["last_at"].strftime("%Y-%m-%d")
+                       if meta["last_at"] else "",
+        })
+    rows.sort(key=lambda r: r["last_at"], reverse=True)
+    return {"total": len(rows), "list": rows}
 
 
 @app.get("/api/districts")
@@ -2223,6 +2295,21 @@ def my_contracts(status: str = "",
         stmt = stmt.where(Contract.status == status)
 
     rows = session.scalars(stmt.order_by(Contract.created_at.desc())).all()
+
+    # **要处理的排前面，已经完结的排后面。**
+    #
+    # 原先只按创建时间倒序。实测房东那边 20 份合同里 17 份已结束，
+    # 两份生效中的排在第 19、20 位——**退租、续租这些按钮只挂在生效中的
+    # 合同上，而它们在列表最底下**，用户翻不到就以为功能不存在。
+    # 「房东不能退租」这条反馈正是这么来的：按钮一直在，只是没人找得到。
+    #
+    # 不按状态字母排：那样得到的是 active/cancelled/ended 这种无意义的
+    # 顺序。显式给每个状态一个优先级——待确认最急（有人在等我点头），
+    # 其次生效中（还能操作），最后是已经没有下一步动作的。
+    #
+    # 同一档内部仍按创建时间倒序：sorted 是稳定排序，上一步的顺序留着。
+    _ORDER = {"pending": 0, "active": 1, "cancelled": 2, "ended": 3}
+    rows = sorted(rows, key=lambda c: _ORDER.get(c.status, 9))
     return {"total": len(rows), "list": [c.to_dict() for c in rows]}
 
 
@@ -2264,6 +2351,81 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
     leasing.notify(session, tenant.id, "contract", "有一份合同待确认",
                    "房源 %s 的租赁合同已生成，请确认。" % house.house_no,
                    contract.contract_no)
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
+
+
+@app.patch("/api/contracts/{contract_no}")
+def update_contract(contract_no: str, payload: ContractUpdate,
+                    user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """改一份**还没生效**的合同（B4）。
+
+    ## 为什么之前没有这条
+
+    合同原先建出来就定死了：日期填错一天、押付方式选错一档，
+    唯一的办法是让租客先拒签、房东再重开一份——而重开的那份又是
+    新编号，之前发出去的链接全部作废。**一个填错日期的代价不该是这个。**
+
+    ## 边界：只有待确认的能改
+
+    租客一旦确认（active），这就是一份双方认可的协议了，
+    单方面改它是另一回事，不是「修正笔误」。要改就走正式路径：
+    退租重签，或者续租时调整。
+
+    这条边界不是保守，是**账单**：整期账单在生效那一刻一次排出
+    （见 leasing.activate_contract）。改一份已生效合同的租期或付款周期，
+    意味着已经排出的账单要重排——而其中可能已经有付过款的。
+    那是一整套对账逻辑，不是一个 PATCH 能承担的。
+
+    ## 改完要重新渲染正文
+
+    合同正文是按条款生成的一段文字。只改字段不重渲染，**页面上显示的
+    还是旧条款**——用户看到日期变了、正文没变，会不知道该信哪个。
+    """
+    contract = _visible_contract(session, contract_no, user)
+
+    if user.role != "admin" and user.id != contract.landlord_id:
+        raise HTTPException(status_code=403, detail="只有出租方可以修改合同")
+    if contract.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="只有待确认的合同可以修改。这份已经%s，"
+                   "要调整条款请走退租重签或续租。"
+                   % {"active": "生效", "ended": "结束",
+                      "cancelled": "取消"}.get(contract.status, "变更"))
+
+    house = session.get(House, contract.house_id)
+    tenant = session.get(User, contract.tenant_id)
+    if not house or not tenant:
+        raise HTTPException(status_code=409, detail="房源或租客已不存在")
+
+    start = payload.start_date or contract.start_date
+    months = payload.months
+    if months is None:
+        # 没传月数就沿用原来的跨度，**按月算而不是按天**——
+        # 按天算会把「一年」变成 365 天，遇到闰年或月末就对不齐
+        months = leasing.months_between(contract.start_date, contract.end_date)
+    pay_months = payload.pay_months or contract.pay_months
+
+    contract.start_date = start
+    contract.end_date = leasing.add_months(start, months)
+    contract.pay_months = pay_months
+    if payload.deposit_months is not None:
+        contract.deposit = leasing.resolve_deposit(
+            house, payload.deposit_months,
+            config_store.get_int(session, "deposit_months"))
+    # 租金始终跟着房源当前定价走，和创建时同一个口径——
+    # 房东想改租金就去改房源，不该在合同里另开一个价
+    contract.rent = house.rent_price
+    contract.content = leasing.render_contract_text(
+        house, tenant, contract.start_date, contract.end_date,
+        contract.rent, contract.deposit, contract.pay_months)
+
+    leasing.notify(session, contract.tenant_id, "system", "合同条款已修改",
+                   "房东修改了合同 %s 的条款，确认前请再看一遍。"
+                   % contract.contract_no, house.house_no)
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}

@@ -166,6 +166,23 @@ class ContractCreate(BaseModel):
     pay_months: int = Field(default=1, ge=1, le=12)
 
 
+class ContractUpdate(BaseModel):
+    """改一份**还没生效**的合同（B4）。
+
+    每一项都可以不填——不填就是不动。用 None 当「没填」而不是 0：
+    押金月数 0 是合法取值（免押），拿 0 当哨兵就表达不了免押了，
+    和 ContractCreate 同一个理由。
+
+    **刻意不收房源与租客。** 换房子或者换人签，那不是「改条款」，
+    是另一份合同——取消这份重开一份，留下的记录也更说得清。
+    """
+
+    start_date: datetime | None = None
+    months: int | None = Field(default=None, ge=1, le=60)
+    deposit_months: int | None = Field(default=None, ge=0, le=6)
+    pay_months: int | None = Field(default=None, ge=1, le=12)
+
+
 class ContractEnd(BaseModel):
     reason: str = ""
     deduct: float = Field(default=0, ge=0)

@@ -47,6 +47,7 @@ ACTION_RULES = (
     ("PATCH", r"^/api/appointments/", "处理看房预约"),
 
     ("POST", r"^/api/contracts$", "创建合同"),
+    ("PATCH", r"^/api/contracts/[^/]+$", "修改合同条款"),
     ("POST", r"^/api/contracts/[^/]+/activate$", "确认合同生效"),
     ("POST", r"^/api/contracts/[^/]+/end$", "办理退租"),
     ("POST", r"^/api/contracts/[^/]+/renew$", "办理续租"),

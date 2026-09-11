@@ -203,6 +203,9 @@ export const api = {
     request(`/api/contracts/${contractNo}/detail`),
 
   // side：'tenant' 只要我承租的，'landlord' 只要我出租的，不传是两者都要（D3）
+  // B5：这套房可以签给谁——在这套房上约过看房或被带看过的人
+  contractCandidates: (houseNo) =>
+    request(`/api/landlord/houses/${encodeURIComponent(houseNo)}/candidates`),
   myContracts: (status = '', side = '') =>
     request(`/api/contracts/mine?${toQuery({ status, side })}`),
   getContract: (no) => request(`/api/contracts/${no}`),

@@ -583,3 +583,104 @@ class TestStatsAggregationParity(ContractCase):
         total = sum(m["amount"] for m in stats["monthly_income"])
         # 刚才只缴了押金，租金一期没缴，月度收租应当为 0
         self.assertEqual(total, 0)
+
+
+class TestContractUpdate(ApiTestCase):
+    """改一份还没生效的合同（B4）。
+
+    合同原先建出来就定死了：日期填错一天、押付方式选错一档，唯一的办法是
+    让租客先拒签、房东再重开一份——而重开的那份是新编号，
+    之前发出去的链接全部作废。**一个填错日期的代价不该是这个。**
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.landlord = auth_header(self.client, "landlord1", "test123")
+        self.tenant = auth_header(self.client, "tenant1", "test123")
+
+    def _make(self):
+        houses = self.client.get("/api/landlord/houses",
+                                 headers=self.landlord).json()["list"]
+        house = next(h for h in houses if h["status"] == "available")
+        r = self.client.post("/api/contracts", headers=self.landlord, json={
+            "house_no": house["house_no"], "tenant_username": "tenant1",
+            "start_date": "2026-10-01T00:00:00", "months": 12,
+            "pay_months": 1})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()["contract"]
+
+    def test_landlord_can_fix_the_dates(self):
+        contract = self._make()
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord,
+                              json={"start_date": "2026-11-15T00:00:00",
+                                    "months": 6})
+        self.assertEqual(r.status_code, 200, r.text)
+        got = r.json()["contract"]
+        self.assertTrue(got["start_date"].startswith("2026-11-15"))
+        self.assertTrue(got["end_date"].startswith("2027-05-15"))
+
+    def test_body_text_is_re_rendered(self):
+        """**只改字段不重渲染正文，页面上显示的还是旧条款。**
+
+        用户看到日期变了、正文没变，会不知道该信哪个——
+        而合同正文正是双方最后要认的那份东西。
+        """
+        contract = self._make()
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord,
+                              json={"start_date": "2026-11-15T00:00:00",
+                                    "months": 6, "pay_months": 3})
+        body = r.json()["contract"]["content"]
+        self.assertIn("2026 年 11 月 15 日", body)
+        self.assertIn("每 3 个月支付一次", body)
+        self.assertNotIn("2026 年 10 月 01 日", body)
+
+    def test_deposit_months_recomputes_the_amount(self):
+        contract = self._make()
+        rent = contract["rent"]
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord,
+                              json={"deposit_months": 2})
+        self.assertAlmostEqual(r.json()["contract"]["deposit"], rent * 2, 2)
+
+    def test_omitted_fields_stay_put(self):
+        """每一项都可以不填，不填就是不动。"""
+        contract = self._make()
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord, json={"pay_months": 3})
+        got = r.json()["contract"]
+        self.assertEqual(got["start_date"][:10], contract["start_date"][:10])
+        self.assertEqual(got["end_date"][:10], contract["end_date"][:10])
+        self.assertEqual(got["pay_months"], 3)
+
+    def test_tenant_cannot_edit(self):
+        contract = self._make()
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.tenant, json={"months": 3})
+        self.assertEqual(r.status_code, 403)
+
+    def test_active_contract_is_frozen(self):
+        """**这条边界不是保守，是账单。**
+
+        整期账单在生效那一刻一次排出。改一份已生效合同的租期或付款周期，
+        意味着已排出的账单要重排——而其中可能已经有付过款的。
+        那是一整套对账逻辑，不是一个 PATCH 能承担的。
+        """
+        contract = self._make()
+        self.client.post("/api/contracts/%s/activate" % contract["contract_no"],
+                         headers=self.tenant)
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord, json={"months": 3})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("待确认", r.json()["detail"])
+
+    def test_tenant_is_notified(self):
+        """改完要通知租客。**他可能已经看过一遍准备点确认了**，
+        条款变了却没人告诉他，等于让他确认了一份没看过的合同。"""
+        contract = self._make()
+        self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                          headers=self.landlord, json={"months": 6})
+        msgs = self.client.get("/api/messages", headers=self.tenant).json()
+        titles = [m["title"] for m in msgs.get("list", [])]
+        self.assertIn("合同条款已修改", titles)
