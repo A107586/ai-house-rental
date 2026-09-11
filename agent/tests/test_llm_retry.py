@@ -76,10 +76,50 @@ class TestRetryable(RetryCase):
             self.assertEqual(call.call_count, 2)
             self.assertEqual(self.sleep.call_count, 1)
 
-    def test_recovers_after_timeout(self):
+    def test_timeout_is_not_retried(self):
+        """**超时不重试**，第一次挂住就收手。
+
+        重试是给瞬时故障用的（限流、网关抖动，等半秒就好）。而这里的超时
+        不是抖动，是中转站挂住不回——实测同一句话有时 4.6 秒返回、
+        有时挂满超时，再发一次多半还是挂。
+
+        重试它的代价是实打实的：一次挂死烧掉 7 秒，重试再烧 7 秒，
+        预算见底，这一轮只能降级到规则——**而规则本来就能答对**，
+        用户白等了两倍的时间拿到同一个答案。
+        """
         responses = [socket.timeout("timed out"), FakeResponse(OK_BODY)]
-        with mock.patch("urllib.request.urlopen", side_effect=responses):
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=responses) as call:
+            with self.assertRaises(LLMUnavailable):
+                self.provider.complete("s", "u")
+            self.assertEqual(call.call_count, 1, "超时之后不该再发第二次")
+
+    def test_circuit_opens_after_consecutive_timeouts(self):
+        """连挂两次就熔断，之后直接快速失败，不再发请求。
+
+        挂的时候每个请求都要先等满超时才降级，而规则本来就能答——
+        于是所有人都为同一个坑各付一次 7 秒。
+        熔断就是「有人已经踩过了，后面的人别再踩」。
+        """
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=socket.timeout("timed out")) as call:
+            for _ in range(providers.OpenAICompatibleProvider.CIRCUIT_AFTER):
+                with self.assertRaises(LLMUnavailable):
+                    self.provider.complete("s", "u")
+            sent = call.call_count
+            # 熔断已开：这一次应当**一个请求都不发**
+            with self.assertRaises(LLMUnavailable):
+                self.provider.complete("s", "u")
+            self.assertEqual(call.call_count, sent, "熔断期间不该再发请求")
+
+    def test_success_closes_the_circuit(self):
+        """**恢复不用等满那一分钟**——上游好了就该立刻用起来。"""
+        self.provider._consecutive_timeouts = 1
+        with mock.patch("urllib.request.urlopen",
+                        return_value=FakeResponse(OK_BODY)):
             self.assertEqual(self.provider.complete("s", "u"), "结果")
+        self.assertEqual(self.provider._consecutive_timeouts, 0)
+        self.assertEqual(self.provider._circuit_until, 0.0)
 
     def test_recovers_after_connection_error(self):
         responses = [urllib.error.URLError(socket.gaierror("dns")),

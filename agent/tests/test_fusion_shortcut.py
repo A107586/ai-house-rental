@@ -143,11 +143,24 @@ class TestFinderRespectsTheSwitch(unittest.TestCase):
 
 class TestTimeout(unittest.TestCase):
 
-    def test_default_timeout_is_eight_seconds(self):
-        """30 秒改成 8 秒。
+    def test_default_timeout_is_seven_seconds(self):
+        """30 → 8 → 7 秒。
 
         降级路径是完整可用的，不是残次品——没有理由为了
         「说不定第 29 秒能回来」让用户干等着。
+
+        后来又从 8 收到 7：实测中转站成功调用的耗时中位 3.4 秒、
+        p95 6.6 秒，超过 7 秒的基本都是挂死，等下去也等不到。
         """
         from app.config import Settings
-        self.assertEqual(Settings().llm_timeout, 8.0)
+        self.assertEqual(Settings().llm_timeout, 7.0)
+
+    def test_turn_budget_default(self):
+        """一轮对话在大模型上花的总墙钟时间，默认 12 秒。
+
+        从 20 收到 12：超时不再重试之后，单次最坏是 7 秒而不是 16 秒，
+        一轮里两三次调用也就十来秒。留着 20 秒只会让最坏情况更坏，
+        而最坏情况正是用户抱怨「太慢」的那几次。
+        """
+        from app.config import Settings
+        self.assertEqual(Settings().llm_turn_budget, 12.0)

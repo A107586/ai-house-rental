@@ -55,6 +55,25 @@ class OpenAICompatibleProvider(LLMProvider):
         self._failures = 0
         self._last_error = ""
 
+        # ---- 熔断 ----
+        #
+        # 中转站会**间歇性挂死**：同一句话有时 4.6 秒返回，有时挂满超时。
+        # 挂的时候每个请求都要先等满 7 秒才降级，而规则本来就能答——
+        # 于是所有人都为同一个坑各付一次 7 秒。
+        #
+        # 熔断就是「有人已经踩过了，后面的人别再踩」：连挂两次就停一分钟，
+        # 这一分钟里直接走规则，**不发请求、不等待**。任何一次成功立刻恢复。
+        #
+        # 两次而不是一次：单次超时可能只是一个慢请求，为它停掉整条链路
+        # 太急躁；连着两次就不是偶然了。
+        self._consecutive_timeouts = 0
+        self._circuit_until = 0.0
+        self._short_circuited = 0
+
+    # 连续超时多少次就熔断，以及熔断多久。
+    CIRCUIT_AFTER = 2
+    CIRCUIT_SECONDS = 60.0
+
     # 可重试的 HTTP 状态：限流与网关侧的临时故障。
     #
     # 400/401/403 不重试——请求本身有问题或密钥不对，重试多少次都一样，
@@ -73,10 +92,17 @@ class OpenAICompatibleProvider(LLMProvider):
         只是模型没参与，而 `/health` 还写着「大模型 + 规则」。
         排查花的时间远超写这几行。所以把成败摆出来。
         """
+        open_for = max(0.0, self._circuit_until - time.time())
         return {
             "calls": self._calls,
             "failures": self._failures,
             "last_error": self._last_error,
+            # 熔断期间被挡下的次数。**和 failures 分开**——
+            # 它们连请求都没发，混在一起会出现「调用 2 次、失败 34 次」
+            # 这种自相矛盾的数字，看的人第一反应是监控坏了
+            "short_circuited": self._short_circuited,
+            "circuit_open": open_for > 0,
+            "circuit_reopen_in": round(open_for, 1) if open_for else 0,
             # 一次都没调过时是**未知**，不是「不健康」。
             # 报 False 会让人以为出了问题，其实只是还没人问过话。
             "healthy": None if self._calls == 0
@@ -91,6 +117,19 @@ class OpenAICompatibleProvider(LLMProvider):
 
         重试仍然有上限：三次之内不成功就老实降级，不能让用户干等。
         """
+        # 熔断打开期间直接认输，不发请求。**这是「快速失败」不是「失败」**——
+        # 调用方收到 LLMUnavailable 会退回规则，而规则答得出来，还快得多。
+        if time.time() < self._circuit_until:
+            # **单独计数，不算进 failures。**
+            #
+            # 熔断拒绝不是一次失败的调用——它连请求都没发。混进 failures
+            # 会让 /health 出现「调用 2 次、失败 34 次」这种自相矛盾的数字，
+            # 看的人第一反应是监控坏了，而不是上游坏了。
+            self._short_circuited += 1
+            raise LLMUnavailable(
+                "大模型连续超时，已暂时熔断（%.0f 秒后重试）"
+                % (self._circuit_until - time.time()))
+
         last = "未知错误"
         self._calls += 1
         # 两个截止时间取更早的那个：自己的调用预算，和调用方给的
@@ -115,6 +154,10 @@ class OpenAICompatibleProvider(LLMProvider):
                         request,
                         timeout=max(min(self._timeout, remaining), 0.5)
                         ) as response:
+                    # 成功一次就把熔断计数清零。**恢复不需要等满那一分钟**——
+                    # 上游好了就该立刻用起来
+                    self._consecutive_timeouts = 0
+                    self._circuit_until = 0.0
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 # 不要把响应体原样抛出，其中可能回显密钥
@@ -122,7 +165,23 @@ class OpenAICompatibleProvider(LLMProvider):
                 if exc.code not in self.RETRYABLE_STATUS:
                     break
             except socket.timeout:
-                last = "大模型接口超时"
+                # **超时不重试。**
+                #
+                # 重试是给「瞬时故障」用的：限流、网关抖动，等半秒就好了。
+                # 而这里的超时不是抖动，是中转站**挂住不回**——实测同一句话
+                # 有时 4.6 秒返回、有时挂满 60 秒，再发一次多半还是挂。
+                #
+                # 重试它的代价是实打实的：一次挂死烧掉 8 秒，重试再烧 8 秒，
+                # 16 秒的预算见底，这一轮只能降级到规则。而规则**本来就能
+                # 答对**——用户白等了 16 秒，拿到的是同一个答案。
+                # 实测八句话的中位耗时 20.5 秒，全卡在这上面。
+                #
+                # 所以超时直接收手，把时间还给后面真正要答题的那几步。
+                last = "大模型接口超时，不再重试"
+                self._consecutive_timeouts += 1
+                if self._consecutive_timeouts >= self.CIRCUIT_AFTER:
+                    self._circuit_until = time.time() + self.CIRCUIT_SECONDS
+                break
             except urllib.error.URLError as exc:
                 # 连不上：网络抖动或 DNS 临时失败，值得再试
                 last = "大模型接口连接失败：%s" % type(exc.reason).__name__
