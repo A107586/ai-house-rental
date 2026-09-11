@@ -268,8 +268,9 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
               <span>在租 {landlord.listed_count} 套</span>
               {landlord.rented_count > 0 &&
                 <span>已出租 {landlord.rented_count} 套</span>}
-              {landlord.review_count > 0 &&
-                <span>评分 {landlord.rating}（{landlord.review_count} 条）</span>}
+              {landlord.review_count > 0
+                ? <span>评分 {landlord.rating}（{landlord.review_count} 条）</span>
+                : <span className="muted">暂无评分</span>}
               {landlord.avg_repair_hours !== null &&
                 <span>报修平均 {landlord.avg_repair_hours} 小时处理</span>}
             </div>
@@ -388,6 +389,18 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
         <p className="desc" style={{ marginTop: 14 }}>
           {house.description}
         </p>
+
+        {/* 一条评价都没有时也要有这一块。整块不画的话，详情页上
+            「评价」这件事凭空消失，用户不知道是没人评过还是页面没加载出来。 */}
+        {reviews.total === 0 && (
+          <>
+            <div className="section-title">租客评价</div>
+            <p className="desc">
+              暂无评分，这套房还没有人住完并留下评价。
+              签约前建议实地看房，并在合同里写清押金退还与维修责任。
+            </p>
+          </>
+        )}
 
         {reviews.total > 0 && (
           <>

@@ -76,7 +76,7 @@ export default function CompareBar({ items, onRemove, onClear }) {
                         const isBest = f.better && Number.isFinite(num)
                           && best[f.key] === num && items.length > 1
                         const shown = f.key === 'rating'
-                          ? (num > 0 ? `${num} 分` : '暂无评价')
+                          ? (num > 0 ? `${num} 分` : '暂无评分')
                           : `${raw ?? '—'}${f.unit || ''}`
                         return (
                           <td key={h.house_no} className={isBest ? 'cmp-best' : ''}>

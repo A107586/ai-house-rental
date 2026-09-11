@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app import notifier, ratelimit
 from app.db import get_session
+from app.deps import require_login
 from app.models import PasswordReset, User
 from app.security import hash_password
 
@@ -157,3 +158,78 @@ def reset_password(payload: ResetRequest,
     session.commit()
     return {"ok": True, "relogin": True,
             "message": "密码已重置，请用新密码登录。"}
+
+
+@router.post("/api/admin/users/{user_id}/reset-code")
+def issue_reset_code(user_id: int, request: Request,
+                     user: User = Depends(require_login),
+                     session: Session = Depends(get_session)):
+    """管理员为某个用户签发一次性重置码，当场返回给管理员。
+
+    ## 为什么要有这条
+
+    邮箱通道是「尽力而为」的：平台没配 SMTP、用户压根没绑邮箱，
+    `/api/auth/forgot` 就只能返回那句「如果该账号存在……」然后什么也
+    不发生。**对忘了密码的人来说，这等于没有找回密码功能**——
+    他做完了所有该做的动作，然后卡在原地，还不知道是哪一步出了问题。
+
+    真实平台在这种时候走的是人工客服：核实身份，然后由客服发起重置。
+    这条接口就是那个路径。
+
+    ## 它不是「管理员改密码」
+
+    签发的是**一次性码**，不是新密码。差别在于：
+
+    - 管理员全程不知道、也定不了用户最后设成什么密码；
+    - 码只能用一次、30 分钟过期，和邮件里那条走完全同一套校验；
+    - 用掉之后该用户此前签发的全部令牌一并吊销。
+
+    管理员本来就能改库里的任何东西，这条接口不会放大他的权限；
+    它的意义是**把这件事变成一个有记录、有时效、可审计的动作**，
+    而不是让他直接去改 password_hash。
+
+    ## 必须提醒的事
+
+    响应里那句 warning 不是客套：这串码等于一把临时钥匙，
+    **只能交给已经核实过身份的账号本人**。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.status != "active":
+        raise HTTPException(status_code=409, detail="该账号已被禁用，请先启用")
+    if target.role == "admin" and target.id != user.id:
+        # 管理员之间不能互相签发。**这是防内鬼最基本的一条**——
+        # 否则任何一个管理员都能悄悄接管另一个管理员的账号
+        raise HTTPException(status_code=403,
+                            detail="不能为其他管理员签发重置码")
+
+    token = secrets.token_urlsafe(32)
+    session.add(PasswordReset(
+        user_id=target.id,
+        token_hash=_hash(token),
+        expires_at=datetime.now() + timedelta(minutes=TOKEN_TTL_MINUTES),
+        request_ip=ratelimit.client_ip(request),
+    ))
+
+    # 绑了邮箱的照样发一份。**管理员手上那份是兜底，不是替代**——
+    # 能直接送到本人邮箱，就不该经过第三个人的手
+    if "@" in (target.email or ""):
+        notifier.notify_external(
+            target, "管理员为你签发了密码重置码",
+            "客服为你签发了一次性重置码，%d 分钟内有效：\n\n%s\n\n"
+            "如果不是你本人申请，请立即联系平台。"
+            % (TOKEN_TTL_MINUTES, token))
+
+    session.commit()
+    return {
+        "ok": True,
+        "code": token,
+        "expires_in_minutes": TOKEN_TTL_MINUTES,
+        "emailed": "@" in (target.email or ""),
+        "warning": "这串码等于一把临时钥匙，只能交给已核实身份的账号本人。"
+                   "用户在登录页点「忘记密码 → 我有验证码」填入即可设置新密码。",
+    }

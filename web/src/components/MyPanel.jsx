@@ -725,7 +725,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                       ['月租', house.rent_price ? `${Math.round(house.rent_price)} 元/月` : '',
                         { money: true }],
                       ['押付方式', house.payment_way],
-                      ['评分', house.rating ? `${house.rating} 分` : ''],
+                      ['评分', house.rating ? `${house.rating} 分` : '暂无评分'],
                       // 收藏是「先存着回头再比」，那么**它还在不在架上**
                       // 就是打开这一栏最先想知道的事
                       ['当前状态', house.status === 'available' ? '在架可租'

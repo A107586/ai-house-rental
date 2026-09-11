@@ -37,6 +37,8 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
   const [form, setForm] = useState({
     username: '', password: '', confirm: '',
     real_name: '', phone: '', role: 'tenant',
+    // B1：重置用的一次性验证码。它不是密码，所以不做 6–64 位那套校验
+    code: '',
   })
   const [errs, setErrs] = useState({})
   const [top, setTop] = useState('')
@@ -54,13 +56,20 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
    *  一个一个报会让用户来回提交五次。 */
   function validate() {
     const e = {}
-    const u = form.username.trim()
-    if (!u) e.username = '请输入用户名'
-    else if (!/^[A-Za-z0-9_]{3,20}$/.test(u)) e.username = '需 3–20 位字母、数字或下划线'
+    if (mode !== 'reset') {
+      const u = form.username.trim()
+      if (!u) e.username = '请输入用户名'
+      else if (!/^[A-Za-z0-9_]{3,20}$/.test(u)) e.username = '需 3–20 位字母、数字或下划线'
+    }
 
     if (!form.password) e.password = '请输入密码'
     else if (form.password.length < 6 || form.password.length > 64) e.password = '密码需 6–64 位'
     else if (/\s/.test(form.password)) e.password = '密码不能包含空格'
+
+    if (mode === 'reset') {
+      if (!form.code.trim()) e.code = '请粘贴邮件里的验证码'
+      if (form.confirm !== form.password) e.confirm = '两次输入的密码不一致'
+    }
 
     if (mode === 'register') {
       if (form.confirm !== form.password) e.confirm = '两次输入的密码不一致'
@@ -103,11 +112,18 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         } else {
           onDone?.(d.user)
         }
+      } else if (mode === 'reset') {
+        // B1：真正把密码改掉的那一步。此前只有「申请」没有「完成」，
+        // 用户收到验证码之后**没有任何地方可以用它**
+        await api.resetPassword(form.code.trim(), form.password)
+        setDone('密码已重置，正在回到登录页…')
+        setTimeout(() => onSwitch('login'), 1800)
       } else {
-        await api.forgotPassword(form.username.trim() || form.phone.trim())
-        // 不论号码存不存在都给同一句话——区别对待等于给了别人
+        await api.forgotPassword(form.username.trim())
+        // 不论账号存不存在都给同一句话——区别对待等于给了别人
         // 一个枚举账号的接口
-        setDone('若该账号已注册，重置链接已发送。')
+        setDone('如果该账号存在且绑定了邮箱，重置验证码已经发出，请查收邮件。'
+                + '收到后点下面的「我有验证码」继续。')
       }
     } catch (err) {
       setTop(err.message || '操作失败，请重试')
@@ -116,7 +132,8 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
     }
   }
 
-  const title = { login: '登录', register: '注册', forgot: '找回密码' }[mode]
+  const title = { login: '登录', register: '注册', forgot: '找回密码',
+                  reset: '设置新密码' }[mode]
 
   return (
     <div className="auth-page">
@@ -155,25 +172,45 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
           <p className="auth-sub">
             {mode === 'login' && '登录后可收藏房源、预约看房、签约与缴费'}
             {mode === 'register' && '填写以下信息，注册后即可开始找房'}
-            {mode === 'forgot' && '输入注册手机号，我们会发送重置链接'}
+            {mode === 'forgot' && '输入用户名，重置验证码会发到你绑定的邮箱'}
+            {mode === 'reset' && '粘贴邮件里的验证码，然后设置新密码'}
           </p>
 
           {top && <div className="auth-alert">{top}</div>}
           {done && <div className="auth-ok">{done}</div>}
 
           <form onSubmit={submit} noValidate>
-            {mode !== 'forgot' && (
+            {/* B1：找回密码这一屏原来要的是**手机号**，而后端是按
+                用户名查的（`User.username`）——填手机号永远匹配不上，
+                于是无论填什么都得到同一句「如果该账号存在…」，
+                用户以为是自己记错了账号。 */}
+            {mode !== 'reset' && (
               <Field label="用户名" err={errs.username}>
                 <input value={form.username} onChange={set('username')}
                        autoComplete="username" placeholder="3–20 位字母、数字或下划线" />
               </Field>
             )}
 
+            {mode === 'reset' && (
+              <Field label="验证码" err={errs.code}>
+                <input value={form.code} onChange={set('code')}
+                       autoComplete="one-time-code"
+                       placeholder="粘贴邮件里那一串字符" />
+              </Field>
+            )}
+
             {mode !== 'forgot' && (
-              <Field label="密码" err={errs.password}>
+              <Field label={mode === 'reset' ? '新密码' : '密码'} err={errs.password}>
                 <input type="password" value={form.password} onChange={set('password')}
                        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                        placeholder="6–64 位，不能有空格" />
+              </Field>
+            )}
+
+            {mode === 'reset' && (
+              <Field label="确认新密码" err={errs.confirm}>
+                <input type="password" value={form.confirm} onChange={set('confirm')}
+                       autoComplete="new-password" placeholder="再输入一次" />
               </Field>
             )}
 
@@ -190,7 +227,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
               </>
             )}
 
-            {(mode === 'register' || mode === 'forgot') && (
+            {mode === 'register' && (
               <Field label="手机号" err={errs.phone}>
                 <input value={form.phone} onChange={set('phone')}
                        inputMode="numeric" placeholder="11 位手机号" />
@@ -228,6 +265,16 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
                 <button className="link" onClick={() => onSwitch('register')}>注册一个</button>
                 <span>·</span>
                 <button className="link" onClick={() => onSwitch('forgot')}>忘记密码</button>
+              </>
+            )}
+            {mode === 'forgot' && (
+              <>
+                {/* 验证码走邮箱，用户要离开页面去收。回来时得有个地方
+                    把它填进去——没有这个入口，整条找回流程就断在半路 */}
+                <button className="link" onClick={() => onSwitch('reset')}>
+                  我有验证码
+                </button>
+                <span>·</span>
               </>
             )}
             {mode !== 'login' && (

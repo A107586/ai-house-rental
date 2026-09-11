@@ -400,6 +400,8 @@ export const api = {
 
   // ---------------- K-11 找回密码 ----------------
   forgotPassword: (username) => post('/api/auth/forgot', { username }),
+  // B1：管理员为某个用户签发一次性重置码（邮箱通道不可用时的人工兜底）
+  issueResetCode: (userId) => post(`/api/admin/users/${userId}/reset-code`, {}),
   resetPassword: (token, newPassword) =>
     post('/api/auth/reset', { token, new_password: newPassword }),
 

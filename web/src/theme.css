@@ -3700,3 +3700,48 @@
 
 /* 待办条在整页里可以铺开一些 */
 .wb-main .focus-bar { margin-top: 0; }
+
+/* 「暂无评分」用弱化的样式：它是一条信息，不是一个成绩。
+   和真有分数的那个 ★ 4.5 同样醒目的话，列表扫过去会以为
+   这是个什么标签。 */
+.card-meta .rate.none {
+  color: var(--muted);
+  background: none;
+  padding-left: 0;
+  font-weight: 400;
+}
+
+/* 管理员签发的一次性重置码。用警示色，因为它就是一把临时钥匙。 */
+.reset-code-box {
+  margin-top: 16px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  padding: 14px 16px;
+}
+
+.rc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+/* 码本身要能一眼选中复制：等宽、可换行、底色区分 */
+.rc-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-all;
+  user-select: all;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+}
+
+.rc-note { margin: 9px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.rc-warn { margin: 5px 0 0; font-size: 12.5px; color: var(--warn); line-height: 1.8; }

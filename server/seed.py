@@ -306,15 +306,27 @@ def main():
     session = SessionLocal()
     try:
         print("创建用户 ...")
+        # 每个演示账号都绑一个邮箱。
+        #
+        # **不绑的话「忘记密码」整条路是断的**：接口会正常返回
+        # 「如果该账号存在……」，然后什么也不发生——功能在代码里是
+        # 完整的，在演示里却一次也跑不通，而这两件事很容易被混为一谈。
+        # 域名用 example.com：RFC 2606 专门留给文档与示例，
+        # 不会真的投递到某个人的信箱里。
+        def _mail(name):
+            return "%s@example.com" % name
+
         admin = User(username="admin", password_hash=hash_password("admin123"),
-                     real_name="系统管理员", phone=_phone(), role="admin")
+                     real_name="系统管理员", phone=_phone(), role="admin",
+                     email=_mail("admin"))
         session.add(admin)
 
         landlords = []
         for i, name in enumerate(LANDLORD_NAMES, start=1):
             user = User(username="landlord%d" % i,
                         password_hash=hash_password("test123"),
-                        real_name=name, phone=_phone(), role="landlord")
+                        real_name=name, phone=_phone(), role="landlord",
+                        email=_mail("landlord%d" % i))
             session.add(user)
             landlords.append(user)
 
@@ -322,7 +334,8 @@ def main():
         for i, name in enumerate(TENANT_NAMES, start=1):
             user = User(username="tenant%d" % i,
                         password_hash=hash_password("test123"),
-                        real_name=name, phone=_phone(), role="tenant")
+                        real_name=name, phone=_phone(), role="tenant",
+                        email=_mail("tenant%d" % i))
             session.add(user)
             tenants.append(user)
 
@@ -336,7 +349,8 @@ def main():
         # 主营区域**留空**（不限区域），否则「接单大厅」和「智能派单」
         # 在别的区都是空的，测的人会以为功能坏了。
         agent = User(username="agent1", password_hash=hash_password("test123"),
-                     real_name="李经纪", phone=_phone(), role="agent")
+                     real_name="李经纪", phone=_phone(), role="agent",
+                     email=_mail("agent1"))
         session.add(agent)
         session.flush()
         session.add(AgentProfile(

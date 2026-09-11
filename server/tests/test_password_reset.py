@@ -10,7 +10,7 @@
 import hashlib
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header
+from tests.base import ApiTestCase, auth_header, make_admin
 import app.db as db
 from app import ratelimit
 from app.models import PasswordReset, User
@@ -215,3 +215,76 @@ class TestDisabledAccount(ResetCase):
         finally:
             session.close()
         self.assertEqual(self.reset(token).status_code, 400)
+
+
+class TestAdminIssuedCode(ResetCase):
+    """管理员签发的一次性重置码（B1 的人工兜底）。
+
+    邮箱通道是「尽力而为」的：没配 SMTP、用户没绑邮箱，自助流程就只会
+    返回一句「如果该账号存在……」然后什么也不发生——**对忘了密码的人
+    来说那等于没有找回密码功能**。真实平台这时走人工客服，这条路径
+    就是它。
+
+    它必须和邮件那条走**同一套校验**，否则就成了一个绕过限制的后门。
+    """
+
+    def setUp(self):
+        super().setUp()
+        # 测试库里没有 seed 出来的 admin，注册一个再提权
+        self.admin = make_admin(self.client, "rootA")
+
+    def _uid(self, username):
+        session = db.SessionLocal()
+        try:
+            return session.query(User).filter_by(username=username).one().id
+        finally:
+            session.close()
+
+    def issue(self, username="tenant1", headers=None):
+        return self.client.post(
+            "/api/admin/users/%d/reset-code" % self._uid(username),
+            headers=headers if headers is not None else self.admin)
+
+    def test_admin_gets_a_usable_code(self):
+        code = self.issue().json()["code"]
+        r = self.client.post("/api/auth/reset",
+                             json={"token": code, "new_password": "brandnew1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(
+            self.client.post("/api/auth/login",
+                             json={"username": "tenant1",
+                                   "password": "brandnew1"}).status_code, 200)
+
+    def test_code_is_single_use(self):
+        """和邮件那条同一套校验——不是一个绕过限制的后门。"""
+        code = self.issue().json()["code"]
+        self.client.post("/api/auth/reset",
+                         json={"token": code, "new_password": "brandnew1"})
+        again = self.client.post("/api/auth/reset",
+                                 json={"token": code, "new_password": "other12"})
+        self.assertEqual(again.status_code, 400)
+
+    def test_response_carries_the_warning(self):
+        """**必须连用法和警告一起给。** 只甩一串字符，管理员既不知道
+        该让用户拿它去哪儿填，也不会意识到这东西等于一把临时钥匙。"""
+        data = self.issue().json()
+        self.assertIn("核实身份", data["warning"])
+        self.assertTrue(data["expires_in_minutes"] > 0)
+
+    def test_non_admin_denied(self):
+        tenant = auth_header(self.client, "tenant1", "test123")
+        self.assertEqual(self.issue(headers=tenant).status_code, 403)
+
+    def test_anonymous_denied(self):
+        self.assertIn(self.issue(headers={}).status_code, (401, 403))
+
+    def test_cannot_target_another_admin(self):
+        """**防内鬼最基本的一条**：管理员之间不能互相签发，
+        否则任何一个管理员都能悄悄接管另一个管理员的账号。"""
+        make_admin(self.client, "rootB")
+        self.assertEqual(self.issue("rootB").status_code, 403)
+
+    def test_disabled_account_refused(self):
+        self.client.patch("/api/admin/users/%d" % self._uid("tenant1"),
+                          headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(self.issue().status_code, 409)

@@ -333,7 +333,7 @@ export default function DelegationPanel({ houses = [] }) {
                           对「要不要把房子交给他」是两回事 */}
                       {a.rated_count > 0
                         ? <span>租客评分 {a.rating}（{a.rated_count} 条）</span>
-                        : <span className="muted">暂无租客评价</span>}
+                        : <span className="muted">暂无评分</span>}
                       {covers && <em className="ac-cover">覆盖该房源所在区</em>}
                     </div>
 

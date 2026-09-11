@@ -8,6 +8,7 @@
 """
 
 import os
+import unittest
 import sqlite3
 import tempfile
 
@@ -157,3 +158,29 @@ class TestStepRegistry(MigrationCase):
     def test_every_step_has_a_description(self):
         for version, description, _ in migrations._STEPS:
             self.assertTrue(description.strip(), version)
+
+
+class TestVersionsAreUnique(unittest.TestCase):
+    """版本号不能重复。
+
+    **这条是被咬过之后补的。** 两个人（或同一个人隔一天）各加一步，
+    都顺手写了 "0015"，代码照常 import、照常启动——直到某次升级时
+    第二条记录撞上 `schema_migrations.version` 的唯一约束，
+    整个迁移过程当场崩掉，而报错只说「UNIQUE constraint failed」，
+    看不出是哪两步撞了。
+
+    序号是这套迁移**唯一的身份**：靠它判断某一步跑过没有。
+    重复意味着两步共用一个身份，先跑的那步会把后一步标记成已完成，
+    于是后一步**永远不会执行**——比崩掉更糟，因为它不报错。
+    """
+
+    def test_no_duplicate_versions(self):
+        versions = [version for version, _, _ in migrations._STEPS]
+        dupes = {v for v in versions if versions.count(v) > 1}
+        self.assertFalse(dupes, "这些版本号重复了：%s" % sorted(dupes))
+
+    def test_versions_are_sorted(self):
+        """按顺序排列。乱序不影响正确性（执行按列表顺序），
+        但翻文件找「最新一步是哪个」时会看走眼。"""
+        versions = [version for version, _, _ in migrations._STEPS]
+        self.assertEqual(versions, sorted(versions))

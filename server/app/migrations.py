@@ -469,7 +469,7 @@ def _review_subjects(connection, engine):
             "ON reviews (agent_id)"))
 
 
-@step("0015", "房源表：楼栋与单元（A5）")
+@step("0016", "房源表：楼栋与单元（A5）")
 def _house_building_unit(connection, engine):
     """给 houses 补 building / unit 两列。
 

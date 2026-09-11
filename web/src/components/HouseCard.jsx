@@ -94,9 +94,13 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
       </div>
 
       <div className="card-meta">
-        {house.rating > 0 && (
-          <span className="rate">★ {house.rating}</span>
-        )}
+        {/* 没有评分时明确写「暂无评分」，不是整项不显示。
+            **「这套房没人评过」和「这套房评分我没给你看」是两回事**，
+            而整项消失只会让人以为是后者——挑房的时候，
+            「还没有人住过」本身就是一条要考虑的信息。 */}
+        {house.rating > 0
+          ? <span className="rate">★ {house.rating}</span>
+          : <span className="rate none">暂无评分</span>}
         <span>{house.layout}</span>
         <span>{Math.round(house.area)} 平米</span>
         <span>{house.rent_type}</span>

@@ -63,6 +63,8 @@ ACTION_RULES = (
 
     ("PATCH", r"^/api/admin/houses/", "审核房源"),
     ("PATCH", r"^/api/admin/users/", "修改用户状态或角色"),
+    # 签发重置码等于临时把账号交出去，必须留痕（B1）
+    ("POST", r"^/api/admin/users/\d+/reset-code$", "签发密码重置码"),
     # AI-03 智能客服
     ("POST", r"^/api/faqs$", "新增知识条目"),
     ("PUT", r"^/api/faqs/", "修改知识条目"),

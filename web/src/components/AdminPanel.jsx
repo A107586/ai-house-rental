@@ -36,6 +36,9 @@ export default function AdminPanel({ user, onClose, embedded,
   // 而这种不一致要切换几次之后才显形，最难查。
   //
   // 进来第一屏是待审队列，不是看板（F5）
+  // 管理员签发的一次性重置码。**只放在内存里，不落 state 之外的任何地方**——
+  // 它是一把临时钥匙，不该被写进 localStorage 或 URL
+  const [resetCode, setResetCode] = useState(null)
   const [ownTab, setOwnTab] = useState('review')
   const tab = embedded && activeTab ? activeTab : ownTab
   const setTab = (key) => {
@@ -601,6 +604,30 @@ export default function AdminPanel({ user, onClose, embedded,
                           转为{u.role === 'tenant' ? '房东' : '租客'}
                         </button>
                       )}
+                      {/* B1：人工兜底的找回密码。
+                          邮箱通道是「尽力而为」的——平台没配 SMTP、
+                          用户压根没绑邮箱，那条自助流程就只会返回一句
+                          「如果该账号存在……」然后什么也不发生。
+                          **对忘了密码的人来说那等于没有这个功能**。
+                          真实平台这时走人工客服，这个按钮就是那条路。 */}
+                      {u.role !== 'admin' && u.status === 'active' && (
+                        <button
+                          className="btn ghost small"
+                          disabled={busy === `u${u.id}`}
+                          onClick={async () => {
+                            setResetCode(null)
+                            setError('')
+                            try {
+                              const r = await api.issueResetCode(u.id)
+                              setResetCode({ ...r, who: u.real_name || u.username })
+                            } catch (err) {
+                              setError(err.message)
+                            }
+                          }}
+                        >
+                          发重置码
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="own" style={{ marginTop: 8 }}>
@@ -610,6 +637,28 @@ export default function AdminPanel({ user, onClose, embedded,
                 </li>
               ))}
             </ul>
+
+            {/* 码只显示这一次：它等于一把临时钥匙，留在页面上
+                谁路过都能看见。**必须连同用法一起给**——
+                只甩一串字符，管理员不知道该让用户拿它去哪儿填 */}
+            {resetCode && (
+              <div className="reset-code-box">
+                <div className="rc-head">
+                  <strong>给「{resetCode.who}」的一次性重置码</strong>
+                  <button className="link" onClick={() => setResetCode(null)}>
+                    我记下了，关闭
+                  </button>
+                </div>
+                <code className="rc-code">{resetCode.code}</code>
+                <p className="rc-note">
+                  {resetCode.expires_in_minutes} 分钟内有效，只能用一次。
+                  {resetCode.emailed
+                    ? '同一份已发到该用户绑定的邮箱。'
+                    : '该用户没有绑定邮箱，只能由你转告。'}
+                </p>
+                <p className="rc-warn">{resetCode.warning}</p>
+              </div>
+            )}
           </>
         )}
       </div>
