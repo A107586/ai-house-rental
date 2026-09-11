@@ -176,8 +176,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>报修最多的房源</h5>
             <p className="rd-note">
-              同一套房反复报修，往往不是「又坏了一次」，
-              而是上次没修好、或者房子本身有问题。
+              同一套房反复报修，往往不是又坏了一次，而是上次没修好，或房子本身有问题。
             </p>
             {stats.top_houses.length === 0 ? (
               <div className="empty">暂无数据。</div>
@@ -335,8 +334,7 @@ export default function RepairDataPanel() {
           </form>
 
           <p className="rd-note">
-            调价只影响以后的领用。历史维修记录里存的是领用当时的单价快照，
-            不会被改价改写。
+            调价只影响以后的领用。历史维修记录保存的是领用时的单价快照，不受调价影响。
           </p>
 
           {items.length === 0 ? <div className="empty">还没有物品。</div> : (

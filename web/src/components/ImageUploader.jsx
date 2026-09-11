@@ -98,7 +98,7 @@ export default function ImageUploader({ mode = 'house', houseNo, repairId,
         <span className="up-hint">
           {mode === 'house'
             ? '支持 JPG/PNG/GIF/WebP，单张不超过 5MB。第一张自动作为封面。'
-            : '一张照片往往比几句描述更说得清哪里坏了。'}
+            : '一张照片往往比文字描述更能说明问题。'}
         </span>
         <label className={`up-pick ${busy ? 'busy' : ''}`}>
           <input ref={inputRef} type="file" accept="image/*" multiple

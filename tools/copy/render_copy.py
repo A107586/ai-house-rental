@@ -23,6 +23,7 @@
 
 import io
 import json
+import os
 import re
 from collections import OrderedDict
 
@@ -163,7 +164,8 @@ def main():
                  cell("、".join(r["lines"][:3]))))
 
     text = "\n".join(out) + "\n"
-    path = "C:/Competition1/rental/docs/前端文案清单_2026-09-12.md"
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "docs", "前端文案清单_2026-09-12.md")
     io.open(path, "w", encoding="utf-8", newline="").write(text)
     print("写入 %s" % path)
     print("  可改 %d 条 / 带变量 %d 条 / 不要改 %d 条"

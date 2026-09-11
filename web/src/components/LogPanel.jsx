@@ -99,8 +99,7 @@ export default function LogPanel() {
       <div className="log-count">
         共 {total} 条
         <span className="log-note">
-          只记录改变了状态的操作，浏览类请求不入库；请求体一律不记，
-          改密码这类接口的正文里有明文密码。
+          只记录改变状态的操作，浏览类请求不入库；请求体一律不记录。
         </span>
       </div>
 

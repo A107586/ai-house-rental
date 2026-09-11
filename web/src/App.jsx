@@ -444,7 +444,7 @@ export default function App() {
       // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
       // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
       await byKeyword(content)
-      setError('智能体暂时联系不上，已按关键词直接检索；也可以用下面的筛选条件找房。')
+      setError('智能体暂时不可用，已按关键词直接检索；也可以用下面的筛选条件找房。')
     } finally {
       setBusy(false)
     }
@@ -959,7 +959,7 @@ export default function App() {
           <div className="list-search">
             <form className="search-row" onSubmit={search}>
               <input
-                placeholder="换个说法再找找，如：中山区两室一厅三千以内 / 桂林街"
+                placeholder="换个说法试试，比如：中山区两室一厅三千以内 / 桂林街"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
@@ -1033,7 +1033,7 @@ export default function App() {
             {error
               ? '无法加载房源，请确认后端服务已启动。'
               : hasFilters
-                ? '没有符合条件的房源。可以在上面的「已生效条件」里删掉几条再看看。'
+                ? '没有符合条件的房源。可以在「已生效条件」里删掉几条再试。'
                 : '暂时还没有房源。'}
           </div>
         ) : (
@@ -1111,7 +1111,7 @@ export default function App() {
             <span className="map-panel-sub">
               {filters.district
                 ? `已选区域：${filters.district}`
-                : '在地图上按区域挑，看得见位置和周边'}
+                : '位置周边一目了然'}
             </span>
             <span className="map-panel-arrow" aria-hidden="true">
               {showMap ? '收起' : '展开'}
@@ -1232,8 +1232,7 @@ export default function App() {
               <span>{site.site_name.slice(2)}</span>
             </div>
             <p className="foot-slogan">
-              说一句话就能找房。条件摆在页面上，可以改；
-              从签约到退租每一步都有据可查。
+              AI 智能找房
             </p>
             <div className="foot-badges">
               <span>房源人工核验</span>

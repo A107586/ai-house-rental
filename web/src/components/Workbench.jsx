@@ -363,8 +363,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                     <div className="wb-lines">
                       {lines.length === 0 && (
                         <div className="wb-empty">
-                          还没有消息。先问一句「方便什么时候看房」，
-                          比等着对方开口有用。
+                          还没有消息。可以先问一句「方便什么时候看房」。
                         </div>
                       )}
                       {lines.map((line) => (

@@ -90,8 +90,7 @@ export default function ReportDialog({ house, user, onClose, onNeedLogin }) {
               举报已提交，单号 <b>{done.report_no}</b>。
             </div>
             <p className="desc">
-              管理员核实后会把结论通过站内消息告诉你，
-              在「个人中心 → 消息」里查看。
+              管理员核实后会通过站内消息告知结论，在「个人中心 → 消息」里查看。
             </p>
             <button className="btn block" onClick={onClose}>知道了</button>
           </>
@@ -123,14 +122,14 @@ export default function ReportDialog({ house, user, onClose, onNeedLogin }) {
                   placeholder="例如：打电话过去，房东说这套两周前就租出去了"
                 />
                 <span className="fld-hint">
-                  写清楚时间、经过和联系情况，管理员才核实得动。
+                  请写清时间、经过和联系情况，便于管理员核实。
                 </span>
               </label>
 
               {!user && (
                 <div className="assist warn">
                   <div className="assist-body">
-                    举报需要登录后提交，这样处理结果才通知得到你。
+                    举报需登录后提交，处理结果才能通知到你。
                   </div>
                 </div>
               )}

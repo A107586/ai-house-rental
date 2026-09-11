@@ -34,9 +34,10 @@ import os
 import re
 import sys
 
-SRC = "C:/Competition1/rental/web/src"
-DOC = "C:/Competition1/rental/docs/前端文案清单_2026-09-12.md"
-ROWS = "copy_rows.json"
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(_ROOT, "web", "src")
+DOC = os.path.join(_ROOT, "docs", "前端文案清单_2026-09-12.md")
+ROWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "copy_rows.json")
 
 SLOT_RE = re.compile(r"\$\{[^}]*\}")
 ARROW = " \u23ce "          # 渲染时把换行写成了这个符号

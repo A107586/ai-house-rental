@@ -62,11 +62,11 @@ function loadSessionId() {
 
 const OPENING = {
   role: 'assistant',
-  content: '你好，我是租房助手。找房可以一句一句地补充条件，我都记得住；'
+  content: '你好，我是租房助手。找房条件可以一句一句补充，我都会记住；'
     + '平台规则也可以直接问我，比如「押金怎么退」——'
-    + '我只按知识库里写的回答，查不到就直说，不会瞎编。'
-    + '也可以让我帮你做事——交房租、约看房、报修都行，'
-    + '我会先把要做的事列给你看，你点确认我才动手。',
+    + '我只按知识库里的内容回答，查不到会直接说。'
+    + '也可以让我帮你交房租、约看房、报修，'
+    + '动手前会先列出要做的事，你确认后我才执行。',
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
@@ -525,7 +525,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           {
             role: 'assistant', kind: 'divider',
             content: '以上是之前聊过的记录，只存了文字。'
-              + '卡片和可点选项不会保留，想接着办的话重新说一句就行。',
+              + '卡片和选项不会保留，继续办理请重新说一句。',
           },
         ])
       })
@@ -711,7 +711,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     const message = messages[index]
     if (!message?.handoff) return
     if (!getToken()) {
-      setError('转人工需要先登录，管理员回复时要知道回给谁。')
+      setError('转人工需要先登录，管理员需要知道回复给谁。')
       return
     }
     try {
@@ -955,7 +955,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                     转人工
                   </button>
                   <span className="muted small">
-                    我答不上来的问题，可以交给管理员
+                    我答不上来的问题，可以转给管理员
                   </span>
                 </div>
               )}

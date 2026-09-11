@@ -69,7 +69,7 @@ export default function ForgotPasswordForm({ onDone, onBack }) {
       {step === 'ask' ? (
         <form onSubmit={ask}>
           <p className="desc">
-            输入用户名，我们会把重置验证码发到该账号绑定的邮箱。
+            输入用户名，重置验证码将发到该账号绑定的邮箱。
           </p>
           <div className="field">
             <input

@@ -396,8 +396,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           <>
             <div className="section-title">租客评价</div>
             <p className="desc">
-              暂无评分，这套房还没有人住完并留下评价。
-              签约前建议实地看房，并在合同里写清押金退还与维修责任。
+              暂无评分，还没有人住完并留下评价。签约前建议实地看房，并在合同里写清押金退还与维修责任。
             </p>
           </>
         )}
@@ -560,7 +559,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             同区域 + 租金上下 20%，户型相同的排前面。 */}
         {similar.length > 0 && (
           <section className="cd-sec">
-            <h5>看了这套的人还在看</h5>
+            <h5>看过这套房的人也在看</h5>
             <ul className="sim-list">
               {similar.map((item) => (
                 <li key={item.house_no}>

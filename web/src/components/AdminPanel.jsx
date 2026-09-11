@@ -225,7 +225,7 @@ export default function AdminPanel({ user, onClose, embedded,
         )}
 
         <FocusBar items={FOCUS} onPick={setTab}
-                  hint="这几项都有具体的人在等结果，压着不处理会一直卡着。" />
+                  hint="这几项都有人在等结果，请尽快处理。" />
 
         {!embedded && (
         <div className="tabs scroll grouped">

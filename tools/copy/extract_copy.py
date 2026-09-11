@@ -28,7 +28,10 @@ import os
 import re
 import sys
 
-SRC = "C:/Competition1/rental/web/src"
+# 仓库根目录按脚本自身位置推导（tools/copy/ 的上两级），
+# 换台机器、换个盘符都能跑。
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(_ROOT, "web", "src")
 CJK = re.compile(r"[\u4e00-\u9fff]")
 
 # 这些文件里的中文不是给用户看的，或者改了会坏事

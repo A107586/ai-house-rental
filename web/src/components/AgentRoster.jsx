@@ -114,7 +114,7 @@ export default function AgentRoster() {
 
           <div className="section-title">中介到底有没有用</div>
           {dealTotal === 0 ? (
-            <p className="desc">还没有成交合同，这个对比暂时无从谈起。</p>
+            <p className="desc">还没有成交合同，暂时无法对比。</p>
           ) : (
             <div className="table-wrap">
               <table className="log-table">
@@ -132,9 +132,7 @@ export default function AgentRoster() {
             </div>
           )}
           <p className="rd-note">
-            这两个数是唯一能回答「中介功能有没有价值」的口径。做了这个功能
-            就该敢于把它摆出来——如果委托的反而更低，说明功能没起作用，
-            应当如实显示，而不是把这一行藏起来。
+            这两个数字用于衡量中介委托的价值：委托房源的成交率若反而更低，说明委托没有起作用。
           </p>
         </>
       )}
@@ -211,10 +209,7 @@ export default function AgentRoster() {
       )}
 
       <p className="rd-note">
-        被举报按「举报发生时这套房是不是他在托」归集，而不是按当前受托人——
-        否则委托一解除，历史举报就全都不算在他头上了。有成立举报的行会标红。
-        所有比率都带分母：样本不足 5 时显示原始数字而不是百分比，
-        「成交率 25%」在只带看过 4 次时是一句没有信息量的话。
+        举报按发生时的受托人归集，委托解除后历史举报仍算在他头上；有成立举报的行标红。样本不足 5 时显示原始数字，不折算百分比。
       </p>
     </div>
   )

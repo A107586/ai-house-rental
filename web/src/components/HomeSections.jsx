@@ -26,7 +26,7 @@ export const SECTIONS = [
   {
     kind: 'latest',
     title: '最新发布',
-    desc: '最近 30 天上架，房东还在盯着消息',
+    desc: '最近 30 天上架的新房源',
     // **筛选 + 排序，不是只排序。**
     // 只按时间倒序的话，翻到第十页仍然叫「最新发布」——名不副实。
     // published_days 把范围收在 30 天内，卡片上的「N 天前维护」才对得上。
@@ -36,7 +36,7 @@ export const SECTIONS = [
   {
     kind: 'featured',
     title: '优选好房',
-    desc: '住过的人打分 4 星以上',
+    desc: '租客评分 4 星以上',
     // 按真实评分筛。min_rating 走的是评价表的聚合（排除已软删除的），
     // 不是某个人工标记的「精选」字段——那种字段谁都能改，说服不了人。
     query: { min_rating: 4, sort: 'rating' },
@@ -45,7 +45,7 @@ export const SECTIONS = [
   {
     kind: 'all',
     title: '全部房源',
-    desc: '自己翻，也可以用筛选和地图收窄',
+    desc: '自由浏览，可用筛选和地图收窄范围',
     query: {},
     more: '进入全部房源',
   },
