@@ -347,3 +347,68 @@ class TestDaysLeft(LeasingCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestZeroDepositMakesNoBill(unittest.TestCase):
+    """免押就不排押金账单。
+
+    原先无条件排一条。合同选了「押零付一」时这条账单的金额是 0——
+    它在库里是一条正常记录，可在用户眼里是一张「押金 0 元，待缴」的单子：
+    个人中心给它配了「立即缴费」按钮，收银台写着「确认支付 ¥0.00」；
+    智能助手说「帮我交房租」时它还因为到期日最早被排在第一位，
+    助手于是问「要我帮你缴纳押金 0 元吗」。
+
+    **一笔不用付的钱不该长成一张待缴账单。**
+    """
+
+    def test_no_deposit_bill_when_deposit_is_zero(self):
+        from decimal import Decimal
+
+        class _Fake(object):
+            id = 1
+            deposit = Decimal("0")
+            rent = Decimal("2000")
+            pay_months = 1
+            start_date = datetime(2026, 10, 1)
+            end_date = datetime(2027, 10, 1)
+
+        made = []
+
+        class _Session(object):
+            def add_all(self, rows):
+                made.extend(rows)
+
+            def add(self, row):
+                made.append(row)
+
+            def flush(self):
+                pass
+
+        bills = leasing.generate_bills(_Session(), _Fake())
+        kinds = [b.type for b in bills]
+        self.assertNotIn("deposit", kinds)
+        self.assertTrue(all(float(b.amount) > 0 for b in bills))
+
+    def test_deposit_bill_still_made_when_there_is_one(self):
+        from decimal import Decimal
+
+        class _Fake(object):
+            id = 1
+            deposit = Decimal("2000")
+            rent = Decimal("2000")
+            pay_months = 1
+            start_date = datetime(2026, 10, 1)
+            end_date = datetime(2027, 10, 1)
+
+        class _Session(object):
+            def add_all(self, rows):
+                pass
+
+            def add(self, row):
+                pass
+
+            def flush(self):
+                pass
+
+        bills = leasing.generate_bills(_Session(), _Fake())
+        self.assertIn("deposit", [b.type for b in bills])

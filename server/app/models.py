@@ -772,6 +772,14 @@ class Bill(Base):
             "bill_no": self.bill_no,
             "contract_id": self.contract_id,
             "contract_no": self.contract.contract_no if self.contract else "",
+            # 合同还在不在。**界面要靠它决定给不给「立即缴费」按钮**——
+            # 合同结束之后这笔欠款只能线下找房东结，接口也会拒绝
+            # （见 /api/bills/{no}/pay）。按钮照摆的话，用户填完收银台
+            # 才被告知付不了，白走一趟
+            "contract_status": self.contract.status if self.contract else "",
+            "payable": bool(self.contract and self.contract.status == "active"
+                            and self.status != "paid"
+                            and float(self.amount or 0) > 0),
             "house_no": (self.contract.house.house_no
                          if self.contract and self.contract.house else ""),
             "type": self.type,

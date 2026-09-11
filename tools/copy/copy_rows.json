@@ -283,7 +283,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 528,
-  "text": "卡片和可点选项不会保留，想接着办的话重新说一句就行。",
+  "text": "卡片和选项不会保留，继续办理请重新说一句。",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:528"
@@ -303,7 +303,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 65,
-  "text": "你好，我是租房助手。找房可以一句一句地补充条件，我都记得住；",
+  "text": "你好，我是租房助手。找房条件可以一句一句补充，我都会记住；",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:65"
@@ -323,7 +323,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 67,
-  "text": "我只按知识库里写的回答，查不到就直说，不会瞎编。",
+  "text": "我只按知识库里的内容回答，查不到会直接说。",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:67"
@@ -333,7 +333,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 68,
-  "text": "也可以让我帮你做事——交房租、约看房、报修都行，",
+  "text": "也可以让我帮你交房租、约看房、报修，",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:68"
@@ -373,7 +373,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 69,
-  "text": "我会先把要做的事列给你看，你点确认我才动手。",
+  "text": "动手前会先列出要做的事，你确认后我才执行。",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:69"
@@ -383,7 +383,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 714,
-  "text": "转人工需要先登录，管理员回复时要知道回给谁。",
+  "text": "转人工需要先登录，管理员需要知道回复给谁。",
   "purpose": "错误提示",
   "lines": [
    "ChatPanel.jsx:714"
@@ -846,7 +846,7 @@
   "file": "ChatPanel.jsx",
   "screen": "AI 助手对话",
   "line": 957,
-  "text": "我答不上来的问题，可以交给管理员",
+  "text": "我答不上来的问题，可以转给管理员",
   "purpose": "界面文字",
   "lines": [
    "ChatPanel.jsx:957"
@@ -916,7 +916,7 @@
   "file": "AgentQueue.jsx",
   "screen": "AgentQueue",
   "line": 118,
-  "text": "通过之后这个人才能接单。**审核通过的含义是他能看到租客联系方式、 能代房东回咨询**，不是一个走过场的标记——按这个标准看材料。",
+  "text": "审核通过后他才能接单。**通过意味着他能看到租客联系方式、代房东回复咨询**——请按这个标准审核材料。",
   "purpose": "段落说明",
   "lines": [
    "AgentQueue.jsx:118"
@@ -1087,7 +1087,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 117,
-  "text": "还没有成交合同，这个对比暂时无从谈起。",
+  "text": "还没有成交合同，暂时无法对比。",
   "purpose": "说明文字",
   "lines": [
    "AgentRoster.jsx:117"
@@ -1117,7 +1117,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 134,
-  "text": "这两个数是唯一能回答「中介功能有没有价值」的口径。做了这个功能 就该敢于把它摆出来——如果委托的反而更低，说明功能没起作用， 应当如实显示，而不是把这一行藏起来。",
+  "text": "这两个数字用于衡量中介委托的价值：委托房源的成交率若反而更低，说明委托没有起作用。",
   "purpose": "段落说明",
   "lines": [
    "AgentRoster.jsx:134"
@@ -1126,9 +1126,19 @@
  {
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
-  "line": 142,
+  "line": 140,
   "text": "中介档案",
   "purpose": "区块标题",
+  "lines": [
+   "AgentRoster.jsx:140"
+  ]
+ },
+ {
+  "file": "AgentRoster.jsx",
+  "screen": "AgentRoster",
+  "line": 142,
+  "text": "没有符合条件的中介。",
+  "purpose": "空态提示",
   "lines": [
    "AgentRoster.jsx:142"
   ]
@@ -1136,18 +1146,28 @@
  {
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
-  "line": 144,
-  "text": "没有符合条件的中介。",
-  "purpose": "空态提示",
+  "line": 153,
+  "text": "资质",
+  "purpose": "表头",
   "lines": [
-   "AgentRoster.jsx:144"
+   "AgentRoster.jsx:153"
+  ]
+ },
+ {
+  "file": "AgentRoster.jsx",
+  "screen": "AgentRoster",
+  "line": 154,
+  "text": "在托",
+  "purpose": "表头",
+  "lines": [
+   "AgentRoster.jsx:154"
   ]
  },
  {
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 155,
-  "text": "资质",
+  "text": "近期带看",
   "purpose": "表头",
   "lines": [
    "AgentRoster.jsx:155"
@@ -1157,7 +1177,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 156,
-  "text": "在托",
+  "text": "成交率",
   "purpose": "表头",
   "lines": [
    "AgentRoster.jsx:156"
@@ -1167,7 +1187,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 157,
-  "text": "近期带看",
+  "text": "放鸽子率",
   "purpose": "表头",
   "lines": [
    "AgentRoster.jsx:157"
@@ -1177,7 +1197,7 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 158,
-  "text": "成交率",
+  "text": "好评率",
   "purpose": "表头",
   "lines": [
    "AgentRoster.jsx:158"
@@ -1187,30 +1207,10 @@
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
   "line": 159,
-  "text": "放鸽子率",
-  "purpose": "表头",
-  "lines": [
-   "AgentRoster.jsx:159"
-  ]
- },
- {
-  "file": "AgentRoster.jsx",
-  "screen": "AgentRoster",
-  "line": 160,
-  "text": "好评率",
-  "purpose": "表头",
-  "lines": [
-   "AgentRoster.jsx:160"
-  ]
- },
- {
-  "file": "AgentRoster.jsx",
-  "screen": "AgentRoster",
-  "line": 161,
   "text": "被举报",
   "purpose": "表头",
   "lines": [
-   "AgentRoster.jsx:161"
+   "AgentRoster.jsx:159"
   ]
  },
  {
@@ -1227,11 +1227,11 @@
  {
   "file": "AgentRoster.jsx",
   "screen": "AgentRoster",
-  "line": 213,
-  "text": "被举报按「举报发生时这套房是不是他在托」归集，而不是按当前受托人—— 否则委托一解除，历史举报就全都不算在他头上了。有成立举报的行会标红。 所有比率都带分母：样本不足 5 时显示原始数字而不是百分比， 「成交率 25%」在只带看过 4 次时是一句没有信息量的话。",
+  "line": 211,
+  "text": "举报按发生时的受托人归集，委托解除后历史举报仍算在他头上；有成立举报的行标红。样本不足 5 时显示原始数字，不折算百分比。",
   "purpose": "段落说明",
   "lines": [
-   "AgentRoster.jsx:213"
+   "AgentRoster.jsx:211"
   ]
  },
  {
@@ -1315,7 +1315,7 @@
   "purpose": "界面文字",
   "lines": [
    "AgentRoster.jsx:91",
-   "AgentRoster.jsx:154"
+   "AgentRoster.jsx:152"
   ]
  },
  {
@@ -1623,7 +1623,7 @@
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
   "line": 60,
-  "text": "同一个账号可以同时是租客和房东，不需要再注册一个。 升级之后顶部会多出「工作台」，可以发布和管理房源；",
+  "text": "同一账号可以同时是租客和房东，无需重新注册。升级后顶部会出现「工作台」，可发布和管理房源；",
   "purpose": "说明文字",
   "lines": [
    "BecomeLandlord.jsx:60"
@@ -1632,18 +1632,28 @@
  {
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
-  "line": 63,
+  "line": 62,
   "text": "现有的收藏、足迹、租约和账单一条都不会少",
   "purpose": "界面文字",
   "lines": [
-   "BecomeLandlord.jsx:63"
+   "BecomeLandlord.jsx:62"
+  ]
+ },
+ {
+  "file": "BecomeLandlord.jsx",
+  "screen": "BecomeLandlord",
+  "line": 69,
+  "text": "还差",
+  "purpose": "界面文字",
+  "lines": [
+   "BecomeLandlord.jsx:69"
   ]
  },
  {
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
   "line": 70,
-  "text": "还差",
+  "text": "没填。",
   "purpose": "界面文字",
   "lines": [
    "BecomeLandlord.jsx:70"
@@ -1653,8 +1663,8 @@
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
   "line": 71,
-  "text": "没填。",
-  "purpose": "界面文字",
+  "text": "签约时甲方需用真实姓名，租客也要通过手机号联系你，这两项为必填。在「个人资料」里补充即可。",
+  "purpose": "段落说明",
   "lines": [
    "BecomeLandlord.jsx:71"
   ]
@@ -1662,41 +1672,31 @@
  {
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
-  "line": 72,
-  "text": "签合同时甲方要用真实姓名，租客也要靠手机号联系你， 所以这两项是必填的。在上面的「个人资料」里补一下就行。",
-  "purpose": "段落说明",
-  "lines": [
-   "BecomeLandlord.jsx:72"
-  ]
- },
- {
-  "file": "BecomeLandlord.jsx",
-  "screen": "BecomeLandlord",
-  "line": 85,
+  "line": 83,
   "text": "处理中…",
   "purpose": "界面文字",
   "lines": [
-   "BecomeLandlord.jsx:85"
+   "BecomeLandlord.jsx:83"
   ]
  },
  {
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
-  "line": 85,
+  "line": 83,
   "text": "成为房东",
   "purpose": "界面文字",
   "lines": [
-   "BecomeLandlord.jsx:85"
+   "BecomeLandlord.jsx:83"
   ]
  },
  {
   "file": "BecomeLandlord.jsx",
   "screen": "BecomeLandlord",
-  "line": 88,
-  "text": "这一步不可逆。名下有了房源和合同之后再降回租客， 那些数据就没有主人了——真要退出出租，应当先下架房源、结清合同。",
+  "line": 86,
+  "text": "这一步不可逆。名下已有房源和合同后再降回租客，数据将失去归属——退出出租前，请先下架房源、结清合同。",
   "purpose": "表单说明",
   "lines": [
-   "BecomeLandlord.jsx:88"
+   "BecomeLandlord.jsx:86"
   ]
  },
  {
@@ -1833,7 +1833,7 @@
   "file": "ErrorBoundary.jsx",
   "screen": "ErrorBoundary",
   "line": 39,
-  "text": "页面其余部分仍可正常使用。刷新一次通常就能恢复； 如果反复出现，请把下面这行信息发给开发同学。",
+  "text": "页面其余部分仍可正常使用。刷新一次通常能恢复；如果反复出现，请把下面这行信息发给我们。",
   "purpose": "段落说明",
   "lines": [
    "ErrorBoundary.jsx:39"
@@ -1842,31 +1842,31 @@
  {
   "file": "ErrorBoundary.jsx",
   "screen": "ErrorBoundary",
-  "line": 49,
+  "line": 48,
   "text": "重试",
   "purpose": "界面文字",
   "lines": [
-   "ErrorBoundary.jsx:49"
+   "ErrorBoundary.jsx:48"
   ]
  },
  {
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
-  "line": 113,
+  "line": 112,
   "text": "内容没问题，保留",
   "purpose": "界面文字",
   "lines": [
-   "FlagPanel.jsx:113"
+   "FlagPanel.jsx:112"
   ]
  },
  {
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
-  "line": 117,
+  "line": 116,
   "text": "下架",
   "purpose": "界面文字",
   "lines": [
-   "FlagPanel.jsx:117"
+   "FlagPanel.jsx:116"
   ]
  },
  {
@@ -1882,11 +1882,11 @@
  {
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
-  "line": 123,
+  "line": 122,
   "text": "已保留",
   "purpose": "界面文字",
   "lines": [
-   "FlagPanel.jsx:123"
+   "FlagPanel.jsx:122"
   ]
  },
  {
@@ -1907,7 +1907,7 @@
   "purpose": "选项／页签名",
   "lines": [
    "FlagPanel.jsx:14",
-   "FlagPanel.jsx:123"
+   "FlagPanel.jsx:122"
   ]
  },
  {
@@ -1934,7 +1934,7 @@
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
   "line": 73,
-  "text": "这里只列出机器拿不准的内容。确定违规的（私下留手机号、微信号、 明确的违法违规词）在提交时就被拦下了，不会进到这个队列。",
+  "text": "这里只列出系统拿不准的内容。明确违规的（私下留联系方式、违法违规词）在提交时已被拦截，不会进入这个队列。",
   "purpose": "段落说明",
   "lines": [
    "FlagPanel.jsx:73"
@@ -1943,21 +1943,21 @@
  {
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
-  "line": 83,
+  "line": 82,
   "text": "没有待复核的内容。",
   "purpose": "界面文字",
   "lines": [
-   "FlagPanel.jsx:83"
+   "FlagPanel.jsx:82"
   ]
  },
  {
   "file": "FlagPanel.jsx",
   "screen": "FlagPanel",
-  "line": 83,
+  "line": 82,
   "text": "暂无记录。",
   "purpose": "界面文字",
   "lines": [
-   "FlagPanel.jsx:83"
+   "FlagPanel.jsx:82"
   ]
  },
  {
@@ -2084,7 +2084,7 @@
   "file": "ForgotPasswordForm.jsx",
   "screen": "ForgotPasswordForm",
   "line": 71,
-  "text": "输入用户名，我们会把重置验证码发到该账号绑定的邮箱。",
+  "text": "输入用户名，重置验证码将发到该账号绑定的邮箱。",
   "purpose": "说明文字",
   "lines": [
    "ForgotPasswordForm.jsx:71"
@@ -2354,7 +2354,7 @@
   "file": "LandlordRoster.jsx",
   "screen": "LandlordRoster",
   "line": 131,
-  "text": "电话按数据安全要求掩码显示。需要联系房东时走站内消息， 不必看到完整号码。积压工单超过 2 条的行会标红——那通常意味着 需要平台介入，光看账号列表看不出来。",
+  "text": "电话按数据安全要求掩码显示，联系房东请走站内消息。积压工单超过 2 条的行标红，通常需要平台介入。",
   "purpose": "段落说明",
   "lines": [
    "LandlordRoster.jsx:131"
@@ -2551,8 +2551,8 @@
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 101,
-  "text": "只记录改变了状态的操作，浏览类请求不入库；请求体一律不记， 改密码这类接口的正文里有明文密码。",
-  "purpose": "段落说明",
+  "text": "只记录改变状态的操作，浏览类请求不入库；请求体一律不记录。",
+  "purpose": "界面文字",
   "lines": [
    "LogPanel.jsx:101"
   ]
@@ -2560,18 +2560,28 @@
  {
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
-  "line": 108,
+  "line": 107,
   "text": "没有符合条件的日志。",
   "purpose": "空态提示",
   "lines": [
-   "LogPanel.jsx:108"
+   "LogPanel.jsx:107"
+  ]
+ },
+ {
+  "file": "LogPanel.jsx",
+  "screen": "LogPanel",
+  "line": 113,
+  "text": "时间",
+  "purpose": "表头",
+  "lines": [
+   "LogPanel.jsx:113"
   ]
  },
  {
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 114,
-  "text": "时间",
+  "text": "操作者",
   "purpose": "表头",
   "lines": [
    "LogPanel.jsx:114"
@@ -2581,7 +2591,7 @@
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 115,
-  "text": "操作者",
+  "text": "动作",
   "purpose": "表头",
   "lines": [
    "LogPanel.jsx:115"
@@ -2591,7 +2601,7 @@
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 116,
-  "text": "动作",
+  "text": "结果",
   "purpose": "表头",
   "lines": [
    "LogPanel.jsx:116"
@@ -2601,7 +2611,7 @@
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
   "line": 117,
-  "text": "结果",
+  "text": "来源",
   "purpose": "表头",
   "lines": [
    "LogPanel.jsx:117"
@@ -2610,31 +2620,21 @@
  {
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
-  "line": 118,
-  "text": "来源",
-  "purpose": "表头",
-  "lines": [
-   "LogPanel.jsx:118"
-  ]
- },
- {
-  "file": "LogPanel.jsx",
-  "screen": "LogPanel",
-  "line": 149,
+  "line": 148,
   "text": "上一页",
   "purpose": "界面文字",
   "lines": [
-   "LogPanel.jsx:149"
+   "LogPanel.jsx:148"
   ]
  },
  {
   "file": "LogPanel.jsx",
   "screen": "LogPanel",
-  "line": 154,
+  "line": 153,
   "text": "下一页",
   "purpose": "界面文字",
   "lines": [
-   "LogPanel.jsx:154"
+   "LogPanel.jsx:153"
   ]
  },
  {
@@ -2731,7 +2731,7 @@
   "file": "RecommendStrip.jsx",
   "screen": "RecommendStrip",
   "line": 102,
-  "text": "智能体读取了你的浏览足迹与收藏，统计出常看的区域、户型、租金区间与标签， 再按「区域 30 分、租金 25 分、户型 20 分、标签 15 分、出租方式 10 分」 给每套候选房源打分，看过的房源会被压分让位给新房源。 分数低于 15 分的不会推给你。",
+  "text": "推荐基于你的浏览足迹与收藏，按区域 30 分、租金 25 分、户型 20 分、标签 15 分、出租方式 10 分给候选房源打分；看过的房源会降权，低于 15 分的不推荐。",
   "purpose": "段落说明",
   "lines": [
    "RecommendStrip.jsx:102"
@@ -2740,21 +2740,21 @@
  {
   "file": "RecommendStrip.jsx",
   "screen": "RecommendStrip",
-  "line": 107,
+  "line": 104,
   "text": "全过程由规则计算，不调用大模型",
   "purpose": "界面文字",
   "lines": [
-   "RecommendStrip.jsx:107"
+   "RecommendStrip.jsx:104"
   ]
  },
  {
   "file": "RecommendStrip.jsx",
   "screen": "RecommendStrip",
-  "line": 107,
+  "line": 104,
   "text": "——推荐理由必须对得上真实数据。",
   "purpose": "界面文字",
   "lines": [
-   "RecommendStrip.jsx:107"
+   "RecommendStrip.jsx:104"
   ]
  },
  {
@@ -2876,8 +2876,8 @@
   "purpose": "选项／页签名",
   "lines": [
    "RepairDataPanel.jsx:14",
-   "RepairDataPanel.jsx:231",
-   "RepairDataPanel.jsx:255"
+   "RepairDataPanel.jsx:230",
+   "RepairDataPanel.jsx:254"
   ]
  },
  {
@@ -2954,7 +2954,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 178,
-  "text": "同一套房反复报修，往往不是「又坏了一次」， 而是上次没修好、或者房子本身有问题。",
+  "text": "同一套房反复报修，往往不是又坏了一次，而是上次没修好，或房子本身有问题。",
   "purpose": "段落说明",
   "lines": [
    "RepairDataPanel.jsx:178"
@@ -2963,42 +2963,42 @@
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 183,
+  "line": 182,
   "text": "暂无数据。",
   "purpose": "空态提示",
   "lines": [
-   "RepairDataPanel.jsx:183"
+   "RepairDataPanel.jsx:182"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 187,
+  "line": 186,
   "text": "房源",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:187",
-   "RepairDataPanel.jsx:255"
+   "RepairDataPanel.jsx:186",
+   "RepairDataPanel.jsx:254"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 187,
+  "line": 186,
   "text": "标题",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:187"
+   "RepairDataPanel.jsx:186"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 187,
+  "line": 186,
   "text": "报修次数",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:187"
+   "RepairDataPanel.jsx:186"
   ]
  },
  {
@@ -3014,112 +3014,132 @@
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 203,
+  "line": 202,
   "text": "物品消耗",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:203"
+   "RepairDataPanel.jsx:202"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 205,
+  "line": 204,
   "text": "还没有领用记录。",
   "purpose": "空态提示",
   "lines": [
-   "RepairDataPanel.jsx:205"
+   "RepairDataPanel.jsx:204"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 209,
+  "line": 208,
   "text": "物品",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:209",
-   "RepairDataPanel.jsx:345"
+   "RepairDataPanel.jsx:208",
+   "RepairDataPanel.jsx:343"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 209,
+  "line": 208,
   "text": "消耗数量",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:209"
+   "RepairDataPanel.jsx:208"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 209,
+  "line": 208,
   "text": "金额",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:209"
+   "RepairDataPanel.jsx:208"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 225,
+  "line": 224,
   "text": "人员工作量",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:225"
+   "RepairDataPanel.jsx:224"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 227,
+  "line": 226,
   "text": "还没有维修记录。",
   "purpose": "空态提示",
   "lines": [
-   "RepairDataPanel.jsx:227",
-   "RepairDataPanel.jsx:250"
+   "RepairDataPanel.jsx:226",
+   "RepairDataPanel.jsx:249"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 231,
+  "line": 230,
   "text": "完成工单",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:231"
+   "RepairDataPanel.jsx:230"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 231,
+  "line": 230,
   "text": "工时",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:231"
+   "RepairDataPanel.jsx:230"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 231,
+  "line": 230,
   "text": "产生费用",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:231"
+   "RepairDataPanel.jsx:230"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 255,
+  "line": 254,
   "text": "完成时间",
   "purpose": "表头",
   "lines": [
+   "RepairDataPanel.jsx:254"
+  ]
+ },
+ {
+  "file": "RepairDataPanel.jsx",
+  "screen": "RepairDataPanel",
+  "line": 254,
+  "text": "类型",
+  "purpose": "表头",
+  "lines": [
+   "RepairDataPanel.jsx:254"
+  ]
+ },
+ {
+  "file": "RepairDataPanel.jsx",
+  "screen": "RepairDataPanel",
+  "line": 255,
+  "text": "用料",
+  "purpose": "表头",
+  "lines": [
    "RepairDataPanel.jsx:255"
   ]
  },
@@ -3127,7 +3147,7 @@
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 255,
-  "text": "类型",
+  "text": "工时费",
   "purpose": "表头",
   "lines": [
    "RepairDataPanel.jsx:255"
@@ -3136,235 +3156,225 @@
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 256,
-  "text": "用料",
-  "purpose": "表头",
-  "lines": [
-   "RepairDataPanel.jsx:256"
-  ]
- },
- {
-  "file": "RepairDataPanel.jsx",
-  "screen": "RepairDataPanel",
-  "line": 256,
-  "text": "工时费",
-  "purpose": "表头",
-  "lines": [
-   "RepairDataPanel.jsx:256"
-  ]
- },
- {
-  "file": "RepairDataPanel.jsx",
-  "screen": "RepairDataPanel",
-  "line": 256,
+  "line": 255,
   "text": "材料费",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:256"
+   "RepairDataPanel.jsx:255"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 256,
+  "line": 255,
   "text": "合计",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:256"
+   "RepairDataPanel.jsx:255"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 264,
+  "line": 263,
   "text": "未分类",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:264"
+   "RepairDataPanel.jsx:263"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 288,
+  "line": 287,
   "text": "姓名",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:288",
-   "RepairDataPanel.jsx:300"
+   "RepairDataPanel.jsx:287",
+   "RepairDataPanel.jsx:299"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 290,
+  "line": 289,
   "text": "电话",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:290",
-   "RepairDataPanel.jsx:300"
+   "RepairDataPanel.jsx:289",
+   "RepairDataPanel.jsx:299"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 292,
+  "line": 291,
   "text": "擅长类型，如 水电",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:292"
+   "RepairDataPanel.jsx:291"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 294,
+  "line": 293,
   "text": "添加",
   "purpose": "按钮文案",
   "lines": [
-   "RepairDataPanel.jsx:294"
+   "RepairDataPanel.jsx:293"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 297,
+  "line": 296,
   "text": "还没有维修人员。",
   "purpose": "空态提示",
   "lines": [
-   "RepairDataPanel.jsx:297"
+   "RepairDataPanel.jsx:296"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 300,
+  "line": 299,
   "text": "擅长",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:300"
+   "RepairDataPanel.jsx:299"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 300,
+  "line": 299,
   "text": "状态",
   "purpose": "表头",
   "lines": [
-   "RepairDataPanel.jsx:300"
+   "RepairDataPanel.jsx:299"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 308,
+  "line": 307,
   "text": "在岗",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:308"
+   "RepairDataPanel.jsx:307"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 308,
+  "line": 307,
   "text": "停用",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:308",
-   "RepairDataPanel.jsx:312"
+   "RepairDataPanel.jsx:307",
+   "RepairDataPanel.jsx:311"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 312,
+  "line": 311,
   "text": "恢复",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:312"
+   "RepairDataPanel.jsx:311"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 326,
+  "line": 325,
   "text": "物品名称",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:326"
+   "RepairDataPanel.jsx:325"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 328,
+  "line": 327,
   "text": "单位",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:328",
-   "RepairDataPanel.jsx:345"
+   "RepairDataPanel.jsx:327",
+   "RepairDataPanel.jsx:343"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 330,
+  "line": 329,
   "text": "单价",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:330",
-   "RepairDataPanel.jsx:345"
+   "RepairDataPanel.jsx:329",
+   "RepairDataPanel.jsx:343"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 332,
+  "line": 331,
   "text": "库存",
   "purpose": "输入框占位",
   "lines": [
-   "RepairDataPanel.jsx:332",
-   "RepairDataPanel.jsx:345"
+   "RepairDataPanel.jsx:331",
+   "RepairDataPanel.jsx:343"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 334,
+  "line": 333,
   "text": "入库",
   "purpose": "按钮文案",
   "lines": [
-   "RepairDataPanel.jsx:334"
+   "RepairDataPanel.jsx:333"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 337,
-  "text": "调价只影响以后的领用。历史维修记录里存的是领用当时的单价快照， 不会被改价改写。",
+  "line": 336,
+  "text": "调价只影响以后的领用。历史维修记录保存的是领用时的单价快照，不受调价影响。",
   "purpose": "段落说明",
   "lines": [
-   "RepairDataPanel.jsx:337"
+   "RepairDataPanel.jsx:336"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 342,
+  "line": 340,
   "text": "还没有物品。",
   "purpose": "空态提示",
   "lines": [
-   "RepairDataPanel.jsx:342"
+   "RepairDataPanel.jsx:340"
+  ]
+ },
+ {
+  "file": "RepairDataPanel.jsx",
+  "screen": "RepairDataPanel",
+  "line": 365,
+  "text": "保存",
+  "purpose": "按钮文案",
+  "lines": [
+   "RepairDataPanel.jsx:365"
   ]
  },
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
   "line": 367,
-  "text": "保存",
-  "purpose": "按钮文案",
+  "text": "取消",
+  "purpose": "界面文字",
   "lines": [
    "RepairDataPanel.jsx:367"
   ]
@@ -3372,21 +3382,11 @@
  {
   "file": "RepairDataPanel.jsx",
   "screen": "RepairDataPanel",
-  "line": 369,
-  "text": "取消",
-  "purpose": "界面文字",
-  "lines": [
-   "RepairDataPanel.jsx:369"
-  ]
- },
- {
-  "file": "RepairDataPanel.jsx",
-  "screen": "RepairDataPanel",
-  "line": 381,
+  "line": 379,
   "text": "调价／补货",
   "purpose": "界面文字",
   "lines": [
-   "RepairDataPanel.jsx:381"
+   "RepairDataPanel.jsx:379"
   ]
  },
  {
@@ -3423,7 +3423,7 @@
   "file": "ReportPanel.jsx",
   "screen": "ReportPanel",
   "line": 108,
-  "text": "报告中的每个数字都来自上方「依据数字」，可与数据看板逐项核对。 大模型不参与任何计算，只允许调整措辞；若润色后数字有出入， 系统会丢弃润色结果并回退到规则原文。",
+  "text": "报告中的每个数字都来自上方「依据数字」，可与数据看板逐项核对。大模型不参与计算，只调整措辞；润色后数字如有出入，系统回退到规则原文。",
   "purpose": "段落说明",
   "lines": [
    "ReportPanel.jsx:108"
@@ -3645,9 +3645,19 @@
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 101,
+  "line": 100,
   "text": " · 最近提醒 ${row.last_notified_at}",
   "purpose": "带变量的句子",
+  "lines": [
+   "SavedSearchPanel.jsx:100"
+  ]
+ },
+ {
+  "file": "SavedSearchPanel.jsx",
+  "screen": "SavedSearchPanel",
+  "line": 101,
+  "text": " · 还没有匹配到新房源",
+  "purpose": "界面文字",
   "lines": [
    "SavedSearchPanel.jsx:101"
   ]
@@ -3655,68 +3665,58 @@
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 102,
-  "text": " · 还没有匹配到新房源",
-  "purpose": "界面文字",
-  "lines": [
-   "SavedSearchPanel.jsx:102"
-  ]
- },
- {
-  "file": "SavedSearchPanel.jsx",
-  "screen": "SavedSearchPanel",
-  "line": 106,
+  "line": 105,
   "text": "用这组条件找房",
   "purpose": "按钮文案",
   "lines": [
-   "SavedSearchPanel.jsx:106"
+   "SavedSearchPanel.jsx:105"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 116,
+  "line": 115,
   "text": "关闭上新提醒",
   "purpose": "界面文字",
   "lines": [
-   "SavedSearchPanel.jsx:116"
+   "SavedSearchPanel.jsx:115"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 116,
+  "line": 115,
   "text": "开启上新提醒",
   "purpose": "界面文字",
   "lines": [
-   "SavedSearchPanel.jsx:116"
+   "SavedSearchPanel.jsx:115"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 122,
+  "line": 121,
   "text": "重命名",
   "purpose": "界面文字",
   "lines": [
-   "SavedSearchPanel.jsx:122"
+   "SavedSearchPanel.jsx:121"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 130,
+  "line": 129,
   "text": "删除",
   "purpose": "界面文字",
   "lines": [
-   "SavedSearchPanel.jsx:130"
+   "SavedSearchPanel.jsx:129"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
   "line": 55,
-  "text": "还没有保存的搜索。在首页设好筛选条件后点「保存这组条件」， 以后有符合条件的房源上架，会在这里的消息里通知你。",
+  "text": "还没有保存的搜索。在首页设好筛选条件后点「保存这组条件」，之后有符合条件的房源上架时会通知你。",
   "purpose": "空态提示",
   "lines": [
    "SavedSearchPanel.jsx:55"
@@ -3725,21 +3725,21 @@
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 90,
+  "line": 89,
   "text": "用这组条件重新检索",
   "purpose": "悬停提示",
   "lines": [
-   "SavedSearchPanel.jsx:90"
+   "SavedSearchPanel.jsx:89"
   ]
  },
  {
   "file": "SavedSearchPanel.jsx",
   "screen": "SavedSearchPanel",
-  "line": 95,
+  "line": 94,
   "text": "已关提醒",
   "purpose": "状态徽标",
   "lines": [
-   "SavedSearchPanel.jsx:95"
+   "SavedSearchPanel.jsx:94"
   ]
  },
  {
@@ -3750,7 +3750,7 @@
   "purpose": "界面文字",
   "lines": [
    "SupportPanel.jsx:100",
-   "SupportPanel.jsx:229"
+   "SupportPanel.jsx:228"
   ]
  },
  {
@@ -3861,9 +3861,9 @@
   "purpose": "表单项名称",
   "lines": [
    "SupportPanel.jsx:159",
-   "SupportPanel.jsx:217",
-   "SupportPanel.jsx:268",
-   "SupportPanel.jsx:326"
+   "SupportPanel.jsx:216",
+   "SupportPanel.jsx:266",
+   "SupportPanel.jsx:323"
   ]
  },
  {
@@ -4021,7 +4021,7 @@
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
   "line": 184,
-  "text": "别名是命中率最高的一块投入：用户说「保证金」而你写的是「押金」， 检索就对不上。想到几种说法就写几种。",
+  "text": "别名直接影响命中率：用户说「保证金」而库里写的是「押金」，就检索不到。一种叫法写一条。",
   "purpose": "段落说明",
   "lines": [
    "SupportPanel.jsx:184"
@@ -4030,153 +4030,163 @@
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 189,
+  "line": 188,
   "text": "分类",
   "purpose": "表单项名称",
   "lines": [
-   "SupportPanel.jsx:189",
-   "SupportPanel.jsx:217"
+   "SupportPanel.jsx:188",
+   "SupportPanel.jsx:216"
+  ]
+ },
+ {
+  "file": "SupportPanel.jsx",
+  "screen": "SupportPanel",
+  "line": 207,
+  "text": "保存",
+  "purpose": "按钮文案",
+  "lines": [
+   "SupportPanel.jsx:207"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
   "line": 208,
-  "text": "保存",
-  "purpose": "按钮文案",
-  "lines": [
-   "SupportPanel.jsx:208"
-  ]
- },
- {
-  "file": "SupportPanel.jsx",
-  "screen": "SupportPanel",
-  "line": 209,
   "text": "取消",
   "purpose": "按钮文案",
   "lines": [
-   "SupportPanel.jsx:209",
-   "SupportPanel.jsx:344"
+   "SupportPanel.jsx:208",
+   "SupportPanel.jsx:341"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 217,
+  "line": 216,
   "text": "引用次数",
   "purpose": "表头",
   "lines": [
-   "SupportPanel.jsx:217"
+   "SupportPanel.jsx:216"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 217,
+  "line": 216,
   "text": "状态",
   "purpose": "表头",
   "lines": [
-   "SupportPanel.jsx:217",
-   "SupportPanel.jsx:326"
+   "SupportPanel.jsx:216",
+   "SupportPanel.jsx:323"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 217,
+  "line": 216,
   "text": "操作",
   "purpose": "表头",
   "lines": [
-   "SupportPanel.jsx:217",
-   "SupportPanel.jsx:326"
+   "SupportPanel.jsx:216",
+   "SupportPanel.jsx:323"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 229,
+  "line": 228,
   "text": "已发布",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:229",
-   "SupportPanel.jsx:203"
+   "SupportPanel.jsx:228",
+   "SupportPanel.jsx:202"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 231,
+  "line": 230,
   "text": "编辑",
   "purpose": "按钮文案",
   "lines": [
-   "SupportPanel.jsx:231"
+   "SupportPanel.jsx:230"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 233,
+  "line": 232,
   "text": "下架",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:233"
+   "SupportPanel.jsx:232"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 233,
+  "line": 232,
   "text": "上架",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:233"
+   "SupportPanel.jsx:232"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 235,
+  "line": 234,
   "text": "删除",
   "purpose": "按钮文案",
   "lines": [
-   "SupportPanel.jsx:235"
+   "SupportPanel.jsx:234"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 240,
+  "line": 239,
   "text": "还没有知识条目",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:240"
+   "SupportPanel.jsx:239"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 252,
+  "line": 251,
   "text": "答出率",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:252"
+   "SupportPanel.jsx:251"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 255,
+  "line": 254,
   "text": "拒答率",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:255"
+   "SupportPanel.jsx:254"
+  ]
+ },
+ {
+  "file": "SupportPanel.jsx",
+  "screen": "SupportPanel",
+  "line": 256,
+  "text": "响应中位数",
+  "purpose": "界面文字",
+  "lines": [
+   "SupportPanel.jsx:256"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
   "line": 257,
-  "text": "响应中位数",
+  "text": "待处理转人工",
   "purpose": "界面文字",
   "lines": [
    "SupportPanel.jsx:257"
@@ -4185,29 +4195,29 @@
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 258,
-  "text": "待处理转人工",
-  "purpose": "界面文字",
+  "line": 260,
+  "text": "拒答率高说明这些问题库里没有。下面这张表就是该补的语料清单，点「补一条」直接起草。",
+  "purpose": "段落说明",
   "lines": [
-   "SupportPanel.jsx:258"
+   "SupportPanel.jsx:260"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 261,
-  "text": "拒答率高不代表智能体不行——它说明这些问题库里没写。 下面这张表就是该补的语料清单，点「补一条」直接起草。",
-  "purpose": "段落说明",
+  "line": 264,
+  "text": "知识缺口（被拒答且反复出现的问题）",
+  "purpose": "小标题",
   "lines": [
-   "SupportPanel.jsx:261"
+   "SupportPanel.jsx:264"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
   "line": 266,
-  "text": "知识缺口（被拒答且反复出现的问题）",
-  "purpose": "小标题",
+  "text": "次数",
+  "purpose": "表头",
   "lines": [
    "SupportPanel.jsx:266"
   ]
@@ -4215,171 +4225,161 @@
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 268,
-  "text": "次数",
-  "purpose": "表头",
-  "lines": [
-   "SupportPanel.jsx:268"
-  ]
- },
- {
-  "file": "SupportPanel.jsx",
-  "screen": "SupportPanel",
-  "line": 275,
+  "line": 273,
   "text": "补一条",
   "purpose": "按钮文案",
   "lines": [
-   "SupportPanel.jsx:275"
+   "SupportPanel.jsx:273"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 282,
+  "line": 280,
   "text": "暂时没有被拒答的问题",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:282"
+   "SupportPanel.jsx:280"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 287,
+  "line": 285,
   "text": "最常被引用的条目",
   "purpose": "小标题",
   "lines": [
-   "SupportPanel.jsx:287"
+   "SupportPanel.jsx:285"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 296,
+  "line": 294,
   "text": "从未被引用的条目",
   "purpose": "小标题",
   "lines": [
-   "SupportPanel.jsx:296"
+   "SupportPanel.jsx:294"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 297,
-  "text": "写了却没人问到。可能是问题写得太书面，用户不会那么说—— 给它补几条口语化的别名试试。",
-  "purpose": "段落说明",
+  "line": 295,
+  "text": "写了却没人问到，可能是问题太书面。可以补几条口语化的别名。",
+  "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:297"
+   "SupportPanel.jsx:295"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 309,
+  "line": 306,
   "text": "被点「没用」的回答",
   "purpose": "小标题",
   "lines": [
-   "SupportPanel.jsx:309"
+   "SupportPanel.jsx:306"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 314,
+  "line": 311,
   "text": "无",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:314"
+   "SupportPanel.jsx:311"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 326,
+  "line": 323,
   "text": "工单",
   "purpose": "表头",
   "lines": [
-   "SupportPanel.jsx:326"
+   "SupportPanel.jsx:323"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 326,
+  "line": 323,
   "text": "智能体为什么没答",
   "purpose": "表头",
   "lines": [
-   "SupportPanel.jsx:326"
+   "SupportPanel.jsx:323"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 341,
+  "line": 338,
   "text": "回复会通过站内消息发给用户",
   "purpose": "输入框占位",
   "lines": [
-   "SupportPanel.jsx:341"
+   "SupportPanel.jsx:338"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 343,
+  "line": 340,
   "text": "发送",
   "purpose": "按钮文案",
   "lines": [
-   "SupportPanel.jsx:343"
+   "SupportPanel.jsx:340"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 348,
+  "line": 345,
   "text": "用户主动要求",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:348"
+   "SupportPanel.jsx:345"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 349,
+  "line": 346,
   "text": "待处理",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:349"
+   "SupportPanel.jsx:346"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 349,
+  "line": 346,
   "text": "已回复",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:349"
+   "SupportPanel.jsx:346"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 355,
+  "line": 352,
   "text": "回复",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:355"
+   "SupportPanel.jsx:352"
   ]
  },
  {
   "file": "SupportPanel.jsx",
   "screen": "SupportPanel",
-  "line": 363,
+  "line": 360,
   "text": "没有转人工工单",
   "purpose": "界面文字",
   "lines": [
-   "SupportPanel.jsx:363"
+   "SupportPanel.jsx:360"
   ]
  },
  {
@@ -6656,7 +6656,7 @@
   "purpose": "选项／页签名",
   "lines": [
    "AgentPanel.jsx:23",
-   "AgentPanel.jsx:814"
+   "AgentPanel.jsx:799"
   ]
  },
  {
@@ -6827,7 +6827,7 @@
   "purpose": "表头",
   "lines": [
    "AgentPanel.jsx:318",
-   "AgentPanel.jsx:633"
+   "AgentPanel.jsx:624"
   ]
  },
  {
@@ -6839,9 +6839,9 @@
   "lines": [
    "AgentPanel.jsx:318",
    "AgentPanel.jsx:363",
-   "AgentPanel.jsx:510",
-   "AgentPanel.jsx:633",
-   "AgentPanel.jsx:686"
+   "AgentPanel.jsx:501",
+   "AgentPanel.jsx:624",
+   "AgentPanel.jsx:677"
   ]
  },
  {
@@ -6894,7 +6894,7 @@
    "AgentPanel.jsx:329",
    "AgentPanel.jsx:318",
    "AgentPanel.jsx:363",
-   "AgentPanel.jsx:633"
+   "AgentPanel.jsx:624"
   ]
  },
  {
@@ -6951,7 +6951,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 345,
-  "text": "已建立会话，去「咨询」里说话。",
+  "text": "会话已建立，去「咨询」里继续沟通。",
   "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:345"
@@ -7021,7 +7021,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 380,
-  "text": "租客的号码**只在看房当天、且预约已确认时**才显示—— 它是给「我到楼下了，你在哪」用的，不是一份可以慢慢攒的通讯录。 平时联系走站内会话；对方设了免打扰，按钮会变成灰的「免打扰」， 那时候等他来找你就好，预约和带看通知照常送达。",
+  "text": "租客的号码**只在看房当天且预约已确认时**显示。平时联系请走站内会话；对方设了免打扰后无法主动呼叫，预约和带看通知照常送达。",
   "purpose": "段落说明",
   "lines": [
    "AgentPanel.jsx:380"
@@ -7030,29 +7030,39 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 387,
-  "text": "上面「今天的带看」只算**已确认**的那些。把待确认的一起算进去， 你会照着一个虚高的数字安排一天的行程，到了地方才发现这场约 根本没成立——所以它们单列在这里，等你先去确认。",
+  "line": 384,
+  "text": "「今天的带看」只统计**已确认**的预约；待确认的单列在下方，请先确认再安排行程。",
   "purpose": "段落说明",
   "lines": [
-   "AgentPanel.jsx:387"
+   "AgentPanel.jsx:384"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 393,
-  "text": "带看完记得补一条带看记录。那不是给平台看的考勤—— 租客的异议（嫌厨房小、嫌楼层低）攒够了就是房东该降价或改描述的 依据，也是你日后申请解除委托时唯一能拿出来的证据。",
+  "line": 388,
+  "text": "带看完后请补一条带看记录。租客的异议（如嫌厨房小、楼层低）是房东调整价格或描述的依据，也是日后解除委托时的凭证。",
   "purpose": "段落说明",
   "lines": [
-   "AgentPanel.jsx:393"
+   "AgentPanel.jsx:388"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 397,
+  "text": "还没有在托房源。去「接单大厅」看看。",
+  "purpose": "空态提示",
+  "lines": [
+   "AgentPanel.jsx:397"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 404,
-  "text": "还没有在托房源。去「接单大厅」看看。",
-  "purpose": "空态提示",
+  "text": "委托中",
+  "purpose": "状态徽标",
   "lines": [
    "AgentPanel.jsx:404"
   ]
@@ -7060,18 +7070,18 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 411,
-  "text": "委托中",
-  "purpose": "状态徽标",
+  "line": 415,
+  "text": "查看房源",
+  "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:411"
+   "AgentPanel.jsx:415"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 422,
-  "text": "查看房源",
+  "text": "解除委托",
   "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:422"
@@ -7080,109 +7090,109 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 429,
-  "text": "解除委托",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:429"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 442,
-  "text": "你主营区域内、当前没有委托的可租房源。申请后要房东点头才生效—— 单方面就能建立委托，等于允许中介给自己派活。",
+  "line": 435,
+  "text": "你主营区域内、当前没有委托的可租房源。申请需房东确认后生效。",
   "purpose": "说明文字",
   "lines": [
-   "AgentPanel.jsx:442"
+   "AgentPanel.jsx:435"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 447,
-  "text": "暂时没有可申请的房源。主营区域填得太窄也会让这里空着， 去「资质与档案」改一下。",
+  "line": 439,
+  "text": "暂时没有可申请的房源。主营区域填得太窄也会让这里空着，可到「资质与档案」修改。",
   "purpose": "空态提示",
   "lines": [
-   "AgentPanel.jsx:447"
+   "AgentPanel.jsx:439"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 470,
+  "line": 461,
   "text": "申请已发出，等房东确认。",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:470"
+   "AgentPanel.jsx:461"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 471,
+  "line": 462,
   "text": "申请接单",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:471"
+   "AgentPanel.jsx:462"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 485,
+  "line": 476,
   "text": "补一条带看纪要",
   "purpose": "区块标题",
   "lines": [
-   "AgentPanel.jsx:485"
+   "AgentPanel.jsx:476"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 486,
+  "line": 477,
   "text": "照平常说话写就行，智能体会整理成结构化纪要。",
   "purpose": "说明文字",
   "lines": [
-   "AgentPanel.jsx:486"
+   "AgentPanel.jsx:477"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 488,
+  "line": 479,
   "text": "整理完可以改",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:488"
+   "AgentPanel.jsx:479"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 488,
+  "line": 479,
   "text": "——它给的是草稿，不是结论； 智能体不可用时按关键词提取，纪要照样能存。",
   "purpose": "段落说明",
   "lines": [
-   "AgentPanel.jsx:488"
+   "AgentPanel.jsx:479"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 503,
+  "line": 494,
   "text": "纪要已提交，房东会收到一条通知。",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:503"
+   "AgentPanel.jsx:494"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 507,
+  "text": "请选择",
+  "purpose": "下拉选项",
+  "lines": [
+   "AgentPanel.jsx:507"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 516,
-  "text": "请选择",
-  "purpose": "下拉选项",
+  "text": "租客账号",
+  "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:516"
   ]
@@ -7190,79 +7200,89 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 525,
-  "text": "租客账号",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:525"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 530,
+  "line": 521,
   "text": "对方的登录用户名",
   "purpose": "输入框占位",
   "lines": [
-   "AgentPanel.jsx:530"
+   "AgentPanel.jsx:521"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 536,
+  "line": 527,
   "text": "带看情况（口述即可）",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:536"
+   "AgentPanel.jsx:527"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 541,
+  "line": 532,
   "text": "小两口，觉得朝向可以，嫌厨房小，问了能不能养猫，说要和家里商量下",
   "purpose": "输入框占位",
   "lines": [
-   "AgentPanel.jsx:541"
+   "AgentPanel.jsx:532"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 554,
+  "line": 545,
   "text": "整理失败",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:554"
+   "AgentPanel.jsx:545"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 562,
+  "line": 553,
   "text": "整理中…",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:562"
+   "AgentPanel.jsx:553"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 562,
+  "line": 553,
   "text": "智能整理",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:562"
+   "AgentPanel.jsx:553"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 558,
+  "text": "整理结果（可改）",
+  "purpose": "区块标题",
+  "lines": [
+   "AgentPanel.jsx:558"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 561,
+  "text": "是否到场",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:561"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 567,
-  "text": "整理结果（可改）",
-  "purpose": "区块标题",
+  "text": "已到场",
+  "purpose": "下拉选项",
   "lines": [
    "AgentPanel.jsx:567"
   ]
@@ -7270,80 +7290,80 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 570,
-  "text": "是否到场",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:570"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 576,
-  "text": "已到场",
-  "purpose": "下拉选项",
-  "lines": [
-   "AgentPanel.jsx:576"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 581,
+  "line": 572,
   "text": "意向",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:581",
-   "AgentPanel.jsx:634"
+   "AgentPanel.jsx:572",
+   "AgentPanel.jsx:625"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 587,
+  "line": 578,
   "text": "意向强",
   "purpose": "下拉选项",
   "lines": [
-   "AgentPanel.jsx:587"
+   "AgentPanel.jsx:578"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 588,
+  "line": 579,
   "text": "一般",
   "purpose": "选项取值（**改了会影响筛选与入库，慎动**）",
   "lines": [
-   "AgentPanel.jsx:588"
+   "AgentPanel.jsx:579"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 589,
+  "line": 580,
   "text": "意向弱",
   "purpose": "下拉选项",
   "lines": [
-   "AgentPanel.jsx:589"
+   "AgentPanel.jsx:580"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 608,
+  "line": 599,
   "text": "纪要（房东会看到）",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:608"
+   "AgentPanel.jsx:599"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 609,
+  "text": "提交纪要",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:609"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 616,
+  "text": "历史记录",
+  "purpose": "区块标题",
+  "lines": [
+   "AgentPanel.jsx:616"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 618,
-  "text": "提交纪要",
-  "purpose": "界面文字",
+  "text": "还没有带看记录。",
+  "purpose": "空态提示",
   "lines": [
    "AgentPanel.jsx:618"
   ]
@@ -7352,8 +7372,8 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 625,
-  "text": "历史记录",
-  "purpose": "区块标题",
+  "text": "到场",
+  "purpose": "表头",
   "lines": [
    "AgentPanel.jsx:625"
   ]
@@ -7361,81 +7381,91 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 627,
-  "text": "还没有带看记录。",
-  "purpose": "空态提示",
-  "lines": [
-   "AgentPanel.jsx:627"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 634,
-  "text": "到场",
-  "purpose": "表头",
-  "lines": [
-   "AgentPanel.jsx:634"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 634,
+  "line": 625,
   "text": "关注点",
   "purpose": "表头",
   "lines": [
-   "AgentPanel.jsx:634"
+   "AgentPanel.jsx:625"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 644,
+  "line": 635,
   "text": "${v.duration_minutes} 分钟",
   "purpose": "带变量的句子",
   "lines": [
-   "AgentPanel.jsx:644"
+   "AgentPanel.jsx:635"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 644,
+  "line": 635,
   "text": "未到场",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:644",
-   "AgentPanel.jsx:577"
+   "AgentPanel.jsx:635",
+   "AgentPanel.jsx:568"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 660,
+  "text": "元",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:660",
+   "AgentPanel.jsx:665"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 663,
+  "text": "已结算",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:663"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 669,
-  "text": "元",
-  "purpose": "界面文字",
+  "text": "还没有佣金记录。合同生效时才会产生。",
+  "purpose": "空态提示",
   "lines": [
-   "AgentPanel.jsx:669",
-   "AgentPanel.jsx:674"
+   "AgentPanel.jsx:669"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 672,
-  "text": "已结算",
-  "purpose": "界面文字",
+  "line": 677,
+  "text": "合同",
+  "purpose": "表头",
   "lines": [
-   "AgentPanel.jsx:672"
+   "AgentPanel.jsx:677"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 677,
+  "text": "计佣基数",
+  "purpose": "表头",
+  "lines": [
+   "AgentPanel.jsx:677"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 678,
-  "text": "还没有佣金记录。合同生效时才会产生。",
-  "purpose": "空态提示",
+  "text": "比例",
+  "purpose": "表头",
   "lines": [
    "AgentPanel.jsx:678"
   ]
@@ -7443,90 +7473,80 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 686,
-  "text": "合同",
-  "purpose": "表头",
-  "lines": [
-   "AgentPanel.jsx:686"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 686,
-  "text": "计佣基数",
-  "purpose": "表头",
-  "lines": [
-   "AgentPanel.jsx:686"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 687,
-  "text": "比例",
-  "purpose": "表头",
-  "lines": [
-   "AgentPanel.jsx:687"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 687,
+  "line": 678,
   "text": "金额",
   "purpose": "表头",
   "lines": [
-   "AgentPanel.jsx:687"
+   "AgentPanel.jsx:678"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 687,
+  "line": 678,
   "text": "状态",
   "purpose": "表头",
   "lines": [
-   "AgentPanel.jsx:687"
+   "AgentPanel.jsx:678"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 700,
+  "line": 691,
   "text": "已结 ${c.settled_at}",
   "purpose": "带变量的句子",
   "lines": [
-   "AgentPanel.jsx:700"
+   "AgentPanel.jsx:691"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 700,
+  "line": 691,
   "text": "待结算",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:700",
-   "AgentPanel.jsx:667"
+   "AgentPanel.jsx:691",
+   "AgentPanel.jsx:658"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 708,
-  "text": "计佣基数和比例分开显示，是为了让「这笔钱怎么算出来的」当场能核对； 只给一个总额，事后谁都说不清。结算走线下，平台只记状态—— 和租金支付是同一条边界。",
+  "line": 699,
+  "text": "计佣基数和比例分开显示，方便当场核对。结算走线下，平台只记录状态。",
   "purpose": "段落说明",
   "lines": [
-   "AgentPanel.jsx:708"
+   "AgentPanel.jsx:699"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 713,
+  "text": "带看场次",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:713"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 721,
+  "text": "带看成交率",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:721"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 724,
-  "text": "带看场次",
-  "purpose": "界面文字",
+  "text": "促成合同 / 带看总数",
+  "purpose": "选项／页签名",
   "lines": [
    "AgentPanel.jsx:724"
   ]
@@ -7534,9 +7554,29 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 732,
-  "text": "带看成交率",
+  "line": 726,
+  "text": "你最该盯的一个数",
   "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:726"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 729,
+  "text": "租客放鸽子率",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:729"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 732,
+  "text": "未到场 / 带看总数",
+  "purpose": "选项／页签名",
   "lines": [
    "AgentPanel.jsx:732"
   ]
@@ -7544,89 +7584,59 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 735,
-  "text": "促成合同 / 带看总数",
-  "purpose": "选项／页签名",
-  "lines": [
-   "AgentPanel.jsx:735"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 737,
-  "text": "你最该盯的一个数",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:737"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 740,
-  "text": "租客放鸽子率",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:740"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 743,
-  "text": "未到场 / 带看总数",
-  "purpose": "选项／页签名",
-  "lines": [
-   "AgentPanel.jsx:743"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 745,
+  "line": 734,
   "text": "这个数高多半说明预约确认流程有问题，不是你的服务问题",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:745"
+   "AgentPanel.jsx:734"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 750,
+  "line": 739,
   "text": "好评率",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:750"
+   "AgentPanel.jsx:739"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 753,
+  "line": 742,
   "text": "4 分及以上 / 有效评价",
   "purpose": "选项／页签名",
   "lines": [
-   "AgentPanel.jsx:753"
+   "AgentPanel.jsx:742"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 755,
+  "line": 744,
   "text": "只统计你促成的那些合同",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:755"
+   "AgentPanel.jsx:744"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 749,
+  "text": "所有比率都带分母；样本不足 5 时显示原始数字，不折算百分比。管理员后台看到的是**同一份计算**。",
+  "purpose": "段落说明",
+  "lines": [
+   "AgentPanel.jsx:749"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 760,
-  "text": "所有比率都带着分母。「成交率 25%」在带看 4 次时和带看 400 次时 完全是两句话，只给百分比等于误导自己；样本不足 5 的直接显示 原始数字，不折算成百分比。管理员在后台看到的是**同一份计算**。",
-  "purpose": "段落说明",
+  "text": "未说明理由",
+  "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:760"
   ]
@@ -7634,9 +7644,29 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 773,
-  "text": "未说明理由",
+  "line": 765,
+  "text": "资质已提交，等管理员审核。通过前不能接单。",
   "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:765"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 772,
+  "text": "提交从业资质",
+  "purpose": "区块标题",
+  "lines": [
+   "AgentPanel.jsx:772"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 773,
+  "text": "接单前必须完成实名和从业资质核验。中介能看到租客联系方式、代房东处理咨询，这些权限不能给未核验的人。",
+  "purpose": "说明文字",
   "lines": [
    "AgentPanel.jsx:773"
   ]
@@ -7644,19 +7674,19 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 778,
-  "text": "资质已提交，等管理员审核。通过前不能接单。",
+  "line": 781,
+  "text": "已提交，等待审核。",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:778"
+   "AgentPanel.jsx:781"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 785,
-  "text": "提交从业资质",
-  "purpose": "区块标题",
+  "text": "从业资格证编号",
+  "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:785"
   ]
@@ -7664,99 +7694,89 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 786,
-  "text": "接单前必须实名并核验从业资质。这不是走形式—— 中介能看到租客的联系方式，也能代房东处理咨询， 把这些权限给一个没核验过的人是安全问题。",
-  "purpose": "说明文字",
-  "lines": [
-   "AgentPanel.jsx:786"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 796,
-  "text": "已提交，等待审核。",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:796"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 800,
-  "text": "从业资格证编号",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:800"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 804,
+  "line": 789,
   "text": "至少 4 位",
   "purpose": "输入框占位",
   "lines": [
-   "AgentPanel.jsx:804"
+   "AgentPanel.jsx:789"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 814,
+  "line": 799,
   "text": "提交审核",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:814"
+   "AgentPanel.jsx:799"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 820,
+  "line": 805,
   "text": "我的档案",
   "purpose": "区块标题",
   "lines": [
-   "AgentPanel.jsx:820"
+   "AgentPanel.jsx:805"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 831,
+  "line": 816,
   "text": "档案已更新。",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:831"
+   "AgentPanel.jsx:816"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 836,
+  "line": 821,
   "text": "主营区域（顿号分隔）",
   "purpose": "界面文字",
   "lines": [
-   "AgentPanel.jsx:836"
+   "AgentPanel.jsx:821"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
-  "line": 840,
+  "line": 825,
   "text": "甘井子区、沙河口区",
   "purpose": "输入框占位",
   "lines": [
-   "AgentPanel.jsx:840"
+   "AgentPanel.jsx:825"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 829,
+  "text": "从业年限",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:829"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
+  "line": 838,
+  "text": "简介（租客会看到）",
+  "purpose": "界面文字",
+  "lines": [
+   "AgentPanel.jsx:838"
   ]
  },
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 844,
-  "text": "从业年限",
-  "purpose": "界面文字",
+  "text": "擅长的房源类型、服务方式",
+  "purpose": "输入框占位",
   "lines": [
    "AgentPanel.jsx:844"
   ]
@@ -7765,7 +7785,7 @@
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
   "line": 853,
-  "text": "简介（租客会看到）",
+  "text": "接受新委托",
   "purpose": "界面文字",
   "lines": [
    "AgentPanel.jsx:853"
@@ -7774,131 +7794,111 @@
  {
   "file": "AgentPanel.jsx",
   "screen": "中介工作台",
+  "line": 855,
+  "text": "保存档案",
+  "purpose": "按钮文案",
+  "lines": [
+   "AgentPanel.jsx:855"
+  ]
+ },
+ {
+  "file": "AgentPanel.jsx",
+  "screen": "中介工作台",
   "line": 859,
-  "text": "擅长的房源类型、服务方式",
-  "purpose": "输入框占位",
+  "text": "主营区域决定「接单大厅」展示哪些房源，留空则不过滤。关闭「接受新委托」只挡新邀请，**已在托的房源不受影响**。",
+  "purpose": "段落说明",
   "lines": [
    "AgentPanel.jsx:859"
   ]
  },
  {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 868,
-  "text": "接受新委托",
-  "purpose": "界面文字",
-  "lines": [
-   "AgentPanel.jsx:868"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 870,
-  "text": "保存档案",
-  "purpose": "按钮文案",
-  "lines": [
-   "AgentPanel.jsx:870"
-  ]
- },
- {
-  "file": "AgentPanel.jsx",
-  "screen": "中介工作台",
-  "line": 874,
-  "text": "主营区域决定「接单大厅」给你看哪些房源，留空则不过滤。 关掉「接受新委托」只挡新邀请，**已在托的房源不受影响**—— 休假不等于甩手。",
-  "purpose": "段落说明",
-  "lines": [
-   "AgentPanel.jsx:874"
-  ]
- },
- {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 108,
+  "line": 107,
   "text": "举报类型",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:108"
+   "ReportDialog.jsx:107"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 117,
+  "line": 116,
   "text": "具体说明",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:117"
+   "ReportDialog.jsx:116"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 123,
+  "line": 122,
   "text": "例如：打电话过去，房东说这套两周前就租出去了",
   "purpose": "输入框占位",
   "lines": [
-   "ReportDialog.jsx:123"
+   "ReportDialog.jsx:122"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 125,
-  "text": "写清楚时间、经过和联系情况，管理员才核实得动。",
+  "line": 124,
+  "text": "请写清时间、经过和联系情况，便于管理员核实。",
   "purpose": "表单说明",
   "lines": [
-   "ReportDialog.jsx:125"
+   "ReportDialog.jsx:124"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 132,
-  "text": "举报需要登录后提交，这样处理结果才通知得到你。",
+  "line": 131,
+  "text": "举报需登录后提交，处理结果才能通知到你。",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:132"
+   "ReportDialog.jsx:131"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 140,
+  "line": 139,
   "text": "取消",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:140"
+   "ReportDialog.jsx:139"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 144,
+  "line": 143,
   "text": "提交中…",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:144"
+   "ReportDialog.jsx:143"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 144,
+  "line": 143,
   "text": "提交举报",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:144"
+   "ReportDialog.jsx:143"
   ]
  },
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 144,
+  "line": 143,
   "text": "登录后举报",
   "purpose": "界面文字",
   "lines": [
-   "ReportDialog.jsx:144"
+   "ReportDialog.jsx:143"
   ]
  },
  {
@@ -7955,7 +7955,7 @@
   "file": "ReportDialog.jsx",
   "screen": "举报",
   "line": 92,
-  "text": "管理员核实后会把结论通过站内消息告诉你， 在「个人中心 → 消息」里查看。",
+  "text": "管理员核实后会通过站内消息告知结论，在「个人中心 → 消息」里查看。",
   "purpose": "说明文字",
   "lines": [
    "ReportDialog.jsx:92"
@@ -7964,11 +7964,11 @@
  {
   "file": "ReportDialog.jsx",
   "screen": "举报",
-  "line": 96,
+  "line": 95,
   "text": "知道了",
   "purpose": "按钮文案",
   "lines": [
-   "ReportDialog.jsx:96"
+   "ReportDialog.jsx:95"
   ]
  },
  {
@@ -8006,8 +8006,8 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1036,
-  "text": "没有符合条件的房源。可以在上面的「已生效条件」里删掉几条再看看。",
-  "purpose": "段落说明",
+  "text": "没有符合条件的房源。可以在「已生效条件」里删掉几条再试。",
+  "purpose": "界面文字",
   "lines": [
    "App.jsx:1036"
   ]
@@ -8106,7 +8106,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1114,
-  "text": "在地图上按区域挑，看得见位置和周边",
+  "text": "位置周边一目了然",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1114"
@@ -8170,15 +8170,15 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1170",
-   "App.jsx:1269"
+   "App.jsx:1268"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1234,
-  "text": "说一句话就能找房。条件摆在页面上，可以改； 从签约到退租每一步都有据可查。",
-  "purpose": "段落说明",
+  "text": "AI 智能找房",
+  "purpose": "界面文字",
   "lines": [
    "App.jsx:1234"
   ]
@@ -8186,8 +8186,18 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1239,
+  "line": 1238,
   "text": "房源人工核验",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1238"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1239,
+  "text": "合同电子存证",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1239"
@@ -8197,7 +8207,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1240,
-  "text": "合同电子存证",
+  "text": "缴费流水可查",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1240"
@@ -8206,38 +8216,38 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1241,
-  "text": "缴费流水可查",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1241"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1245,
+  "line": 1244,
   "text": "页脚导航",
   "purpose": "无障碍标签（读屏用，界面上看不见）",
   "lines": [
-   "App.jsx:1245"
+   "App.jsx:1244"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1257,
+  "line": 1256,
   "text": "我的",
   "purpose": "小标题",
   "lines": [
-   "App.jsx:1257"
+   "App.jsx:1256"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1264,
+  "text": "登录",
+  "purpose": "按钮文案",
+  "lines": [
+   "App.jsx:1264"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1265,
-  "text": "登录",
+  "text": "注册",
   "purpose": "按钮文案",
   "lines": [
    "App.jsx:1265"
@@ -8246,28 +8256,28 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1266,
-  "text": "注册",
-  "purpose": "按钮文案",
+  "line": 1273,
+  "text": "联系",
+  "purpose": "小标题",
   "lines": [
-   "App.jsx:1266"
+   "App.jsx:1273"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1274,
-  "text": "联系",
-  "purpose": "小标题",
+  "line": 1276,
+  "text": "客服电话未配置",
+  "purpose": "界面文字",
   "lines": [
-   "App.jsx:1274"
+   "App.jsx:1276"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1277,
-  "text": "客服电话未配置",
+  "text": "工作日 9:00–18:00",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1277"
@@ -8277,20 +8287,10 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1278,
-  "text": "工作日 9:00–18:00",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1278"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1279,
   "text": "大连理工大学 实习实训",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:1279"
+   "App.jsx:1278"
   ]
  },
  {
@@ -8318,7 +8318,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 447,
-  "text": "智能体暂时联系不上，已按关键词直接检索；也可以用下面的筛选条件找房。",
+  "text": "智能体暂时不可用，已按关键词直接检索；也可以用下面的筛选条件找房。",
   "purpose": "错误提示",
   "lines": [
    "App.jsx:447"
@@ -8342,7 +8342,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:48",
-   "App.jsx:1253"
+   "App.jsx:1252"
   ]
  },
  {
@@ -8353,7 +8353,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:49",
-   "App.jsx:1254"
+   "App.jsx:1253"
   ]
  },
  {
@@ -8364,7 +8364,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:50",
-   "App.jsx:1252"
+   "App.jsx:1251"
   ]
  },
  {
@@ -8457,7 +8457,7 @@
   "lines": [
    "App.jsx:715",
    "App.jsx:716",
-   "App.jsx:1261"
+   "App.jsx:1260"
   ]
  },
  {
@@ -8508,7 +8508,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:759",
-   "App.jsx:1260"
+   "App.jsx:1259"
   ]
  },
  {
@@ -8571,7 +8571,7 @@
   "lines": [
    "App.jsx:814",
    "App.jsx:967",
-   "App.jsx:1247"
+   "App.jsx:1246"
   ]
  },
  {
@@ -8638,7 +8638,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 962,
-  "text": "换个说法再找找，如：中山区两室一厅三千以内 / 桂林街",
+  "text": "换个说法试试，比如：中山区两室一厅三千以内 / 桂林街",
   "purpose": "输入框占位",
   "lines": [
    "App.jsx:962"
@@ -9665,7 +9665,7 @@
   "file": "ImageUploader.jsx",
   "screen": "图片上传",
   "line": 101,
-  "text": "一张照片往往比几句描述更说得清哪里坏了。",
+  "text": "一张照片往往比文字描述更能说明问题。",
   "purpose": "界面文字",
   "lines": [
    "ImageUploader.jsx:101"
@@ -10138,7 +10138,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 102,
-  "text": "已解除。中介立刻管不了这套房了，已产生的带看记录保留。",
+  "text": "已解除。中介立即失去这套房的管理权限，带看记录保留。",
   "purpose": "界面文字",
   "lines": [
    "DelegationPanel.jsx:102"
@@ -10218,7 +10218,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 153,
-  "text": "已同意。他现在能帮你带看和回咨询了，你的权限不受影响。",
+  "text": "已同意。他现在可以代你带看和回复咨询，你的权限不受影响。",
   "purpose": "界面文字",
   "lines": [
    "DelegationPanel.jsx:153"
@@ -10318,7 +10318,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 239,
-  "text": "邀请已发出，等中介确认。他同意之前不会有任何权限。",
+  "text": "邀请已发出，待中介确认。他同意之前不会有任何权限。",
   "purpose": "界面文字",
   "lines": [
    "DelegationPanel.jsx:239"
@@ -10342,7 +10342,7 @@
   "purpose": "界面文字",
   "lines": [
    "DelegationPanel.jsx:244",
-   "DelegationPanel.jsx:369"
+   "DelegationPanel.jsx:368"
   ]
  },
  {
@@ -10431,7 +10431,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 295,
-  "text": "没有匹配的中介。中介要**资质过审并开着接单开关**才会出现在这里； 换个词试试，或者清空搜索看全部。",
+  "text": "没有匹配的中介。中介需**资质过审并开启接单**才会出现在这里；换个词试试，或清空搜索看全部。",
   "purpose": "说明文字",
   "lines": [
    "DelegationPanel.jsx:295"
@@ -10440,18 +10440,28 @@
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 320,
+  "line": 319,
   "text": " · 主营 ${a.districts.join('、')}",
   "purpose": "带变量的句子",
   "lines": [
-   "DelegationPanel.jsx:320"
+   "DelegationPanel.jsx:319"
+  ]
+ },
+ {
+  "file": "DelegationPanel.jsx",
+  "screen": "委托中介",
+  "line": 335,
+  "text": "暂无评分",
+  "purpose": "界面文字",
+  "lines": [
+   "DelegationPanel.jsx:335"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 336,
-  "text": "暂无评分",
+  "text": "覆盖该房源所在区",
   "purpose": "界面文字",
   "lines": [
    "DelegationPanel.jsx:336"
@@ -10460,70 +10470,80 @@
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 337,
-  "text": "覆盖该房源所在区",
-  "purpose": "界面文字",
-  "lines": [
-   "DelegationPanel.jsx:337"
-  ]
- },
- {
-  "file": "DelegationPanel.jsx",
-  "screen": "委托中介",
-  "line": 344,
+  "line": 343,
   "text": "请先在上面选择要委托的房源",
   "purpose": "界面文字",
   "lines": [
-   "DelegationPanel.jsx:344"
+   "DelegationPanel.jsx:343"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 349,
-  "text": "邀请已发给${a.name}，等他确认。他同意之前不会有任何权限。",
+  "line": 348,
+  "text": "邀请已发给${a.name}，待他确认。他同意之前不会有任何权限。",
   "purpose": "带变量的句子",
   "lines": [
-   "DelegationPanel.jsx:349"
+   "DelegationPanel.jsx:348"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 351,
+  "line": 350,
   "text": "邀请他代理",
   "purpose": "界面文字",
   "lines": [
-   "DelegationPanel.jsx:351"
+   "DelegationPanel.jsx:350"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 351,
+  "line": 350,
   "text": "先选房源",
   "purpose": "界面文字",
   "lines": [
-   "DelegationPanel.jsx:351"
+   "DelegationPanel.jsx:350"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 364,
+  "line": 363,
   "text": "历史",
   "purpose": "区块标题",
   "lines": [
-   "DelegationPanel.jsx:364"
+   "DelegationPanel.jsx:363"
   ]
  },
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 369,
+  "line": 368,
   "text": "中介",
   "purpose": "表头",
   "lines": [
+   "DelegationPanel.jsx:368"
+  ]
+ },
+ {
+  "file": "DelegationPanel.jsx",
+  "screen": "委托中介",
+  "line": 368,
+  "text": "状态",
+  "purpose": "表头",
+  "lines": [
+   "DelegationPanel.jsx:368"
+  ]
+ },
+ {
+  "file": "DelegationPanel.jsx",
+  "screen": "委托中介",
+  "line": 369,
+  "text": "结束原因",
+  "purpose": "表头",
+  "lines": [
    "DelegationPanel.jsx:369"
   ]
  },
@@ -10531,7 +10551,7 @@
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
   "line": 369,
-  "text": "状态",
+  "text": "发起时间",
   "purpose": "表头",
   "lines": [
    "DelegationPanel.jsx:369"
@@ -10540,31 +10560,11 @@
  {
   "file": "DelegationPanel.jsx",
   "screen": "委托中介",
-  "line": 370,
-  "text": "结束原因",
-  "purpose": "表头",
-  "lines": [
-   "DelegationPanel.jsx:370"
-  ]
- },
- {
-  "file": "DelegationPanel.jsx",
-  "screen": "委托中介",
-  "line": 370,
-  "text": "发起时间",
-  "purpose": "表头",
-  "lines": [
-   "DelegationPanel.jsx:370"
-  ]
- },
- {
-  "file": "DelegationPanel.jsx",
-  "screen": "委托中介",
-  "line": 389,
-  "text": "一套房同时只能委托给一个中介。两个中介同时在托，带看和佣金归谁 就说不清了——那正是链家要用一整套 ACN 规则去解决、而我们没必要 解决的问题。解除委托后带看记录仍然保留，出了纠纷需要查得到。",
+  "line": 388,
+  "text": "一套房同时只能委托给一个中介，避免带看和佣金归属不清。解除委托后带看记录仍然保留，发生纠纷时可供查询。",
   "purpose": "段落说明",
   "lines": [
-   "DelegationPanel.jsx:389"
+   "DelegationPanel.jsx:388"
   ]
  },
  {
@@ -10759,8 +10759,8 @@
   "purpose": "界面文字",
   "lines": [
    "Workbench.jsx:337",
-   "Workbench.jsx:384",
-   "Workbench.jsx:566"
+   "Workbench.jsx:383",
+   "Workbench.jsx:565"
   ]
  },
  {
@@ -10787,7 +10787,7 @@
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
   "line": 365,
-  "text": "还没有消息。先问一句「方便什么时候看房」， 比等着对方开口有用。",
+  "text": "还没有消息。可以先问一句「方便什么时候看房」。",
   "purpose": "空态提示",
   "lines": [
    "Workbench.jsx:365"
@@ -10796,38 +10796,48 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 398,
+  "line": 397,
   "text": "回一句…",
   "purpose": "输入框占位",
   "lines": [
-   "Workbench.jsx:398"
+   "Workbench.jsx:397"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 404,
+  "line": 403,
   "text": "发送",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:404"
+   "Workbench.jsx:403"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 408,
+  "line": 407,
   "text": "请在平台内沟通。交换微信、电话会被拦截—— 平台无法为私下成交提供任何保障。",
   "purpose": "辅助说明",
   "lines": [
-   "Workbench.jsx:408"
+   "Workbench.jsx:407"
+  ]
+ },
+ {
+  "file": "Workbench.jsx",
+  "screen": "工作台外壳",
+  "line": 421,
+  "text": "没有待确认的看房申请。",
+  "purpose": "界面文字",
+  "lines": [
+   "Workbench.jsx:421"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
   "line": 422,
-  "text": "没有待确认的看房申请。",
+  "text": "今天没有已确认的带看。",
   "purpose": "界面文字",
   "lines": [
    "Workbench.jsx:422"
@@ -10836,21 +10846,11 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 423,
-  "text": "今天没有已确认的带看。",
-  "purpose": "界面文字",
-  "lines": [
-   "Workbench.jsx:423"
-  ]
- },
- {
-  "file": "Workbench.jsx",
-  "screen": "工作台外壳",
-  "line": 437,
+  "line": 436,
   "text": "地图加载中…",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:437"
+   "Workbench.jsx:436"
   ]
  },
  {
@@ -10866,31 +10866,31 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 446,
+  "line": 445,
   "text": "我的房源分布",
   "purpose": "悬停提示",
   "lines": [
-   "Workbench.jsx:446"
+   "Workbench.jsx:445"
+  ]
+ },
+ {
+  "file": "Workbench.jsx",
+  "screen": "工作台外壳",
+  "line": 447,
+  "text": "点击区域只看该区的房源",
+  "purpose": "界面文字",
+  "lines": [
+   "Workbench.jsx:447"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
   "line": 448,
-  "text": "点击区域只看该区的房源",
-  "purpose": "界面文字",
-  "lines": [
-   "Workbench.jsx:448"
-  ]
- },
- {
-  "file": "Workbench.jsx",
-  "screen": "工作台外壳",
-  "line": 449,
   "text": "名下还没有房源",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:449"
+   "Workbench.jsx:448"
   ]
  },
  {
@@ -10906,11 +10906,11 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 455,
+  "line": 454,
   "text": "名下还没有房源。",
   "purpose": "空态提示",
   "lines": [
-   "Workbench.jsx:455"
+   "Workbench.jsx:454"
   ]
  },
  {
@@ -10926,9 +10926,19 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 466,
+  "line": 465,
   "text": "在架",
   "purpose": "状态徽标",
+  "lines": [
+   "Workbench.jsx:465"
+  ]
+ },
+ {
+  "file": "Workbench.jsx",
+  "screen": "工作台外壳",
+  "line": 466,
+  "text": "已出租",
+  "purpose": "界面文字",
   "lines": [
    "Workbench.jsx:466"
   ]
@@ -10936,21 +10946,11 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 467,
-  "text": "已出租",
-  "purpose": "界面文字",
-  "lines": [
-   "Workbench.jsx:467"
-  ]
- },
- {
-  "file": "Workbench.jsx",
-  "screen": "工作台外壳",
-  "line": 467,
+  "line": 466,
   "text": "已下架",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:467"
+   "Workbench.jsx:466"
   ]
  },
  {
@@ -10966,78 +10966,88 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 485,
+  "line": 484,
   "text": "加载中…",
   "purpose": "空态提示",
   "lines": [
-   "Workbench.jsx:485"
+   "Workbench.jsx:484"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 521,
+  "line": 520,
   "text": "还没有租客。签约之后会出现在这里。",
   "purpose": "空态提示",
   "lines": [
-   "Workbench.jsx:521"
+   "Workbench.jsx:520"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 533,
+  "line": 532,
   "text": " · 租至 ${t.end_date}",
   "purpose": "带变量的句子",
   "lines": [
-   "Workbench.jsx:533"
+   "Workbench.jsx:532"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 569,
+  "line": 568,
   "text": " · 号码看房当天可见",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:569"
+   "Workbench.jsx:568"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 578,
+  "line": 577,
   "text": "处理中…",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:578"
+   "Workbench.jsx:577"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 578,
+  "line": 577,
   "text": "确认看房",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:578"
+   "Workbench.jsx:577"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 581,
+  "line": 580,
   "text": "拒绝",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:581"
+   "Workbench.jsx:580"
+  ]
+ },
+ {
+  "file": "Workbench.jsx",
+  "screen": "工作台外壳",
+  "line": 589,
+  "text": "该租客关闭了主动联系",
+  "purpose": "界面文字",
+  "lines": [
+   "Workbench.jsx:589"
   ]
  },
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
   "line": 590,
-  "text": "该租客关闭了主动联系",
+  "text": "打开中…",
   "purpose": "界面文字",
   "lines": [
    "Workbench.jsx:590"
@@ -11046,21 +11056,11 @@
  {
   "file": "Workbench.jsx",
   "screen": "工作台外壳",
-  "line": 591,
-  "text": "打开中…",
-  "purpose": "界面文字",
-  "lines": [
-   "Workbench.jsx:591"
-  ]
- },
- {
-  "file": "Workbench.jsx",
-  "screen": "工作台外壳",
-  "line": 591,
+  "line": 590,
   "text": "找他说",
   "purpose": "界面文字",
   "lines": [
-   "Workbench.jsx:591"
+   "Workbench.jsx:590"
   ]
  },
  {
@@ -12395,8 +12395,8 @@
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
   "line": 632,
-  "text": "用的是中位单价而不是平均值——一套定价离谱的房源 就能把平均值拉歪。",
-  "purpose": "段落说明",
+  "text": "这里用中位单价而不是平均值，避免个别定价离谱的房源拉偏结果。",
+  "purpose": "界面文字",
   "lines": [
    "LandlordPanel.jsx:632"
   ]
@@ -12404,198 +12404,208 @@
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 654,
+  "line": 653,
   "text": "月租金（元）",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:654"
+   "LandlordPanel.jsx:653"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 657,
+  "line": 656,
   "text": "看看同类房源定价",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:657"
+   "LandlordPanel.jsx:656"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 662,
+  "line": 661,
   "text": "押金（元）",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:662"
+   "LandlordPanel.jsx:661"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 664,
+  "line": 663,
   "text": "留空同租金",
   "purpose": "输入框占位",
   "lines": [
-   "LandlordPanel.jsx:664"
+   "LandlordPanel.jsx:663"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 670,
+  "line": 669,
   "text": "面积（㎡）",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:670"
+   "LandlordPanel.jsx:669"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 674,
+  "line": 673,
   "text": "户型",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:674"
+   "LandlordPanel.jsx:673"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 683,
+  "line": 682,
   "text": "出租方式",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:683"
+   "LandlordPanel.jsx:682"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 689,
+  "line": 688,
   "text": "楼栋",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:689"
+   "LandlordPanel.jsx:688"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 691,
+  "line": 690,
   "text": "如 12号楼",
   "purpose": "输入框占位",
   "lines": [
-   "LandlordPanel.jsx:691"
+   "LandlordPanel.jsx:690"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 702,
+  "line": 701,
   "text": "单元",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:702"
+   "LandlordPanel.jsx:701"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 704,
+  "line": 703,
   "text": "如 3单元",
   "purpose": "输入框占位",
   "lines": [
-   "LandlordPanel.jsx:704"
+   "LandlordPanel.jsx:703"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 707,
+  "line": 706,
   "text": "所在楼层",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:707"
+   "LandlordPanel.jsx:706"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 709,
+  "line": 708,
   "text": "第几层",
   "purpose": "输入框占位",
   "lines": [
-   "LandlordPanel.jsx:709"
+   "LandlordPanel.jsx:708"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 712,
+  "line": 711,
   "text": "总楼层",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:712"
+   "LandlordPanel.jsx:711"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 714,
+  "line": 713,
   "text": "共几层",
   "purpose": "输入框占位",
   "lines": [
-   "LandlordPanel.jsx:714"
+   "LandlordPanel.jsx:713"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 719,
+  "line": 718,
   "text": "朝向",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:719"
+   "LandlordPanel.jsx:718"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 726,
+  "line": 725,
   "text": "房源特色",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:726"
+   "LandlordPanel.jsx:725"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 742,
+  "line": 741,
   "text": "房源描述",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:742"
+   "LandlordPanel.jsx:741"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 747,
+  "line": 746,
   "text": "写不出来？智能体可以按你已填的字段生成一段。",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:747"
+   "LandlordPanel.jsx:746"
+  ]
+ },
+ {
+  "file": "LandlordPanel.jsx",
+  "screen": "房东工作台",
+  "line": 748,
+  "text": "只组织语言，",
+  "purpose": "界面文字",
+  "lines": [
+   "LandlordPanel.jsx:748"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
   "line": 749,
-  "text": "只组织语言，",
+  "text": "不添加任何字段里没有的信息",
   "purpose": "界面文字",
   "lines": [
    "LandlordPanel.jsx:749"
@@ -12604,101 +12614,91 @@
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 750,
-  "text": "不添加任何字段里没有的信息",
-  "purpose": "界面文字",
-  "lines": [
-   "LandlordPanel.jsx:750"
-  ]
- },
- {
-  "file": "LandlordPanel.jsx",
-  "screen": "房东工作台",
-  "line": 750,
+  "line": 749,
   "text": "—— 写了「步行五分钟到地铁」而实际没有，那是虚假宣传。 生成后可以自己改。",
   "purpose": "段落说明",
   "lines": [
-   "LandlordPanel.jsx:750"
+   "LandlordPanel.jsx:749"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 757,
+  "line": 756,
   "text": "生成中…",
   "purpose": "说明文字",
   "lines": [
-   "LandlordPanel.jsx:757"
+   "LandlordPanel.jsx:756"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 757,
+  "line": 756,
   "text": "帮我写一段",
   "purpose": "说明文字",
   "lines": [
-   "LandlordPanel.jsx:757"
+   "LandlordPanel.jsx:756"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 762,
+  "line": 761,
   "text": "提交中…",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:762"
+   "LandlordPanel.jsx:761"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 762,
+  "line": 761,
   "text": "保存修改",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:762"
+   "LandlordPanel.jsx:761"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 762,
+  "line": 761,
   "text": "提交发布",
   "purpose": "界面文字",
   "lines": [
-   "LandlordPanel.jsx:762"
+   "LandlordPanel.jsx:761"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 774,
-  "text": "房源图片在提交发布之后、到「我的房源」里点「编辑」来上传—— 图片要挂到房源编号上，新房源还没有编号。",
+  "line": 773,
+  "text": "房源图片在发布后上传：到「我的房源」点「编辑」。图片需挂在房源编号上，新房源还没有编号。",
   "purpose": "说明文字",
   "lines": [
-   "LandlordPanel.jsx:774"
+   "LandlordPanel.jsx:773"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 798,
+  "line": 796,
   "text": "合同已生成，等待租客确认后生效。",
   "purpose": "成功提示",
   "lines": [
-   "LandlordPanel.jsx:798"
+   "LandlordPanel.jsx:796"
   ]
  },
  {
   "file": "LandlordPanel.jsx",
   "screen": "房东工作台",
-  "line": 810,
+  "line": 808,
   "text": "已完成并登记维修记录，租客会收到通知。",
   "purpose": "成功提示",
   "lines": [
-   "LandlordPanel.jsx:810"
+   "LandlordPanel.jsx:808"
   ]
  },
  {
@@ -13398,7 +13398,7 @@
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
   "line": 398,
-  "text": "暂无评分，这套房还没有人住完并留下评价。 签约前建议实地看房，并在合同里写清押金退还与维修责任。",
+  "text": "暂无评分，还没有人住完并留下评价。签约前建议实地看房，并在合同里写清押金退还与维修责任。",
   "purpose": "说明文字",
   "lines": [
    "HouseDrawer.jsx:398"
@@ -13407,79 +13407,89 @@
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 425,
+  "line": 424,
   "text": "租客实拍",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:425"
+   "HouseDrawer.jsx:424"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 450,
+  "line": 449,
   "text": "已被预约的时段",
   "purpose": "区块标题",
   "lines": [
-   "HouseDrawer.jsx:450"
+   "HouseDrawer.jsx:449"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 452,
+  "line": 451,
   "text": "暂无预约，随时可约。",
   "purpose": "说明文字",
   "lines": [
-   "HouseDrawer.jsx:452"
+   "HouseDrawer.jsx:451"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 458,
+  "line": 457,
   "text": "已确认",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:458"
+   "HouseDrawer.jsx:457"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 458,
+  "line": 457,
   "text": "待确认",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:458"
+   "HouseDrawer.jsx:457"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 466,
+  "line": 465,
   "text": "该房源的报修记录",
   "purpose": "区块标题",
   "lines": [
-   "HouseDrawer.jsx:466"
+   "HouseDrawer.jsx:465"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 468,
+  "line": 467,
   "text": "暂无报修记录。",
   "purpose": "说明文字",
   "lines": [
-   "HouseDrawer.jsx:468"
+   "HouseDrawer.jsx:467"
+  ]
+ },
+ {
+  "file": "HouseDrawer.jsx",
+  "screen": "房源详情",
+  "line": 472,
+  "text": "pill ${item.urgency === '紧急' ? 'urgent' : ''}",
+  "purpose": "状态徽标",
+  "lines": [
+   "HouseDrawer.jsx:472"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
   "line": 473,
-  "text": "pill ${item.urgency === '紧急' ? 'urgent' : ''}",
-  "purpose": "状态徽标",
+  "text": "未分类",
+  "purpose": "界面文字",
   "lines": [
    "HouseDrawer.jsx:473"
   ]
@@ -13487,58 +13497,58 @@
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 474,
-  "text": "未分类",
-  "purpose": "界面文字",
-  "lines": [
-   "HouseDrawer.jsx:474"
-  ]
- },
- {
-  "file": "HouseDrawer.jsx",
-  "screen": "房源详情",
-  "line": 485,
+  "line": 484,
   "text": "智能预约看房",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:485"
+   "HouseDrawer.jsx:484"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 485,
+  "line": 484,
   "text": "智能报修",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:485"
+   "HouseDrawer.jsx:484"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 491,
+  "line": 490,
   "text": "你的姓名",
   "purpose": "输入框占位",
   "lines": [
-   "HouseDrawer.jsx:491"
+   "HouseDrawer.jsx:490"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 496,
+  "line": 495,
   "text": "手机号",
   "purpose": "输入框占位",
   "lines": [
-   "HouseDrawer.jsx:496"
+   "HouseDrawer.jsx:495"
+  ]
+ },
+ {
+  "file": "HouseDrawer.jsx",
+  "screen": "房源详情",
+  "line": 506,
+  "text": "直接说时间，例如「这周六下午两点」",
+  "purpose": "界面文字",
+  "lines": [
+   "HouseDrawer.jsx:506"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
   "line": 507,
-  "text": "直接说时间，例如「这周六下午两点」",
+  "text": "描述故障，例如「卫生间水管漏水」",
   "purpose": "界面文字",
   "lines": [
    "HouseDrawer.jsx:507"
@@ -13547,91 +13557,81 @@
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 508,
-  "text": "描述故障，例如「卫生间水管漏水」",
-  "purpose": "界面文字",
-  "lines": [
-   "HouseDrawer.jsx:508"
-  ]
- },
- {
-  "file": "HouseDrawer.jsx",
-  "screen": "房源详情",
-  "line": 514,
+  "line": 513,
   "text": "处理中",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:514"
+   "HouseDrawer.jsx:513"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 514,
+  "line": 513,
   "text": "预约",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:514"
+   "HouseDrawer.jsx:513"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 514,
+  "line": 513,
   "text": "提交",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:514"
+   "HouseDrawer.jsx:513"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 520,
+  "line": 519,
   "text": "试试：",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:520"
+   "HouseDrawer.jsx:519"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 534,
+  "line": 533,
   "text": "chip ${reply.urgency === '紧急' ? 'feature' : ''}",
   "purpose": "可删条件",
   "lines": [
-   "HouseDrawer.jsx:534"
+   "HouseDrawer.jsx:533"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 563,
-  "text": "看了这套的人还在看",
+  "line": 562,
+  "text": "看过这套房的人也在看",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:563"
+   "HouseDrawer.jsx:562"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 572,
+  "line": 571,
   "text": "暂无图",
   "purpose": "输入框占位",
   "lines": [
-   "HouseDrawer.jsx:572"
+   "HouseDrawer.jsx:571"
   ]
  },
  {
   "file": "HouseDrawer.jsx",
   "screen": "房源详情",
-  "line": 598,
+  "line": 597,
   "text": "请先登录后再举报房源",
   "purpose": "界面文字",
   "lines": [
-   "HouseDrawer.jsx:598"
+   "HouseDrawer.jsx:597"
   ]
  },
  {
@@ -13642,7 +13642,7 @@
   "purpose": "界面文字",
   "lines": [
    "api.js:112",
-   "api.js:290"
+   "api.js:293"
   ]
  },
  {
@@ -13668,18 +13668,18 @@
  {
   "file": "api.js",
   "screen": "接口层（网络错误提示）",
-  "line": 299,
+  "line": 302,
   "text": "上传失败（${response.status}）",
   "purpose": "带变量的句子",
   "lines": [
-   "api.js:299"
+   "api.js:302"
   ]
  },
  {
   "file": "AuthPage.jsx",
   "screen": "登录 / 注册 / 找回密码",
   "line": 109,
-  "text": "注册成功。房东身份需要管理员审核，通过后即可发布房源；在此之前你可以先用租客身份找房。",
+  "text": "注册成功。房东身份需管理员审核，通过后即可发布房源；审核期间可先用租客身份找房。",
   "purpose": "段落说明",
   "lines": [
    "AuthPage.jsx:109"
@@ -13900,7 +13900,7 @@
   "file": "AuthPage.jsx",
   "screen": "登录 / 注册 / 找回密码",
   "line": 198,
-  "text": "粘贴邮件里那一串字符",
+  "text": "粘贴邮件里的验证码",
   "purpose": "输入框占位",
   "lines": [
    "AuthPage.jsx:198"
@@ -14161,7 +14161,7 @@
   "file": "AuthPage.jsx",
   "screen": "登录 / 注册 / 找回密码",
   "line": 31,
-  "text": "智能体把整句需求翻译成筛选条件，条件摆在页面上，可以改",
+  "text": "整句需求自动转成筛选条件，页面上可直接修改",
   "purpose": "界面文字",
   "lines": [
    "AuthPage.jsx:31"
@@ -14201,7 +14201,7 @@
   "file": "AuthPage.jsx",
   "screen": "登录 / 注册 / 找回密码",
   "line": 33,
-  "text": "产权凭证由管理员人工审核，未核验的会明确标出来",
+  "text": "产权凭证由管理员人工审核，未核验的房源会明确标注",
   "purpose": "界面文字",
   "lines": [
    "AuthPage.jsx:33"
@@ -14951,59 +14951,39 @@
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 103,
-  "text": "起租日",
-  "purpose": "界面文字",
+  "line": 101,
+  "text": "选择一套可租房源…",
+  "purpose": "下拉选项",
   "lines": [
-   "SignContractDialog.jsx:103"
+   "SignContractDialog.jsx:101"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 108,
-  "text": "租期（月）",
+  "line": 117,
+  "text": "乙方（租客）",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:108"
+   "SignContractDialog.jsx:117"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 116,
-  "text": "押金月数",
-  "purpose": "界面文字",
+  "line": 120,
+  "text": "请选择",
+  "purpose": "下拉选项",
   "lines": [
-   "SignContractDialog.jsx:116"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 119,
-  "text": "留空按房源押金",
-  "purpose": "输入框占位",
-  "lines": [
-   "SignContractDialog.jsx:119"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 122,
-  "text": "付款周期（月）",
-  "purpose": "界面文字",
-  "lines": [
-   "SignContractDialog.jsx:122"
+   "SignContractDialog.jsx:120"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
   "line": 130,
-  "text": "月租按房源当前定价",
-  "purpose": "界面文字",
+  "text": "填租客的平台用户名，如 tenant1",
+  "purpose": "输入框占位",
   "lines": [
    "SignContractDialog.jsx:130"
   ]
@@ -15011,109 +14991,169 @@
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 131,
+  "line": 133,
+  "text": "这套房还没有人约过看房，只能手填用户名",
+  "purpose": "表单说明",
+  "lines": [
+   "SignContractDialog.jsx:133"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 140,
+  "text": "合同乙方将写：",
+  "purpose": "表单说明",
+  "lines": [
+   "SignContractDialog.jsx:140"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 141,
+  "text": "（该租客未填真实姓名）",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:141"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 142,
+  "text": "　·　该租客的姓名或手机号不全，签约后需补齐",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:142"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 149,
+  "text": "起租日",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:149"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 154,
+  "text": "租期（月）",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:154"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 162,
+  "text": "押金月数",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:162"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 165,
+  "text": "留空按房源押金",
+  "purpose": "输入框占位",
+  "lines": [
+   "SignContractDialog.jsx:165"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 168,
+  "text": "付款周期（月）",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:168"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 176,
+  "text": "月租按房源当前定价",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:176"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 177,
   "text": "元计， 押金默认取房源上填的",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:131"
+   "SignContractDialog.jsx:177"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 132,
+  "line": 178,
   "text": "元 ——和租客在详情页看到的是同一个数（K-02）。",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:132"
+   "SignContractDialog.jsx:178"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 143,
+  "line": 189,
   "text": "提交中…",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:143"
+   "SignContractDialog.jsx:189"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 143,
+  "line": 189,
   "text": "生成合同",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:143"
+   "SignContractDialog.jsx:189"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 40,
-  "text": "请选择房源并填写租客用户名。",
+  "line": 55,
+  "text": "请选择房源，并指定合同乙方。",
   "purpose": "错误提示",
   "lines": [
-   "SignContractDialog.jsx:40"
+   "SignContractDialog.jsx:55"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 70,
+  "line": 85,
   "text": "关闭",
   "purpose": "无障碍标签（读屏用，界面上看不见）",
   "lines": [
-   "SignContractDialog.jsx:70"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 71,
-  "text": "发起签约",
-  "purpose": "区块标题",
-  "lines": [
-   "SignContractDialog.jsx:71"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 72,
-  "text": "合同生成后需要租客在「我的租约」里确认才生效",
-  "purpose": "界面文字",
-  "lines": [
-   "SignContractDialog.jsx:72"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 77,
-  "text": "名下没有「可租」状态的房源。已出租的房源不能重复签约， 待审核的要先通过审核。",
-  "purpose": "空态提示",
-  "lines": [
-   "SignContractDialog.jsx:77"
-  ]
- },
- {
-  "file": "SignContractDialog.jsx",
-  "screen": "签约",
-  "line": 84,
-  "text": "房源",
-  "purpose": "界面文字",
-  "lines": [
-   "SignContractDialog.jsx:84"
+   "SignContractDialog.jsx:85"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
   "line": 86,
-  "text": "选择一套可租房源…",
-  "purpose": "下拉选项",
+  "text": "发起签约",
+  "purpose": "区块标题",
   "lines": [
    "SignContractDialog.jsx:86"
   ]
@@ -15121,21 +15161,31 @@
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 96,
-  "text": "租客用户名",
+  "line": 87,
+  "text": "合同生成后需要租客在「我的租约」里确认才生效",
   "purpose": "界面文字",
   "lines": [
-   "SignContractDialog.jsx:96"
+   "SignContractDialog.jsx:87"
   ]
  },
  {
   "file": "SignContractDialog.jsx",
   "screen": "签约",
-  "line": 98,
-  "text": "如 tenant1",
-  "purpose": "输入框占位",
+  "line": 92,
+  "text": "名下没有「可租」状态的房源。已出租的房源不能重复签约， 待审核的要先通过审核。",
+  "purpose": "空态提示",
   "lines": [
-   "SignContractDialog.jsx:98"
+   "SignContractDialog.jsx:92"
+  ]
+ },
+ {
+  "file": "SignContractDialog.jsx",
+  "screen": "签约",
+  "line": 99,
+  "text": "房源",
+  "purpose": "界面文字",
+  "lines": [
+   "SignContractDialog.jsx:99"
   ]
  },
  {
@@ -15559,7 +15609,7 @@
   "file": "AdminPanel.jsx",
   "screen": "管理后台",
   "line": 228,
-  "text": "这几项都有具体的人在等结果，压着不处理会一直卡着。",
+  "text": "这几项都有人在等结果，请尽快处理。",
   "purpose": "辅助说明",
   "lines": [
    "AdminPanel.jsx:228"
@@ -16359,7 +16409,7 @@
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
   "line": 214,
-  "text": "手机丢了、或者在别人的电脑上登录过忘了退出，可以把所有设备 一次性登出。",
+  "text": "手机丢失、或在他人设备上登录过未退出，可以把所有设备一次性登出。",
   "purpose": "说明文字",
   "lines": [
    "ProfileForm.jsx:214"
@@ -16368,41 +16418,41 @@
  {
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
-  "line": 216,
+  "line": 215,
   "text": "不需要改密码",
   "purpose": "界面文字",
   "lines": [
-   "ProfileForm.jsx:216"
+   "ProfileForm.jsx:215"
   ]
  },
  {
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
-  "line": 216,
+  "line": 215,
   "text": "——只想下线的人不该被迫换掉 自己记得住的密码。",
   "purpose": "界面文字",
   "lines": [
-   "ProfileForm.jsx:216"
+   "ProfileForm.jsx:215"
   ]
  },
  {
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
-  "line": 224,
+  "line": 223,
   "text": "处理中…",
   "purpose": "界面文字",
   "lines": [
-   "ProfileForm.jsx:224"
+   "ProfileForm.jsx:223"
   ]
  },
  {
   "file": "ProfileForm.jsx",
   "screen": "账号设置",
-  "line": 224,
+  "line": 223,
   "text": "退出所有设备",
   "purpose": "界面文字",
   "lines": [
-   "ProfileForm.jsx:224"
+   "ProfileForm.jsx:223"
   ]
  },
  {
@@ -16682,7 +16732,7 @@
   "file": "HomeSections.jsx",
   "screen": "首页分栏",
   "line": 29,
-  "text": "最近 30 天上架，房东还在盯着消息",
+  "text": "最近 30 天上架的新房源",
   "purpose": "说明文字",
   "lines": [
    "HomeSections.jsx:29"
@@ -16712,7 +16762,7 @@
   "file": "HomeSections.jsx",
   "screen": "首页分栏",
   "line": 39,
-  "text": "住过的人打分 4 星以上",
+  "text": "租客评分 4 星以上",
   "purpose": "说明文字",
   "lines": [
    "HomeSections.jsx:39"
@@ -16742,7 +16792,7 @@
   "file": "HomeSections.jsx",
   "screen": "首页分栏",
   "line": 48,
-  "text": "自己翻，也可以用筛选和地图收窄",
+  "text": "自由浏览，可用筛选和地图收窄范围",
   "purpose": "说明文字",
   "lines": [
    "HomeSections.jsx:48"
@@ -16822,7 +16872,7 @@
   "file": "HeroBanner.jsx",
   "screen": "首页大图轮播",
   "line": 34,
-  "text": "不用先想清楚该点哪个筛选项——直接说需求，条件我们替你翻译出来，而且看得见、改得动。",
+  "text": "直接说出需求，AI 自动转成筛选条件——看得见，也随时改得动。",
   "purpose": "说明文字",
   "lines": [
    "HeroBanner.jsx:34"
@@ -16862,7 +16912,7 @@
   "file": "HeroBanner.jsx",
   "screen": "首页大图轮播",
   "line": 42,
-  "text": "合同生效即排出整期账单，每一笔缴费都有流水与凭证，退租押金怎么算、扣了多少，页面上写得清清楚楚。",
+  "text": "合同生效即生成整期账单，缴费有流水、退款有凭证，每一笔都查得到。",
   "purpose": "说明文字",
   "lines": [
    "HeroBanner.jsx:42"
@@ -16872,7 +16922,7 @@
   "file": "HeroBanner.jsx",
   "screen": "首页大图轮播",
   "line": 43,
-  "text": "看看怎么签约",
+  "text": "了解签约流程",
   "purpose": "界面文字",
   "lines": [
    "HeroBanner.jsx:43"
@@ -16892,7 +16942,7 @@
   "file": "HeroBanner.jsx",
   "screen": "首页大图轮播",
   "line": 49,
-  "text": "房子委托出去，房东仍然说了算",
+  "text": "房子委托出去，决定权仍在房东手里",
   "purpose": "界面文字",
   "lines": [
    "HeroBanner.jsx:49"
@@ -16902,7 +16952,7 @@
   "file": "HeroBanner.jsx",
   "screen": "首页大图轮播",
   "line": 50,
-  "text": "委托是多一个人帮你管，不是换人管。咨询与预约自动转给经纪人，房东随时可以自己接手、随时解除。",
+  "text": "委托是多一个人帮你管，不是换人管。咨询与预约自动转给经纪人，随时可接手、可解除。",
   "purpose": "说明文字",
   "lines": [
    "HeroBanner.jsx:50"

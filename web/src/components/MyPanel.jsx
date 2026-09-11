@@ -146,9 +146,37 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
     setBusy(key)
     setError('')
     try {
+      // F1：**支付要走完两段，不能停在「已发起」。**
+      //
+      // 原先这里只调了第一段（创建支付单），拿到的 payment 还是
+      // `pending`，然后就把它当凭证弹出来了——用户看到一张「缴费凭证」，
+      // 回到列表却发现账单仍是「待缴」。**这比没有凭证更让人糊涂。**
+      //
+      // 真实链路的第二段是「用户在支付宝点确认 → 支付宝回调平台」。
+      // 我们没有支付宝，由 mock-pay 代替那一下——这也正是这套演示
+      // 不需要联网就能走完整条交易链的原因。
       const result = await api.payBill(key, payMethod)
+      const trade = result?.bill?.payment?.trade_no
+        || result?.payment?.trade_no || ''
+
+      let paid = null
+      if (trade) {
+        // 第二段失败不能当成功。**吞掉异常直接弹凭证，等于告诉用户
+        // 钱付了而账单其实没变**——宁可显示「已发起，等待到账」
+        try {
+          await api.mockPay(trade)
+          paid = await api.paymentStatus(trade)
+        } catch (err) {
+          setError('支付已发起，但确认到账时出了问题：' + err.message
+                   + '　可以稍后在账单里点「查看缴费凭证」确认。')
+        }
+      }
+
       setCheckout(null)
-      setReceipt({ bill: result.bill, payment: result.payment })
+      setReceipt({
+        bill: paid?.bill || result.bill,
+        payment: paid?.payment || result?.bill?.payment || result.payment,
+      })
       await load()
     } catch (err) {
       setCheckout(null)
@@ -312,7 +340,10 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                       <div className="record-body">缴费时间 {bill.paid_at}</div>
                     )}
 
-                    {bill.status === 'unpaid' && (
+                    {/* 合同结束之后这笔欠款只能线下找房东结，接口也会拒。
+                        **按钮照摆的话，用户填完收银台才被告知付不了**——
+                        白走一趟，还以为是系统坏了。 */}
+                    {bill.status === 'unpaid' && bill.payable && (
                       <div className="record-actions">
                         <button
                           className="btn small"
@@ -325,6 +356,13 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                         >
                           {busy === bill.bill_no ? '支付中' : '立即缴费'}
                         </button>
+                      </div>
+                    )}
+                    {bill.status === 'unpaid' && !bill.payable && (
+                      <div className="muted-note">
+                        {bill.contract_status === 'active'
+                          ? '这笔暂时不能在线支付'
+                          : '租约已结束，这笔欠款请与房东线下结清'}
                       </div>
                     )}
                     {bill.status === 'paid' && bill.payment && (

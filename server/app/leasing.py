@@ -278,15 +278,26 @@ def generate_bills(session, contract):
     """
     bills = []
 
-    bills.append(Bill(
-        bill_no=_serial("ZD"),
-        contract_id=contract.id,
-        type="deposit",
-        period="",
-        amount=contract.deposit,
-        due_date=contract.start_date,
-        remark="押金",
-    ))
+    # **免押就不排押金账单。**
+    #
+    # 原先无条件排一条。合同选了「押零付一」时，这条账单的金额是 0——
+    # 它在库里是一条正常记录，可在用户眼里是一张「押金 0 元，待缴」的
+    # 单子：个人中心给它配了「立即缴费」按钮，点开收银台写着
+    # 「确认支付 ¥0.00」；智能助手说「帮我交房租」时，它还因为到期日
+    # 最早而被排在第一位，助手于是问「要我帮你缴纳押金 0 元吗」。
+    #
+    # 一笔不用付的钱不该长成一张待缴账单。真正免押的合同，
+    # 账单列表里就不该有押金这一行。
+    if Decimal(str(contract.deposit or 0)) > 0:
+        bills.append(Bill(
+            bill_no=_serial("ZD"),
+            contract_id=contract.id,
+            type="deposit",
+            period="",
+            amount=contract.deposit,
+            due_date=contract.start_date,
+            remark="押金",
+        ))
 
     total_months = months_between(contract.start_date, contract.end_date)
     pay_months = max(contract.pay_months, 1)

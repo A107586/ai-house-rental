@@ -223,6 +223,13 @@ export const api = {
       method,
       idempotency_key: idempotencyKey || `web-${no}-${Date.now()}`,
     }),
+  // F1：演示网关的「用户在支付宝点了确认付款」这一下。
+  //
+  // 真实链路是跳到支付宝、支付宝回调平台。我们没有支付宝，
+  // 所以由这个接口代替那一步——**整条链因此不需要联网也能走完**。
+  mockPay: (tradeNo, result = 'success') =>
+    post(`/api/payments/${tradeNo}/mock-pay`, { result }),
+  paymentStatus: (tradeNo) => request(`/api/payments/${tradeNo}/status`),
   paymentReceipt: (tradeNo) => request(`/api/payments/${tradeNo}`),
   myRefunds: () => request('/api/refunds/mine'),
 
