@@ -11,6 +11,8 @@
 """
 
 from app import fusion
+import re
+
 from app.config import settings
 from app.llm.base import LLMUnavailable
 
@@ -41,6 +43,35 @@ INTENT_KEYWORDS = [
       "缴费方式"],
      ["怎么", "如何", "可以吗", "能不能", "为什么"]),
 ]
+
+# 报修还认一条**句式**：「某某 + 坏掉的样子」。
+#
+# 词表永远补不完。实测「暖气不热」「厨房灯不亮」全都落进了「没听懂」——
+# 它们既没有「坏」也没有「修」，可**没有人会说「我要报修暖气」**，
+# 大家说的就是「暖气不热」。
+#
+# 用句式而不是继续堆词，是因为这一类说法的结构是固定的：
+# 一个东西，加一句它现在不工作 的样子。列出后半截（不热/不亮/打不开…）
+# 就能覆盖前半截的任意名词——而名词是列不完的。
+#
+# 只给 repair 用。别的意图没有这么规整的句式，硬套只会误伤。
+# 家里的东西。**有限且稳定**——一套房里会坏的东西就这些。
+_FIXTURES = ("暖气", "地暖", "空调", "热水器", "燃气", "煤气", "天然气",
+             "灯", "灯泡", "水管", "水龙头", "花洒", "马桶", "下水道",
+             "门锁", "门", "窗", "窗户", "冰箱", "洗衣机", "电视",
+             "油烟机", "插座", "开关", "电闸", "电路", "网", "宽带",
+             "厨房", "卫生间", "浴室", "阳台", "屋里", "家里", "房间")
+
+# 它坏掉的样子。
+_FAULTS = ("不热", "不亮", "不出水", "不制热", "不制冷", "不上水", "不下水",
+           "不通", "不转", "不动", "打不开", "关不上", "合不上", "锁不上",
+           "冲不下去", "没热水", "没水", "没电", "漏气", "不好用", "用不了",
+           "坏", "响", "滴水", "渗水")
+
+_FAULT_PATTERN = re.compile(
+    "(?:%s)[^，。！？,.!?]{0,4}?(?:%s)"
+    % ("|".join(_FIXTURES), "|".join(_FAULTS)))
+
 
 # 意图 -> 面向用户的中文名，用于日志与前端展示
 INTENT_LABELS = {
@@ -94,6 +125,11 @@ def classify_by_rules(text):
     order = {}
     for index, (intent, strong, weak) in enumerate(INTENT_KEYWORDS):
         strong_hits = [kw for kw in strong if kw in raw]
+        # 报修还认一条**句式**，不只是词表。见 _FAULT_PATTERN 的说明。
+        if intent == "repair":
+            fault = _FAULT_PATTERN.search(raw)
+            if fault and fault.group(0) not in strong_hits:
+                strong_hits = strong_hits + [fault.group(0)]
         if not strong_hits:
             continue
         weak_hits = [kw for kw in weak if kw in raw]

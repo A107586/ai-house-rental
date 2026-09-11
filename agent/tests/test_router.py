@@ -17,6 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app import supervisor  # noqa: E402
 from app.agents.support.tools import router  # noqa: E402
 from app.llm.base import LLMProvider, LLMUnavailable, NullProvider  # noqa: E402
 
@@ -274,3 +275,37 @@ class TestCatalogIntegrity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFaultPhrasing(unittest.TestCase):
+    """「暖气不热」这类说法要认成报修（C3）。
+
+    词表永远补不完。实测「暖气不热」「厨房灯不亮」全都落进了「没听懂」——
+    它们既没有「坏」也没有「修」，可**没有人会说「我要报修暖气」**，
+    大家说的就是「暖气不热」。
+
+    改成「器物 × 故障态」两张短表相乘：一套房里会坏的东西是有限的，
+    它坏掉的说法也是有限的，两者的组合却有几百种——
+    列组合列不完，列两张表就够了。
+    """
+
+    def intent(self, text):
+        return supervisor.classify_by_rules(text)[0]
+
+    def test_common_fault_phrasings(self):
+        for text in ("暖气不热", "厨房灯不亮了", "热水器不出水", "空调不制冷",
+                     "门锁打不开", "家里没电了", "马桶冲不下去",
+                     "卫生间下水道堵了", "窗户关不上", "燃气漏气"):
+            self.assertEqual(self.intent(text), "repair", text)
+
+    def test_does_not_catch_unrelated_sentences(self):
+        """**这条比上一条更容易写错。**
+
+        第一版的模式是「任意名词 + 故障态」，结果「今天天气不热」
+        「这房子采光不亮堂吗」也被判成报修——用户问的是房子好不好，
+        助手回他「已识别为故障」。
+        限定前半截必须是家里的东西之后，这几句就都不再命中。
+        """
+        for text in ("今天天气不热", "这房子采光不亮堂吗", "中山区两室一厅",
+                     "附近有没有便宜的", "押金怎么退", "房租能晚几天交"):
+            self.assertNotEqual(self.intent(text), "repair", text)

@@ -1229,10 +1229,30 @@ def _dispatch(payload, routed, intent, slots, feats):
         }
 
     if intent == "repair":
-        # 统一入口只做分析预览，落库要走 /agent/repair 并带上 house_no
+        # **分析完要给一个办事的入口，不能停在「建议派单给水暖工」。**
+        #
+        # 这是验收意见「智能体只告诉你该怎么做，而不是帮你做」最典型的
+        # 一处：用户说「水管漏水了」，得到的是「已识别为水暖故障，
+        # 紧急程度紧急，建议派单给水暖工」——**建议谁派？他自己去哪派？**
+        # 分析得再准，事情还是没人办。
+        #
+        # 所以登录用户一律转到代办那条路：出确认卡片，他点一下就落库。
+        # 代办层缺房源编号时会自己追问「哪一套」，那也是在办事，
+        # 不是把问题原样退回。
+        #
+        # 未登录时才退回纯分析——那时候确实办不了，
+        # 但**分析本身仍然有用**（他至少知道这算紧急故障）。
+        if payload.token:
+            handled = _support_action(payload, routed, "submit_repair", None)
+            if handled is not None:
+                return handled
+
         result = repair.run(text, provider=_llm(), submit=False)
         result["route"] = routed
         result["alternatives"] = []
+        # 明说一句怎么才能办。**不说的话，未登录用户拿到一段分析就
+        # 走进死胡同了**——他不知道差的只是一次登录
+        result["message"] = (result.get("message") or "") +             "　登录之后我可以直接帮你把报修单提交给房东。"
         return result
 
     if intent == "support":

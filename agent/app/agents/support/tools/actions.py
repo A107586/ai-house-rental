@@ -495,11 +495,49 @@ def _card(name, label, summary, risk, params, detail=None, warning=""):
     }
 
 
+# 用户话里点名的账单类型 → 账单上的类型值。
+#
+# **不认这个的后果实测过**：用户说「帮我把这个月的房租交了」，
+# 代办挑的是「押金 0 元」——他说的明明是房租，而系统按「最早到期」
+# 挑了一张风马牛不相及的账单，还是一张金额为零的。
+_BILL_KIND_WORDS = [
+    (("房租", "租金", "月租", "房钱"), ("rent", "租金")),
+    (("押金", "保证金"), ("deposit", "押金")),
+    (("服务费", "中介费", "佣金"), ("service", "服务费")),
+    (("水电", "水费", "电费"), ("utility", "水电费")),
+]
+
+
+def _bill_kind_wanted(text):
+    """用户点名了哪一类账单。没点名返回 None。"""
+    for words, kinds in _BILL_KIND_WORDS:
+        if any(w in (text or "") for w in words):
+            return kinds
+    return None
+
+
 def _propose_pay_bill(text, token, backend, context):
     rows = _rows(backend.get("/api/bills/mine", token=token))
-    unpaid = [b for b in rows if b.get("status") != "paid"]
+    # **金额为 0 的不算待缴。**
+    #
+    # 免押的合同会排出一张 0 元的押金账单——它在库里是一条正常记录，
+    # 但「帮我缴这 0 元」是一句没有意义的话，而它恰好因为到期日最早
+    # 被排在了第一位。实测「帮我把这个月的房租交了」得到的就是
+    # 「要我帮你缴纳押金 0 元吗」。
+    unpaid = [b for b in rows
+              if b.get("status") != "paid" and float(b.get("amount") or 0) > 0]
     if not unpaid:
         return NOT_APPLICABLE, "你的账单都结清了，没有需要缴的。", None, None
+
+    # 用户点名了类型就先按类型筛。**他说「房租」，就不该给他押金**——
+    # 「最早到期」是没有别的线索时的默认，不是可以盖过原话的规则
+    wanted = _bill_kind_wanted(text)
+    if wanted:
+        same = [b for b in unpaid
+                if str(b.get("bill_type") or b.get("type") or "") in wanted
+                or account.bill_type_text(b) in wanted]
+        if same:
+            unpaid = same
 
     # 多笔待缴时选最早到期的那一笔，并在卡片上说明还有几笔。
     # 不自作主张一次全交——那是一笔大得多的钱，必须由用户逐笔决定。
