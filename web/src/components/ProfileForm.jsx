@@ -212,8 +212,7 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
 
       <div className="section-title">登录设备</div>
       <p className="desc">
-        手机丢了、或者在别人的电脑上登录过忘了退出，可以把所有设备
-        一次性登出。<b>不需要改密码</b>——只想下线的人不该被迫换掉
+        手机丢失、或在他人设备上登录过未退出，可以把所有设备一次性登出。<b>不需要改密码</b>——只想下线的人不该被迫换掉
         自己记得住的密码。
       </p>
       <button

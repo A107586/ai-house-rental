@@ -37,8 +37,7 @@ export default class ErrorBoundary extends Component {
           {this.props.label || '这块内容'}出错了
         </div>
         <p>
-          页面其余部分仍可正常使用。刷新一次通常就能恢复；
-          如果反复出现，请把下面这行信息发给开发同学。
+          页面其余部分仍可正常使用。刷新一次通常能恢复；如果反复出现，请把下面这行信息发给我们。
         </p>
         <pre className="crash-detail">
           {String(this.state.error?.message || this.state.error)}

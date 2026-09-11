@@ -630,8 +630,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                   {priceTip.message}
                   {priceTip.ok && (
                     <div className="assist-hint">
-                      用的是中位单价而不是平均值——一套定价离谱的房源
-                      就能把平均值拉歪。
+                      这里用中位单价而不是平均值，避免个别定价离谱的房源拉偏结果。
                     </div>
                   )}
                 </div>
@@ -772,8 +771,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
         {tab === 'publish' && !editing && (
           <p className="desc">
-            房源图片在提交发布之后、到「我的房源」里点「编辑」来上传——
-            图片要挂到房源编号上，新房源还没有编号。
+            房源图片在发布后上传：到「我的房源」点「编辑」。图片需挂在房源编号上，新房源还没有编号。
           </p>
         )}
       </div>

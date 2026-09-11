@@ -99,7 +99,7 @@ export default function DelegationPanel({ houses = [] }) {
       '想自己出租')
     if (reason === null) return
     run(`end${row.id}`, () => api.endDelegation(row.id, reason),
-      '已解除。中介立刻管不了这套房了，已产生的带看记录保留。')
+      '已解除。中介立即失去这套房的管理权限，带看记录保留。')
   }
 
   // 我发出去等中介确认的 / 中介申请等我确认的，分开显示。
@@ -150,7 +150,7 @@ export default function DelegationPanel({ houses = [] }) {
                     disabled={busy === `y${row.id}`}
                     onClick={() => run(`y${row.id}`,
                       () => api.respondDelegation(row.id, true),
-                      '已同意。他现在能帮你带看和回咨询了，你的权限不受影响。')}
+                      '已同意。他现在可以代你带看和回复咨询，你的权限不受影响。')}
                   >
                     同意
                   </button>
@@ -236,7 +236,7 @@ export default function DelegationPanel({ houses = [] }) {
               house_no: draft.house_no,
               agent_username: draft.agent_username.trim(),
               commission_rate: Number(draft.commission_rate),
-            }), '邀请已发出，等中介确认。他同意之前不会有任何权限。')
+            }), '邀请已发出，待中介确认。他同意之前不会有任何权限。')
           }}
         >
           <div className="fld-row">
@@ -293,8 +293,7 @@ export default function DelegationPanel({ houses = [] }) {
 
             {dirState === 'ok' && dir.length === 0 && (
               <p className="desc">
-                没有匹配的中介。中介要**资质过审并开着接单开关**才会出现在这里；
-                换个词试试，或者清空搜索看全部。
+                没有匹配的中介。中介需**资质过审并开启接单**才会出现在这里；换个词试试，或清空搜索看全部。
               </p>
             )}
 
@@ -346,7 +345,7 @@ export default function DelegationPanel({ houses = [] }) {
                         house_no: draft.house_no,
                         agent_username: a.username,
                         commission_rate: Number(draft.commission_rate),
-                      }), `邀请已发给${a.name}，等他确认。他同意之前不会有任何权限。`)}
+                      }), `邀请已发给${a.name}，待他确认。他同意之前不会有任何权限。`)}
                     >
                       {draft.house_no ? '邀请他代理' : '先选房源'}
                     </button>
@@ -387,9 +386,7 @@ export default function DelegationPanel({ houses = [] }) {
       )}
 
       <p className="rd-note">
-        一套房同时只能委托给一个中介。两个中介同时在托，带看和佣金归谁
-        就说不清了——那正是链家要用一整套 ACN 规则去解决、而我们没必要
-        解决的问题。解除委托后带看记录仍然保留，出了纠纷需要查得到。
+        一套房同时只能委托给一个中介，避免带看和佣金归属不清。解除委托后带看记录仍然保留，发生纠纷时可供查询。
       </p>
     </div>
   )

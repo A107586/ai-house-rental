@@ -182,8 +182,7 @@ export default function SupportPanel() {
                 />
               </label>
               <p className="hint">
-                别名是命中率最高的一块投入：用户说「保证金」而你写的是「押金」，
-                检索就对不上。想到几种说法就写几种。
+                别名直接影响命中率：用户说「保证金」而库里写的是「押金」，就检索不到。一种叫法写一条。
               </p>
               <div className="row">
                 <label>
@@ -259,8 +258,7 @@ export default function SupportPanel() {
           </div>
 
           <p className="hint">
-            拒答率高不代表智能体不行——它说明这些问题库里没写。
-            下面这张表就是该补的语料清单，点「补一条」直接起草。
+            拒答率高说明这些问题库里没有。下面这张表就是该补的语料清单，点「补一条」直接起草。
           </p>
 
           <h4>知识缺口（被拒答且反复出现的问题）</h4>
@@ -295,8 +293,7 @@ export default function SupportPanel() {
             <>
               <h4>从未被引用的条目</h4>
               <p className="hint">
-                写了却没人问到。可能是问题写得太书面，用户不会那么说——
-                给它补几条口语化的别名试试。
+                写了却没人问到，可能是问题太书面。可以补几条口语化的别名。
               </p>
               <ul className="plain">
                 {stats.unused_faqs.map((row) => <li key={row.code}>{row.question}</li>)}

@@ -7974,111 +7974,72 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1006,
-  "text": "无法加载房源，请确认后端服务已启动。",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1006"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1008,
-  "text": "没有符合条件的房源。可以在上面的「已生效条件」里删掉几条再看看。",
-  "purpose": "段落说明",
+  "text": "返回首页",
+  "purpose": "无障碍标签（读屏用，界面上看不见）",
   "lines": [
-   "App.jsx:1008"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1009,
-  "text": "暂时还没有房源。",
-  "purpose": "界面文字",
-  "lines": [
+   "App.jsx:1008",
    "App.jsx:1009"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1035,
+  "line": 1013,
+  "text": "房源",
+  "purpose": "区块标题",
+  "lines": [
+   "App.jsx:1013"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1034,
+  "text": "无法加载房源，请确认后端服务已启动。",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1034"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1036,
+  "text": "没有符合条件的房源。可以在上面的「已生效条件」里删掉几条再看看。",
+  "purpose": "段落说明",
+  "lines": [
+   "App.jsx:1036"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1037,
+  "text": "暂时还没有房源。",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1037"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1063,
   "text": "房源分页",
   "purpose": "无障碍标签（读屏用，界面上看不见）",
   "lines": [
-   "App.jsx:1035"
+   "App.jsx:1063"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1040,
+  "line": 1068,
   "text": "上一页",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:1040"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1064,
-  "text": "下一页",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1064"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1082,
-  "text": "地图找房",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1082"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1085,
-  "text": "已选区域：${filters.district}",
-  "purpose": "带变量的句子",
-  "lines": [
-   "App.jsx:1085"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1086,
-  "text": "在地图上按区域挑，看得见位置和周边",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1086"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1089,
-  "text": "收起",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1089"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1089,
-  "text": "展开",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1089"
+   "App.jsx:1068"
   ]
  },
  {
@@ -8094,21 +8055,21 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 110,
-  "text": "规则 + 大模型融合",
+  "line": 1092,
+  "text": "下一页",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:110"
+   "App.jsx:1092"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1102,
-  "text": "地图加载中…",
+  "line": 110,
+  "text": "规则 + 大模型融合",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:1102"
+   "App.jsx:110"
   ]
  },
  {
@@ -8124,6 +8085,56 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1110,
+  "text": "地图找房",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1110"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1113,
+  "text": "已选区域：${filters.district}",
+  "purpose": "带变量的句子",
+  "lines": [
+   "App.jsx:1113"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1114,
+  "text": "在地图上按区域挑，看得见位置和周边",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1114"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1117,
+  "text": "收起",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1117"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1117,
+  "text": "展开",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1117"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 112,
   "text": "大模型输出不可用，已退回规则结果",
   "purpose": "界面文字",
@@ -8134,129 +8145,49 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1132,
+  "line": 1130,
+  "text": "地图加载中…",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1130"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1160,
   "text": "打开租房助手",
   "purpose": "悬停提示",
   "lines": [
-   "App.jsx:1132"
+   "App.jsx:1160"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1142,
+  "line": 1170,
   "text": "租房助手",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:1142",
-   "App.jsx:1230"
+   "App.jsx:1170",
+   "App.jsx:1269"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1199,
+  "line": 1234,
   "text": "说一句话就能找房。条件摆在页面上，可以改； 从签约到退租每一步都有据可查。",
   "purpose": "段落说明",
   "lines": [
-   "App.jsx:1199"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1204,
-  "text": "房源人工核验",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1204"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1205,
-  "text": "合同电子存证",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1205"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1206,
-  "text": "缴费流水可查",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1206"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1210,
-  "text": "页脚导航",
-  "purpose": "无障碍标签（读屏用，界面上看不见）",
-  "lines": [
-   "App.jsx:1210"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1218,
-  "text": "我的",
-  "purpose": "小标题",
-  "lines": [
-   "App.jsx:1218"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1226,
-  "text": "登录",
-  "purpose": "按钮文案",
-  "lines": [
-   "App.jsx:1226"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1227,
-  "text": "注册",
-  "purpose": "按钮文案",
-  "lines": [
-   "App.jsx:1227"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1235,
-  "text": "联系",
-  "purpose": "小标题",
-  "lines": [
-   "App.jsx:1235"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 1238,
-  "text": "客服电话未配置",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:1238"
+   "App.jsx:1234"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1239,
-  "text": "工作日 9:00–18:00",
+  "text": "房源人工核验",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1239"
@@ -8266,7 +8197,7 @@
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 1240,
-  "text": "大连理工大学 实习实训",
+  "text": "合同电子存证",
   "purpose": "界面文字",
   "lines": [
    "App.jsx:1240"
@@ -8275,32 +8206,122 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 248,
+  "line": 1241,
+  "text": "缴费流水可查",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1241"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1245,
+  "text": "页脚导航",
+  "purpose": "无障碍标签（读屏用，界面上看不见）",
+  "lines": [
+   "App.jsx:1245"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1257,
+  "text": "我的",
+  "purpose": "小标题",
+  "lines": [
+   "App.jsx:1257"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1265,
+  "text": "登录",
+  "purpose": "按钮文案",
+  "lines": [
+   "App.jsx:1265"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1266,
+  "text": "注册",
+  "purpose": "按钮文案",
+  "lines": [
+   "App.jsx:1266"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1274,
+  "text": "联系",
+  "purpose": "小标题",
+  "lines": [
+   "App.jsx:1274"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1277,
+  "text": "客服电话未配置",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1277"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1278,
+  "text": "工作日 9:00–18:00",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1278"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 1279,
+  "text": "大连理工大学 实习实训",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:1279"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 257,
   "text": "大连智租",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:248"
+   "App.jsx:257"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 288,
+  "line": 297,
   "text": "这套房源已下架或不存在。",
   "purpose": "错误提示",
   "lines": [
-   "App.jsx:288",
-   "App.jsx:1157"
+   "App.jsx:297",
+   "App.jsx:1190"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 438,
+  "line": 447,
   "text": "智能体暂时联系不上，已按关键词直接检索；也可以用下面的筛选条件找房。",
   "purpose": "错误提示",
   "lines": [
-   "App.jsx:438"
+   "App.jsx:447"
   ]
  },
  {
@@ -8321,7 +8342,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:48",
-   "App.jsx:1214"
+   "App.jsx:1253"
   ]
  },
  {
@@ -8332,7 +8353,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:49",
-   "App.jsx:1215"
+   "App.jsx:1254"
   ]
  },
  {
@@ -8343,7 +8364,7 @@
   "purpose": "界面文字",
   "lines": [
    "App.jsx:50",
-   "App.jsx:1213"
+   "App.jsx:1252"
   ]
  },
  {
@@ -8389,113 +8410,62 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 626,
+  "line": 648,
   "text": "加载中…",
   "purpose": "空态提示",
   "lines": [
-   "App.jsx:626",
-   "App.jsx:631"
+   "App.jsx:648",
+   "App.jsx:653"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 666,
+  "line": 688,
   "text": "基于 AI 智能体的房屋租赁平台",
   "purpose": "标签",
   "lines": [
-   "App.jsx:666"
+   "App.jsx:688"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 678,
+  "line": 700,
   "text": "后端接口连接不上",
   "purpose": "悬停提示",
   "lines": [
-   "App.jsx:678"
+   "App.jsx:700"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 679,
+  "line": 701,
   "text": "服务未连接",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:679"
+   "App.jsx:701"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 693,
+  "line": 715,
   "text": "咨询消息",
   "purpose": "无障碍标签（读屏用，界面上看不见）",
   "lines": [
-   "App.jsx:693",
-   "App.jsx:694",
-   "App.jsx:1222"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 719,
-  "text": "管理后台",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:719"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 720,
-  "text": "中介工作台",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:720"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 720,
-  "text": "房东工作台",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:720"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 735,
-  "text": "我",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:735"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 737,
-  "text": "个人中心",
-  "purpose": "界面文字",
-  "lines": [
-   "App.jsx:737",
-   "App.jsx:1221"
+   "App.jsx:715",
+   "App.jsx:716",
+   "App.jsx:1261"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
   "line": 741,
-  "text": "登录 / 注册",
-  "purpose": "按钮文案",
+  "text": "管理后台",
+  "purpose": "界面文字",
   "lines": [
    "App.jsx:741"
   ]
@@ -8503,145 +8473,175 @@
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 754,
+  "line": 742,
+  "text": "中介工作台",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:742"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 742,
+  "text": "房东工作台",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:742"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 757,
+  "text": "我",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:757"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 759,
+  "text": "个人中心",
+  "purpose": "界面文字",
+  "lines": [
+   "App.jsx:759",
+   "App.jsx:1260"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 763,
+  "text": "登录 / 注册",
+  "purpose": "按钮文案",
+  "lines": [
+   "App.jsx:763"
+  ]
+ },
+ {
+  "file": "App.jsx",
+  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
+  "line": 776,
   "text": "在架房源（套）",
   "purpose": "选项／页签名",
   "lines": [
-   "App.jsx:754"
+   "App.jsx:776"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 755,
+  "line": 777,
   "text": "覆盖行政区",
   "purpose": "选项／页签名",
   "lines": [
-   "App.jsx:755"
+   "App.jsx:777"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 756,
+  "line": 778,
   "text": "智能找房 · 客服 · 审阅",
   "purpose": "选项／页签名",
   "lines": [
-   "App.jsx:756"
+   "App.jsx:778"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 792,
+  "line": 814,
   "text": "找房中…",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:792",
-   "App.jsx:939"
+   "App.jsx:814",
+   "App.jsx:967"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 792,
+  "line": 814,
   "text": "找房",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:792",
-   "App.jsx:939",
-   "App.jsx:1212"
+   "App.jsx:814",
+   "App.jsx:967",
+   "App.jsx:1247"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 799,
+  "line": 821,
   "text": "搜索记录",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:799"
+   "App.jsx:821"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 805,
+  "line": 827,
   "text": "清空",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:805"
+   "App.jsx:827"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 828,
+  "line": 850,
   "text": "删除记录：${q}",
   "purpose": "带变量的句子",
   "lines": [
-   "App.jsx:828"
+   "App.jsx:850"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 841,
+  "line": 863,
   "text": "试试：",
   "purpose": "界面文字",
   "lines": [
-   "App.jsx:841"
+   "App.jsx:863"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 872,
+  "line": 894,
   "text": "没听懂这句话，已经保留你原来的筛选条件。 可以说得具体一点，比如「中山区两室一厅，租金三千以内」。",
   "purpose": "段落说明",
   "lines": [
-   "App.jsx:872"
+   "App.jsx:894"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 884,
+  "line": 906,
   "text": "公告",
   "purpose": "选项／页签名",
   "lines": [
-   "App.jsx:884"
+   "App.jsx:906"
   ]
  },
  {
   "file": "App.jsx",
   "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 934,
+  "line": 962,
   "text": "换个说法再找找，如：中山区两室一厅三千以内 / 桂林街",
   "purpose": "输入框占位",
   "lines": [
-   "App.jsx:934"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 980,
-  "text": "返回首页",
-  "purpose": "无障碍标签（读屏用，界面上看不见）",
-  "lines": [
-   "App.jsx:980",
-   "App.jsx:981"
-  ]
- },
- {
-  "file": "App.jsx",
-  "screen": "全站骨架（顶栏、首页、列表页、页脚）",
-  "line": 985,
-  "text": "房源",
-  "purpose": "区块标题",
-  "lines": [
-   "App.jsx:985"
+   "App.jsx:962"
   ]
  },
  {

@@ -71,8 +71,7 @@ export default function FlagPanel() {
       </div>
 
       <p className="rd-note">
-        这里只列出机器拿不准的内容。确定违规的（私下留手机号、微信号、
-        明确的违法违规词）在提交时就被拦下了，不会进到这个队列。
+        这里只列出系统拿不准的内容。明确违规的（私下留联系方式、违法违规词）在提交时已被拦截，不会进入这个队列。
       </p>
 
       {error && <div className="reply failed">{error}</div>}

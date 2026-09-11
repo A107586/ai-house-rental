@@ -28,9 +28,9 @@ const ROLES = [
 const NEEDS_REVIEW = new Set(['landlord', 'agent'])
 
 const SELLING_POINTS = [
-  ['看得见的条件', '智能体把整句需求翻译成筛选条件，条件摆在页面上，可以改'],
+  ['看得见的条件', '整句需求自动转成筛选条件，页面上可直接修改'],
   ['从签到退有据可查', '合同生效即排出整期账单，每笔缴费都有流水与凭证'],
-  ['房源经过核验', '产权凭证由管理员人工审核，未核验的会明确标出来'],
+  ['房源经过核验', '产权凭证由管理员人工审核，未核验的房源会明确标注'],
 ]
 
 export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
@@ -106,7 +106,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         // 不然用户会以为发布房源的入口坏了。
         if (NEEDS_REVIEW.has(form.role)) {
           setDone(form.role === 'landlord'
-            ? '注册成功。房东身份需要管理员审核，通过后即可发布房源；在此之前你可以先用租客身份找房。'
+            ? '注册成功。房东身份需管理员审核，通过后即可发布房源；审核期间可先用租客身份找房。'
             : '注册成功。经纪人身份需要管理员审核，通过后即可接受委托。')
           setTimeout(() => onDone?.(d.user), 2600)
         } else {
@@ -195,7 +195,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
               <Field label="验证码" err={errs.code}>
                 <input value={form.code} onChange={set('code')}
                        autoComplete="one-time-code"
-                       placeholder="粘贴邮件里那一串字符" />
+                       placeholder="粘贴邮件里的验证码" />
               </Field>
             )}
 
