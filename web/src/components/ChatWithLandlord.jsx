@@ -185,11 +185,18 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
                           委托期间房东一侧坐着两个人（房东本人和受托中介），
                           名字那行滚过去容易略过，**颜色是能一眼跟住的**——
                           分不清刚才那句承诺是谁做的，是这里最要紧的事 */}
+                      /* A2：对方的头像用**这个会话里对方的名字**，不是一个占位词。
+
+   `sender_label` 只在「同侧但不是我」时才有值（那是委托期间中介
+   代答的情形），普通两人会话里它永远是空串。于是这里原来回退到
+   「对方」「租客」这种字面量——头像取首字，结果每一个会话的对方
+   都长着同一个「对」或「租」。**换个人说话，画面上没有任何变化**，
+   而头像的全部作用就是让人一眼认出说话的是谁。 */
                       <ChatAvatar
                         kind={line.mine ? 'me' : 'other'}
                         name={line.mine
                           ? (me?.real_name || me?.username || '我')
-                          : (line.sender_label || '对方')}
+                          : (line.sender_label || active?.peer_name || '对方')}
                       />
                       {/* 同一侧里不是自己发的才标名字。 */}
                       {line.sender_label && (

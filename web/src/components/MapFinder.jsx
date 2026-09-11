@@ -58,20 +58,37 @@ const METRICS = [
   { key: 'avg_rent', label: '平均租金', unit: '元' },
 ]
 
-export default function MapFinder({ selected, onPick }) {
-  const [data, setData] = useState([])
+/**
+ * `rows` 传进来时用传进来的，不再去拉全站统计。
+ *
+ * **这是 A1 的一半。** 工作台的「房源分布」原样复用了这个组件，
+ * 而它默认读 `/api/stats` —— 那是全站口径。于是房东打开自己的
+ * 房源分布，看到的是「旅顺口区 18 套」，可他在那个区一套也没有。
+ * 接口本身是隔离的（实测 landlord1 → 14 套、landlord2 → 9 套），
+ * 错的是**这张图问错了人**。
+ *
+ * 同一个组件服务两种口径，就必须让调用方说清楚要哪一种；
+ * 让组件自己猜「我现在是在列表页还是工作台」是更糟的写法。
+ */
+export default function MapFinder({ selected, onPick, rows, title, hint }) {
+  const [data, setData] = useState(rows || [])
   const [metric, setMetric] = useState('count')
   const [hover, setHover] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
+    // 外部给了数据就不联网。**用 undefined 判断而不是真值判断**——
+    // 空数组是一个有意义的答案（这个房东一套房都没有），
+    // 按真值判断会让它掉进「去拉全站数据」的分支，
+    // 于是「我没有房源」显示成「全城 95 套」
+    if (rows !== undefined) { setData(rows || []); return undefined }
     let alive = true
     api
       .stats()
       .then((s) => { if (alive) setData(s.by_district || []) })
       .catch((err) => { if (alive) setError(err.message) })
     return () => { alive = false }
-  }, [])
+  }, [rows])
 
   const byName = Object.fromEntries(data.map((d) => [d.district, d]))
   const values = data.map((d) => d[metric] || 0)
@@ -96,8 +113,10 @@ export default function MapFinder({ selected, onPick }) {
   return (
     <section className="mapfinder">
       <div className="map-head">
-        <h3>地图找房</h3>
-        <span className="map-tip">点击区域即可筛选房源</span>
+        {/* 标题和说明也要跟着口径走。图上画的是「我的 14 套」，
+            标题却写「地图找房」，房东会以为这是全城的图 */}
+        <h3>{title || '地图找房'}</h3>
+        <span className="map-tip">{hint || '点击区域即可筛选房源'}</span>
         <div className="map-metrics">
           {METRICS.map((m) => (
             <button
@@ -183,7 +202,7 @@ export default function MapFinder({ selected, onPick }) {
               <br />
               颜色深浅表示
               {metric === 'count' ? '房源数量的多少' : '平均租金的高低'}，
-              数据取自平台实时统计。
+              {rows === undefined ? '数据取自平台实时统计。' : '统计范围仅限你名下的房源。'}
             </div>
           )}
 

@@ -256,6 +256,28 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
 
   const active = convs.find((c) => c.id === activeId)
 
+  // 按区聚合自己的房源，喂给地图。
+  //
+  // **在前端算而不是再开一个接口**：数据已经在手上（houses 就是
+  // 名下全部房源），再往返一次只会多一次加载态；而且这样两处
+  // 一定一致——地图说「中山区 3 套」，下面列出来的就一定是那 3 套。
+  const myDistricts = (() => {
+    const acc = {}
+    houses.forEach((h) => {
+      const key = h.district || '未填写'
+      if (!acc[key]) acc[key] = { district: key, count: 0, _rent: 0 }
+      acc[key].count += 1
+      acc[key]._rent += Number(h.rent_price) || 0
+    })
+    return Object.values(acc).map((d) => ({
+      district: d.district,
+      count: d.count,
+      // 地图的「平均租金」那一档要用到。除以 0 不会发生——
+      // 能进这个分支说明至少有一套
+      avg_rent: Math.round(d._rent / d.count),
+    }))
+  })()
+
   return (
     <div className="wb">
       <header className="wb-top">
@@ -348,13 +370,20 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                       {lines.map((line) => (
                         <div className={`bubble ${line.mine ? 'user' : 'assistant'}`}
                              key={line.id}>
+                          /* A2：对方的头像用**这个会话里对方的名字**，不是一个占位词。
+
+   `sender_label` 只在「同侧但不是我」时才有值（那是委托期间中介
+   代答的情形），普通两人会话里它永远是空串。于是这里原来回退到
+   「对方」「租客」这种字面量——头像取首字，结果每一个会话的对方
+   都长着同一个「对」或「租」。**换个人说话，画面上没有任何变化**，
+   而头像的全部作用就是让人一眼认出说话的是谁。 */
                           <ChatAvatar
                             kind={line.mine ? 'me' : 'other'}
                             name={line.mine
                               ? (user.real_name || user.username)
-                              : (line.sender_label || '租客')}
+                              : (line.sender_label || active?.peer_name || '租客')}
                           />
-                          {line.sender_label && !line.mine && (
+                          {line.sender_label && (
                             <div className="cw-who">{line.sender_label}</div>
                           )}
                           <div className="bubble-text">{line.content}</div>
@@ -406,7 +435,19 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   房东看的是**自己的房子铺在哪几个区**，
                   哪个区空置多就该往哪个区使劲 */}
               <Suspense fallback={<div className="map-loading">地图加载中…</div>}>
-                <MapFinder selected={district} onPick={setDistrict} />
+                {/* A1：口径必须是「我的房源」，不是全站。
+                    默认的 MapFinder 读 /api/stats，那是全城统计——
+                    房东在这里看到「旅顺口区 18 套」，而他在那个区
+                    一套也没有。统计由这里按 houses 算好传进去。 */}
+                <MapFinder
+                  selected={district}
+                  onPick={setDistrict}
+                  rows={myDistricts}
+                  title="我的房源分布"
+                  hint={houses.length
+                    ? '点击区域只看该区的房源'
+                    : '名下还没有房源'}
+                />
               </Suspense>
 
               <ul className="record-list">

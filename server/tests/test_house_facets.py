@@ -239,6 +239,43 @@ class TestDepositStaysSingleSourced(FacetCase):
         self.assertEqual(house["deposit"], 800.0)
         self.assertIsNone(house["deposit_months"])
 
+    def test_typed_amount_beats_the_months_preset(self):
+        """**两个都填了且对不上时，以手填的金额为准。**
+
+        这是验收意见「房源发布上的押金与合同不符合」的成因：原来只要
+        选了押付方式就按月数算，手填的金额直接丢掉——房东填「押金 800」
+        又顺手选了「押一付三」，存进去的是 2800，而中间没有任何提示。
+
+        为什么是金额赢：月数是下拉框的一个默认档位，金额是他一个字一个字
+        敲进去的。冲突时敲进去的那个才是他的意思。
+        """
+        house = self.publish(rent_price=2800, deposit=800,
+                             deposit_months=1).json()["house"]
+        self.assertEqual(house["deposit"], 800.0)
+
+    def test_months_is_cleared_when_the_amount_wins(self):
+        """月数要一起清掉，否则卡片上印着「押一付三」而押金是 800。
+
+        **标签和数字当场自相矛盾，比只给一个数字更糟。**
+        """
+        house = self.publish(rent_price=2800, deposit=800,
+                             deposit_months=1).json()["house"]
+        self.assertIsNone(house["deposit_months"])
+
+    def test_both_kept_when_they_agree(self):
+        """填的金额正好等于按月数算出来的——不冲突，标签留着。"""
+        house = self.publish(rent_price=2800, deposit=2800,
+                             deposit_months=1).json()["house"]
+        self.assertEqual(house["deposit"], 2800.0)
+        self.assertEqual(house["deposit_months"], 1)
+
+    def test_zero_months_is_not_treated_as_blank(self):
+        """押零付一是「明确免押」，不是「这一栏留空了」。"""
+        house = self.publish(rent_price=2800, deposit=0,
+                             deposit_months=0).json()["house"]
+        self.assertEqual(house["deposit"], 0.0)
+        self.assertEqual(house["deposit_months"], 0)
+
     def test_changing_rent_recomputes_deposit(self):
         """改了租金，按押付方式算出来的押金要跟着变。
 

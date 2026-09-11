@@ -742,21 +742,42 @@ def _facet_fields(payload):
 def _resolve_listing_deposit(rent, deposit=0, deposit_months=None):
     """房源上的押金。**押金只有 `houses.deposit` 一个真相**（K-02）。
 
+    返回 ``(押金金额, 押金月数)``——月数也要返回，理由见下面第 3 条。
+
     房东可以用两种方式表达押金：直接填金额，或者选「押二付一」。
     后者填的是月数，这里当场折算成金额存进 `deposit`——
     如果把月数也当成第二个押金来源，详情页读金额、合同读月数，
     就又回到了「同一套房两个押金」的老问题上。
 
-    `deposit_months` 那一列仍然存着，但它的职责只剩两件：
-    筛选「押一付一」，和在卡片上显示「押一付三」。
+    优先级：
 
-    押金填 0 时回落到一个月租金，而不是真的免押——房东把这一栏留空
-    通常是「按惯例来」，不是「不收押金」。真要免押就明确选押零付一。
+    1. **两个都没填** → 回落到一个月租金。房东把这一栏留空通常是
+       「按惯例来」，不是「不收押金」；真要免押就明确选押零付一。
+    2. **只填了一个** → 用填的那个。
+    3. **两个都填了且对不上** → **以房东手填的金额为准，并把月数清空。**
+
+       第 3 条是这次修的 bug。原来的写法是「只要选了押付方式就按月数算」，
+       手填的金额直接被丢掉：房东填「押金 800」又顺手选了「押一付三」，
+       存进去的是 `2800`。他在发布页填的是 800，合同上签出来是 2800——
+       **而中间没有任何一处提示他这个数被改掉了。**
+
+       为什么是金额赢：月数是一个下拉框的默认档位，金额是他一个字一个字
+       敲进去的。两者冲突时，敲进去的那个才是他的意思。
+
+       为什么要把月数清空：留着的话卡片上会印「押一付三」，而押金是 800、
+       月租是 2800——**标签和数字当场自相矛盾**，比只给一个数字更糟。
     """
     rent = float(rent)
-    if deposit_months is not None:
-        return rent * deposit_months
-    return float(deposit) or rent
+    typed = float(deposit or 0)
+
+    if deposit_months is None:
+        return (typed or rent), None
+
+    by_months = rent * deposit_months
+    if not typed or abs(typed - by_months) < 0.01:
+        # 没手填，或者手填的正好等于按月数算出来的——两者一致，都留着
+        return by_months, deposit_months
+    return typed, None
 
 
 @app.post("/api/houses")
@@ -768,12 +789,17 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
 
     next_no = _next_house_no(session)
 
+    # 押金与押金月数一起定。**两个值必须同时算出来**——
+    # 手填金额赢的时候要把月数清空，否则卡片上会印着「押一付三」
+    # 而押金是另一个数（见 _resolve_listing_deposit 第 3 条）
+    listing_deposit, listing_months = _resolve_listing_deposit(
+        payload.rent_price, payload.deposit, payload.deposit_months)
+
     house = House(
         house_no=next_no, title=payload.title, landlord_id=user.id,
         district=payload.district, community=payload.community,
         address=payload.address, rent_price=payload.rent_price,
-        deposit=_resolve_listing_deposit(payload.rent_price, payload.deposit,
-                                         payload.deposit_months),
+        deposit=listing_deposit,
         area=payload.area,
         layout=payload.layout, rent_type=payload.rent_type,
         floor=payload.floor, orientation=payload.orientation,
@@ -786,6 +812,9 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
             or config_store.get_bool(session, "house_auto_approve")
         ) else "pending",
     )
+    # 放在 _facet_fields 之后：那一摊会把 payload 里的 deposit_months
+    # 原样塞进来，而这里要的是校对过的那个值
+    house.deposit_months = listing_months
     session.add(house)
     session.flush()
     record_flag(session, verdict, house_fields, "house", user,
@@ -856,12 +885,28 @@ def update_house(house_no: str, payload: HouseUpdate,
 
     # 改了押付方式或租金，押金要跟着重算——否则「押一付一」的标签
     # 和 `deposit` 里那个数会各说各话（K-02）
-    if payload.deposit_months is not None or "rent_price" in fields:
-        house.deposit = _resolve_listing_deposit(
-            house.rent_price,
-            payload.deposit if payload.deposit is not None else house.deposit,
-            payload.deposit_months
-            if payload.deposit_months is not None else house.deposit_months)
+    if (payload.deposit_months is not None or payload.deposit is not None
+            or "rent_price" in fields):
+        # **「库里存的金额」和「用户这次填的金额」不是一回事。**
+        #
+        # 第一版把 house.deposit 当成手填值传回去，于是只改租金时：
+        # 库里 2800（是上次按押一算出来的）对上新的 3000×1，两者不等，
+        # 「手填优先」规则生效 → 押金停在 2800、押付标签被清空。
+        # 而用户只是改了个租金，押金本该跟着变成 3000。
+        #
+        # 手填只在**这一次请求真的带了金额**时才算数。
+        months = (payload.deposit_months if payload.deposit_months is not None
+                  else house.deposit_months)
+        if payload.deposit is None and months is not None:
+            # 没碰金额、有押付方式 → 按月数重算，标签和数字一起走
+            house.deposit, house.deposit_months = _resolve_listing_deposit(
+                house.rent_price, 0, months)
+        else:
+            house.deposit, house.deposit_months = _resolve_listing_deposit(
+                house.rent_price,
+                payload.deposit if payload.deposit is not None
+                else house.deposit,
+                payload.deposit_months)
 
     # 内容变更后回到待审状态，管理员改的不用重审
     if fields or tags is not None:

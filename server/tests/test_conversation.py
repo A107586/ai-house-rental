@@ -111,6 +111,52 @@ class TestMessaging(ConversationCase):
         for headers in (self.tenant, self.landlord):
             self.assertEqual(self.lines(cid, headers).json()["total"], 2)
 
+    def test_many_messages_in_a_row(self):
+        """**验收意见说「私信只能发一条」，这条用来钉死它。**
+
+        本地复现不出来：连发五条、两侧交替发，全部成功。但这个功能
+        坏掉的代价太大（私信发不出去等于这个功能不存在），
+        而现在没有任何一条用例覆盖「连着发」——
+        已有的用例每个会话最多只发一两条。
+        """
+        cid = self.new_conversation()
+        for i in range(5):
+            r = self.send(cid, "租客第%d条" % (i + 1))
+            self.assertEqual(r.status_code, 200, r.text)
+        for i in range(3):
+            r = self.send(cid, "房东第%d条" % (i + 1), self.landlord)
+            self.assertEqual(r.status_code, 200, r.text)
+        rows = self.lines(cid).json()["list"]
+        self.assertEqual(len(rows), 8)
+
+    def test_sending_does_not_close_the_conversation(self):
+        """发消息不能把会话状态改掉。
+
+        「只能发一条」最可能的成因就是这个：第一条发完之后状态
+        不再是 active，后面每一条都被 409 挡住。
+        """
+        cid = self.new_conversation()
+        self.send(cid, "第一条")
+        self.assertEqual(self.send(cid, "第二条").status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/conversations",
+                            headers=self.tenant).json()["list"][0]["status"],
+            "active")
+
+    def test_sender_label_is_empty_in_a_two_party_chat(self):
+        """两人会话里不挂名字。
+
+        `sender_label` 是给委托期间「同一侧坐着两个人」用的。
+        两人会话里每条都挂一个名字，等于每句话前面都写一遍
+        「房东说：」——而这件事左右位置已经说清楚了。
+        """
+        cid = self.new_conversation()
+        self.send(cid, "租客问")
+        self.send(cid, "房东答", self.landlord)
+        for headers in (self.tenant, self.landlord):
+            for row in self.lines(cid, headers).json()["list"]:
+                self.assertEqual(row["sender_label"], "", row["content"])
+
     def test_after_id_returns_only_new(self):
         """轮询靠它取增量，而不是每次把整段对话重拉一遍。"""
         cid = self.new_conversation()
