@@ -493,6 +493,23 @@ class KnowledgeIndex(object):
         return max(words,
                    key=lambda t: self.body_index.idf.get(t, self._unseen_idf))
 
+    def term_in_corpus(self, term):
+        """这个词在**整个语料**里出现过吗。
+
+        和 `key_term_hit` 的区别是范围：那个问「在选中的这一片里」，
+        这个问「在知识库任何一处」。两者回答的是不同的问题——
+        前者判「排得对不对」，后者判「这个概念我们到底讲没讲过」。
+
+        闸门的翻案侧用它兜底：关键词全库都没出现过时，
+        **再像的材料也不该放行**——那时候大模型只能靠自己的知识作答，
+        而 AI-03 禁止的正是这件事。
+        """
+        if not term:
+            return False
+        # BM25Index 没有单独的 df 表，倒排表本身就是答案：
+        # postings 里有这个词，就说明至少一片文档里出现过
+        return bool(self.body_index.postings.get(term))
+
     def key_term_hit(self, query, chunk_id):
         """区分度最高的那个词，在这一片里出现了吗。
 
@@ -514,6 +531,29 @@ class KnowledgeIndex(object):
         if not term:
             # 连一个「库里见过的实词」都挑不出来 —— 这本身就说明
             # 这个话题不在知识库里，按未命中处理。
+            return False
+        return self.key_term_hit_for(term, chunk_id)
+
+    def doc_ratio(self, term):
+        """这个词出现在多大比例的片子里，取值 [0, 1]。
+
+        用比例而不是 IDF 的绝对值：**比例的含义和语料规模无关**——
+        「出现在五分之一的片子里」这句话，语料从 70 条涨到 700 条依然成立，
+        而 IDF 的绝对值会跟着整体漂移，按它定的阈值过一阵就不准了。
+        """
+        if not term or not self.body_index.total:
+            return 0.0
+        posting = self.body_index.postings.get(term) or {}
+        return len(posting) / self.body_index.total
+
+    def key_term_hit_for(self, term, chunk_id):
+        """指定一个词，问它在这一片里出现过吗。
+
+        和 `key_term_hit` 的区别只是词从哪来：那个自己从查询里挑，
+        这个由调用方给。闸门拿同义组逐个试时用它——
+        挑词的逻辑没必要跑第二遍。
+        """
+        if not term:
             return False
         return term in self._chunk_tokens.get(chunk_id, set())
 

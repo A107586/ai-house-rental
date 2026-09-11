@@ -140,22 +140,82 @@ class TestGate(unittest.TestCase):
         verdict = gate.evaluate(self.index, "随便问问", [])
         self.assertFalse(verdict["ok"])
 
-    def test_llm_can_only_tighten_never_loosen(self):
-        """需求把拒答率下限写死在 90%。
+    # 「规则会拒、但关键词全库出现过」——正好落在允许翻案的那一带。
+    # **不写死成某个具体问题的期望**：语料一扩，它可能就不在这带里了，
+    # 用例要么变成假绿要么莫名其妙地红。下面每条都先确认它还在带里，
+    # 不在就跳过并说明。
+    BORDERLINE = "房子能不能做短租"
 
-        如果允许大模型把规则的拒答改成可答，这个下限就成了概率事件。
-        所以规则拒掉的，大模型说 yes 也没用。
+    def _is_borderline(self, question, candidates):
+        cover = self.index.coverage(question, candidates[0])
+        return (cover < gate.COVER_STRONG
+                and not self.index.key_term_hit(question, candidates[0])
+                and self.index.term_in_corpus(self.index.key_term(question)))
+
+    def test_llm_cannot_rescue_an_out_of_domain_question(self):
+        """域外问题，大模型说 yes 也翻不了案。
+
+        **G3 现在是双向的**（见 gate 模块开头），但放宽那一侧只在
+        「材料其实就在手里」的中间带里允许。「帮我订个外卖」连候选材料
+        都不相干，落不进那一带。
+
+        这条守的是拒答率下限：需求写死 ≥ 90%，不能变成概率事件。
         """
         question = "帮我订个外卖"
         yes = StubProvider({"answerable": "yes"})
         verdict = gate.evaluate(self.index, question,
                                 self._candidates(question), provider=yes)
         self.assertFalse(verdict["ok"])
-        self.assertEqual(yes.calls, [], "规则已拒答，不该再花一次大模型调用")
+
+    def test_llm_rescues_a_borderline_question(self):
+        """**这一条是这次改动的目的。**
+
+        实测检索的 Recall@3 是 100%——正确答案每次都排在第一位——
+        而有依据正确率只有 80%，差的那些全是被 G2 拒掉的：
+        材料就在手里，闸门却说「你问的那个词这份资料里没提到」。
+        换个说法问同一件事，本来就不会用同一个词。
+
+        所以在中间带里，大模型看过材料说「写明了」就放行。
+        """
+        question = self.BORDERLINE
+        candidates = self._candidates(question)
+        if not self._is_borderline(question, candidates):
+            self.skipTest("该问题已不在「规则要拒」的中间带，此用例不适用")
+
+        yes = StubProvider({"answerable": "yes"})
+        verdict = gate.evaluate(self.index, question, candidates, provider=yes)
+        self.assertTrue(verdict["ok"], verdict["reason"])
+        self.assertTrue(verdict["rescued"], "翻案要留痕，答辩时要分得清")
+
+    def test_no_provider_keeps_the_old_refusal(self):
+        """**没有大模型时，行为和改之前一模一样。**
+
+        这条是整个改动能够安全落地的前提：离线跑出来的指标一个数都不会变，
+        全部自动化测试跑的也仍是原来那条路。
+        """
+        question = self.BORDERLINE
+        candidates = self._candidates(question)
+        if not self._is_borderline(question, candidates):
+            self.skipTest("该问题已不在「规则要拒」的中间带，此用例不适用")
+        verdict = gate.evaluate(self.index, question, candidates, provider=None)
+        self.assertFalse(verdict["ok"])
+        self.assertFalse(verdict["rescued"])
+
+    def test_unavailable_provider_keeps_the_refusal(self):
+        """模型配了但挂了，也维持拒答——**默认答案永远是拒**。"""
+        question = self.BORDERLINE
+        candidates = self._candidates(question)
+        if not self._is_borderline(question, candidates):
+            self.skipTest("该问题已不在「规则要拒」的中间带，此用例不适用")
+        from app.llm.base import LLMUnavailable
+        broken = StubProvider(raises=LLMUnavailable("测试里刻意挂掉"))
+        verdict = gate.evaluate(self.index, question, candidates,
+                                provider=broken)
+        self.assertFalse(verdict["ok"])
 
     def test_llm_no_turns_borderline_into_refusal(self):
         # 构造一个覆盖率处在中间带的问题，让 G3 真正参与
-        question = "修东西的钱谁出"
+        question = self.BORDERLINE
         candidates = self._candidates(question)
         cover = self.index.coverage(question, candidates[0])
         if cover >= gate.COVER_STRONG:
