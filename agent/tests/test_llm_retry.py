@@ -108,6 +108,64 @@ class TestRetryable(RetryCase):
         self.assertGreater(waits[1], waits[0], "第二次等待应当更久")
 
 
+class TestTotalBudget(unittest.TestCase):
+    """**总时限**：重试不能把一次调用拖到配置时长的三倍。
+
+    `llm_timeout` 管的是单次连接。三次重试加退避，最坏是
+    8 + 0.6 + 8 + 1.2 + 8 ≈ 26 秒——实测「水电费谁交」等了 25.97 秒，
+    而配置里写的是 8 秒。K-10 把超时从 30 秒压到 8 秒，图的正是
+    「宁可拿规则结果也别干等」，这条被重试悄悄绕过去了。
+
+    这一组不打桩 `time.sleep` 之外的东西，靠**真的推进时钟**来验：
+    每次 urlopen 都当成耗满一次超时。
+    """
+
+    def make(self, timeout=1.0, total_budget=None):
+        cls = providers.OpenAICompatibleProvider
+        return cls(api_key="k", base_url="https://example.com/v1",
+                   model="test", timeout=timeout, max_tokens=64,
+                   total_budget=total_budget)
+
+    def test_default_budget_is_twice_the_timeout(self):
+        self.assertEqual(self.make(timeout=8.0)._total_budget, 16.0)
+
+    def test_explicit_budget_wins(self):
+        self.assertEqual(self.make(timeout=8.0, total_budget=10)._total_budget,
+                         10)
+
+    def test_slow_timeouts_stop_early(self):
+        """每次都耗满超时，第二次之后预算就没了，不该再试第三次。"""
+        provider = self.make(timeout=1.0, total_budget=1.5)
+        clock = [0.0]
+
+        def slow(*args, **kwargs):
+            clock[0] += 1.0           # 这次连接耗满一整个超时
+            raise socket.timeout()
+
+        with mock.patch.object(providers.time, "time", lambda: clock[0]),                 mock.patch.object(providers.time, "sleep",
+                                  lambda n: clock.__setitem__(0, clock[0] + n)),                 mock.patch("urllib.request.urlopen", side_effect=slow) as call:
+            with self.assertRaises(LLMUnavailable):
+                provider.complete("s", "u")
+        self.assertLess(call.call_count,
+                        providers.OpenAICompatibleProvider.MAX_ATTEMPTS,
+                        "预算已经用光，不该还发第三次请求")
+
+    def test_fast_failures_still_get_all_attempts(self):
+        """**限流那种失败得快的仍要重试满三次。**
+
+        429 是立刻返回的，几乎不花时间——为了封顶总时长而少试一次，
+        等于把「等半秒就好了」的情况也一起放弃了。
+        """
+        provider = self.make(timeout=1.0, total_budget=1.5)
+        error = urllib.error.HTTPError("u", 429, "Too Many", {}, None)
+        with mock.patch.object(providers.time, "sleep"),                 mock.patch("urllib.request.urlopen",
+                           side_effect=error) as call:
+            with self.assertRaises(LLMUnavailable):
+                provider.complete("s", "u")
+        self.assertEqual(call.call_count,
+                         providers.OpenAICompatibleProvider.MAX_ATTEMPTS)
+
+
 class TestNotRetryable(RetryCase):
     """**永久性错误不该重试**——重试多少次都一样，只会白白拖长响应。"""
 

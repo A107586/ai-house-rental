@@ -4,7 +4,9 @@
 《需求分析说明书》第 6 节。
 """
 
+import contextvars
 import re
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +31,7 @@ from app.agents.support.tools import router as support_router
 from app.agents.toolbox import catalog as tool_catalog
 from app.agents.toolbox import planner as tool_planner
 from app.agents.toolbox import runner as tool_runner
+from app.llm import budget as llm_budget
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.agents.support.tools import forms as support_forms
@@ -53,6 +56,21 @@ app.add_middleware(
 )
 
 provider = build_provider(settings)
+
+# 本轮对话的 provider（带时间预算）。
+#
+# **用 ContextVar 而不是全局变量**：`provider` 是模块级单例，多个请求
+# 共用它；把「本轮还剩多少时间」写进单例，两个并发请求会互相踩。
+# ContextVar 天然按执行上下文隔离，FastAPI 把同步端点丢进线程池时
+# 也会带着当前上下文一起过去。
+#
+# 默认是全局 provider：没有设过的调用方（其他端点）行为一点不变。
+_turn_llm = contextvars.ContextVar("turn_llm", default=None)
+
+
+def _llm():
+    """这一刻该用哪个 provider。"""
+    return _turn_llm.get() or provider
 
 
 class SearchRequest(BaseModel):
@@ -151,7 +169,7 @@ def health():
 def agent_search(payload: SearchRequest):
     """AI-01 自然语言找房。"""
     return property_finder.run(
-        payload.text, page=payload.page, limit=payload.limit, provider=provider)
+        payload.text, page=payload.page, limit=payload.limit, provider=_llm())
 
 
 @app.post("/agent/parse")
@@ -174,7 +192,7 @@ def agent_parse(payload: SearchRequest):
     答辩时能当场展示，也方便排查「它为什么这么理解我」。
     """
     filters, features, source, divergence = property_finder.understand(
-        payload.text, provider=provider)
+        payload.text, provider=_llm())
     return {
         "ok": bool(filters or features),
         "filters": filters,
@@ -188,7 +206,7 @@ def agent_parse(payload: SearchRequest):
 @app.post("/agent/route")
 def agent_route(payload: ChatRequest):
     """仅做意图识别，不执行。用于前端预判与答辩时展示决策过程。"""
-    result = supervisor.classify(payload.text, provider=provider)
+    result = supervisor.classify(payload.text, provider=_llm())
     result["label"] = supervisor.label(result["intent"])
     return result
 
@@ -214,7 +232,7 @@ def agent_repair(payload: RepairRequest):
         payload.text,
         house_no=payload.house_no or None,
         applicant={"xingming": payload.xingming, "shouji": payload.shouji},
-        provider=provider,
+        provider=_llm(),
         backend=backend_client,
         submit=payload.submit,
     )
@@ -223,7 +241,7 @@ def agent_repair(payload: RepairRequest):
 @app.post("/agent/contract/review")
 def agent_contract(payload: ContractRequest):
     """AI-02 合同智能审阅。"""
-    return contract.run(payload.text, provider=provider)
+    return contract.run(payload.text, provider=_llm())
 
 
 @app.post("/agent/recommend")
@@ -278,19 +296,19 @@ def agent_handoff(payload: HandoffRequest):
             # 足迹取不到就不要了。它是锦上添花的一行，
             # 不该让整份摘要一起失败
             viewed = []
-    return handoff.run(payload.text, viewed=viewed, provider=provider)
+    return handoff.run(payload.text, viewed=viewed, provider=_llm())
 
 
 @app.post("/agent/viewing-summary")
 def agent_viewing_summary(payload: ViewingSummaryRequest):
     """J-09-c 带看纪要整理。口述几句 → 结构化纪要。"""
-    return viewing.run(payload.text, provider=provider)
+    return viewing.run(payload.text, provider=_llm())
 
 
 @app.post("/agent/describe")
 def agent_describe(payload: DescribeRequest):
     """AI-08 房源描述自动生成。"""
-    return describe.run(payload.model_dump(), provider=provider)
+    return describe.run(payload.model_dump(), provider=_llm())
 
 
 class ReportRequest(BaseModel):
@@ -307,7 +325,7 @@ def agent_report(payload: ReportRequest = ReportRequest()):
     except Exception:
         return {"intent": "report", "status": "error", "ok": False,
                 "message": "统计服务暂时不可用，请稍后再试。"}
-    return report.run(stats, provider=provider)
+    return report.run(stats, provider=_llm())
 
 
 @app.post("/agent/support")
@@ -319,7 +337,7 @@ def agent_support(payload: SupportRequest):
     无依据时拒答，绝不编造。
     """
     result = support.run(payload.text, token=payload.token,
-                         history=payload.history, provider=provider,
+                         history=payload.history, provider=_llm(),
                          backend=backend_client, settings=settings,
                          house_no=payload.house_no, pending=payload.pending)
     # 日志写在接口层而不是智能体里：`run()` 保持无副作用，方便测试
@@ -444,6 +462,18 @@ def agent_chat(payload: ChatRequest):
     上下文的来源有两条，优先用后端存的（跨设备、可追溯），
     拿不到就用前端带上来的——未登录用户走的就是这条。
     """
+    # **一轮对话的大模型时间预算。**
+    #
+    # 单次超时和单次调用的重试预算都设好之后，一轮仍然可能等 43.9 秒——
+    # 因为一轮会调好几次模型，每次各守各的。这里给整轮套一个墙钟：
+    # 到点之后所有子智能体拿到的都是「模型不可用」，
+    # 各自降级到规则。**降级路径是完整可用的，让它提前接手
+    # 比让用户干等强。**
+    #
+    # 包一层薄的、每轮新建，而不是把截止时间写进全局单例——
+    # 后者会让两个并发请求互相踩。
+    _turn_llm.set(llm_budget.for_turn(provider, settings.llm_turn_budget))
+
     stored = backend_client.list_chat(payload.session_id, payload.token)
     if stored:
         past = [m["content"] for m in stored if m.get("role") == "user"]
@@ -790,18 +820,48 @@ def _compare_houses(payload, routed, decision):
     }
 
 
+# 令牌 → (身份, 取到的时刻)。**只缓存「是不是登录 / 什么角色」，
+# 不缓存任何个人数据**——这两样只用来决定给模型列哪几个工具，
+# 存错了最多是多列一个选项，而权限判定始终在后端。
+#
+# 60 秒足够覆盖一次连续对话；再长的话，用户刚在另一个标签页升级成房东，
+# 助手还会有一分钟不认这件事。
+_WHOAMI_TTL = 60.0
+_whoami_cache = {}
+
+
 def _whoami(token):
     """当前用户是谁。取不到就当未登录——**不抛异常**：
-    工具选择只用它来少列几个选项，为此让整轮对话失败不值得。"""
+    工具选择只用它来少列几个选项，为此让整轮对话失败不值得。
+
+    带一层短缓存：原来每轮对话都打一次 `/api/auth/me`，
+    而**这个请求对答案没有任何贡献**，纯粹是为了少给模型几个选项。
+    连着聊十句就是十次白往返。
+    """
     if not token:
         return {"logged_in": False, "role": ""}
+
+    hit = _whoami_cache.get(token)
+    if hit and (time.time() - hit[1]) < _WHOAMI_TTL:
+        return hit[0]
+
     try:
         me = backend_client.get("/api/auth/me", token=token)
     except Exception:                                        # noqa: BLE001
+        # **失败不写缓存。** 写进去的话，一次网络抖动会让接下来
+        # 一整分钟里所有工具都按「未登录」过滤掉
         return {"logged_in": False, "role": ""}
     if not isinstance(me, dict) or not me.get("id"):
         return {"logged_in": False, "role": ""}
-    return {"logged_in": True, "role": me.get("role") or "tenant"}
+
+    who = {"logged_in": True, "role": me.get("role") or "tenant"}
+    # 缓存不设上限会随令牌数无限长。**令牌本身有有效期**，
+    # 过期的条目再也不会被查到，只是白占内存——超过一千条就整个清掉，
+    # 比按 LRU 逐条淘汰简单，代价是偶尔多几次 /me
+    if len(_whoami_cache) > 1000:
+        _whoami_cache.clear()
+    _whoami_cache[token] = (who, time.time())
+    return who
 
 
 # 低于这个把握就不采信，退回规则链路。
@@ -820,12 +880,18 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
     输出坏了、把握不够，通通退回去。这条性质是刻意保住的，
     它意味着接不接大模型都不影响功能完整性。
     """
-    if provider is None or not getattr(provider, "available", False):
+    turn = _llm()
+    if turn is None or not getattr(turn, "available", False):
         return None
+
+    # 选择器只花整轮预算里的一小块。**它是优化，不是主力**——
+    # 让它挂死之后把时间吃光，后面真正答题的调用就没得用了，
+    # 结果是每一步都降级、而且还慢。
+    picker = llm_budget.for_turn(turn, settings.llm_plan_budget)
 
     who = _whoami(payload.token)
     plan = tool_planner.plan(
-        payload.text, provider,
+        payload.text, picker,
         logged_in=who["logged_in"], role=who["role"],
         house_no=payload.house_no,
         last_house_nos=list(payload.last_house_nos or []),
@@ -847,10 +913,21 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
                       reason=tool_planner.describe(plan))
         return _support_action(payload, routed, tool["action"], plan)
 
+    # 平台规则类问题直接交给知识层，**跳过路由那一次大模型调用**。
+    #
+    # 实测「押一付三是什么意思」原来要 17.6 秒：选择器 1 次、
+    # 路由 1 次、组织回答 1 次，三次往返。而选择器已经判定这是知识型
+    # 问题了，路由再判一遍是重复劳动——**同一个问题不该问两遍模型**。
+    if name == "knowledge":
+        answered = _knowledge(payload, routed, plan)
+        if answered is not None:
+            return answered
+        return None
+
     ctx = {
         "text": payload.text,
         "token": payload.token,
-        "provider": provider,
+        "provider": turn,
         "backend": backend_client,
         "property_finder": property_finder,
         "fetch_houses": _fetch_houses,
@@ -883,6 +960,31 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
     return result
 
 
+def _knowledge(payload, routed, plan):
+    """走知识检索。路由结论由工具选择器给，不再单独问一次模型。"""
+    result = support.run(
+        payload.text, token=payload.token,
+        history=list(payload.history or []),
+        provider=_llm(), backend=backend_client,
+        settings=settings, house_no=payload.house_no or None,
+        house_nos=payload.last_house_nos,
+        pending=payload.pending,
+        routing={"kind": support_router.KIND_KNOWLEDGE, "name": "none",
+                 "source": "toolbox",
+                 "rule": {"kind": support_router.KIND_KNOWLEDGE,
+                          "name": "none"}})
+    if result is None:
+        return None
+    # **闸门拒答时不要硬吞。** 退回去让规则链路再试一次：
+    # 它的检索通道和这里是同一套，但意图分流不同，偶尔能捞回来
+    if result.get("status") not in ("answered", "account"):
+        return None
+    result["route"] = dict(routed, intent="support", tool="knowledge",
+                           reason=tool_planner.describe(plan))
+    result["route_source"] = "toolbox"
+    return result
+
+
 def _support_action(payload, routed, action, plan):
     """把一个写操作交给客服层出确认卡片。
 
@@ -900,7 +1002,7 @@ def _support_action(payload, routed, action, plan):
     result = support.run(
         payload.text, token=payload.token,
         history=list(payload.history or []),
-        provider=provider, backend=backend_client,
+        provider=_llm(), backend=backend_client,
         settings=settings, house_no=house_no or payload.house_no or None,
         house_nos=payload.last_house_nos,
         pending=payload.pending,
@@ -935,7 +1037,7 @@ def _dispatch(payload, routed, intent, slots, feats):
     # **不能把哨兵原样传下去**——它不是编号，会被当成房源号拿去查库
     if resolved_house is memory.OUT_OF_RANGE:
         resolved_house = None
-    decision = support_router.route(text, provider=provider,
+    decision = support_router.route(text, provider=_llm(),
                                     history=list(payload.history or []),
                                     pending=payload.pending)
 
@@ -991,7 +1093,7 @@ def _dispatch(payload, routed, intent, slots, feats):
     # 后面走哪条路，值得为它补一次大模型调用。其余情况上面已经定了。
     if (decision["kind"] == support_router.KIND_KNOWLEDGE
             and intent == "unknown" and not pending_action):
-        routed = supervisor.classify(text, provider=provider)
+        routed = supervisor.classify(text, provider=_llm())
         intent = routed["intent"]
 
     if (not interrupts_pending and
@@ -999,7 +1101,7 @@ def _dispatch(payload, routed, intent, slots, feats):
                                   support_router.KIND_QUERY) or pending_action)):
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
-                             provider=provider, backend=backend_client,
+                             provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              house_nos=payload.last_house_nos,
                              pending=payload.pending, routing=decision)
@@ -1038,7 +1140,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 单元测试没能发现，是因为它们直接测 `understand()` 与 `run()`，
         # 没有任何一条走过 `_dispatch`。补的回归测试见 test_dispatch.py。
         cur_filters, cur_features, source, divergence = \
-            property_finder.understand(text, provider=provider)
+            property_finder.understand(text, provider=_llm())
         merged, features, notes = memory.apply_turn(
             slots, feats, text, filters=cur_filters, feats=cur_features)
 
@@ -1055,7 +1157,7 @@ def _dispatch(payload, routed, intent, slots, feats):
             # 重放出来的，正是上一批用的那一组
             page = max(1, int(payload.seen or 0) // PAGE_SIZE + 1)
 
-        result = property_finder.run(text, provider=provider,
+        result = property_finder.run(text, provider=_llm(),
                                      filters=merged, features=features,
                                      source=source, page=page,
                                      limit=PAGE_SIZE)
@@ -1109,7 +1211,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 答得上来就答，答不上来才是真的需要正文。
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
-                             provider=provider, backend=backend_client,
+                             provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              pending=payload.pending)
         # **「查我目前的租约」曾被支去点「智能审阅」。**
@@ -1128,7 +1230,7 @@ def _dispatch(payload, routed, intent, slots, feats):
 
     if intent == "repair":
         # 统一入口只做分析预览，落库要走 /agent/repair 并带上 house_no
-        result = repair.run(text, provider=provider, submit=False)
+        result = repair.run(text, provider=_llm(), submit=False)
         result["route"] = routed
         result["alternatives"] = []
         return result
@@ -1138,7 +1240,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 「我还欠多少房租」，走的是同一个入口。
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
-                             provider=provider, backend=backend_client,
+                             provider=_llm(), backend=backend_client,
                              settings=settings)
         result["route"] = routed
         return result
@@ -1174,7 +1276,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 答不上的给「猜你想问」和转人工**，而不是把用户丢在原地。
         result = support.run(text, token=payload.token,
                              history=list(payload.history or []),
-                             provider=provider, backend=backend_client,
+                             provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              pending=payload.pending)
         result["route"] = routed

@@ -137,7 +137,10 @@ def plan(text, provider, logged_in=False, role="", house_no="",
         text=(text or "").strip()[:300])
 
     try:
-        data = provider.complete_json(_SYSTEM, prompt, max_tokens=400)
+        # 输出只有一小段 JSON，150 足够。给 400 的话，**推理型模型会
+        # 拿这个额度去想**——实测 max_tokens 从 400 压到 60，
+        # 同一句话从 4.6 秒降到 3.7 秒，答案一字没变
+        data = provider.complete_json(_SYSTEM, prompt, max_tokens=150)
     except LLMUnavailable as exc:
         return dict(empty, why="大模型不可用：%s" % exc)
     except Exception as exc:                                 # noqa: BLE001

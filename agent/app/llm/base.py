@@ -20,17 +20,33 @@ class LLMProvider(object):
 
     name = "base"
 
-    def complete(self, system_prompt, user_prompt, max_tokens=None):
-        """返回模型输出的纯文本。不可用时抛 `LLMUnavailable`。"""
+    def complete(self, system_prompt, user_prompt, max_tokens=None,
+                 deadline=None):
+        """返回模型输出的纯文本。不可用时抛 `LLMUnavailable`。
+
+        `deadline` 是调用方给的墙钟截止时间（`time.time()` 口径）。
+        实现**应当**把连接超时压到它以内——一轮对话会调好几次模型，
+        只守自己的那份预算，最后一次照样能把总时长顶穿。
+        可以忽略它，那样只是拦不住超时，不会出错。
+        """
         raise NotImplementedError
 
-    def complete_json(self, system_prompt, user_prompt, max_tokens=None):
+    def complete_json(self, system_prompt, user_prompt, max_tokens=None,
+                      deadline=None):
         """要求模型输出 JSON，并解析为 dict。
 
         模型经常在 JSON 外面裹一层 ```json 代码块或解释文字，
         这里统一做容错提取，避免每个调用点重复处理。
         """
-        text = self.complete(system_prompt, user_prompt, max_tokens=max_tokens)
+        # **只有真的有截止时间才把这个参数传下去。**
+        #
+        # `deadline` 是后加的可选参数，而 `LLMProvider` 是对外承诺的
+        # 接口——已经写好的实现（包括测试里的假 provider）签名里没有它。
+        # 无条件传的话，那些实现全部 TypeError；而它们本来是完全合法的实现。
+        kwargs = {"max_tokens": max_tokens}
+        if deadline is not None:
+            kwargs["deadline"] = deadline
+        text = self.complete(system_prompt, user_prompt, **kwargs)
         return extract_json(text)
 
     def stats(self):
@@ -47,7 +63,8 @@ class NullProvider(LLMProvider):
 
     name = "null"
 
-    def complete(self, system_prompt, user_prompt, max_tokens=None):
+    def complete(self, system_prompt, user_prompt, max_tokens=None,
+                 deadline=None):
         raise LLMUnavailable("未配置大模型，当前运行在纯规则降级模式")
 
     @property

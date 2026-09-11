@@ -30,13 +30,25 @@ class OpenAICompatibleProvider(LLMProvider):
 
     name = "openai_compatible"
 
-    def __init__(self, api_key, base_url, model, timeout=30.0, max_tokens=1024):
+    def __init__(self, api_key, base_url, model, timeout=30.0, max_tokens=1024,
+                 total_budget=None):
         if not api_key:
             raise ValueError("api_key 不能为空")
         self._api_key = api_key
         self._base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self._model = model or "gpt-4o-mini"
         self._timeout = timeout
+        # **一次调用最多占用多久，含全部重试。**
+        #
+        # 只有 `timeout` 是不够的：它管的是单次连接，而重试三次
+        # 加上退避，最坏是 8 + 0.6 + 8 + 1.2 + 8 ≈ 26 秒。
+        # 实测「水电费谁交」就等了 25.97 秒——**配置里写着 8 秒，
+        # 用户等了 26 秒**，而 K-10 把超时从 30 秒压到 8 秒，
+        # 图的正是「宁可拿规则结果也别干等」。
+        #
+        # 默认给单次超时的两倍：限流那种失败得快的仍然重试得了三次
+        # （429 是立刻返回的，几乎不花时间），而真超时最多再试一次。
+        self._total_budget = total_budget or (timeout * 2)
         self._max_tokens = max_tokens
         # 调用统计。进程内存着就够——要的是「现在通不通」，不是历史报表
         self._calls = 0
@@ -71,7 +83,7 @@ class OpenAICompatibleProvider(LLMProvider):
                        else self._failures < self._calls,
         }
 
-    def _post_with_retry(self, request):
+    def _post_with_retry(self, request, deadline=None):
         """发请求，遇到瞬时故障时重试。
 
         原先任何一次失败都直接降级到纯规则。但**超时与限流是可重试的
@@ -81,10 +93,28 @@ class OpenAICompatibleProvider(LLMProvider):
         """
         last = "未知错误"
         self._calls += 1
+        # 两个截止时间取更早的那个：自己的调用预算，和调用方给的
+        # 「这一轮还剩多少」。**只守自己的那个是不够的**——
+        # 一轮对话会调好几次，前面几次花掉的时间这里看不见，
+        # 于是最后一次仍然会把总时长顶穿。
+        own = time.time() + self._total_budget
+        deadline = min(own, deadline) if deadline else own
         for attempt in range(self.MAX_ATTEMPTS):
+            # 剩下的预算不够再发一次就收手。**这里比较的是「还剩多少」
+            # 而不是「试了几次」**——三次快速失败该允许，
+            # 三次各等满八秒不该
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                last = "大模型调用超出总时限（%.0fs）" % self._total_budget
+                break
             try:
+                # 每次连接的超时都压到「剩余预算」以内，第一次也不例外：
+                # 调用方可能只剩 3 秒了，这时候还按 8 秒等，
+                # 预算就成了摆设
                 with urllib.request.urlopen(
-                        request, timeout=self._timeout) as response:
+                        request,
+                        timeout=max(min(self._timeout, remaining), 0.5)
+                        ) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 # 不要把响应体原样抛出，其中可能回显密钥
@@ -102,15 +132,19 @@ class OpenAICompatibleProvider(LLMProvider):
                 break
 
             if attempt < self.MAX_ATTEMPTS - 1:
-                # 指数退避：0.6s、1.2s。加一点点随机避免多个请求同时重试
-                time.sleep(self.BACKOFF_SECONDS * (2 ** attempt)
-                           * (0.8 + random.random() * 0.4))
+                # 指数退避：0.6s、1.2s。加一点点随机避免多个请求同时重试。
+                # 退避本身也要算进预算——不算的话「等着退避」会把
+                # 剩余时间耗光，下一次尝试直接被判超时
+                nap = (self.BACKOFF_SECONDS * (2 ** attempt)
+                       * (0.8 + random.random() * 0.4))
+                time.sleep(min(nap, max(deadline - time.time(), 0)))
 
         self._failures += 1
         self._last_error = last
         raise LLMUnavailable(last)
 
-    def complete(self, system_prompt, user_prompt, max_tokens=None):
+    def complete(self, system_prompt, user_prompt, max_tokens=None,
+                 deadline=None):
         payload = {
             "model": self._model,
             "messages": [
@@ -130,7 +164,7 @@ class OpenAICompatibleProvider(LLMProvider):
             },
             method="POST",
         )
-        body = self._post_with_retry(request)
+        body = self._post_with_retry(request, deadline=deadline)
 
         try:
             return body["choices"][0]["message"]["content"]
@@ -153,6 +187,7 @@ def build_provider(settings):
                 api_key=settings.llm_api_key,
                 base_url=settings.llm_base_url,
                 model=settings.llm_model,
+                total_budget=getattr(settings, "llm_total_budget", None),
                 timeout=settings.llm_timeout,
                 max_tokens=settings.llm_max_tokens,
             )
