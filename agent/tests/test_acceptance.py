@@ -219,6 +219,23 @@ def _mk(days, hour, minute=0):
     return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
+def _weekday_slot(days, hour, minute=0):
+    """星期表达的期望值：落在今天且钟点已过的，按解析器的规则顺延一周。
+
+    解析器对**星期表达**有一条顺延规则（见 parse_datetime.py 末尾）：
+    「这周六上午九点」在周六上午十点说，指的是下周六，不是一小时前。
+    期望值这边不跟着算，用例就变成了**只在某个星期几的某个钟点之后才红**——
+    本周六上午十点跑，AI-06 从 100% 掉到 95%，而代码一行没动。
+
+    比红更糟的是它不会红：两条都错也刚好压在 90% 的线上，
+    于是那张验收表上的数字**跟着星期几变**，谁也说不清哪个才是真的。
+    """
+    want = _mk(days, hour, minute)
+    if days == 0 and want <= datetime.now():
+        want += timedelta(days=7)
+    return want
+
+
 class TestAI06TimeAccuracy(unittest.TestCase):
     """AI-06：相对时间解析准确率 ≥ 90%。
 
@@ -238,8 +255,8 @@ class TestAI06TimeAccuracy(unittest.TestCase):
             ("明天上午十点", _mk(1, 10)),
             ("后天下午三点", _mk(2, 15)),
             ("今天下午四点", _mk(0, 16)),
-            ("这周六下午两点", _mk(days_to_sat, 14)),
-            ("这周六上午九点", _mk(days_to_sat, 9)),
+            ("这周六下午两点", _weekday_slot(days_to_sat, 14)),
+            ("这周六上午九点", _weekday_slot(days_to_sat, 9)),
             ("下周一下午三点半", None),      # 只校验能解析出时刻
             ("明天中午十二点", _mk(1, 12)),
             ("明早九点", _mk(1, 9)),

@@ -32,3 +32,15 @@ for _key in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL",
              "LLM_TIMEOUT", "LLM_MAX_TOKENS", "FUSION_ENABLED",
              "EMBED_BASE_URL", "EMBED_API_KEY", "EMBED_MODEL"):
     os.environ[_key] = ""
+
+# 输出重定向到文件时（CI 就是这么跑的），Windows 上标准输出用的是本地
+# 编码，而验收用例会打印中文指标表——`python -m unittest > out.txt`
+# 会变成 7 个 UnicodeEncodeError，看上去像 7 条用例挂了。
+# 在终端里跑永远复现不出来。原委见 server/app/console.py
+import sys
+
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass

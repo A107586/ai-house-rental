@@ -10,6 +10,10 @@ import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, 'server'))
+
+from app.console import force_utf8  # noqa: E402
+
+force_utf8()
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 from app.models import Base  # noqa: E402

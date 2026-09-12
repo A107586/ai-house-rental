@@ -21,6 +21,15 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+# Windows 上输出重定向到文件时用的是本地编码，打印中文会抛
+# UnicodeEncodeError 把脚本断在半路（终端里看不出来）。
+# 原委见 server/app/console.py
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 API = "http://127.0.0.1:8080"
 AGENT = "http://127.0.0.1:8000"
 

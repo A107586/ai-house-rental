@@ -22,6 +22,10 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from app.console import force_utf8  # noqa: E402
+
+force_utf8()
+
 from sqlalchemy import func, select                     # noqa: E402
 
 from app import leasing                                 # noqa: E402

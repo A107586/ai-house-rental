@@ -6,6 +6,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "server"))
 
+from app.console import force_utf8  # noqa: E402
+
+force_utf8()
+
 from sqlalchemy import select  # noqa: E402
 
 from app.db import SessionLocal, init_db  # noqa: E402

@@ -28,6 +28,15 @@ import os
 import re
 import sys
 
+# Windows 上输出重定向到文件时用的是本地编码，打印中文会抛
+# UnicodeEncodeError 把脚本断在半路（终端里看不出来）。
+# 原委见 server/app/console.py
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 # 仓库根目录按脚本自身位置推导（tools/copy/ 的上两级），
 # 换台机器、换个盘符都能跑。
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

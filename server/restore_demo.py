@@ -22,6 +22,10 @@ import sqlite3
 import sys
 from datetime import datetime
 
+from app.console import force_utf8  # noqa: E402
+
+force_utf8()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEMO = os.path.join(HERE, "demo", "rental_demo.db")
 LIVE = os.path.join(HERE, "rental.db")

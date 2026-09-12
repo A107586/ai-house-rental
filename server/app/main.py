@@ -25,6 +25,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 
 from app import gateway, house_query, leasing
+from app.console import force_utf8
 from app.auth import create_token, decode_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
@@ -86,6 +87,11 @@ app.add_middleware(
 # 500ms 是拍出来的，但有依据：需求 N-01 要求 100 并发下 1 秒以内，
 # 单请求超过半秒说明离那条线已经不远了，值得看一眼。
 SLOW_REQUEST_MS = int(os.environ.get("SLOW_REQUEST_MS") or 500)
+
+# 慢请求日志是中文的。输出一旦被重定向到文件（部署时的常态），
+# 本地编码写不出汉字，这行日志就会变成一段 logging 的报错。
+# 见 app/console.py
+force_utf8()
 
 _slow_logger = logging.getLogger("rental.slow")
 
