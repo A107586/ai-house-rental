@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.support import agent as support  # noqa: E402
 from app.agents.support import corpus  # noqa: E402
+from app.agents.support.tools.money import money_text  # noqa: E402
 from app.agents.support.tools import (account, answer as answer_tool,  # noqa: E402
                                       classify_ask, gate, toolcall)
 from app.backend import BackendError  # noqa: E402
@@ -599,6 +600,78 @@ class TestAccountTools(unittest.TestCase):
             _, message, _ = account.lookup(backend, "tok", "profile")
             self.assertNotIn(role, message,
                              "角色 %s 没翻成中文：%s" % (role, message))
+
+
+
+class TestCancelledBillsAreNotDebt(unittest.TestCase):
+    """**作废的账单不是欠款。**
+
+    退租时未到期的租金账单会被置成 cancelled（`leasing.end_contract`）。
+    三处原先用 `status != "paid"` 去数，于是作废的也算进
+    「你还欠多少房租」——退过一次租的人被告知欠着一笔早就作废的钱，
+    而那笔钱他既不用付、也付不了（缴费接口对已结束的合同有拦截）。
+
+    实测：演示账号 tenant1 的真实待缴是 22 笔 22000 元，
+    助手报的是「34 笔，合计 44200 元，最早 2025-07-01 到期」。
+    """
+
+    BILLS = [
+        {"bill_no": "B1", "status": "paid", "amount": 1000,
+         "type": "rent", "due_date": "2026-08-01"},
+        {"bill_no": "B2", "status": "unpaid", "amount": 2000,
+         "type": "rent", "due_date": "2026-10-01"},
+        {"bill_no": "B3", "status": "cancelled", "amount": 3000,
+         "type": "rent", "due_date": "2026-11-01"},
+        {"bill_no": "B4", "status": "cancelled", "amount": 4000,
+         "type": "rent", "due_date": "2026-12-01"},
+    ]
+
+    class FakeBackend(object):
+        def __init__(self, rows):
+            self.rows = rows
+
+        def get(self, path, params=None, token=None):
+            assert path == "/api/bills/mine", path
+            return {"list": self.rows}
+
+    def test_only_unpaid_counts(self):
+        message, data = account.bills(self.FakeBackend(self.BILLS), "tok")
+        self.assertIn("1 笔", message, message)
+        self.assertIn("2000", message.replace(",", ""), message)
+        self.assertEqual([b["bill_no"] for b in data["unpaid"]], ["B2"])
+
+    def test_all_cancelled_reads_as_settled(self):
+        rows = [b for b in self.BILLS if b["status"] != "unpaid"]
+        message, data = account.bills(self.FakeBackend(rows), "tok")
+        self.assertIn("结清", message)
+        self.assertEqual(data["unpaid"], [])
+
+
+class TestMoneyText(unittest.TestCase):
+    """金额的写法。
+
+    原先同一个函数抄了三份，其中一份用 `%g`——
+    `"%g" % 1000000.0` 是 `'1e+06'`，房东收入过百万就会看到
+    「合计 1e+06 元」。另有一处直接 `%s` 一个 float，写出来是
+    「合计 22000.0 元」。
+    """
+
+    def test_whole_numbers_have_no_decimal_point(self):
+        self.assertEqual(money_text(22000.0), "22000")
+        self.assertEqual(money_text(0), "0")
+
+    def test_cents_keep_two_places(self):
+        self.assertEqual(money_text(1250.5), "1250.50")
+        self.assertEqual(money_text(1250.456), "1250.46")
+
+    def test_never_scientific_notation(self):
+        for value in (1000000, 1234567.0, 9.9e7):
+            text = money_text(value)
+            self.assertNotIn("e", text.lower(), text)
+
+    def test_garbage_does_not_explode(self):
+        self.assertEqual(money_text(None), "0")
+        self.assertEqual(money_text("说不清"), "说不清")
 
 
 if __name__ == "__main__":

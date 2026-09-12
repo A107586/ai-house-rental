@@ -29,7 +29,7 @@ from app.models import (AgentProfile, Appointment, Base,  # noqa: E402
                         BrowsingHistory, Contract, Faq,
                         ContentFlag, Favorite, House, HouseImage, Notice,
                         Repair, RepairItem, RepairItemUsage, RepairRecord,
-                        RepairWorker, Review, User)
+                        RepairWorker, Review, SupportLog, User)
 from app.security import hash_password  # noqa: E402
 
 # 大连各区及其代表性小区
@@ -168,7 +168,11 @@ def build_house(index, landlord, district, layout_spec):
 
     return House(
         house_no="DL%04d" % index,
-        title="%s%s %s %s平" % (district, community, layout, int(area)),
+        # **四舍五入，不是截断。** 前端两处显示面积都用 Math.round：
+        # 卡片上的规格行、房东发布时自动生成的标题。这里用 int() 的话，
+        # 63.8 平的房子标题写「63平」、下一行写「64 平米」——
+        # 同一张卡片上两个数，98 套里有 42 套对不上
+        title="%s%s %s %s平" % (district, community, layout, round(area)),
         landlord_id=landlord.id,
         district=district,
         community=community,
@@ -518,9 +522,17 @@ def main():
             leasing.activate_contract(session, contract)
 
             # 已到期的账单标成已缴，制造出真实的收租流水
-            for bill in sorted(contract.bills, key=lambda b: b.due_date):
-                if bill.due_date <= datetime.now():
-                    leasing.pay_bill(session, bill, tenant)
+            due = [b for b in sorted(contract.bills, key=lambda b: b.due_date)
+                   if b.due_date <= datetime.now()]
+            # **第一份合同的最后一笔故意不缴。**
+            # 全缴清的话，全库一笔逾期都没有，「逾期未缴」那一整条
+            # 分支（红色角标、催缴提醒、faq-bill-late）演示不了；
+            # 而「这个月的房租还没交」本来就是最常见的情形，
+            # 不必靠一笔欠了十四个月的陈账来制造。
+            if signed == 0 and due:
+                due = due[:-1]
+            for bill in due:
+                leasing.pay_bill(session, bill, tenant)
             signed += 1
 
         print("生成浏览足迹与收藏 ...")
@@ -557,6 +569,7 @@ def main():
                 session, done_house, tenants[1], start_date=past,
                 months=12, pay_months=1)
             leasing.activate_contract(session, old_contract)
+            _settle(session, old_contract, tenants[1])
             leasing.end_contract(session, old_contract, deduct=0,
                                  reason="租期届满，正常退租")
             session.flush()
@@ -572,6 +585,7 @@ def main():
                     session, second, tenants[0], start_date=past,
                     months=12, pay_months=1)
                 leasing.activate_contract(session, pending_contract)
+                _settle(session, pending_contract, tenants[0])
                 leasing.end_contract(session, pending_contract, deduct=0,
                                      reason="租期届满，正常退租")
 
@@ -654,6 +668,12 @@ def main():
         print("导入 AI-03 客服知识库 ...")
         faq_count = seed_faqs(session)
 
+        # **必须排在 seed_faqs 后面。** 日志要引用真实存在的条目编码，
+        # 还要给对应条目的 hit_count 加数；知识库还没导进来时，
+        # 引用写不出来、命中数也加不上，「最常被引用」那张表会是空的
+        print("铺客服问答日志 ...")
+        _seed_support_logs(session, tenants, random)
+
         available = sum(1 for h in houses if h.status == "available")
         print("\n完成：")
         print("  用户 %d 个（管理员 1、房东 %d、租客 %d）"
@@ -708,6 +728,111 @@ _POOR = [
     "墙皮有返潮，住了三个月才发现。房东后来刷了一遍，但当初没说。",
     "隔音比想象中差，隔壁说话听得见。其他方面还可以。",
 ]
+
+
+def _settle(session, contract, tenant):
+    """把一份合同的账单全部缴清。
+
+    **「租期届满，正常退租」和「一年房租一分没交」不能同时成立。**
+    这两份历史合同原先建完就直接 end 掉，没人缴费，于是 25 笔账单
+    从 2025 年 7 月一路欠到现在，挂在两个已结束的合同上——
+    演示账号 tenant1 打开「我的账单」看到的是
+    「34 笔待缴，合计 44200 元，最早 2025-07-01 到期」。
+
+    历史合同的账单本该是**流水**，不是待办。
+    """
+    for bill in sorted(contract.bills, key=lambda b: b.due_date):
+        if bill.status != "paid":
+            leasing.pay_bill(session, bill, tenant)
+
+
+def _seed_support_logs(session, tenants, random):
+    """铺一段客服问答的历史。
+
+    ## 为什么要铺
+
+    管理后台的「智能客服 · 质量分析」整块是**靠这张表算出来的**：
+    答出率、拒答率、响应中位数、知识缺口清单、最常被引用的条目、
+    从未被引用的条目。表是空的，那一整页就只剩一句「0 次」，
+    70 条知识全部列在「从未被引用」里——**看不出它坏没坏，
+    也看不出它好在哪。**
+
+    ## 数据是怎么编的
+
+    答得上来的问题引用真实存在的条目编码（`faq_hits`），并给对应的
+    `hit_count` 加数，这样「最常被引用」和「从未被引用」两张表才对得上。
+    拒答的那些是**故意重复问**的：知识缺口清单按出现次数排序，
+    只问一次的看不出是缺口，问五次才是。
+
+    反馈刻意留得很少（两条「没用」），因为真实世界里点评价的人本来就少；
+    铺满的话，「被点没用的回答」这张清单就失去筛选意义了。
+    """
+    answered = [
+        ("押金什么时候退", "faq-deposit-refund", 9),
+        ("押金一般收几个月", "faq-deposit-amount", 7),
+        ("水电费怎么算", "faq-utility-pay", 6),
+        ("合租水电怎么分", "faq-utility-share", 4),
+        ("怎么预约看房", "faq-viewing-book", 5),
+        ("报修多久上门", "faq-repair-sla", 4),
+        ("房子坏了怎么报修", "faq-repair-submit", 4),
+        ("怎么续租", "faq-renew", 3),
+        ("电子合同有效吗", "faq-contract-legal", 3),
+        ("忘记密码了", "faq-account-password", 3),
+        ("提前搬走要赔钱吗", "faq-checkout-early", 2),
+        ("物业费谁交", "faq-property-fee", 2),
+    ]
+    # 反复被问却答不上来的——这张清单就是「下一批该写哪些 FAQ」
+    refused = [
+        ("到期退租有哪些步骤", 5),
+        ("能不能开发票", 4),
+        ("可以养宠物吗", 3),
+        ("小区有没有幼儿园", 2),
+        ("你们支持虚拟货币付款吗", 1),
+    ]
+
+    codes = {row.code: row for row in session.scalars(select(Faq)).all()}
+    made = 0
+    for question, code, times in answered:
+        faq = codes.get(code)
+        for _ in range(times):
+            session.add(SupportLog(
+                user_id=random.choice(tenants).id,
+                session_id="seed-%04d" % random.randint(1, 9999),
+                question=question, status="answered", mode="lexical",
+                cited=code if faq else "", top_id=code if faq else "",
+                cover=round(random.uniform(0.55, 0.98), 3),
+                answer_source="extractive", gate_reason="覆盖率达标",
+                latency_ms=random.randint(40, 260),
+                created_at=datetime.now() - timedelta(
+                    days=random.randint(0, 29), hours=random.randint(0, 23))))
+            made += 1
+        if faq:
+            faq.hit_count += times
+
+    for question, times in refused:
+        for _ in range(times):
+            session.add(SupportLog(
+                user_id=random.choice(tenants).id,
+                session_id="seed-%04d" % random.randint(1, 9999),
+                question=question, status="refused", mode="lexical",
+                cover=round(random.uniform(0.05, 0.35), 3),
+                gate_reason="覆盖率不足，未找到依据",
+                latency_ms=random.randint(30, 120),
+                created_at=datetime.now() - timedelta(
+                    days=random.randint(0, 29), hours=random.randint(0, 23))))
+            made += 1
+
+    session.flush()
+    # 两条「没用」：真实世界里点评价的人本来就少，铺满反而失去筛选意义
+    disliked = session.scalars(
+        select(SupportLog).where(SupportLog.status == "answered")
+        .order_by(SupportLog.id).limit(2)).all()
+    for row in disliked:
+        row.feedback = -1
+    session.commit()
+    print("  客服问答日志 %d 条（答出 %d / 拒答 %d），其中 2 条被点「没用」"
+          % (made, sum(t for _, _, t in answered),
+             sum(t for _, t in refused)))
 
 
 def _seed_history(session, houses, tenants, random):

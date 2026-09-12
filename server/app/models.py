@@ -777,8 +777,11 @@ class Bill(Base):
             # （见 /api/bills/{no}/pay）。按钮照摆的话，用户填完收银台
             # 才被告知付不了，白走一趟
             "contract_status": self.contract.status if self.contract else "",
+            # 只有 unpaid 能缴。cancelled 也不是 paid，但它是作废，
+            # 不是欠款——今天靠「合同必须 active」挡住了，
+            # 可那是间接的，写明白比依赖巧合可靠
             "payable": bool(self.contract and self.contract.status == "active"
-                            and self.status != "paid"
+                            and self.status == "unpaid"
                             and float(self.amount or 0) > 0),
             "house_no": (self.contract.house.house_no
                          if self.contract and self.contract.house else ""),

@@ -1,5 +1,5 @@
 {
-  "seed_sha256_16": "fbe59a33a075c7a4",
+  "seed_sha256_16": "64e3d4300313590b",
   "generated_at": "2026-09-12",
   "random_seed": 20260901,
   "counts": {
@@ -10,8 +10,10 @@
     "reviews": 105,
     "appointments": 15,
     "repairs": 6,
-    "payments": 14,
-    "house_images": 324
+    "payments": 38,
+    "house_images": 324,
+    "support_logs": 67,
+    "faqs": 70
   },
-  "size_bytes": 868352
+  "size_bytes": 983040
 }

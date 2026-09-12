@@ -20,12 +20,7 @@ from app.agents.support.tools import progress
 from app.backend import BackendError
 
 
-def _fmt_money(value):
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    return ("%.0f" % amount) if amount == int(amount) else ("%.2f" % amount)
+from app.agents.support.tools.money import money_text as _fmt_money
 
 
 def _rows(data):
@@ -43,7 +38,12 @@ def bills(backend, token):
     if not rows:
         return "你名下还没有账单记录。", {"total": 0, "unpaid": []}
 
-    unpaid = [b for b in rows if b.get("status") != "paid"]
+    # **作废的账单不是欠款。** 退租时未到期的租金账单会被置成
+    # cancelled（见 leasing.end_contract），拿 `!= "paid"` 去数，
+    # 它们全算进「你还欠多少」里——退过一次租的人会被告知
+    # 欠着一笔早就作废的钱，而那笔钱他既不用付、也付不了
+    # （缴费接口对已结束的合同有拦截）。
+    unpaid = [b for b in rows if b.get("status") == "unpaid"]
     if not unpaid:
         return "你的账单都结清了，没有待缴费用。", {"total": len(rows), "unpaid": []}
 

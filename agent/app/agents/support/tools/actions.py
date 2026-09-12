@@ -79,12 +79,7 @@ def _rows(data):
     return data or []
 
 
-def _money(value):
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    return ("%.0f" % amount) if amount == int(amount) else ("%.2f" % amount)
+from app.agents.support.tools.money import money_text as _money
 
 
 # ---------------------------------------------------------------- 意图识别
@@ -525,7 +520,7 @@ def _propose_pay_bill(text, token, backend, context):
     # 被排在了第一位。实测「帮我把这个月的房租交了」得到的就是
     # 「要我帮你缴纳押金 0 元吗」。
     unpaid = [b for b in rows
-              if b.get("status") != "paid" and float(b.get("amount") or 0) > 0]
+              if b.get("status") == "unpaid" and float(b.get("amount") or 0) > 0]
     if not unpaid:
         return NOT_APPLICABLE, "你的账单都结清了，没有需要缴的。", None, None
 

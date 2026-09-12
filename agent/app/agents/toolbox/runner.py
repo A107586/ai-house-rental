@@ -18,6 +18,7 @@
 from app import memory
 from app.agents.support.tools import house as house_tool
 from app.agents.support.tools import pitch
+from app.agents.support.tools.money import money_text
 
 # 找房一次给几套。和 main.PAGE_SIZE 必须一致——
 # 界面列几条、助手数到几、这里取几条，是同一个数
@@ -251,7 +252,7 @@ def _summarize(name, data, rows, label):
         overdue = data.get("overdue_count") or 0
         if not unpaid:
             return "你没有待缴账单，都结清了。"
-        text = "你有 %d 笔待缴账单，合计 %s 元。" % (unpaid, amount)
+        text = "你有 %d 笔待缴账单，合计 %s 元。" % (unpaid, money_text(amount))
         if overdue:
             text += "其中 %d 笔已经逾期，建议先处理这几笔。" % overdue
         return text

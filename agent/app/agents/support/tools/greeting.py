@@ -52,11 +52,7 @@ def _safe(backend, path, token):
         return {}
 
 
-def _money(value):
-    try:
-        return "%g" % round(float(value or 0), 2)
-    except (TypeError, ValueError):
-        return "0"
+from app.agents.support.tools.money import money_text as _money
 
 
 def collect(backend, token):
@@ -68,7 +64,7 @@ def collect(backend, token):
     items = []
 
     unpaid = [b for b in _rows(_safe(backend, "/api/bills/mine", token))
-              if b.get("status") != "paid"]
+              if b.get("status") == "unpaid"]
     if unpaid:
         total = sum(float(b.get("amount") or 0) for b in unpaid)
         first = sorted(unpaid, key=lambda b: b.get("due_date") or "")[0]
