@@ -264,7 +264,10 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
     { key: 'contracts', label: '出租合同',
       n: contracts.filter((c) => c.status === 'pending').length },
     { key: 'tenants', label: '租客', n: tenants.length },
-    { key: 'delegations', label: '委托中介，解放双手' },
+    // 标签是导航，不是广告位。这一栏其余的都是「工作台」「租客」
+    // 这样的短名词，只有它写成一句带逗号的口号，在竖排左栏里还会折行；
+    // 「委托不是过户」那段解释本来就在正文第一屏，用不着标签再说一遍
+    { key: 'delegations', label: '委托中介' },
     { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
   ]
 

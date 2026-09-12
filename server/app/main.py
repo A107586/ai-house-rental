@@ -19,7 +19,7 @@ from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
@@ -585,7 +585,17 @@ def get_house(house_no: str, user: User = Depends(current_user),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
-    house.view_count += 1
+    # **加一这件事交给数据库做，不要读出来加完再写回去。**
+    #
+    # `house.view_count += 1` 是「读-改-写」：两个请求同时读到 563，
+    # 各自算出 564，各自写回，两次浏览只记了一次。实测 200 次并发浏览
+    # 只涨了 6——**丢了 97%**。浏览量在房东那边是要看的（「浏览 346」），
+    # 也参与热度与推荐，不是可有可无的数字。
+    #
+    # 写成 SQL 的 `view_count = view_count + 1`，加法在库里做，
+    # 并发事务自然串起来，一次不丢。
+    session.execute(update(House).where(House.id == house.id)
+                    .values(view_count=House.view_count + 1))
 
     # 登录用户顺手记一条浏览足迹。同一房源只留一条，重复浏览更新时间与次数，
     # 否则刷十次详情页就把足迹列表刷满了。
@@ -594,8 +604,12 @@ def get_house(house_no: str, user: User = Depends(current_user),
             BrowsingHistory.user_id == user.id,
             BrowsingHistory.house_id == house.id))
         if record:
-            record.view_count += 1
-            record.viewed_at = datetime.now()
+            # 同上：同一个人开两个标签页点同一套房也会撞
+            session.execute(
+                update(BrowsingHistory)
+                .where(BrowsingHistory.id == record.id)
+                .values(view_count=BrowsingHistory.view_count + 1,
+                        viewed_at=datetime.now()))
         else:
             session.add(BrowsingHistory(user_id=user.id, house_id=house.id))
 

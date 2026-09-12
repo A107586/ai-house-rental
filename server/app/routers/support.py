@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import leasing
@@ -201,10 +201,12 @@ def log_support(payload: SupportLogPayload,
         latency_ms=payload.latency_ms)
     session.add(row)
 
+    # 命中数同样交给数据库加，不要读出来加完再写回去——
+    # 两个人同时问到同一条，两次命中会只记一次。
+    # 「最常被引用的条目」那张表就是拿这个数排序的
     for code in payload.cited:
-        faq = session.scalar(select(Faq).where(Faq.code == code))
-        if faq:
-            faq.hit_count += 1
+        session.execute(update(Faq).where(Faq.code == code)
+                        .values(hit_count=Faq.hit_count + 1))
 
     session.commit()
     return {"ok": True, "log_id": row.id}
