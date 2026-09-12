@@ -53,7 +53,7 @@ export default function SavedSearchPanel({ onApply }) {
   if (rows.length === 0) {
     return (
       <div className="empty">
-        还没有保存的搜索。在首页设好筛选条件后点「保存这组条件」，之后有符合条件的房源上架时会通知你。
+        还没有保存的搜索。在首页设好筛选条件后点「保存这组条件」，以后有符合条件的新房源上架，会通过这里通知你。
       </div>
     )
   }

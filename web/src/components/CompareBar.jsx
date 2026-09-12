@@ -103,7 +103,7 @@ export default function CompareBar({ items, onRemove, onClear }) {
             </div>
 
             <p className="desc">
-              绿色底表示该项在所选房源中更优。租金与押金越低越好，面积与评分越高越好。
+              绿色表示这项更优：租金、押金越低越好，面积、评分越高越好。
             </p>
           </div>
         </>

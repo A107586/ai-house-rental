@@ -12,11 +12,11 @@ const RENT_TYPES = ['整租', '合租', '公寓']
 // 租金档位。用区间而不是滑块——滑块在移动端难操作，
 // 而且租房用户脑子里本来就是「三千以内」这种档位思维。
 const PRICE_RANGES = [
-  { label: '1500 以下', min: null, max: 1500 },
+  { label: '1500 元以下', min: null, max: 1500 },
   { label: '1500–2500', min: 1500, max: 2500 },
   { label: '2500–3500', min: 2500, max: 3500 },
   { label: '3500–5000', min: 3500, max: 5000 },
-  { label: '5000 以上', min: 5000, max: null },
+  { label: '5000 元以上', min: 5000, max: null },
 ]
 
 const AREA_RANGES = [

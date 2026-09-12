@@ -248,7 +248,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
             hint: '待我确认的申请', group: '要做的事' },
     today: { key: 'today', label: '今日带看', n: today.length,
              hint: '今天要去的场次', group: '要做的事' },
-    map: { key: 'map', label: '房源分布', hint: '在地图上看铺在哪几个区',
+    map: { key: 'map', label: '房源分布', hint: '在地图上按区域挑，位置和周边都看得见',
            group: '要做的事' },
   }
   const COMM = commKeys.map((k) => ALL_COMM[k])
@@ -405,8 +405,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                       </button>
                     </form>
                     <p className="muted-note">
-                      请在平台内沟通。交换微信、电话会被拦截——
-                      平台无法为私下成交提供任何保障。
+                      请在平台内沟通。交换微信、电话会被拦截——私下成交，平台无法提供保障。
                     </p>
                   </>
                 )}

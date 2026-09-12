@@ -109,7 +109,7 @@ async function request(url, options = {}) {
     response = await fetch(url, { ...options, headers })
   } catch {
     // 网络层失败通常是后端没启动，给出可操作的提示而不是原始报错
-    throw new Error('连不上服务器，请确认三个服务都已启动')
+    throw new Error('当前无连接，请确认三个服务都已启动')
   }
 
   if (response.status === 401 && url !== '/api/auth/login') {
@@ -297,7 +297,7 @@ export const api = {
     try {
       response = await fetch('/api/upload', { method: 'POST', headers, body: form })
     } catch {
-      throw new Error('连不上服务器，请确认三个服务都已启动')
+      throw new Error('当前无连接，请确认三个服务都已启动')
     }
     if (!response.ok) {
       let detail = ''

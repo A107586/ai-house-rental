@@ -49,7 +49,7 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
               checked={compared}
               onChange={() => onToggleCompare(house)}
             />
-            对比
+            加入对比
           </label>
         )}
       </div>
@@ -112,7 +112,7 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
           **这条信息还能不能信** */}
       <div className="card-trust">
         {house.verify_status === 'verified' && (
-          <span className="verified-mark">✓ 已核验</span>
+          <span className="verified-mark">✓ 平台已核验</span>
         )}
         {house.pay_plan && <span>{house.pay_plan}</span>}
         {maintainedLabel(house.maintained_at) && (

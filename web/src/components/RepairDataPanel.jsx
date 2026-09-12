@@ -154,7 +154,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>故障类型分布</h5>
             {stats.by_category.length === 0 ? (
-              <div className="empty">还没有报修记录</div>
+              <div className="empty">还没有报修记录。房子有问题，可以在房源详情页提交，也可以直接跟租房助手说。</div>
             ) : (
               <div className="rd-bars">
                 {stats.by_category.map((row) => (
@@ -176,7 +176,7 @@ export default function RepairDataPanel() {
           <section className="rd-sec">
             <h5>报修最多的房源</h5>
             <p className="rd-note">
-              同一套房反复报修，往往不是又坏了一次，而是上次没修好，或房子本身有问题。
+              同一套房反复报修，往往不是「又坏了一次」，而是上次没修好，或者房子本身有问题。
             </p>
             {stats.top_houses.length === 0 ? (
               <div className="empty">暂无数据</div>
@@ -334,7 +334,7 @@ export default function RepairDataPanel() {
           </form>
 
           <p className="rd-note">
-            调价只影响以后的领用。历史维修记录保存的是领用时的单价快照，不受调价影响。
+            调价只影响以后的领用。历史记录里存的是当时单价，不会被改价改写。
           </p>
 
           {items.length === 0 ? <div className="empty">还没有物品</div> : (

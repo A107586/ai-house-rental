@@ -47,7 +47,7 @@ const LIST_TITLE = {
   search: '搜索结果',
   latest: '最新发布',
   featured: '优选好房',
-  all: '全部房源',
+  all: '自己翻也行，用筛选和地图收窄更快',
 }
 
 const EXAMPLES = [
@@ -106,10 +106,10 @@ function toFilters(parsed) {
 // （gpt-5.5），只是规则已经足够确定、按 K-10 跳过了它。
 // 页面上于是出现「未配置大模型」，用户和评委都会以为接入失败了。
 const SOURCE_LABEL = {
-  rules: '规则解析，未调用大模型',
+  rules: '规则解析，未使用大模型',
   fused: '规则 + 大模型融合',
   llm: '大模型解析',
-  rules_fallback: '大模型输出不可用，已退回规则结果',
+  rules_fallback: '大模型未返回可用结果，已使用规则结果',
 }
 
 const sourceLabel = (parsed) => (parsed?.source_label
@@ -294,7 +294,7 @@ export default function App() {
         if (!alive) return
         // 链接里的房号已下架或不存在。退回首页而不是留一个空抽屉，
         // 从分享链接进来的人至少还能看到别的房子
-        setError('这套房源已下架或不存在。')
+        setError('这套房源已下架或不存在，详情看不了了。')
         go('home', '', true)
       })
     return () => { alive = false }
@@ -444,7 +444,7 @@ export default function App() {
       // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
       // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
       await byKeyword(content)
-      setError('智能体暂时不可用，已按关键词直接检索；也可以用下面的筛选条件找房。')
+      setError('当前智能体无连接，已使用关键词匹配搜索；也可用下方筛选条件找房。')
     } finally {
       setBusy(false)
     }
@@ -685,7 +685,7 @@ export default function App() {
             {site.site_name.slice(0, 2)}
             <span>{site.site_name.slice(2)}</span>
           </div>
-          <div className="tagline">基于 AI 智能体的房屋租赁平台</div>
+          <div className="tagline">AI 智能体租房平台</div>
 
           <div className="topbar-right">
             {/* B1：服务状态和「退出」都收进个人中心了。
@@ -699,7 +699,7 @@ export default function App() {
             {online === false && (
               <span className="status-dot offline" title="后端接口连接不上">
                 <span className="dot down" />
-                服务未连接
+                当前无连接
               </span>
             )}
 
@@ -818,7 +818,7 @@ export default function App() {
             {showHistory && history.match(text).length > 0 && (
               <div className="search-history">
                 <div className="sh-head">
-                  <span>搜索记录</span>
+                  <span>搜索历史</span>
                   <button
                     type="button"
                     className="sh-clear"
@@ -860,7 +860,7 @@ export default function App() {
           </form>
 
           <div className="examples">
-            <span>试试：</span>
+            <span>示例：</span>
             {EXAMPLES.map((sample) => (
               <button
                 key={sample}
@@ -892,8 +892,7 @@ export default function App() {
         {error && <div className="answer error">{error}</div>}
         {parsed && !parsed.ok && (
           <div className="answer error">
-            没听懂这句话，已经保留你原来的筛选条件。
-            可以说得具体一点，比如「中山区两室一厅，租金三千以内」。
+            未识别到有效条件，已保留原有筛选条件。可以说得更具体，比如「中山区两室一厅，租金三千以内」。
           </div>
         )}
 
@@ -1031,7 +1030,7 @@ export default function App() {
         ) : houses.length === 0 ? (
           <div className="empty">
             {error
-              ? '无法加载房源，请确认后端服务已启动。'
+              ? '房源加载失败，请确认后端服务已启动。'
               : hasFilters
                 ? '没有符合条件的房源。可以在「已生效条件」里删掉几条再试。'
                 : '暂时还没有房源'}
@@ -1111,7 +1110,7 @@ export default function App() {
             <span className="map-panel-sub">
               {filters.district
                 ? `已选区域：${filters.district}`
-                : '位置周边一目了然'}
+                : '在地图上按区域挑，位置和周边都看得见'}
             </span>
             <span className="map-panel-arrow" aria-hidden="true">
               {showMap ? '收起' : '展开'}
@@ -1127,7 +1126,7 @@ export default function App() {
                   表现就是「点地图找房，页面弹回最顶端」。
                   在这里单独兜一层，挂起的范围就只剩地图这一块。 */}
               <Suspense
-                fallback={<div className="map-loading">地图加载中…</div>}
+                fallback={<div className="map-loading">高德地图加载中…</div>}
               >
                 <MapFinder
                   selected={filters.district || ''}
@@ -1187,7 +1186,7 @@ export default function App() {
           setShowTalk(false)
           go('house', no)
           } catch {
-          setError('这套房源已下架或不存在。')
+          setError('这套房源已下架或不存在，详情看不了了。')
           }
           }}
           />
@@ -1248,7 +1247,7 @@ export default function App() {
                   用户是滚到页面最底下才看到这几个入口的，点完页面换了
                   但滚动位置没动，他看到的是新页面的底部——一片页脚，
                   而他刚点的是「全部房源」。第一反应是「没反应」。 */}
-              <button onClick={() => goTop('list', 'all')}>全部房源</button>
+              <button onClick={() => goTop('list', 'all')}>自己翻也行，用筛选和地图收窄更快</button>
               <button onClick={() => goTop('list', 'latest')}>最新发布</button>
               <button onClick={() => goTop('list', 'featured')}>优选好房</button>
             </div>

@@ -124,8 +124,7 @@ export default function ConfigPanel() {
           </button>
         )}
         <span className="cfg-note">
-          整批提交：只要有一项填错，整批都不会写入——
-          半套配置比旧配置更容易出事。
+          整批提交：一项填错，整批都不写入——半套配置比旧配置更危险。
         </span>
       </div>
     </div>

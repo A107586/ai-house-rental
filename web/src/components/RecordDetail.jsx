@@ -65,7 +65,7 @@ export function DetailToggle({ open, onClick }) {
       onClick={onClick}
       aria-expanded={open}
     >
-      {open ? '收起' : '详情'}
+      {open ? '收起' : '查看详情'}
       <i aria-hidden="true" />
     </button>
   )

@@ -171,8 +171,7 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
       </label>
       <p className="fld-hint">
         关掉之后，受托经纪人不能再主动发起会话。
-        <b>你自己发起的咨询、以及预约与带看的通知不受影响</b>——
-        免打扰挡的是别人主动来，不是把你自己也关在外面。
+        <b>你自己发起的咨询、以及预约与带看的通知不受影响</b>免打扰挡的是别人主动来，不是把你自己也关在外面。
       </p>
 
       <div className="section-title">修改密码</div>
@@ -212,8 +211,7 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
 
       <div className="section-title">登录设备</div>
       <p className="desc">
-        手机丢失、或在他人设备上登录过未退出，可以把所有设备一次性登出。<b>不需要改密码</b>——只想下线的人不该被迫换掉
-        自己记得住的密码。
+        手机丢了，或在别人电脑上登录过忘了退出，可以把所有设备一次性登出。<b>不需要改密码</b>只想下线的人，不该被迫换掉自己记得住的密码。
       </p>
       <button
         className="btn ghost block"

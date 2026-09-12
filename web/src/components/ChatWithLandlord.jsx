@@ -117,7 +117,7 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
       <aside className="drawer wide chat-drawer">
         <button className="drawer-close" onClick={onClose} aria-label="关闭">×</button>
         <h3>咨询</h3>
-        <div className="loc">与房东就具体房源沟通，消息双方都能看到</div>
+        <div className="loc">和房东就这套房沟通，消息双方都能看到</div>
 
         {error && <div className="reply failed">{error}</div>}
 
@@ -137,7 +137,7 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
                   >
                     <span className="cw-house">{item.house_no}</span>
                     <span className="cw-title">{item.house_title}</span>
-                    <span className="cw-last">{item.last_message || '还没有消息'}</span>
+                    <span className="cw-last">{item.last_message || '还没有消息。预约结果、账单和合同变动都会通知到这里。'}</span>
                     {item.unread > 0 && (
                       <span className="cw-badge">{item.unread}</span>
                     )}
@@ -166,8 +166,7 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
               <div className="cw-lines">
                 {lines.length === 0 ? (
                   <div className="empty">
-                    还没有消息。可以问问能不能养宠物、几月能入住、
-                    押付方式能不能商量。
+                    还没有消息。可以问问能不能养宠物、几月能入住、押付方式能不能商量。
                   </div>
                 ) : (
                   lines.map((line) => (line.kind === 'summary' ? (

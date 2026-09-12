@@ -112,7 +112,7 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
     <section className="amap-finder">
       <div className="map-head">
         <h3>地图找房</h3>
-        <span className="map-tip">拖动或缩放地图查看当前区域房源</span>
+        <span className="map-tip">拖动或缩放地图，查看当前区域房源</span>
         <div className="map-legend">
           <span><i className="match" />筛选命中 {visibleTotal} 套</span>
         </div>
@@ -128,7 +128,7 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
         {!ready && <div className="amap-loading">正在加载高德地图…</div>}
       </div>
       <div className="map-foot">
-        地图仅显示符合当前筛选条件的房源，点击红色价格标签查看详情。
+        地图只显示符合当前条件的房源。点红色价格标签，看详情。
       </div>
     </section>
   )
@@ -174,7 +174,7 @@ function openHouseInfo(AMap, map, marker, house, infoWindowRef, onOpenRef) {
   meta.textContent = `${house.community} · ${house.layout} · ${house.area}㎡`
   const relation = document.createElement('em')
   relation.className = 'match'
-  relation.textContent = '符合当前筛选条件'
+  relation.textContent = '符合当前条件'
   const rent = document.createElement('b')
   rent.textContent = `¥${Math.round(house.rent_price)}/月`
   const detail = document.createElement('button')

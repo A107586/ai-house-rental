@@ -62,11 +62,11 @@ function loadSessionId() {
 
 const OPENING = {
   role: 'assistant',
-  content: '你好，我是租房助手。找房条件可以一句一句补充，我都会记住；'
+  content: '你好，我是租房助手。找房可以一句一句补条件，我都记得住；'
     + '平台规则也可以直接问我，比如「押金怎么退」——'
-    + '我只按知识库里的内容回答，查不到会直接说。'
-    + '也可以让我帮你交房租、约看房、报修，'
-    + '动手前会先列出要做的事，你确认后我才执行。',
+    + '我只按知识库回答，查不到就直说，不瞎编。'
+    + '也可以让我帮你办事——交房租、约看房、报修都行，'
+    + '我会先把要办的事列出来，你点确认，我才动手。',
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
@@ -683,7 +683,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 这句话组员看了两次都没看出问题在哪，所以把排查方向直接写进去。
         // 「联系不上」最常见的原因不是网络，是 8000 端口那个服务压根没起来——
         // 智能体有自己的 requirements.txt，只装后端依赖的话它启动即退出。
-        content: '智能体服务没连上，聊天暂时用不了。'
+        content: '当前智能体无连接，聊天暂不可用。'
           + '如果是在本地跑：确认 8000 端口的智能体窗口还开着，'
           + '它的依赖要单独装（pip install -r agent/requirements.txt）。',
         ok: false,
@@ -711,7 +711,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     const message = messages[index]
     if (!message?.handoff) return
     if (!getToken()) {
-      setError('转人工需要先登录，管理员需要知道回复给谁。')
+      setError('转人工要先登录，管理员才知道回给谁。')
       return
     }
     try {
@@ -797,12 +797,12 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         <h3>租房助手</h3>
         <div className="loc">
           多轮对话 · 会记住你已经说过的条件
-          {user ? '' : ' · 登录后换设备也能续上'}
+          {user ? '' : ' · 登录后，换设备也能接着聊'}
         </div>
 
         {context && (
           <div className="chat-context">
-            <span className="chat-context-k">当前记住</span>
+            <span className="chat-context-k">当前记得</span>
             {context}
             <button className="btn ghost small" onClick={restart}>
               重新开始
@@ -955,7 +955,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                     转人工
                   </button>
                   <span className="muted small">
-                    我答不上来的问题，可以转给管理员
+                    我答不上来的，可以交给管理员
                   </span>
                 </div>
               )}
@@ -969,7 +969,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                     </>
                   ) : (
                     <span className="muted small">
-                      {message.feedback > 0 ? '谢谢反馈' : '已记下，我们会补充这块内容'}
+                      {message.feedback > 0 ? '谢谢反馈' : '已记下，我们会补上这块内容'}
                     </span>
                   )}
                 </div>

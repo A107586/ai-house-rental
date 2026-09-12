@@ -243,7 +243,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
               <span className={`dot ${online === true ? 'up'
                 : online === false ? 'down' : ''}`} />
               {online === true ? '服务正常'
-                : online === false ? '服务未连接' : '检查中'}
+                : online === false ? '当前无连接' : '检查中'}
             </span>
             <button className="btn ghost small" onClick={onLogout}>退出登录</button>
           </div>
@@ -304,7 +304,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
             </div>
 
             {bills.list.length === 0 ? (
-              <p className="desc">还没有账单。合同生效后会自动排出整个租期的账单。</p>
+              <p className="desc">还没有账单。合同一生效，整个租期的账单会自动排好。</p>
             ) : (
               <ul className="record-list">
                 {bills.list.map((bill) => (
@@ -395,7 +395,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                         ['交易流水号', bill.payment && bill.payment.trade_no, { mono: true }],
                         ['备注', bill.remark, { wide: true }],
                       ]} note={bill.payment
-                        ? '流水号是与客服核对这笔缴费时要报的号码。'
+                        ? '流水号是跟客服核对这笔缴费时要报的号码。'
                         : ''} />
                     )}
                   </li>
@@ -544,7 +544,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
         {/* ---------------- 浏览足迹 ---------------- */}
         {tab === 'history' && (
           history.length === 0 ? (
-            <p className="desc">还没有浏览记录。看过的房源会自动出现在这里。</p>
+            <p className="desc">还没有浏览记录。看过的房源会自动留在这里。</p>
           ) : (
             <>
               <div className="record-actions" style={{ marginBottom: 10 }}>
@@ -693,7 +693,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                         ['完成时间', item.result && item.result.finished_at],
                         ['处理说明', item.result && item.result.note, { wide: true }],
                       ]} note={item.analysis
-                        ? '「智能体初判」是模型读故障描述给出的推测，实际以上门检查为准。'
+                        ? '「智能体初判」只是模型读故障描述后的推测，实际以上门检查为准。'
                         : ''} />
                     )}
                   </li>
@@ -704,7 +704,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
 
         {tab === 'reviews' && (
           pending.length === 0 ? (
-            <p className="desc">没有待评价的租约。租约结束后可以对房源与房东评分。</p>
+            <p className="desc">没有待评价的租约。租约结束后，可以给房源和房东评分。</p>
           ) : (
             <ul className="record-list">
               {pending.map((c) => (
@@ -781,7 +781,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
         <div className="modal-mask payment-mask" onClick={() => !busy && setCheckout(null)}>
           <div className="dialog payment-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>模拟收银台</h3>
-            <p className="desc">本功能仅用于课程项目演示，不会产生真实扣款。</p>
+            <p className="desc">本功能仅用于课程演示，不会产生真实扣款。</p>
             <div className="payment-summary">
               <div><span>房源</span><strong>{checkout.house_no}</strong></div>
               <div><span>账单</span><strong>{BILL_TYPE[checkout.type] || checkout.type}{checkout.period ? ` · ${checkout.period}` : ''}</strong></div>

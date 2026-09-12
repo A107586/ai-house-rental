@@ -90,8 +90,7 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
 
         {signable.length === 0 ? (
           <div className="empty">
-            名下没有「可租」状态的房源。已出租的房源不能重复签约，
-            待审核的要先通过审核。
+            名下没有「可租」状态的房源。已出租的不能重复签约，待审核的要先过审。
           </div>
         ) : (
           <form onSubmit={submit} className="house-form">

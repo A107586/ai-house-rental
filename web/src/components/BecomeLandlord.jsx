@@ -58,8 +58,8 @@ export default function BecomeLandlord({ onUpgraded }) {
       ) : (
         <>
           <p className="desc">
-            同一账号可以同时是租客和房东，无需重新注册。升级后顶部会出现「工作台」，可发布和管理房源；
-            <b>现有的收藏、足迹、租约和账单一条都不会少</b>。
+            同一个账号可以同时是租客和房东，不用再注册。升级后顶部会多出「工作台」，可以发布和管理房源；
+            <b>现有的收藏、足迹、租约和账单，一条都不会少</b>。
           </p>
 
           {error && <div className="reply failed">{error}</div>}
@@ -69,7 +69,7 @@ export default function BecomeLandlord({ onUpgraded }) {
               <div className="assist-body">
                 还差 <b>{info.missing.join('、')}</b> 没填。
                 <div className="assist-hint">
-                  签约时甲方需用真实姓名，租客也要通过手机号联系你，这两项为必填。在「个人资料」里补充即可。
+                  签约时甲方要用真实姓名，租客也要靠手机号联系你，所以这两项必填。在上面的「个人资料」里补一下就行。
                 </div>
               </div>
             </div>
@@ -84,7 +84,7 @@ export default function BecomeLandlord({ onUpgraded }) {
           </button>
 
           <div className="fld-hint">
-            这一步不可逆。名下已有房源和合同后再降回租客，数据将失去归属——退出出租前，请先下架房源、结清合同。
+            这一步不可逆。名下有房源和合同后再降回租客，那些数据就没了主人——真要退出出租，应当先下架房源、结清合同。
           </div>
         </>
       )}

@@ -69,7 +69,7 @@ export default function ForgotPasswordForm({ onDone, onBack }) {
       {step === 'ask' ? (
         <form onSubmit={ask}>
           <p className="desc">
-            输入用户名，重置验证码将发到该账号绑定的邮箱。
+            输入用户名，重置验证码会发到绑定邮箱
           </p>
           <div className="field">
             <input
@@ -91,8 +91,7 @@ export default function ForgotPasswordForm({ onDone, onBack }) {
         <form onSubmit={reset}>
           {/* 说法和后端保持一致：不确认这个账号是否存在 */}
           <div className="reply created">
-            如果该账号存在且绑定了邮箱，验证码已经发出，请查收邮件。
-            验证码 30 分钟内有效。
+            如果账号存在且绑了邮箱，验证码已经发出，请查收。验证码 30 分钟内有效。
           </div>
 
           <div className="field">
@@ -119,7 +118,7 @@ export default function ForgotPasswordForm({ onDone, onBack }) {
           </button>
 
           <div className="fld-hint">
-            重置成功后，此前在所有设备上的登录都会失效，需要重新登录。
+            重置成功后，所有设备上的登录都会失效，需要重新登录。
           </div>
         </form>
       )}

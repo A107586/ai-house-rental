@@ -92,7 +92,7 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
           <div className="assist-body">
             退租<b>不可撤销</b>。
             <div className="assist-hint">
-              未到期的租金账单会作废，房源重新上架，押金按下面的金额结算。
+              未到期的租金账单会作废，房源重新上架，押金按下面金额结算。
             </div>
           </div>
         </div>

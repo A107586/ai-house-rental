@@ -119,7 +119,7 @@ export default function ActiveFilters({ value = {}, onChange }) {
           key={chip.key}
           className="chip removable"
           onClick={() => drop(chip)}
-          title="点击移除这个条件"
+          title="点一下移除这个条件"
         >
           {chip.label}
           <span aria-hidden="true">×</span>

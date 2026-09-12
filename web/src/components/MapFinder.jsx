@@ -116,7 +116,7 @@ export default function MapFinder({ selected, onPick, rows, title, hint }) {
         {/* 标题和说明也要跟着口径走。图上画的是「我的 14 套」，
             标题却写「地图找房」，房东会以为这是全城的图 */}
         <h3>{title || '地图找房'}</h3>
-        <span className="map-tip">{hint || '点击区域即可筛选房源'}</span>
+        <span className="map-tip">{hint || '点一下区域，就能筛选房源'}</span>
         <div className="map-metrics">
           {METRICS.map((m) => (
             <button
@@ -230,7 +230,7 @@ export default function MapFinder({ selected, onPick, rows, title, hint }) {
       </div>
 
       <div className="map-foot">
-        示意图按各区相对方位绘制，用于区域选择与密度对比，不用于精确定位。
+        示意图只按各区的相对方位绘制，用来选区域、看密度，不做精确定位。
       </div>
     </section>
   )

@@ -28,9 +28,9 @@ const ROLES = [
 const NEEDS_REVIEW = new Set(['landlord', 'agent'])
 
 const SELLING_POINTS = [
-  ['看得见的条件', '整句需求自动转成筛选条件，页面上可直接修改'],
-  ['从签到退有据可查', '合同生效即排出整期账单，每笔缴费都有流水与凭证'],
-  ['房源经过核验', '产权凭证由管理员人工审核，未核验的房源会明确标注'],
+  ['条件看得见', '智能体把整句需求拆成筛选条件，摊在页面上，随时能改'],
+  ['从签约到退租，全程查得到', '合同一生效，整个租期的账单就排好了；每笔缴费都有流水和凭证'],
+  ['房源经过核验', '产权凭证由管理员人工审核，没核验的会明确标出来'],
 ]
 
 export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
@@ -106,8 +106,8 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         // 不然用户会以为发布房源的入口坏了。
         if (NEEDS_REVIEW.has(form.role)) {
           setDone(form.role === 'landlord'
-            ? '注册成功。房东身份需管理员审核，通过后即可发布房源；审核期间可先用租客身份找房。'
-            : '注册成功。经纪人身份需要管理员审核，通过后即可接受委托。')
+            ? '注册成功。房东身份要等管理员审核，通过后就能发布房源；在那之前，你可以先用租客身份找房。'
+            : '注册成功。经纪人身份要等管理员审核，通过后就能接受委托。')
           setTimeout(() => onDone?.(d.user), 2600)
         } else {
           onDone?.(d.user)
@@ -122,8 +122,8 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         await api.forgotPassword(form.username.trim())
         // 不论账号存不存在都给同一句话——区别对待等于给了别人
         // 一个枚举账号的接口
-        setDone('如果该账号存在且绑定了邮箱，重置验证码已经发出，请查收邮件。'
-                + '收到后点下面的「我有验证码」继续。')
+        setDone('如果账号存在且绑了邮箱，重置验证码已经发出，请查收。'
+                + '收到后点下面的「我已有验证码」继续。')
       }
     } catch (err) {
       setTop(err.message || '操作失败，请重试')
@@ -162,7 +162,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
             这句必须说的话放在了注册按钮看得见的地方，
             而不是等用户填完信息才在页脚发现。 */}
         <p className="auth-foot-note">
-          大连理工大学 实习实训课程设计作品 · 房源与交易数据均为演示用途
+          大连理工大学实习实训课程设计作品 · 房源与交易数据仅作演示
         </p>
       </aside>
 
@@ -170,10 +170,10 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         <div className="auth-box">
           <h1 className="auth-title">{title}</h1>
           <p className="auth-sub">
-            {mode === 'login' && '登录后可收藏房源、预约看房、签约与缴费'}
-            {mode === 'register' && '填写以下信息，注册后即可开始找房'}
-            {mode === 'forgot' && '输入用户名，重置验证码会发到你绑定的邮箱'}
-            {mode === 'reset' && '粘贴邮件里的验证码，然后设置新密码'}
+            {mode === 'login' && '登录后可以收藏房源、预约看房、签约和缴费'}
+            {mode === 'register' && '填好以下信息，注册后就能开始找房'}
+            {mode === 'forgot' && '输入用户名，我们会把重置验证码发到绑定邮箱。'}
+            {mode === 'reset' && '粘贴邮件里的验证码，再设置新密码'}
           </p>
 
           {top && <div className="auth-alert">{top}</div>}
@@ -272,7 +272,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
                 {/* 验证码走邮箱，用户要离开页面去收。回来时得有个地方
                     把它填进去——没有这个入口，整条找回流程就断在半路 */}
                 <button className="link" onClick={() => onSwitch('reset')}>
-                  我有验证码
+                  我已有验证码
                 </button>
                 <span>·</span>
               </>
