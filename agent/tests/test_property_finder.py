@@ -203,10 +203,18 @@ class TestAgentRun(unittest.TestCase):
         self.assertIn("暂时不可用", result["message"])
 
     def test_unparseable_query_asks_for_detail(self):
+        """一个条件都没有时要**问回去**，而不是说「没听懂」。
+
+        断言落在「给了例子」上，不落在具体措辞上——这句话改过一次
+        （原文是「没听懂你的找房需求」，对着刚说完「我想租房」的人说
+        这话是冤枉他：听懂的是意图，缺的是条件），再改一次也正常。
+        不变的是它必须把话头递回去。
+        """
         backend = FakeBackend([])
         result = agent.run("你好啊", provider=NullProvider(), backend=backend)
         self.assertFalse(result["ok"])
-        self.assertIn("说得具体一点", result["message"])
+        self.assertIn("中山区两室一厅", result["message"], "要给一句能照着说的例子")
+        self.assertNotIn("没听懂", result["message"])
         self.assertIsNone(backend.last_params, "没听懂时不应该去查数据库")
 
 

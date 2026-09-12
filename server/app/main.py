@@ -11,27 +11,27 @@ import time
 import uuid
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
+from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
                      Request)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import Float, cast, func, literal, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 
 from app import gateway, house_query, leasing
 from app.console import force_utf8
-from app.auth import create_token, decode_token, using_dev_secret
+from app.auth import create_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
 from app.deps import (current_user, require_house_manager,
                       require_login, require_staff)
-from app.permissions import (active_delegation, can_manage_house,
+from app.permissions import (can_manage_house,
                              can_see_tenant_contact,
                              require_can_manage_house,
                              responsible_user_id)
@@ -387,6 +387,11 @@ def change_password(payload: PasswordChange, user: User = Depends(require_login)
 
 @app.get("/api/houses/{house_no}/images")
 def list_house_images(house_no: str, session: Session = Depends(get_session)):
+    """房源相册的完整信息。
+
+    房源详情里的 images 只有 URL 字符串，够列表页展示；房东要管理相册
+    就得知道每张的 id 与是不是封面，所以单开一个接口。
+    """
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
@@ -3211,20 +3216,6 @@ def delete_house_image(house_no: str, image_id: int,
     session.commit()
     uploads.remove(STATIC_DIR, url)
     return {"ok": True}
-
-
-@app.get("/api/houses/{house_no}/images")
-def list_house_images(house_no: str, session: Session = Depends(get_session)):
-    """房源相册的完整信息。
-
-    房源详情里的 images 只有 URL 字符串，够列表页展示，但房东要管理
-    相册就得知道每张的 id 与是不是封面，所以单开一个接口。
-    """
-    house = _house_or_404(session, house_no)
-    rows = sorted(house.images or [], key=lambda i: (not i.is_cover, i.sort_order))
-    return {"total": len(rows), "list": [
-        {"id": r.id, "url": r.url, "caption": r.caption,
-         "is_cover": r.is_cover} for r in rows]}
 
 
 @app.post("/api/houses/{house_no}/images/{image_id}/cover")

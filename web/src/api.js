@@ -166,7 +166,6 @@ export const api = {
   mapHouses: (params = {}) => request(`/api/houses/map?${toQuery(params)}`),
   getHouse: (houseNo) => request(`/api/houses/${houseNo}`),
   listDistricts: () => request('/api/districts'),
-  houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
   houseReviews: (houseNo) => request(`/api/houses/${houseNo}/reviews`),
 
   // ---------------- 足迹与评价 ----------------

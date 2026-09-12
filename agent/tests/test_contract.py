@@ -209,9 +209,6 @@ class TestAgent(unittest.TestCase):
             self.assertIn(key, result)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestFavourableClauses(unittest.TestCase):
     """审阅要能分出高下（E1）。
@@ -295,3 +292,7 @@ class TestFavourableClauses(unittest.TestCase):
     def test_empty_contract_still_has_the_key(self):
         """空合同也要带上这个字段，调用方才不用到处判 None。"""
         self.assertEqual(risk.check_risks("")["favourable"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

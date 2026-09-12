@@ -159,9 +159,6 @@ class TestRealWorldQueries(unittest.TestCase):
         self.assertEqual(filters["zujia_max"], 5000)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestDistrictMustBeARealDistrict(unittest.TestCase):
     """**区域只可能是那几个。**
@@ -204,3 +201,7 @@ class TestDistrictMustBeARealDistrict(unittest.TestCase):
     def test_a_city_outside_dalian_is_not_treated_as_a_district(self):
         got = agent._sanitize({"suozaidiqu": "北京市"})
         self.assertNotIn("suozaidiqu", got)
+
+
+if __name__ == "__main__":
+    unittest.main()

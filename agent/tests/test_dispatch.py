@@ -347,9 +347,6 @@ class TestRentFlow(unittest.TestCase):
             self.assertNotIn(word, result["message"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestOrdinalReference(unittest.TestCase):
     """「第一套」「第二套」指的是上一轮列出来的哪一条。
@@ -492,3 +489,172 @@ class TestLayoutWithoutTheHall(unittest.TestCase):
             result = ask(text)
             self.assertNotEqual(result.get("intent"), "search",
                                 "「%s」不是找房" % text)
+
+
+class TestOneConditionPlusAHouseWord(unittest.TestCase):
+    """「中山区的房子」——**一个条件配一个「房」字，就已经确定了。**
+
+    上面那条门槛卡在「两个字段」，把最自然的几种说法挡在了外面：
+    「中山区的房子」「沙河口区有什么房」「有电梯的房子」「三千以内的房子」
+    各只有一个条件，于是一路掉到客服兜底，回一句
+    「这个我没查到相关规定」。用户说的是最普通的中文。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_house_noun_rescues_a_single_condition(self):
+        for text in ["中山区的房子", "沙河口区有什么房", "有电梯的房子",
+                     "三千以内的房子"]:
+            result = ask(text)
+            self.assertEqual(result.get("intent"), "search",
+                             "「%s」是在找房" % text)
+
+    def test_hunt_verb_rescues_a_single_condition(self):
+        for text in ["我想找个两室", "想租个一居室", "有没有三千以内的"]:
+            result = ask(text)
+            self.assertEqual(result.get("intent"), "search",
+                             "「%s」是在找房" % text)
+
+    def test_rule_questions_are_not_stolen(self):
+        """加了这条之后，客服问题一条都不能被抢走。"""
+        for text in ["可以养宠物吗", "附近有地铁吗", "水电费怎么算",
+                     "押金一般收几个月"]:
+            result = ask(text)
+            self.assertNotEqual(result.get("intent"), "search",
+                                "「%s」不是找房" % text)
+
+
+class TestNoMoreResults(unittest.TestCase):
+    """问「还有别的吗」而确实没有了，要说没有了。
+
+    原先按 `seen // PAGE_SIZE + 1` 算页码：上一批只有 3 套、一页装 10 套，
+    算出来还是第 1 页，于是**把同样的三套原样再端一遍**，
+    配着一句「为你找到 3 套」——用户分不清这是新的还是刚才那批。
+
+    用假后端固定三套，不靠本机有没有起着业务后端：
+    这套测试一直宣称不依赖网络与数据库，那就不能在这里破例。
+    """
+
+    HOUSES = [
+        {"id": 1, "house_no": "DL9001", "title": "中山区青泥洼桥 两室一厅 70平",
+         "district": "中山区", "community": "青泥洼桥", "rent_price": 3000,
+         "area": 70, "layout": "两室一厅", "rent_type": "整租", "tags": []},
+        {"id": 2, "house_no": "DL9002", "title": "中山区人民路 两室一厅 66平",
+         "district": "中山区", "community": "人民路", "rent_price": 3200,
+         "area": 66, "layout": "两室一厅", "rent_type": "整租", "tags": []},
+        {"id": 3, "house_no": "DL9003", "title": "中山区桂林街 两室一厅 61平",
+         "district": "中山区", "community": "桂林街", "rent_price": 2800,
+         "area": 61, "layout": "两室一厅", "rent_type": "整租", "tags": []},
+    ]
+
+    def setUp(self):
+        support.reset_knowledge_base()
+        houses = self.HOUSES
+
+        def fake_list(params):
+            # 第 2 页起没有东西了——真后端也是这么答的
+            page = int(params.get("page") or 1)
+            return {"list": houses if page == 1 else [], "total": len(houses)}
+
+        patcher = mock.patch(
+            "app.agents.property_finder.tools.search_properties.client"
+            ".list_properties", side_effect=fake_list)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_says_so_instead_of_repeating(self):
+        first = ask("中山区两室一厅")
+        nos = [i["house_no"] for i in (first.get("items") or [])]
+        self.assertEqual(len(nos), 3)
+
+        again = ask("还有别的吗", history=["中山区两室一厅"],
+                    seen=len(nos), last_house_nos=nos)
+        self.assertEqual(again.get("items"), [], "没有更多了就不该再给房源")
+        self.assertIn("没有更多", again.get("message", ""))
+
+    def test_a_full_page_still_pages_forward(self):
+        """满页的时候照旧往下翻，序号接着数。"""
+        again = ask("还有别的吗", history=["中山区两室一厅"], seen=10,
+                    last_house_nos=["DL9001"])
+        self.assertIn("没有更多", again.get("message", ""))
+
+
+class TestRuleQuestionsBeatTheActionFlows(unittest.TestCase):
+    """**「预约了怎么取消」问的是规矩，不是要约看房。**
+
+    词表见到「预约」「看房」「报修」就往办事流程里送，于是这类问题
+    得到的是「没听清你想什么时候看房」或者一条「其他 / 一般」的故障单。
+
+    判据不靠猜：办事流程自己说接不了（预约解析不出任何时间、
+    报修归不了类），而且这句话确实是个问句，才转去检索。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_booking_questions_get_answered(self):
+        for text in ["预约了怎么取消", "几点可以看房", "看房要给带看费吗",
+                     "预约完多久房东会确认"]:
+            result = ask(text)
+            self.assertEqual(result.get("status"), "answered",
+                             "「%s」该被答上来，实得 %s/%s"
+                             % (text, result.get("intent"), result.get("status")))
+
+    def test_repair_questions_get_answered(self):
+        for text in ["报修要不要拍照", "什么情况算紧急报修", "报修多久上门"]:
+            result = ask(text)
+            self.assertEqual(result.get("status"), "answered",
+                             "「%s」该被答上来，实得 %s/%s"
+                             % (text, result.get("intent"), result.get("status")))
+
+    def test_real_bookings_are_untouched(self):
+        """句子里有时间的，一律还是走预约。"""
+        for text in ["明天下午两点看房", "这周六去看房"]:
+            result = ask(text)
+            self.assertEqual(result.get("intent"), "booking", text)
+
+    def test_real_faults_are_untouched(self):
+        """真的在报故障的，一律还是走报修。"""
+        for text in ["厨房水管漏水了", "暖气不热", "厨房灯不亮", "洗衣机坏了"]:
+            result = ask(text)
+            self.assertEqual(result.get("intent"), "repair", text)
+
+    def test_statements_are_not_sent_to_retrieval(self):
+        """**不是问句就别转。**
+
+        「我想租房」也解析不出条件，但它不是问题；转去检索换回来的是
+        一条风马牛不相及的规定（实测：「任一方提前解除合同的，
+        应提前 30 日书面通知对方」）。
+        """
+        result = ask("我想租房")
+        self.assertEqual(result.get("intent"), "search")
+        self.assertNotIn("违约金", result.get("message", ""))
+
+
+class TestSmallTalk(unittest.TestCase):
+    """打招呼要有人应。
+
+    不接的话「你好」会掉进客服检索，回一句「这个我没查到相关规定」——
+    用户打的第一个招呼就被告知查无此事。
+    """
+
+    def setUp(self):
+        support.reset_knowledge_base()
+
+    def test_greetings_get_a_greeting(self):
+        for text in ["你好", "你好啊", "在吗"]:
+            self.assertIn("租房助手", ask(text).get("message", ""), text)
+
+    def test_thanks_and_goodbye(self):
+        self.assertIn("不客气", ask("谢谢").get("message", ""))
+        self.assertIn("再见", ask("再见").get("message", ""))
+
+    def test_a_greeting_with_a_request_is_not_swallowed(self):
+        """「你好，我想找个两室」——寒暄只占前两个字，后半句才是正事。"""
+        result = ask("你好，我想找个两室")
+        self.assertNotIn("租房助手", result.get("message", ""))
+
+
+if __name__ == "__main__":
+    unittest.main()

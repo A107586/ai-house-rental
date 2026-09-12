@@ -967,9 +967,6 @@ class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
                 self.assertEqual(actions.detect(text), "", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestRescheduleViewing(unittest.TestCase):
     """看房改期。**后端没有「改时间」这个接口**，所以它其实是两步。"""
@@ -1108,3 +1105,7 @@ class TestOptionMatchingIsUnambiguous(unittest.TestCase):
         这时候按顺序猜一个，就是在赌；宁可回去再问一次。
         """
         self.assertEqual(actions.pick_option("DL0007", self.OPTIONS), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -273,9 +273,6 @@ class TestCatalogIntegrity(unittest.TestCase):
         self.assertIn("income", router.QUERY_HINTS)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestFaultPhrasing(unittest.TestCase):
     """「暖气不热」这类说法要认成报修（C3）。
@@ -309,3 +306,7 @@ class TestFaultPhrasing(unittest.TestCase):
         for text in ("今天天气不热", "这房子采光不亮堂吗", "中山区两室一厅",
                      "附近有没有便宜的", "押金怎么退", "房租能晚几天交"):
             self.assertNotEqual(self.intent(text), "repair", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

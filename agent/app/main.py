@@ -529,6 +529,27 @@ def agent_chat(payload: ChatRequest):
             routed = dict(routed, intent="search",
                           reason="规则解析出 %d 个找房条件"
                                  % len(ruled["filters"]))
+        elif (len(ruled["filters"]) + len(ruled.get("features") or [])) >= 1                 and (_HOUSE_NOUN.search(payload.text)
+                     or _HUNT_VERB.search(payload.text)):
+            # **一个条件 + 一个「房」字头的名词，也是在找房。**
+            #
+            # 上面那条卡在「两个字段」，是怕一个字段太弱（「中山区的」
+            # 可能是别的请求的半句话）。可实测被挡在外面的全是最自然的
+            # 说法：「中山区的房子」「沙河口区有什么房」「有电梯的房子」
+            # 「三千以内的房子」——各只有一个条件，于是一路掉到客服兜底，
+            # 回一句「这个我没查到相关规定」。
+            #
+            # **用户说的是最普通的中文，系统答的是「听不懂」，
+            # 这比答错更劝退。**
+            #
+            # 补的那个条件是「房子 / 房源 / 有什么房」这类指向住处的
+            # 名词——没人会为了问平台规则说「中山区的房子」。
+            # 用词表里 48 个客服问题逐条验过，一条都不受影响
+            # （「可以养宠物吗」「附近有地铁吗」解析得出特征，
+            # 但都不含这类名词，仍旧走客服）。
+            intent = "search"
+            routed = dict(routed, intent="search",
+                          reason="解析出找房条件，且问的是「房」")
 
     # ---- G1：先让大模型挑工具，挑不出再走规则链路 ----
     #
@@ -591,6 +612,65 @@ PAGE_SIZE = 10
 
 # 「再多看几套」的各种说法。写成前缀匹配而不是精确相等：
 # 界面上印的是「再多看几套」，但人打字时会写成「多看几套」「还有呢」
+# 寒暄。**整句都是寒暄才算**（`fullmatch`）——「你好，我想找个两室」
+# 里的「你好」不能把后半句吃掉。
+#
+# 不接的话，「你好」会一路掉进客服检索，回一句「这个我没查到相关规定」。
+# 用户打的第一个招呼就被告知查无此事，后面那些功能他多半不会再试了。
+_GREETING = re.compile(r"[你您]好[啊呀吗]?|哈[喽罗]|hi|hello|在[吗不]|在不在|"
+                       r"有人[吗在]", re.I)
+_THANKS = re.compile(r"谢谢[你您]?|多谢|感谢|辛苦了?|好的?[，,。!！]?|收到|明白了?", re.I)
+_BYE = re.compile(r"再见|拜拜|bye|886", re.I)
+
+_SMALL_TALK = (
+    (_GREETING, "你好，我是租房助手。找房可以一句一句地补充条件，我都记得住；"
+                "预约、报修、账单也都能在这儿办。"),
+    (_THANKS, "不客气。还有别的事随时说。"),
+    (_BYE, "再见，有需要随时找我。"),
+)
+
+
+def _small_talk(text):
+    """整句寒暄就回一句寒暄，返回 None 表示这不是寒暄。"""
+    stripped = (text or "").strip().strip("。.!！~、,，?？ ")
+    if not stripped or len(stripped) > 8:
+        return None
+    for pattern, reply in _SMALL_TALK:
+        if pattern.fullmatch(stripped):
+            return reply
+    return None
+
+
+# 这句话是不是在**问**什么。
+#
+# 「接不了就转去问知识库」这条兜底有个前提：用户确实在提问。
+# 「我想租房」「随便看看」也解析不出条件，但它们不是问题，转去检索
+# 只会拿回一条风马牛不相及的规定——实测「我想租房」换来一句
+# 「任一方提前解除合同的，应提前 30 日书面通知对方」。
+#
+# 闸门对这类没有实质内容的短句本来就偏松（「怎么办」两个词就能把
+# 覆盖率顶到 1.0），所以**别把不是问题的话送进去**。
+_ASKING = re.compile(
+    r"[?？]|怎么|如何|什么|哪|谁|多久|多长|几[点天个日月年]|"
+    r"为什么|能不能|可不可以|要不要|算不算|是否|有没有|吗|呢")
+
+
+def _is_question(text):
+    return bool(_ASKING.search(text or ""))
+
+
+# 指向「住处」的名词。意图词表认不出的说法太多，但只要句子里出现
+# 这些词，再配上任意一个解析出来的找房条件，就不会是别的意思。
+# 「房租」「房东」不在内——它们含「房」字，说的却不是住处本身。
+_HOUSE_NOUN = re.compile(r"房子|房源|房屋|有什么房|有房|住处|住的地方|公寓|单间")
+
+# 「找一个 / 想租 / 有没有」这类**要东西的说法**。和上面的名词是一对：
+# 「我想找个两室」里没有「房」字，可它和「中山区的房子」一样确定。
+# 收得很窄（只认成组的说法，不认单个「找」「有」字），
+# 免得把「遇到假房源找谁」这类问句一并划过去。
+_HUNT_VERB = re.compile(r"找房|租房|想找|要找|帮我找|找个|找一个|找一套|找套|"
+                        r"租个|租一个|想租|要租|有没有|推荐")
+
 _WANT_MORE = ("再多看几套", "多看几套", "再看几套", "再来几套", "还有别的",
               "还有其他", "还有呢", "下一页", "换一批", "再换一批",
               "更多房源", "看更多")
@@ -1152,10 +1232,22 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 代码里必须有人接。**
         more = _wants_more(text)
         page = 1
+        run_out = False
         if more and slots:
             # 接着上一批往下翻。条件用合并后的 merged——它是历史轮次
             # 重放出来的，正是上一批用的那一组
-            page = max(1, int(payload.seen or 0) // PAGE_SIZE + 1)
+            seen = int(payload.seen or 0)
+            page = max(1, seen // PAGE_SIZE + 1)
+            # **上一批不满一页，就说明那已经是最后一批。**
+            #
+            # 只按 seen // PAGE_SIZE 算页码时，seen=3、PAGE_SIZE=10
+            # 算出来还是第 1 页：用户问「还有别的吗」，拿到的是一模一样
+            # 的三张卡片，配着一句「为你找到 3 套」——读起来像是又搜了
+            # 一次、又找到三套，他根本分不清这是新的还是刚才那批。
+            #
+            # seen 不是整页数的唯一原因就是上一批没取满，所以这里
+            # 直接判定到底，不必再查一次库。
+            run_out = bool(seen) and seen % PAGE_SIZE != 0
 
         result = property_finder.run(text, provider=_llm(),
                                      filters=merged, features=features,
@@ -1168,15 +1260,36 @@ def _dispatch(payload, routed, intent, slots, feats):
             if picked is not None:
                 return picked
 
+        # **「遇到假房源找谁」问的是规矩，不是要找房。**
+        #
+        # 词表里「房源」是找房的强关键词，于是这类问题一律被送进找房，
+        # 而句子里一个筛选条件也没有，回一句「没听懂你的找房需求」——
+        # 这句话的答案明明就写在知识库里。
+        #
+        # 判据同预约、报修那两处：找房自己说 `unparsed`，就是它接不了。
+        # 检索答得上来才替换，答不上来仍旧回原来那句，
+        # **真的在找房、只是没说清条件的人不受影响**。
+        if result.get("status") == "unparsed" and _is_question(text):
+            asked = support.run(text, token=payload.token,
+                                history=list(payload.history or []),
+                                provider=_llm(), backend=backend_client,
+                                settings=settings, house_no=resolved_house)
+            if asked.get("status") == "answered":
+                asked["route"] = routed
+                return asked
+
         result["route"] = routed
         result["context"] = merged
         result["context_text"] = memory.describe(merged, features)
         result["notes"] = notes
         result["page"] = page
-        if page > 1:
+        if page > 1 or run_out:
             # 追加而不是另起一列。**序号必须接着数下去**——
             # 翻一页就从 1 重新数，用户刚记住的「第 3 套」就换了一套房
             result["append"] = True
+            if run_out:
+                # 已经到底：把这一页的结果丢掉，不然又是刚才那几张卡片
+                result["items"] = []
             start = int(payload.seen or 0) + 1
             end = start + len(result.get("items") or []) - 1
             if end >= start:
@@ -1242,6 +1355,26 @@ def _dispatch(payload, routed, intent, slots, feats):
         #
         # 未登录时才退回纯分析——那时候确实办不了，
         # 但**分析本身仍然有用**（他至少知道这算紧急故障）。
+        # **「报修要不要拍照」问的是规矩，不是在报故障。**
+        #
+        # 和预约那边一样：词表见到「报修」就往报修流程里送，于是
+        # 「什么情况算紧急报修」「报修多久上门」「屋里的家电坏了算谁的」
+        # 都被分析成一条「其他 / 一般」的故障单——分析了个寂寞。
+        #
+        # 判据是故障分类器**自己说没认出来**（类别落到「其他」）：
+        # 真的在报故障的话，「漏水」「不亮」「冲不下去」都归得进具体
+        # 类别。这时让检索先试一次；检索答不上来，照旧走报修流程，
+        # 所以**「洗衣机坏了」这类归不了类的真故障也不会被吞掉**。
+        probe = repair.run(text, provider=None, submit=False)
+        if (probe.get("category") or "其他") == "其他" and _is_question(text):
+            asked = support.run(text, token=payload.token,
+                                history=list(payload.history or []),
+                                provider=_llm(), backend=backend_client,
+                                settings=settings, house_no=resolved_house)
+            if asked.get("status") == "answered":
+                asked["route"] = routed
+                return asked
+
         if payload.token:
             handled = _support_action(payload, routed, "submit_repair", None)
             if handled is not None:
@@ -1277,6 +1410,29 @@ def _dispatch(payload, routed, intent, slots, feats):
             return _out_of_range(routed, {"source": "rules"},
                                  len(payload.last_house_nos))
         result = booking.run(text, house_no=house_no, taken=[])
+
+        # **「预约了怎么取消」问的是规则，不是要约看房。**
+        #
+        # 关键词表见到「预约」「看房」就交给预约流程，于是
+        # 「几点可以看房」「看房要给带看费吗」「预约完多久房东会确认」
+        # 统统得到一句「没听清你想什么时候看房」——用户问的是规矩，
+        # 助手追问的是时间，两边说的不是一件事。
+        #
+        # 判据不靠猜：预约流程连日期带时刻**一个都没解析出来**
+        # （`matched` 为空），就说明这句话里根本没有时间，它接不了。
+        # 这时候让检索试一次，答得上来就答，答不上来仍旧回原来那句
+        # 追问——**真的要约看房的人不受任何影响**，他们句子里有时间。
+        if (result.get("status") == "need_time"
+                and not (result.get("parsed") or {}).get("matched")
+                and _is_question(text)):
+            asked = support.run(text, token=payload.token,
+                                history=list(payload.history or []),
+                                provider=_llm(), backend=backend_client,
+                                settings=settings, house_no=resolved_house)
+            if asked.get("status") == "answered":
+                asked["route"] = routed
+                return asked
+
         result["route"] = routed
         if house_no:
             result["house_no"] = house_no
@@ -1285,6 +1441,11 @@ def _dispatch(payload, routed, intent, slots, feats):
         return result
 
     if intent == "unknown":
+        chat_back = _small_talk(text)
+        if chat_back:
+            return {"intent": "support", "status": "answered", "ok": True,
+                    "route": routed, "message": chat_back, "items": []}
+
         # **意图识别不出来时兜底走客服检索，而不是直接说「没太理解」。**
         #
         # 意图关键词表再全也覆盖不了所有说法：「预期收入」「能签几年」

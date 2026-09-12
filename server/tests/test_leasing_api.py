@@ -443,9 +443,6 @@ class TestStatsIncome(ContractCase):
         self.assertGreater(stats["occupancy_rate"], 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class TestNoPaymentAfterEnd(ContractCase):
     """合同结束之后不能再缴费。
 
@@ -684,3 +681,7 @@ class TestContractUpdate(ApiTestCase):
         msgs = self.client.get("/api/messages", headers=self.tenant).json()
         titles = [m["title"] for m in msgs.get("list", [])]
         self.assertIn("合同条款已修改", titles)
+
+
+if __name__ == "__main__":
+    unittest.main()

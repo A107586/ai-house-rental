@@ -345,9 +345,6 @@ class TestDaysLeft(LeasingCase):
         self.assertEqual(contract.days_left, 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestZeroDepositMakesNoBill(unittest.TestCase):
     """免押就不排押金账单。
@@ -412,3 +409,7 @@ class TestZeroDepositMakesNoBill(unittest.TestCase):
 
         bills = leasing.generate_bills(_Session(), _Fake())
         self.assertIn("deposit", [b.type for b in bills])
+
+
+if __name__ == "__main__":
+    unittest.main()
