@@ -700,7 +700,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setMessages((prev) => prev.map((m, i) => (
       i === index ? { ...m, feedback: value } : m)))
     try {
-      await api.supportFeedback(message.logId, value)
+      await api.supportFeedback(message.logId, value, sessionId)
     } catch {
       // 评价发不出去不该打断对话，界面上已经给了反馈
     }

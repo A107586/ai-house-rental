@@ -5,7 +5,7 @@
 两个文件之间来回跳。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -54,6 +54,8 @@ class SupportLogPayload(BaseModel):
 class FeedbackPayload(BaseModel):
     log_id: int
     value: int = 0
+    # 未登录用户拿这个证明「这条问答是我自己的」，见 support_feedback
+    session_id: str = ""
 
 
 class HandoffPayload(BaseModel):
@@ -209,16 +211,40 @@ def log_support(payload: SupportLogPayload,
     return {"ok": True, "log_id": row.id}
 
 
+def _owns_support_log(user, row, session_id):
+    """这条问答是不是这个人的。
+
+    登录时认 user_id；未登录时认 session_id——前端会话建立时生成一个，
+    每次提问都带着，所以未登录用户也能给自己的回答打分。
+
+    两样都没记的老数据一律不让改：宁可少一条反馈，也不要让一条
+    来路不明的反馈混进补语料的清单里。
+    """
+    if row.user_id:
+        return bool(user) and user.id == row.user_id
+    if row.session_id:
+        return bool(session_id) and session_id == row.session_id
+    return False
+
+
 @router.post("/api/support/feedback")
 def support_feedback(payload: FeedbackPayload,
+                     user: User = Depends(current_user),
                      session: Session = Depends(get_session)):
     """用户对一条回答点有用 / 没用。
 
     「没用」比「有用」值钱得多：它直接指出哪条 FAQ 写得不对或答非所问，
     是补语料时第一个该看的清单。
+
+    **只能给自己的那条打分。** 这里原先只按 log_id 找行就改，谁都能改：
+    log_id 是自增的连号，`for i in range(1, 10000)` 挨个点一遍「没用」，
+    管理端那张「补语料清单」就全是假的——而它恰恰是拿来决定
+    下一批写哪些 FAQ 的，被污染之后是在指挥人去修没坏的东西。
     """
     row = session.get(SupportLog, payload.log_id)
-    if not row:
+    if not row or not _owns_support_log(user, row, payload.session_id):
+        # 不是你的也报「不存在」：log_id 连号，回一句「这条不是你的」
+        # 就等于确认了这个号存在，逐个试一遍能问出总量和分布
         raise HTTPException(status_code=404, detail="记录不存在")
     row.feedback = 1 if payload.value > 0 else (-1 if payload.value < 0 else 0)
     session.commit()

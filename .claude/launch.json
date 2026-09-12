@@ -7,6 +7,20 @@
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8080"],
       "cwd": "server",
       "port": 8080
+    },
+    {
+      "name": "rental-agent",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "cwd": "agent",
+      "port": 8000
+    },
+    {
+      "name": "rental-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "web",
+      "port": 5173
     }
   ]
 }

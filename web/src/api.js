@@ -549,8 +549,8 @@ export const api = {
     }),
 
   // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单
-  supportFeedback: (logId, value) =>
-    post('/api/support/feedback', { log_id: logId, value }),
+  supportFeedback: (logId, value, sessionId = '') =>
+    post('/api/support/feedback', { log_id: logId, value, session_id: sessionId }),
 
   // 转人工：把答不上来的问题留给管理员
   supportHandoff: (question, reason = '', context = '') =>
