@@ -50,7 +50,11 @@ WECHAT_RE = re.compile(r"(?:微信|weixin|wx|vx|v信)[号:]?\s*([a-z0-9_-]{5,20}
 # chat 是租客与房东的私聊（C-1）。**这才是这类内容真正高发的地方**——
 # 平台上线后第一件事就是有人在聊天里发微信号绕过平台，或者骗子发链接。
 # 只审房源和评价而不审私聊，等于把门锁在了没人走的那道。
-CONTACT_SCENES = ("house", "review", "notice", "chat")
+# profile 是中介的公开简介（`PUT /api/agent/profile` 的 intro），
+# 它会原样出现在「找中介」名录里——和房源描述一样是**面向所有人**的
+# 自由文案，只是入口不同。原先只审房源不审这里，等于把同一句
+# 「加微信 wxid_xxx」换个地方就发出去了。
+CONTACT_SCENES = ("house", "review", "notice", "chat", "profile")
 
 LEVEL_PASS = "pass"
 LEVEL_FLAG = "flag"

@@ -8,8 +8,24 @@
   被拦下来，功能就没法上线了。这比漏判更容易毁掉一个审核系统。
 """
 
+from sqlalchemy import select
+
+import app.db as db
+from app.models import House
 from tests.base import ApiTestCase, auth_header, make_admin
 from app import moderation as mod
+
+
+def make_agent(client, username="agent_probe"):
+    """注册一个中介账号并返回它的请求头。
+
+    资质审核与这里无关——改简介不要求资质通过（真要求的话，
+    新中介连自我介绍都写不了）。"""
+    res = client.post("/api/auth/register", json={
+        "username": username, "password": "test123", "real_name": "中介探测",
+        "phone": "13700001111", "role": "agent"})
+    assert res.status_code == 200, res.text
+    return {"Authorization": "Bearer " + res.json()["token"]}
 
 
 class TestNormalize(ApiTestCase):
@@ -294,3 +310,80 @@ class TestReviewSoftDelete(ModerationApiCase):
         house = self.client.get("/api/houses/DL0001").json()
         self.assertEqual(house["rating"], 5.0)
         self.assertEqual(house["review_count"], 1)
+
+
+class TestEditPathIsGuardedToo(ApiTestCase):
+    """**只在发布时查一遍是不够的。**
+
+    编辑接口原先一个字都不查，于是「先发一套干净的、审核过了再改成
+    留微信」这条路是通的。实测六种写法（`加微信 wxid_abc123`、
+    `微 信：`、`Ｗｅｉｘｉｎ：`、`微❤信`、11 位手机号、QQ 号）
+    从 `PUT /api/houses/{no}` 全部原样入库。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.headers = auth_header(self.client, "landlord1")
+
+    def _put(self, **fields):
+        return self.client.put("/api/houses/DL0001", json=fields,
+                               headers=self.headers)
+
+    def test_contact_in_description_is_blocked_on_edit(self):
+        for text in ("加微信 wxid_abc123 详谈",
+                     "电话 13812345678 随时看房",
+                     "微 信：fangdong2026",
+                     "Ｗｅｉｘｉｎ：abc888",
+                     "微❤信 abc888",
+                     "QQ 1234567 联系我"):
+            res = self._put(description=text)
+            self.assertEqual(res.status_code, 400, "「%s」应当被拦：%s"
+                             % (text, res.text))
+
+    def test_contact_in_title_is_blocked_on_edit(self):
+        res = self._put(title="两室一厅 微信 wxid_x9abc")
+        self.assertEqual(res.status_code, 400, res.text)
+
+    def test_normal_wording_still_passes(self):
+        for text in ("可以微信联系管家，具体以平台为准",
+                     "楼下就是 7-11，24 小时营业",
+                     "月租 3500，押一付三"):
+            res = self._put(description=text)
+            self.assertEqual(res.status_code, 200, "「%s」不该被拦：%s"
+                             % (text, res.text))
+
+    def test_editing_only_the_rent_does_not_recheck_old_text(self):
+        """**只查这次真的改了的字段。**
+
+        拿库里的老文案去撞规则的话，一条历史遗留的违规描述会把整个
+        编辑功能卡死——房东连改个租金都改不了，而他根本没碰那段文字。
+        """
+        session = db.SessionLocal()
+        try:
+            house = session.scalar(
+                select(House).where(House.house_no == "DL0001"))
+            house.description = "老数据：加微信 wxid_legacy01"
+            session.commit()
+        finally:
+            session.close()
+        res = self._put(rent_price=3333)
+        self.assertEqual(res.status_code, 200, res.text)
+
+
+class TestAgentIntroIsPublicCopy(ApiTestCase):
+    """中介简介会出现在公开名录里，和房源描述一个性质。"""
+
+    def test_intro_with_contact_is_blocked(self):
+        headers = make_agent(self.client)
+        res = self.client.put("/api/agent/profile",
+                              json={"intro": "有事加微信 wxid_abc123 详谈"},
+                              headers=headers)
+        self.assertEqual(res.status_code, 400, res.text)
+
+    def test_normal_intro_passes(self):
+        headers = make_agent(self.client)
+        res = self.client.put(
+            "/api/agent/profile",
+            json={"intro": "熟悉大连各区两室房源，可代房东带看与答复咨询。"},
+            headers=headers)
+        self.assertEqual(res.status_code, 200, res.text)

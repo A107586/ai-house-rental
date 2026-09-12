@@ -274,3 +274,36 @@ class TestRepairImages(UploadCase):
                              headers=self.tenant,
                              json={"url": "https://evil.example.com/a.gif"})
         self.assertEqual(r.status_code, 400)
+
+
+class TestManagedUrlRejectsTraversal(ApiTestCase):
+    """`is_managed` 不能只看前缀。
+
+    `/static/uploads/../../../etc/passwd` 也以正确的前缀开头，
+    原先照样能存进相册表。今天它顶多是一张裂图（浏览器先把 `..`
+    规范化掉，StaticFiles 也只认自己那棵目录树，实测三种写法全是 404），
+    但一条指向 uploads 之外的地址留在库里，等哪天图片改由别的东西
+    来发（缩略图服务、CDN 回源、代理），它就是现成的入口。
+    """
+
+    def test_plain_upload_url_passes(self):
+        self.assertTrue(uploads.is_managed(
+            "/static/uploads/202609/0123456789abcdef0123456789abcdef.png"))
+
+    def test_traversal_is_refused(self):
+        for url in ("/static/uploads/../../../etc/passwd",
+                    "/static/uploads/202609/../../seed.py",
+                    "/static/uploads/%2e%2e/%2e%2e/seed.py",
+                    "/static/uploads/..\..\seed.py",
+                    "/static/uploads/202609/a.png\x00.txt",
+                    "/static/uploads/202609/a\npng"):
+            self.assertFalse(uploads.is_managed(url), url)
+
+    def test_other_prefixes_still_refused(self):
+        for url in ("https://evil.example.com/a.png",
+                    "//evil.example.com/a.png",
+                    "data:image/png;base64,iVBORw0KGgo=",
+                    "javascript:alert(1)",
+                    "/static/houses/h05.jpg",
+                    "", None):
+            self.assertFalse(uploads.is_managed(url), repr(url))

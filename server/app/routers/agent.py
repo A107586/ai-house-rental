@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app import leasing
+from app import leasing, moderation
 from app.db import get_session
 from app.security import hash_password
 from app.deps import require_login
@@ -106,7 +106,19 @@ def update_profile(payload: ProfileUpdate,
         profile.service_districts = ",".join(
             d.strip() for d in payload.service_districts[:6] if d.strip())
     if payload.intro is not None:
-        profile.intro = payload.intro.strip()
+        intro = payload.intro.strip()
+        # **简介是公开文案，和房源描述一个性质。**
+        #
+        # 它原样出现在「找中介」名录里，任何人不登录都看得到。
+        # 原先只审房源不审这里——同一句「加微信 wxid_xxx」换个入口
+        # 就发出去了，而且还挂在一个「平台已核验」的中介名下。
+        verdict = moderation.check(intro, scene="profile")
+        if verdict["level"] == moderation.LEVEL_BLOCK:
+            raise HTTPException(
+                status_code=400,
+                detail="简介未通过审核：" + (verdict["reasons"][0]
+                                     if verdict["reasons"] else "内容不合规"))
+        profile.intro = intro
     if payload.years is not None:
         profile.years = payload.years
     if payload.accepting is not None:

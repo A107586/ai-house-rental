@@ -89,8 +89,22 @@ def is_managed(url):
 
     删除接口据此判断能不能动磁盘上的文件——种子数据里的演示图片
     不在 uploads 目录下，不能被误删。
+
+    **只看前缀是不够的。** `/static/uploads/../../../etc/passwd` 也以
+    正确的前缀开头，照样能存进相册表。今天它顶多是一张裂图（浏览器会
+    先把 `..` 规范化掉，StaticFiles 也只认自己那棵目录树，实测三种写法
+    全是 404），但一条**指向 uploads 目录之外**的地址留在库里，
+    等哪天图片改由别的东西来发（缩略图服务、CDN 回源、代理），
+    它就是现成的入口。`remove()` 那边早就单独防了一次，这里补齐。
     """
-    return bool(url) and url.startswith("/static/%s/" % UPLOAD_DIRNAME)
+    if not url or not url.startswith("/static/%s/" % UPLOAD_DIRNAME):
+        return False
+    # 反斜杠是 Windows 的分隔符，`%2e%2e` 是编码过的 `..`，
+    # 控制字符能骗过一些按行处理的中间件
+    lowered = url.lower()
+    if ".." in url or "\\" in url or "%2e" in lowered or "%5c" in lowered:
+        return False
+    return all(ch >= " " and ch != chr(0x7f) for ch in url)
 
 
 def remove(static_dir, url):

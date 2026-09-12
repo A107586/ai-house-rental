@@ -976,6 +976,23 @@ def update_house(house_no: str, payload: HouseUpdate,
 
     fields = payload.model_dump(exclude_unset=True, exclude_none=True)
     tags = fields.pop("tags", None)
+
+    # **编辑也要过审核，不能只在发布时查一遍。**
+    #
+    # 上面那句「改完要重新走审核」说的是**人工**复核；自动拦截这一层
+    # 原先只挂在 `POST /api/houses` 上，编辑接口一个字都不查。
+    # 于是「先发一套干净的，审核过了再改成留微信」这条路是通的——
+    # 实测六种写法（`加微信 wxid_abc123`、`微 信：`、`Ｗｅｉｘｉｎ：`、
+    # `微❤信`、11 位手机号、QQ 号）从编辑接口全部原样入库。
+    #
+    # 只查这次真的改了的字段：没动标题就别拿库里的老标题去撞规则，
+    # 那样一条历史遗留的违规文案会把整个编辑功能卡死，
+    # 房东连改租金都改不了。
+    checked = {name: fields[key] for key, name in
+               (("title", "标题"), ("description", "描述")) if key in fields}
+    if checked:
+        moderate(checked, scene="house")
+
     for key, value in fields.items():
         setattr(house, key, value)
     if tags is not None:
