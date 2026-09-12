@@ -13,6 +13,7 @@ import random
 import re
 import sys
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,7 +26,7 @@ from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app import leasing  # noqa: E402
 from app.map_service import approximate_coordinates  # noqa: E402
 from app.models import (AgentProfile, Appointment, Base,  # noqa: E402
-                        BrowsingHistory, Faq,
+                        BrowsingHistory, Contract, Faq,
                         ContentFlag, Favorite, House, HouseImage, Notice,
                         Repair, RepairItem, RepairItemUsage, RepairRecord,
                         RepairWorker, Review, User)
@@ -581,6 +582,9 @@ def main():
                 content="房子采光很好，房东响应也快，水管坏了当天就来修了。"))
             session.flush()
 
+        print("铺历史租住记录与评价 ...")
+        _seed_history(session, houses, tenants, random)
+
         print("生成一份待确认的合同（供答辩演示签约流程）...")
         # 答辩演示要从「租客确认签约」这一步开始讲，所以必须留一份
         # pending 的合同。全都 activate 掉的话，演示时只能现场调接口
@@ -670,6 +674,115 @@ def main():
         print("  中介账号   agent1    / test123（资质已通过，可直接接单）")
     finally:
         session.close()
+
+
+
+# ---------------------------------------------------------------- 历史与评价
+
+# 评价正文。**写具体的事，不写形容词。**
+#
+# 「房子不错，房东人很好」这种话对看房的人毫无用处——他要判断的是
+# 「这套房有没有我在意的那个毛病」。所以每条都落在一件具体的事上：
+# 几点有太阳、水压够不够、报修多久上门、押金几天退。
+#
+# 正负都要有。清一色好评看着就是刷的，而**一条中评比十条好评更让人
+# 相信这个评价区是真的**。
+_GOOD = [
+    "朝南的屋子下午三点还有太阳，晒被子很方便。房东报修当天就找人来了。",
+    "楼下就是菜市场和地铁口，通勤四十分钟以内。隔音一般，但能接受。",
+    "家具是新换的，冰箱洗衣机都能用。退租时押金一周内退到账，没扯皮。",
+    "水压足，热水来得快。物业管得严，快递丢不了。",
+    "房东话不多但办事利索，合同条款一条条讲清楚才让签。",
+    "小区绿化好，晚上安静。楼层高，视野开阔。",
+    "位置好找，第一次去也没绕路。房子和照片基本一致。",
+    "厨房大，能开火。抽油烟机是新的。",
+]
+_FAIR = [
+    "房子本身没问题，就是临街，晚上偶尔有车声。怕吵的要考虑。",
+    "楼层不高采光一般，上午基本没直射。价格合适，将就住没问题。",
+    "设施都齐但有点旧，冰箱声音大。房东说可以换，还没换。",
+    "报修响应慢了两天，最后还是修好了。整体还行。",
+    "电梯高峰期要等，其他都挺好。",
+]
+_POOR = [
+    "墙皮有返潮，住了三个月才发现。房东后来刷了一遍，但当初没说。",
+    "隔音比想象中差，隔壁说话听得见。其他方面还可以。",
+]
+
+
+def _seed_history(session, houses, tenants, random):
+    """给一部分房源铺上「住过、评过」的历史。
+
+    ## 为什么要铺
+
+    原先只造了一条评价，于是 108 套房里 107 套的 `avg_rating` 是 0，
+    列表页每一张卡片都写着「暂无评分」——**这个提示本来是用来区分
+    「没人住过」和「分数没给你看」的，满屏都是的时候它一个意思也传达不出来。**
+    房东口碑、优选好房、按评分排序这三处也跟着全空。
+
+    ## 为什么直接插行，不走 leasing 的那套
+
+    `create_contract → activate → end` 每份合同会连带排出整期账单。
+    四十份历史合同就是四百多条早已付清的账单，把「我的账单」页面
+    冲得没法看，而这些账单对演示没有任何价值——**它们是历史，
+    不是待办**。所以这里直接写 contracts 与 reviews 两张表。
+
+    留出三成房源不评价：`avg_rating` 为 0 的情况必须在演示数据里真实存在，
+    否则「暂无评分」这条分支永远走不到，坏了也没人发现。
+    """
+    pool = [h for h in houses if h.landlord_id]
+    random.shuffle(pool)
+    rated = pool[:int(len(pool) * 0.7)]
+
+    made = 0
+    for index, house in enumerate(rated):
+        # 每套一到三条，多数是一条——一套房一年换不了几个租客
+        count = 1 if index % 4 else (2 if index % 8 else 3)
+        for turn in range(count):
+            tenant = tenants[(index + turn) % len(tenants)]
+            if tenant.id == house.landlord_id:
+                continue
+            # 往前推 1–4 年，一年一租
+            years = turn + 1
+            start = datetime.now() - timedelta(days=365 * years + 30)
+            end = start + timedelta(days=365)
+            rent = Decimal(str(house.rent_price))
+            contract = Contract(
+                contract_no="HT%s%04d" % (start.strftime("%y%m"), made),
+                house_id=house.id, tenant_id=tenant.id,
+                landlord_id=house.landlord_id,
+                start_date=start, end_date=end,
+                rent=rent, deposit=rent, pay_months=1,
+                status="ended", signed_at=start, ended_at=end,
+                end_reason="租期届满，正常退租",
+            )
+            session.add(contract)
+            session.flush()
+
+            # 评分分布：七成好评、两成中评、一成差评。
+            # **不做成清一色五星**——那种评价区没人信
+            roll = (index * 7 + turn) % 10
+            if roll < 7:
+                rating, content = random.choice([5, 5, 4]), random.choice(_GOOD)
+            elif roll < 9:
+                rating, content = 3, random.choice(_FAIR)
+            else:
+                rating, content = 2, random.choice(_POOR)
+
+            session.add(Review(
+                contract_id=contract.id, house_id=house.id,
+                tenant_id=tenant.id, rating=rating,
+                rating_house=rating,
+                # 房东分和房源分不总是一样：房子一般但房东靠谱是常见组合
+                rating_landlord=min(5, max(1, rating + (1 if roll % 3 else 0))),
+                content=content,
+                created_at=end + timedelta(days=2),
+            ))
+            made += 1
+
+    session.flush()
+    print("  历史租约 %d 份，评价 %d 条，覆盖 %d / %d 套房源"
+          % (made, made, len(rated), len(houses)))
 
 
 if __name__ == "__main__":

@@ -3716,11 +3716,27 @@
 /* 「暂无评分」用弱化的样式：它是一条信息，不是一个成绩。
    和真有分数的那个 ★ 4.5 同样醒目的话，列表扫过去会以为
    这是个什么标签。 */
+/* 卡片属性行要能换行。
+   原先是 nowrap 的一排，实测「暂无评分 两室一厅 66 平米 公寓 中楼层 电梯」
+   六项加起来 286px，而容器只有 285px——**正好卡在临界点上被 flex 挤压**，
+   看上去就是字被压扁、顶出框。多一个字、窄一点的屏幕，就真的溢出了。
+
+   换行比缩字号稳妥：属性有几项取决于房东填了多少，不是一个可以
+   事先算准的宽度。 */
+.card-meta {
+  flex-wrap: wrap;
+  gap: 5px 12px;
+}
+
+/* 没有评分时弱化显示。**它是一条信息，不是一个成绩**——
+   和真有分数的 ★ 4.5 一样醒目的话，扫过去会以为这是个标签。 */
 .card-meta .rate.none {
   color: var(--muted);
   background: none;
-  padding-left: 0;
+  padding: 0;
+  border: none;
   font-weight: 400;
+  white-space: nowrap;
 }
 
 /* 管理员签发的一次性重置码。用警示色，因为它就是一把临时钥匙。 */
@@ -3760,44 +3776,23 @@
 
 
 
-/* ============================================================
-   F2. 地图收起 = 把地方让出来
-   ============================================================ */
-
-@media (min-width: 1120px) {
-  /* 收起时回到单栏：房源栅格铺满整行，地图退成最上面一条细带。
-     **不做成悬浮球**——悬浮球要盖在内容上，而这一页右下角已经有
-     「租房助手」了；再多一个圆球，两个都会变得难认。 */
-  .list-layout.map-closed {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .list-layout.map-closed > .map-panel {
-    position: static;
-    max-height: none;
-    /* 排到列表前面：它是「要不要换个方式找」的入口，
-       不是看完房源之后才想起来的东西 */
-    order: -1;
-    margin-bottom: 14px;
-  }
-
-  /* 收起状态下的那一条：矮、横排、右边一个「展开」 */
-  .list-layout.map-closed > .map-panel .map-panel-head {
-    padding-top: 11px;
-    padding-bottom: 11px;
-  }
+/* 地图常驻，不再折叠。
+   收起那一档去掉了：收起之后这一栏只剩一条什么也没有的横带，
+   用户要先想起来「这里本来有张地图」才会去点它。而地图和列表
+   本来就该同时看见——在图上点一个区，左边列表当场变。 */
+.map-panel-head.static {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  /* 它不再是按钮，去掉一切「可按」的暗示 */
+  cursor: default;
+  background: none;
+  border: none;
+  text-align: left;
 }
 
-/* 收起时标题那一行要读得出「点这里会展开地图」。
-   只留一个「展开」两个字太含糊——展开什么？ */
-.map-panel:not(.open) .map-panel-sub { color: var(--muted); }
-
-.map-panel-arrow {
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--brand);
-  flex: none;
-}
 
 /* E1：合同审阅里「写清楚了」的那些条款。
    用绿色系和风险列表区分开——**同一套配色会让人以为它们也是问题**。 */

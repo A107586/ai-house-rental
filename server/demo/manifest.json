@@ -1,0 +1,17 @@
+{
+  "seed_sha256_16": "fbe59a33a075c7a4",
+  "generated_at": "2026-09-12",
+  "random_seed": 20260901,
+  "counts": {
+    "users": 14,
+    "houses": 108,
+    "contracts": 113,
+    "bills": 78,
+    "reviews": 105,
+    "appointments": 15,
+    "repairs": 6,
+    "payments": 14,
+    "house_images": 324
+  },
+  "size_bytes": 868352
+}

@@ -56,6 +56,12 @@ server/rental.db
 *.db-wal
 *.db-shm
 
+# 标准演示数据库**要进仓库**（server/demo/README.md 说明了为什么）。
+# 上面挡的是「跑出来的工作库」，这一份是刻意做的快照，两回事。
+!server/demo/rental_demo.db
+# 恢复时自动存的旧库不进仓库——那是本机的东西
+server/demo/backups/
+
 # ===== 前端 =====
 web/node_modules/
 web/dist/

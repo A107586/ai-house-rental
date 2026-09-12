@@ -247,7 +247,6 @@ export default function App() {
   // 列表页默认展开地图（贴在右侧），首页默认收起。
   // 列表页是「在找」的语境，地图和列表并排看才有意义；
   // 首页展开着只会把房源整体推下去一屏。
-  const [showMap, setShowMap] = useState(false)
   const [showTalk, setShowTalk] = useState(false)
   const [talkId, setTalkId] = useState(0)
   // 已经搜过的那句话。翻页要用它重新请求，
@@ -319,7 +318,6 @@ export default function App() {
     setSearched('')
     setError('')
     setSaveState('')
-    setShowMap(false)
     setFilters({})
     // 重新取一次不带条件的列表，把 total 还原成全站套数——
     // 大图上的统计读的就是它
@@ -334,8 +332,6 @@ export default function App() {
   useEffect(() => {
     // C6：地图默认展开——**四个入口都展开，包括搜索结果那一路**。
     // 原来 search 走的是下面那个 early return，于是「说一句话找房」
-    // 进来的人看不到地图，而按栏目进来的人看得到，同一个页面两种样子。
-    if (isList) setShowMap(true)
     if (!isList || listKind === 'search') return
     // 和首页那一栏用**同一组条件**。两处写得不一样的话，
     // 用户点「全部最新房源」会看到一批和上面那排对不上的房子。
@@ -943,9 +939,7 @@ export default function App() {
             原先收起只是把地图内容藏了，**右边那一栏 520–620px 的宽度
             还占着**——于是屏幕右半边空一大片，左边的房源卡片也挤在
             原来的窄栏里不肯铺开。收起本该是「把地方让出来」。 */}
-        <div className={isList
-          ? `list-layout${showMap ? '' : ' map-closed'}`
-          : ''}>
+        <div className={isList ? 'list-layout' : ''}>
         <div className="list-main">
 
         {/* C1 + C2：搜索框搬进左栏。
@@ -1099,25 +1093,24 @@ export default function App() {
         ))}
         </div>{/* /.list-main */}
 
+        {/* 地图常驻，不能折叠。
+            折叠键原本是想「不用地图的人可以把它收起来」，实际效果相反：
+            收起之后这一栏变成一条什么也没有的横带，用户得先想起来
+            「这里本来有张地图」才会去点它。**而地图和列表本来就是
+            要同时看的**——在图上点一个区，左边列表当场变，
+            这才是地图找房的用处。 */}
         {isList && (
-        <section className={`map-panel${showMap ? ' open' : ''}`}>
-          <button
-            className="map-panel-head"
-            onClick={() => setShowMap(!showMap)}
-            aria-expanded={showMap}
-          >
+        <section className="map-panel open">
+          <div className="map-panel-head static">
             <span className="map-panel-title">地图找房</span>
             <span className="map-panel-sub">
               {filters.district
                 ? `已选区域：${filters.district}`
                 : '在地图上按区域挑，位置和周边都看得见'}
             </span>
-            <span className="map-panel-arrow" aria-hidden="true">
-              {showMap ? '收起' : '展开'}
-            </span>
-          </button>
+          </div>
 
-          {showMap && (
+          {true && (
             <div className="map-panel-body">
               {/* **地图必须有自己的 Suspense。**
                   外层那个 Suspense 包着整个页面，地图是懒加载的——
