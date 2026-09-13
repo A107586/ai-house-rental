@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import leasing
+from app import leasing, uploads
 from app.db import get_session
 from app.deps import require_login
 from app.models import House, HouseReport, User
@@ -75,6 +75,26 @@ def create_report(payload: ReportCreate,
             status_code=409,
             detail="你对这套房源的举报正在处理中，请等待处理结果")
 
+    # **证据图只收本系统上传的地址。**
+    #
+    # 房源相册、评价配图、报修照片三处都有这道校验，理由写在
+    # `POST /api/houses/{no}/images` 上：放开成任意 URL，那个站点就能
+    # 拿到每个访客的 IP 与访问时间，还能随时换掉图上的内容。
+    #
+    # 举报这条路更值得防——**看这张图的是管理员**，而提交的人
+    # 恰恰是平台要审查的对象。原先这里一个字都不校验，
+    # 实测 `https://evil.example.com/a.png` 直接入库并显示在管理端。
+    evidence = []
+    for url in payload.evidence[:6]:
+        url = (url or "").strip()
+        if not url:
+            continue
+        if not uploads.is_managed(url):
+            raise HTTPException(status_code=400,
+                                detail="证据图片只能用本系统上传的，请先上传再提交")
+        if url not in evidence:
+            evidence.append(url)
+
     report = HouseReport(
         report_no="JB%s%s" % (datetime.now().strftime("%y%m%d"),
                               uuid.uuid4().hex[:6].upper()),
@@ -82,7 +102,7 @@ def create_report(payload: ReportCreate,
         house_id=house.id,
         kind=payload.kind,
         description=payload.description.strip(),
-        evidence=",".join(payload.evidence[:6]),
+        evidence=",".join(evidence),
     )
     session.add(report)
     session.commit()

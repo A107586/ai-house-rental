@@ -81,8 +81,14 @@ class TestSubmit(ReportCase):
         self.assertEqual(self.report().status_code, 200)
 
     def test_evidence_is_capped(self):
-        """证据图片有上限，不能靠塞几百个 URL 把字段撑爆。"""
-        response = self.report(evidence=["/static/%d.jpg" % i for i in range(20)])
+        """证据图片有上限，不能靠塞几百个 URL 把字段撑爆。
+
+        地址换成了本系统上传的样子——证据图现在要过
+        `uploads.is_managed`（见 TestEvidenceMustBeOurs），
+        `/static/0.jpg` 这种一进门就被拒了，量不到上限那一步。
+        """
+        urls = ["/static/uploads/202609/%032d.png" % i for i in range(20)]
+        response = self.report(evidence=urls)
         self.assertEqual(len(response.json()["report"]["evidence"]), 6)
 
 
@@ -201,3 +207,47 @@ class TestOperationLog(ReportCase):
         logs = self.client.get("/api/admin/logs", headers=self.admin).json()
         actions = [row["action"] for row in logs["list"]]
         self.assertIn("处理房源举报", actions)
+
+
+class TestEvidenceMustBeOurs(ApiTestCase):
+    """证据图只收本系统上传的地址。
+
+    房源相册、评价配图、报修照片三处都有这道校验，举报这条路原先没有。
+    **看这张图的是管理员**，而提交的人恰恰是平台要审查的对象——
+    外链能拿到管理员的 IP 与访问时间，还能在管理员点开之前换掉图上的内容。
+
+    实测：`https://evil.example.com/a.png` 直接入库，并显示在管理端。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.headers = auth_header(self.client)
+
+    def _report(self, evidence):
+        return self.client.post("/api/reports", json={
+            "house_no": "DL0001", "kind": "fake",
+            "description": "探测", "evidence": evidence}, headers=self.headers)
+
+    def test_external_urls_are_refused(self):
+        for url in ("https://evil.example.com/a.png",
+                    "//evil.example.com/a.png",
+                    "data:image/png;base64,iVBORw0KGgo=",
+                    "javascript:alert(1)",
+                    "/static/uploads/../../../etc/passwd"):
+            res = self._report([url])
+            self.assertEqual(res.status_code, 400, "%s 该被拒：%s" % (url, res.text))
+
+    def test_our_own_upload_passes(self):
+        url = "/static/uploads/202609/0123456789abcdef0123456789abcdef.png"
+        res = self._report([url])
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["report"]["evidence"], [url])
+
+    def test_no_evidence_is_still_allowed(self):
+        """**没有证据也得能举报。**
+
+        「打电话过去说早租出去了」这种就是拿不出图，
+        强制上传等于把这类举报挡在门外。
+        """
+        res = self._report([])
+        self.assertEqual(res.status_code, 200, res.text)
