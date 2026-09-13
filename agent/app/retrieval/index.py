@@ -254,7 +254,7 @@ class KnowledgeIndex(object):
     RERANK_TITLE = 0.30
     RERANK_BODY = 0.15
 
-    def rerank(self, query, ranked, detail, top_k=3):
+    def rerank(self, query, ranked, detail, top_k=3, expanded=""):
         """对 RRF 的候选做确定性精排，返回 ``[(chunk_id, score), ...]``。
 
         **为什么召回之后还要单独精排。** RRF 只用名次、丢掉分数量级，
@@ -267,6 +267,20 @@ class KnowledgeIndex(object):
         **精排负责精度**（在小候选集内部把分数量级用起来）。
         分数在候选集内归一化后加权——只在同一次查询的候选之间比较，
         不跨查询比，这正是 BM25 分数唯一站得住的用法。
+
+        **`expanded` 传进来的话，覆盖率取「原句」与「扩展句」的较大者。**
+
+        不传的话这里只按原句算覆盖率，而召回用的是扩展句——同一次排序里
+        两个环节看的是两份不同的查询。实测后果：「到期退租有哪些步骤」
+        召回阶段把「到期正常退租的流程是什么」排在第一（0.0451），
+        精排把它压到第二（0.4807 vs 0.5020），让位给「提前退租押金还退吗」。
+        原因就是「步骤」和「流程」是同义组里的两个词，扩展句知道，
+        原句不知道。
+
+        取**较大者**而不是直接用扩展句：扩展会把整组同义词并进查询，
+        分母跟着变大，只按扩展句算会稀释掉原话里那些确切的词。
+        实测三种口径（原句 / 扩展句 / 较大者）在 52 条有金标的问题上，
+        top-1 是 48 / 47 / **49**，top-3 是 50 / 51 / **51**。
         """
         if not ranked:
             return []
@@ -281,6 +295,8 @@ class KnowledgeIndex(object):
         scored = []
         for chunk_id in candidates:
             cover = self.coverage(query, chunk_id)
+            if expanded:
+                cover = max(cover, self.coverage(expanded, chunk_id))
             title = (title_scores.get(chunk_id, 0.0) / max_title) if max_title else 0.0
             body = (body_scores.get(chunk_id, 0.0) / max_body) if max_body else 0.0
             score = (self.RERANK_COVERAGE * cover

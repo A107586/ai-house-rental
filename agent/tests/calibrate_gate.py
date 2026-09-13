@@ -49,7 +49,8 @@ def retrieve(index, question):
     """
     ranked, detail = index.search(
         question, expanded=corpus.expand_query(question), top_k=8)
-    reranked = index.rerank(question, ranked, detail, top_k=3)
+    reranked = index.rerank(question, ranked, detail, top_k=3,
+                            expanded=corpus.expand_query(question))
     if not reranked:
         return [], None, 0.0, False
     candidates = [chunk_id for chunk_id, _ in reranked]

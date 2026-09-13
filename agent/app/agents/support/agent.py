@@ -706,7 +706,10 @@ def run(text, token="", history=None, provider=None, backend=None,
     # ⑤⑥ 检索 + 精排
     expanded = corpus.expand_query(query)
     ranked, detail = index.search(query, expanded=expanded, top_k=CANDIDATE_K)
-    reranked = index.rerank(query, ranked, detail, top_k=CONTEXT_K)
+    # 扩展句一并给精排：召回用它、精排不用的话，同一次排序里
+    # 两个环节看的是两份不同的查询（见 index.rerank 的说明）
+    reranked = index.rerank(query, ranked, detail, top_k=CONTEXT_K,
+                            expanded=expanded)
     candidates = [cid for cid, _ in reranked]
 
     # ⑦ 可答性闸门

@@ -501,7 +501,9 @@ class TestAI03SupportAccuracy(unittest.TestCase):
         for question, gold in support_eval.ANSWERABLE:
             ranked, detail = index.search(
                 question, expanded=corpus.expand_query(question), top_k=8)
-            top3 = [cid for cid, _ in index.rerank(question, ranked, detail, top_k=3)]
+            top3 = [cid for cid, _ in index.rerank(
+                question, ranked, detail, top_k=3,
+                expanded=corpus.expand_query(question))]
             if any(g in top3 for g in gold):
                 hits += 1
             else:

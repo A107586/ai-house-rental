@@ -126,7 +126,9 @@ class TestGate(unittest.TestCase):
     def _candidates(self, question):
         ranked, detail = self.index.search(
             question, expanded=corpus.expand_query(question), top_k=8)
-        return [c for c, _ in self.index.rerank(question, ranked, detail, top_k=3)]
+        return [c for c, _ in self.index.rerank(
+            question, ranked, detail, top_k=3,
+            expanded=corpus.expand_query(question))]
 
     def test_passes_for_well_supported_question(self):
         question = "押金什么时候退"
