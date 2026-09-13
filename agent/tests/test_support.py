@@ -12,6 +12,7 @@
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,6 +24,7 @@ from app.agents.support.tools import (account, answer as answer_tool,  # noqa: E
 from app.backend import BackendError  # noqa: E402
 from app.agents.support.tools import gate  # noqa: E402
 from app.retrieval.index import KnowledgeIndex  # noqa: E402
+from app.retrieval.tokenize import WORD_LEVEL  # noqa: E402
 from tests.fixtures import support_tune as tune  # noqa: E402
 
 
@@ -678,6 +680,7 @@ class TestMoneyText(unittest.TestCase):
         self.assertEqual(money_text("说不清"), "说不清")
 
 
+@unittest.skipUnless(WORD_LEVEL, "G0 依赖词级分词，没装 jieba 时整道门是关掉的。见 tests/run_degraded.py")
 class TestNoTopicIsRefused(unittest.TestCase):
     """**没有话题词的句子一律拒答（G0）。**
 
@@ -720,6 +723,55 @@ class TestNoTopicIsRefused(unittest.TestCase):
             verdict = gate.evaluate(self.index, question, ["faq-deposit-refund"])
             self.assertFalse(verdict["ok"], "「%s」该被拒：%s" % (question, verdict))
             self.assertIn("话题词", verdict["reason"])
+
+
+class TestGateWithoutJieba(unittest.TestCase):
+    """**没装分词器时，闸门不能把所有问题都拒掉。**
+
+    这条用例是补出来的，起因是一次真实事故：本机有两个 Python，
+    测试跑在装了 jieba 的那个上（707 条全绿），而服务起在 miniforge
+    那个上（有 fastapi、没 jieba）。G0 用「挑不出话题词」当拒答依据，
+    没装 jieba 时 `topic_term` 对**任何**句子都返回空——
+
+        线上「押金怎么退」→「暂时没有查到相关规定，这个我不敢乱说。」
+        离线 AI-03      → 20/20 = 100%
+
+    项目一直说「没装 jieba 一切仍然能跑，只是正确率从 85% 掉回 80%」。
+    G0 那一版把它变成了 0%，而**所有测试都是绿的**。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        support.reset_knowledge_base()
+        cls.index = KnowledgeIndex(corpus.load_faq())
+
+    def _ask(self, question):
+        expanded = corpus.expand_query(question)
+        ranked, detail = self.index.search(question, expanded=expanded, top_k=8)
+        rr = self.index.rerank(question, ranked, detail, top_k=3,
+                               expanded=expanded)
+        return gate.evaluate(self.index, question,
+                             [c for c, _ in rr], provider=None)
+
+    def test_answers_survive_without_word_level(self):
+        with mock.patch.object(gate, "WORD_LEVEL", False):
+            for question in ("押金怎么退", "水电费怎么算", "怎么续租",
+                             "报修多久上门", "忘记密码了"):
+                verdict = self._ask(question)
+                self.assertTrue(verdict["ok"],
+                                "没装分词器也该答得上「%s」：%s"
+                                % (question, verdict["reason"]))
+
+    @unittest.skipUnless(WORD_LEVEL, "降级模式（没装 jieba）下不成立：闸门挑不出词级话题词， 这一条断言的是有分词器时的行为。见 tests/run_degraded.py。")
+    def test_g0_still_works_when_word_level_is_on(self):
+        for question in ("怎么办", "还有别的吗", "为什么"):
+            self.assertFalse(self._ask(question)["ok"], question)
+
+    def test_domain_refusal_survives_without_word_level(self):
+        """降级不等于什么都答：域外问题照样得拒。"""
+        with mock.patch.object(gate, "WORD_LEVEL", False):
+            for question in ("今天股市怎么样", "帮我写首诗", "推荐个电影"):
+                self.assertFalse(self._ask(question)["ok"], question)
 
 
 if __name__ == "__main__":

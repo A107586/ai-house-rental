@@ -5,6 +5,7 @@
 """
 
 import contextvars
+import sys
 import re
 import time
 
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import fusion, memory, supervisor
+from app.retrieval.tokenize import WORD_LEVEL
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
@@ -38,6 +40,27 @@ from app.agents.support.tools import forms as support_forms
 from app.backend import client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
+
+# Windows 上输出重定向到文件或管道时用的是本地编码（本机 cp1252），
+# 打印中文会抛 UnicodeEncodeError。服务端昨天补过这一处，
+# **智能体这边漏了**——下面那句中文告警当场把服务打挂在启动阶段：
+#
+#     UnicodeEncodeError: 'charmap' codec can't encode characters in position 7-10
+#
+# 原委见 server/app/console.py。这里内联同样四行：两个服务各自独立部署，
+# 为一个四行的函数跨服务共享一个模块不划算。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
+# 没装分词器就在启动时说一声。**这种「装没装结果不一样」的差异
+# 不能留给队友自己发现**——它不报错、不崩溃，只是答对率悄悄掉一截。
+if not WORD_LEVEL:
+    print("[warn] 没有找到 jieba，可答性闸门降级运行"
+          "（AI-03 有依据正确率会低一截）。装上：pip install jieba",
+          flush=True)
 
 app = FastAPI(
     title="房屋租赁智能体服务",
@@ -162,6 +185,13 @@ def health():
     所以把这个进程里的调用成败也摆出来。
     """
     return {"status": "ok", "config": settings.describe(),
+            # **装没装分词器，必须能从外面看出来。**
+            #
+            # 这台机器上有两个 Python：测试跑的那个装了 jieba，
+            # 服务起的那个（miniforge）没装。没装时闸门挑不出话题词、
+            # AI-03 的有依据正确率会掉一截，而**从接口上完全看不出来**——
+            # 排查了半天才发现问题不在代码在解释器。
+            "word_level": WORD_LEVEL,
             "llm": provider.stats()}
 
 

@@ -63,7 +63,13 @@ if ($LASTEXITCODE -ne 0) {
 # 不在后端清单里。而 README 原先只教了装后端依赖，于是智能体一启动就
 # ImportError 退出——界面上的表现是聊天回一句「智能体暂时联系不上」，
 # 看起来像功能没做，其实是那个服务压根没起来。
-& $python -c "import dotenv" 2>&1 | Out-Null
+#
+# **探针要盯最后加进清单的那个，不是随便挑一个。** 早先只探 dotenv，
+# 而 jieba 是后来才从「可选」变成必装的——机器上先装过一轮依赖的人，
+# dotenv 探针一路绿灯，jieba 永远补不上。这台机器就是这么中的招：
+# 服务起在一个有 fastapi、没 jieba 的解释器上，可答性闸门降级运行，
+# 而接口上完全看不出来（现在 /health 里有 word_level 了）。
+& $python -c "import dotenv, jieba" 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "正在安装智能体依赖 ..." -ForegroundColor Cyan
     & $python -m pip install -r (Join-Path $root "agent\requirements.txt")

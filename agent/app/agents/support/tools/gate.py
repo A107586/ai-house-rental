@@ -61,6 +61,7 @@ G3 原先只用来「收紧」（把规则的可答改成拒答），现在**反
 """
 
 from app.agents.support import corpus
+from app.retrieval.tokenize import WORD_LEVEL
 from app.llm.base import LLMUnavailable
 
 # 阈值在 `tests/fixtures/support_tune.py` 的调参集上标定，
@@ -181,7 +182,16 @@ def evaluate(index, query, candidates, provider=None):
     # 有 2 条会被误伤（「合同能下载下来吗」「约了没去会怎么样」，
     # 分词后只剩「下载」「去」「会」这些够不着门槛的词），
     # 换来十一条不再乱答。**宁可少答两条，不要多编十一条。**
-    if not index.topic_term(query):
+    # **只有装了分词器才问得出这个问题。** 没装 jieba 时
+    # `topic_term` 对任何句子都返回空——那不是「这句话没有话题」，
+    # 是「这台机器答不了这个问题」。不加这道判断的话，G0 会把
+    # **每一个问题**都拒掉。
+    #
+    # 这个 bug 真的发生了：本机有两个 Python，测试跑在装了 jieba 的那个上
+    # （707 条全绿），服务却起在 miniforge 那个上（有 fastapi、没 jieba），
+    # 于是线上「押金怎么退」也答不出来，而离线指标是 100%。
+    # 补的回归用例见 test_support.TestGateWithoutJieba。
+    if WORD_LEVEL and not index.topic_term(query):
         result["reason"] = "问句里没有可检索的话题词"
         return result
 

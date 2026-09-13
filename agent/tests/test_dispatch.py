@@ -31,6 +31,7 @@ from app.agents.support import agent as support  # noqa: E402
 from app.llm.base import LLMProvider, LLMUnavailable  # noqa: E402
 from app import main  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
+from app.retrieval.tokenize import WORD_LEVEL  # noqa: E402
 from unittest import mock  # noqa: E402
 
 
@@ -593,6 +594,7 @@ class TestRuleQuestionsBeatTheActionFlows(unittest.TestCase):
     def setUp(self):
         support.reset_knowledge_base()
 
+    @unittest.skipUnless(WORD_LEVEL, "降级模式（没装 jieba）下不成立：闸门挑不出词级话题词， 这一条断言的是有分词器时的行为。见 tests/run_degraded.py。")
     def test_booking_questions_get_answered(self):
         for text in ["预约了怎么取消", "几点可以看房", "看房要给带看费吗",
                      "预约完多久房东会确认"]:

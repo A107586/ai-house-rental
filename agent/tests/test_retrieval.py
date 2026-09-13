@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.retrieval import rrf  # noqa: E402
 from app.retrieval.bm25 import BM25Index  # noqa: E402
 from app.retrieval.index import KnowledgeIndex  # noqa: E402
-from app.retrieval.tokenize import (char_tokens, content_chars,  # noqa: E402
-                                    normalize, tokenize)
+from app.retrieval.tokenize import (WORD_LEVEL, char_tokens,  # noqa: E402
+                                    content_chars, normalize, tokenize)
 
 
 def chunk(chunk_id, title, body, aliases=None, category="测试"):
@@ -167,6 +167,7 @@ class TestKnowledgeIndex(unittest.TestCase):
             self.index.key_term_hit("帮我订个外卖",
                                     self.index.order[0]))
 
+    @unittest.skipUnless(WORD_LEVEL, "降级模式（没装 jieba）下不成立：闸门挑不出词级话题词， 这一条断言的是有分词器时的行为。见 tests/run_degraded.py。")
     def test_key_term_is_a_real_word_not_a_fragment(self):
         """**回归测试**：关键词曾系统性地挑中切在词缝上的碎片。
 
@@ -187,6 +188,7 @@ class TestKnowledgeIndex(unittest.TestCase):
                              "「%s」挑出了词缝上的碎片「%s」"
                              % (question, term))
 
+    @unittest.skipUnless(WORD_LEVEL, "降级模式（没装 jieba）下不成立：闸门挑不出词级话题词， 这一条断言的是有分词器时的行为。见 tests/run_degraded.py。")
     def test_multi_character_topic_words_are_eligible(self):
         """**三个字的词恰恰常常就是那句话在问的东西。**
 
