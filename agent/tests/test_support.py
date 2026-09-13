@@ -21,7 +21,9 @@ from app.agents.support.tools.money import money_text  # noqa: E402
 from app.agents.support.tools import (account, answer as answer_tool,  # noqa: E402
                                       classify_ask, gate, toolcall)
 from app.backend import BackendError  # noqa: E402
+from app.agents.support.tools import gate  # noqa: E402
 from app.retrieval.index import KnowledgeIndex  # noqa: E402
+from tests.fixtures import support_tune as tune  # noqa: E402
 
 
 class StubProvider(object):
@@ -672,6 +674,50 @@ class TestMoneyText(unittest.TestCase):
     def test_garbage_does_not_explode(self):
         self.assertEqual(money_text(None), "0")
         self.assertEqual(money_text("说不清"), "说不清")
+
+
+class TestNoTopicIsRefused(unittest.TestCase):
+    """**没有话题词的句子一律拒答（G0）。**
+
+    覆盖率是个比率，分母是查询自己的 IDF 质量。查询没什么实质内容时
+    分母很小，蒙中一两个泛词就能把比率顶到很高：
+
+        怎么办    cover 1.000 → 答成「登录状态下在账号设置里可以改密码」
+        随便      cover 1.000 → 答成「房东怎么入驻」
+        还有别的吗  key_hit=True → 答成「注册时选择身份……」
+
+    二十条这类短句，加 G0 之前闸门放行十二条，**而且每条都答得
+    像模像样**——比拒答难看得多，用户会以为这系统在胡说。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        support.reset_knowledge_base()
+        cls.index = KnowledgeIndex(corpus.load_faq())
+
+    def test_which_ones_g0_cannot_catch(self):
+        """**把漏网的那两条写出来，不假装全过。**
+
+        「看看」是个真动词，G0 判不了它没话题；这两条最终是被覆盖率
+        或关键词那两道门拦下的（`看看` cover 0.188），只有「随便看看」
+        真的漏了出去（cover 0.511，答成一句「不可以。」）。
+        写死这个集合，是为了它变大时立刻知道。
+        """
+        has_topic = [q for q in tune.NO_TOPIC if self.index.topic_term(q)]
+        self.assertEqual(has_topic, ["随便看看", "看看"],
+                         "G0 判不出「没话题」的短句集合变了：%s" % has_topic)
+
+    def test_real_questions_all_have_a_topic(self):
+        """32 条该答的问题，一条都不能被 G0 误伤。"""
+        missing = [q for q, _ in tune.POSITIVES if not self.index.topic_term(q)]
+        self.assertEqual(missing, ["合同能下载下来吗", "约了没去会怎么样"],
+                         "被 G0 误伤的集合变了：%s" % missing)
+
+    def test_the_gate_actually_refuses_them(self):
+        for question in ("怎么办", "还有别的吗", "为什么", "都行", "太贵了"):
+            verdict = gate.evaluate(self.index, question, ["faq-deposit-refund"])
+            self.assertFalse(verdict["ok"], "「%s」该被拒：%s" % (question, verdict))
+            self.assertIn("话题词", verdict["reason"])
 
 
 if __name__ == "__main__":

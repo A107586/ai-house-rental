@@ -14,6 +14,17 @@
 顺序不能反。需求把拒答率的下限写成 90%、回答率写成 80%，
 说明这个系统宁可少答，也不能乱答——客服说错一条规定的代价，
 比说一句「我不确定」大得多。
+
+## 这个脚本直接调 `gate.evaluate`，不再自己复述一遍规则
+
+原先这里有个 `decide()` 把闸门的规则抄了一遍，注释写着「改一处两处都要改」。
+**那句话没兜住。** 闸门后来加了同义词救场、又加了 G0 话题词门，
+这个脚本一处都不知道，于是它算出来的最优阈值是 0.32，而代码里跑的是
+0.42——**标定工具和被标定的东西已经不是一回事了**，
+照它的建议改反而会把闸门调坏。
+
+现在改成临时改写 `gate` 的两个模块常量、直接调 `gate.evaluate`。
+闸门以后再加几道门，这里自动跟上。
 """
 
 import os
@@ -22,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.support import corpus  # noqa: E402
+from app.agents.support.tools import gate  # noqa: E402
 from app.retrieval.index import KnowledgeIndex  # noqa: E402
 from tests.fixtures import support_tune as tune  # noqa: E402
 
@@ -30,28 +42,41 @@ REQUIRED_REFUSE = 0.90
 REQUIRED_ANSWER = 0.80
 
 
-def signals(index, question):
-    """算出一条问题的闸门判据。与 `gate.evaluate` 用的是同一套量。"""
+def retrieve(index, question):
+    """检索这一问，返回 (精排后的片 id 列表, top1, 覆盖率, 关键词命中)。
+
+    **检索与阈值无关**，所以每问只跑一次，网格上反复用。
+    """
     ranked, detail = index.search(
         question, expanded=corpus.expand_query(question), top_k=8)
     reranked = index.rerank(question, ranked, detail, top_k=3)
     if not reranked:
-        return None, 0.0, 1.0
-    top = reranked[0][0]
-    return (top, index.coverage(question, top),
+        return [], None, 0.0, False
+    candidates = [chunk_id for chunk_id, _ in reranked]
+    top = candidates[0]
+    return (candidates, top, index.coverage(question, top),
             index.key_term_hit(question, top))
 
 
-def decide(cover, key_hit, cover_strong, cover_min):
-    """与 `gate.evaluate` 的规则部分保持一致，改一处两处都要改。
+def signals(index, question):
+    """老接口：只给 (top, 覆盖率, 关键词命中)。别处的用例还在用。"""
+    _, top, cover, key_hit = retrieve(index, question)
+    return top, cover, key_hit
 
-    覆盖率很高 → 直接答；中间带 → 还得问的那个词真的出现在材料里。
+
+def answers(index, question, candidates, cover_strong, cover_min):
+    """在给定阈值下，闸门放不放行这一问。
+
+    临时改写模块常量再调真闸门——**不复述规则**，理由见模块文档。
+    `provider=None` 保证不联网：标定必须可复现。
     """
-    if cover < cover_min:
-        return False
-    if cover >= cover_strong:
-        return True
-    return bool(key_hit)
+    saved = (gate.COVER_STRONG, gate.COVER_MIN)
+    gate.COVER_STRONG, gate.COVER_MIN = cover_strong, cover_min
+    try:
+        return bool(gate.evaluate(index, question, candidates,
+                                  provider=None)["ok"])
+    finally:
+        gate.COVER_STRONG, gate.COVER_MIN = saved
 
 
 def main():
@@ -59,14 +84,10 @@ def main():
     print("语料 %d 片；调参集 正例 %d / 负例 %d"
           % (len(index), len(tune.POSITIVES), len(tune.NEGATIVES)))
 
-    positives = []
-    for question, gold in tune.POSITIVES:
-        top, cover, unseen = signals(index, question)
-        # 检索本身就没召回的样本，调阈值也救不回来，单独记出来
-        positives.append((question, gold, top, cover, unseen))
-    negatives = [(q,) + signals(index, q)[1:] for q, _ in tune.NEGATIVES]
+    positives = [(q, gold) + retrieve(index, q) for q, gold in tune.POSITIVES]
+    negatives = [(q, None) + retrieve(index, q) for q, _ in tune.NEGATIVES]
 
-    recalled = [p for p in positives if p[2] == p[1]]
+    recalled = [p for p in positives if p[3] == p[1]]
     print("检索 top-1 命中 %d/%d（阈值救不了没召回的样本）"
           % (len(recalled), len(positives)))
 
@@ -80,11 +101,11 @@ def main():
             if cover_min >= cover_strong:
                 continue
             answered = sum(
-                1 for _, gold, top, c, k in positives
-                if top == gold and decide(c, k, cover_strong, cover_min))
+                1 for q, gold, cands, top, _, _ in positives
+                if top == gold and answers(index, q, cands, cover_strong, cover_min))
             refused = sum(
-                1 for _, c, k in negatives
-                if not decide(c, k, cover_strong, cover_min))
+                1 for q, _, cands, _, _, _ in negatives
+                if not answers(index, q, cands, cover_strong, cover_min))
             answer_rate = answered / len(positives)
             refuse_rate = refused / len(negatives)
             # 先过拒答率的门槛，再比回答率
@@ -112,9 +133,11 @@ def main():
               % (plateau[0], plateau[-1], cover_strong))
     print()
     print("标定结果：")
-    print("  COVER_STRONG = %.2f" % cover_strong)
-    print("  COVER_MIN    = %.2f" % cover_min)
-    print("  中间带附加条件：问的那个词必须出现在材料里（key_term_hit）")
+    print("  COVER_STRONG = %.2f   （代码里当前是 %.2f）"
+          % (cover_strong, gate.COVER_STRONG))
+    print("  COVER_MIN    = %.2f   （代码里当前是 %.2f）"
+          % (cover_min, gate.COVER_MIN))
+    print("  另有两道与阈值无关的门：G0 话题词、同义词救场（都在 gate.evaluate 里）")
     print("调参集上：回答率 %.1f%%（要求 ≥ %.0f%%）· 拒答率 %.1f%%（要求 ≥ %.0f%%）"
           % (answer_rate * 100, REQUIRED_ANSWER * 100,
              refuse_rate * 100, REQUIRED_REFUSE * 100))
@@ -124,13 +147,32 @@ def main():
 
     print()
     print("被拒的正例（调参集）：")
-    for question, gold, top, cover, key_hit in positives:
-        if top == gold and not decide(cover, key_hit, cover_strong, cover_min):
-            print("  %-22s cover=%.3f 键中=%d" % (question, cover, key_hit))
+    for question, gold, cands, top, cover, key_hit in positives:
+        if top == gold and not answers(index, question, cands,
+                                       cover_strong, cover_min):
+            print("  %-22s cover=%.3f 键中=%d 话题词=%s"
+                  % (question, cover, key_hit, index.topic_term(question) or "无"))
     print("被放行的负例（调参集）：")
-    for question, cover, key_hit in negatives:
-        if decide(cover, key_hit, cover_strong, cover_min):
+    for question, _, cands, top, cover, key_hit in negatives:
+        if answers(index, question, cands, cover_strong, cover_min):
             print("  %-22s cover=%.3f 键中=%d" % (question, cover, key_hit))
+
+    # ---- 诊断：没有话题的短句 ----
+    #
+    # **不参与目标函数。** 它们是送分题，混进负例池会把拒答率灌高，
+    # 标定就会以为「阈值还能再松」——那正是当初把「怎么办」
+    # 答成改密码 FAQ 的原因（见 support_tune.NO_TOPIC 的说明）。
+    leaked = []
+    for question in tune.NO_TOPIC:
+        cands, _, cover, _ = retrieve(index, question)
+        if cands and answers(index, question, cands, cover_strong, cover_min):
+            leaked.append((question, cover))
+    print()
+    print("没有话题的短句（诊断用，不参与标定）：%d 条里漏 %d 条"
+          % (len(tune.NO_TOPIC), len(leaked)))
+    for question, cover in leaked:
+        print("  %-22s cover=%.3f 话题词=%s"
+              % (question, cover, index.topic_term(question)))
 
 
 if __name__ == "__main__":

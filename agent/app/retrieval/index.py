@@ -493,6 +493,16 @@ class KnowledgeIndex(object):
         return max(words,
                    key=lambda t: self.body_index.idf.get(t, self._unseen_idf))
 
+    def topic_term(self, query):
+        """这句话里有没有一个能当**话题**的词，有就返回其中区分度最高的。
+
+        `key_term` 挑不出真词时会退回字符 bigram，总能给出点什么；
+        这里不退——**「挑不出来」本身就是一个结论**：一句话里连一个
+        名词或动词都没有，那就不存在「知识库里讲没讲过它」这个问题。
+        闸门拿它当第一道门用（见 `gate.evaluate` 的 G0）。
+        """
+        return self._key_term_by_word(query)
+
     def term_in_corpus(self, term):
         """这个词在**整个语料**里出现过吗。
 
