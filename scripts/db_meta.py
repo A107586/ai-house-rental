@@ -92,7 +92,7 @@ TABLE_INFO = {
         "《改进清单 2026-09-10》D1。「成为房东」原先是**点一下当场生效**，"
         "而房东是合同甲方，"
         "平台至少要看一眼这个人是谁，所以改成申请制。"
-        "**退回不需要审核（D-2）**：放弃权限不是获得权限，"
+        "**退回不需要审核（同一份清单 D2）**：放弃权限不是获得权限，"
         "唯一前置是手上没有在租房源与生效合同，那是数据完整性要求，不是审批"),
 
     # ↓ 这三张表的说明原本是有人**直接改在生成结果里**的，
@@ -310,7 +310,8 @@ MODULES = {
     "中介": ["agent_profiles", "house_delegations", "viewing_records",
              "agent_commissions"],
     "平台治理": ["operation_logs", "content_flags", "system_configs"],
-    "智能体": ["chat_messages", "faqs", "support_logs", "support_handoffs"],
+    "智能客服与知识": ["chat_messages", "faqs", "support_logs",
+                        "support_handoffs"],
 }
 
 REQUIREMENTS = {
@@ -388,3 +389,61 @@ def check_coverage(metadata):
         if name not in names:
             problems.append("登记了「%s」，但模型里没有这张表" % name)
     return problems
+
+
+# 接口路径前缀 → 模块。用来统计「每个模块有多少个接口」。
+#
+# **按前缀归并，不按文件归并**：`main.py` 一个文件里就有 86 个接口，
+# 按文件统计出来是「main 模块 86 个」，等于没说。
+# 顺序有讲究，长前缀写在前面（`/api/admin/role-requests` 要先于 `/api/admin`）。
+PATH_MODULES = [
+    ("/api/auth", "账号与权限"),
+    ("/api/admin/role-requests", "账号与权限"),
+
+    ("/api/houses", "房源"),
+    ("/api/landlord", "房源"),
+    ("/api/saved-searches", "房源"),
+    ("/api/reports", "房源"),
+    ("/api/report-kinds", "房源"),
+    ("/api/districts", "房源"),
+    ("/api/pricing", "房源"),
+    ("/api/upload", "房源"),
+
+    ("/api/appointments", "看房预约"),
+
+    ("/api/contracts", "合同与账单"),
+    ("/api/bills", "合同与账单"),
+    ("/api/payments", "合同与账单"),
+    ("/api/refunds", "合同与账单"),
+
+    ("/api/repairs", "报修与维修"),
+    ("/api/repair-", "报修与维修"),
+
+    ("/api/favorites", "互动与消息"),
+    ("/api/history", "互动与消息"),
+    ("/api/reviews", "互动与消息"),
+    ("/api/messages", "互动与消息"),
+    ("/api/notices", "互动与消息"),
+    ("/api/conversations", "互动与消息"),
+
+    ("/api/agents", "中介"),
+    ("/api/agent", "中介"),
+    ("/api/delegations", "中介"),
+    ("/api/viewings", "中介"),
+
+    ("/api/faqs", "智能客服与知识"),
+    ("/api/support", "智能客服与知识"),
+    ("/api/chat-messages", "智能客服与知识"),
+
+    ("/api/admin", "平台治理"),
+    ("/api/config", "平台治理"),
+    ("/api/stats", "平台治理"),
+    ("/health", "平台治理"),
+]
+
+
+def module_of_path(path):
+    for prefix, module in PATH_MODULES:
+        if path.startswith(prefix):
+            return module
+    return ""

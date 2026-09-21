@@ -353,7 +353,7 @@ CREATE TABLE role_requests (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(user_id) REFERENCES users (id), 
 	FOREIGN KEY(reviewer_id) REFERENCES users (id)
-) COMMENT='角色升级申请 — D-1。「成为房东」原先是点一下当场生效，而房东是合同甲方，平台至少要看一眼这个人是谁，所以改成申请制。退回不需要审核（D-2）：放弃权限不是获得权限，唯一前置是手上没有在租房源与生效合同，那是数据完整性要求，不是审批' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) COMMENT='角色升级申请 — 《改进清单 2026-09-10》D1。「成为房东」原先是点一下当场生效，而房东是合同甲方，平台至少要看一眼这个人是谁，所以改成申请制。退回不需要审核（同一份清单 D2）：放弃权限不是获得权限，唯一前置是手上没有在租房源与生效合同，那是数据完整性要求，不是审批' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX ix_role_requests_status ON role_requests (status);
 
