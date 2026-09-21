@@ -44,7 +44,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db_meta import (COLUMN_NOTES, ROOT, TABLE_INFO,  # noqa: E402
-                     load_metadata, ordered_tables)
+                     check_coverage, load_metadata)
 
 from sqlalchemy.dialects import mysql, sqlite  # noqa: E402
 from sqlalchemy.schema import CreateIndex, CreateTable  # noqa: E402
@@ -192,8 +192,17 @@ def main():
     args = parser.parse_args()
 
     metadata = load_metadata()
+
+    # 先查登记：新建的表如果没写中文名、没归模块、没挂需求，
+    # 生成出来就是一张「谁也说不清它为什么存在」的表。宁可在这里停下。
+    problems = check_coverage(metadata)
+    if problems:
+        for problem in problems:
+            print("  ! %s" % problem)
+        print("先把上面这些补到 scripts/db_meta.py，再生成。")
+        return 1
+
     annotate(metadata)
-    ordered_tables(metadata)          # 顺带校验：每张表都登记过中文名
 
     results = [
         (MYSQL_SQL, build_mysql(metadata)),

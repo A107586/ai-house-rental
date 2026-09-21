@@ -89,7 +89,8 @@ TABLE_INFO = {
     #   「每张表都必须有中文名」的校验发现的。
     "role_requests": (
         "角色升级申请",
-        "D-1。「成为房东」原先是**点一下当场生效**，而房东是合同甲方，"
+        "《改进清单 2026-09-10》D1。「成为房东」原先是**点一下当场生效**，"
+        "而房东是合同甲方，"
         "平台至少要看一眼这个人是谁，所以改成申请制。"
         "**退回不需要审核（D-2）**：放弃权限不是获得权限，"
         "唯一前置是手上没有在租房源与生效合同，那是数据完整性要求，不是审批"),
@@ -283,3 +284,107 @@ def ordered_tables(metadata):
     order = [t.name for t in metadata.sorted_tables]
     return ([n for n in PRIORITY if n in order]
             + [n for n in order if n not in PRIORITY])
+
+
+# ---------------------------------------------------------------- 需求追溯
+#
+# 「这张表是为哪条需求存在的」——**代码里没有这个信息，也推不出来**。
+# 表名和字段类型都不会告诉你 `password_resets` 对应 K-11。
+#
+# 编号只用《需求分析说明书》里的稳定编号（F/M/K/J/T/R/N/AI 系列）。
+# 《改进清单》那种按天编的 D1、B2 不进来：同一个 D1 在三天的清单里
+# 指三件不同的事，拿它做追溯等于给自己挖坑。
+#
+# 一张表可以对应多条需求，一条需求也可以落在多张表上——RTM 本来就是
+# 多对多。**没有对应需求的表不允许存在**：真出现了，要么是需求漏写，
+# 要么是这张表不该建。`--check` 会校验覆盖率。
+MODULES = {
+    "账号与权限": ["users", "role_requests", "password_resets"],
+    "房源": ["houses", "house_images", "saved_searches", "house_reports"],
+    "看房预约": ["appointments"],
+    "合同与账单": ["contracts", "bills", "payments", "refunds"],
+    "报修与维修": ["repairs", "repair_images", "repair_workers", "repair_items",
+                   "repair_records", "repair_item_usages"],
+    "互动与消息": ["favorites", "browsing_history", "reviews", "messages",
+                   "notices", "conversations", "chat_lines"],
+    "中介": ["agent_profiles", "house_delegations", "viewing_records",
+             "agent_commissions"],
+    "平台治理": ["operation_logs", "content_flags", "system_configs"],
+    "智能体": ["chat_messages", "faqs", "support_logs", "support_handoffs"],
+}
+
+REQUIREMENTS = {
+    "users": ["F-02", "F-03", "F-11", "K-13", "R-01", "R-02", "N-03", "N-04"],
+    "role_requests": ["F-11", "K-13"],
+    "password_resets": ["K-11", "R-01"],
+
+    "houses": ["F-01", "K-04", "K-05", "K-07", "K-12", "T-03", "R-04", "R-06"],
+    "house_images": ["F-01", "K-12", "M-08"],
+    "saved_searches": ["K-09", "K-06"],
+    "house_reports": ["K-08", "M-08"],
+
+    "appointments": ["F-04", "AI-06", "J-05"],
+
+    "contracts": ["F-05", "K-01", "K-02", "K-03", "AI-02", "R-03", "R-04"],
+    "bills": ["F-06", "F-07", "K-02", "R-04", "R-05"],
+    "payments": ["F-06", "F-07", "R-04", "R-05"],
+    "refunds": ["F-06", "K-01", "K-02"],
+
+    "repairs": ["F-08", "AI-04"],
+    "repair_images": ["F-08", "K-12"],
+    "repair_workers": ["F-09"],
+    "repair_items": ["F-09"],
+    "repair_records": ["F-09", "R-05"],
+    "repair_item_usages": ["F-09", "R-05"],
+
+    "favorites": ["F-01", "K-13", "AI-07"],
+    "browsing_history": ["AI-07", "K-13"],
+    "reviews": ["F-05", "J-08", "M-08"],
+    "messages": ["F-04", "F-08", "K-09"],
+    "notices": ["F-10", "M-08", "AI-03"],
+    "conversations": ["J-03", "J-07"],
+    "chat_lines": ["J-03", "M-08"],
+
+    "agent_profiles": ["J-01", "J-11", "R-05"],
+    "house_delegations": ["J-02", "J-04"],
+    "viewing_records": ["J-05", "J-08"],
+    "agent_commissions": ["J-06"],
+
+    "operation_logs": ["M-07", "N-04"],
+    "content_flags": ["M-08"],
+    "system_configs": ["M-09", "F-11"],
+
+    "chat_messages": ["AI-09", "N-08"],
+    "faqs": ["AI-03"],
+    "support_logs": ["AI-03", "M-07"],
+    "support_handoffs": ["AI-03"],
+}
+
+
+def module_of(table_name):
+    for module, members in MODULES.items():
+        if table_name in members:
+            return module
+    return ""
+
+
+def check_coverage(metadata):
+    """每张表都要有中文名、归属模块、对应需求。缺一样就报出来。
+
+    这三样都是**代码里读不到**的信息，只能靠人登记；而靠人登记的东西
+    一定会漏。所以让脚本每次生成时都数一遍——
+    `role_requests` 就是这么被发现漏登了大半年的。
+    """
+    names = [t.name for t in metadata.sorted_tables]
+    problems = []
+    for name in names:
+        if name not in TABLE_INFO:
+            problems.append("表「%s」没有中文名（补到 TABLE_INFO）" % name)
+        if not module_of(name):
+            problems.append("表「%s」没有归属模块（补到 MODULES）" % name)
+        if not REQUIREMENTS.get(name):
+            problems.append("表「%s」没有对应需求（补到 REQUIREMENTS）" % name)
+    for name in set(TABLE_INFO) | set(REQUIREMENTS):
+        if name not in names:
+            problems.append("登记了「%s」，但模型里没有这张表" % name)
+    return problems
