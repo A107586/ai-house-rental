@@ -14,6 +14,7 @@
 不是靠读代码确认。
 """
 
+import datetime
 import os
 import sys
 import unittest
@@ -1039,22 +1040,50 @@ class TestRescheduleViewing(unittest.TestCase):
 
 
 class TestCancelNarrowsByTime(unittest.TestCase):
-    """用户已经说了是哪一条，就别再把选择题丢回去。"""
+    """用户已经说了是哪一条，就别再把选择题丢回去。
 
-    ROWS = {"/api/appointments/mine": {"list": [
-        {"id": 11, "house_no": "DL0007", "status": "pending",
-         "viewing_time": "2026-09-12 10:00:00"},
-        {"id": 12, "house_no": "DL0009", "status": "confirmed",
-         "viewing_time": "2026-09-20 14:00:00"},
-        {"id": 13, "house_no": "DL0008", "status": "pending",
-         "viewing_time": "2026-09-21 09:00:00"},
-    ]}}
+    **日期一律从今天推算，不写死。** 这一组原本把预约钉在
+    2026-09-12/20/21，句子里说「取消 9 月 20 号那个看房」。
+    过了 9-20 之后，解析器按「这个日子已经过去，那说的是明年」
+    把它解成 2027-09-20，筛不到任何一条，于是退回三选一——
+    **红的不是功能，是用例自己过期了**。
+
+    `_narrow_by_time` 走的是生产路径（`parse_datetime` 不注入 now），
+    所以只能反过来：让预约落在今天之后，句子也从同一个日期生成。
+    同一类过期在 AI-06 的验收集上已经发生过一次，那次是「只有周六
+    才失败」，藏得更深。时间相关的用例写死具体日期，迟早都会到期。
+    """
+
+    @staticmethod
+    def _day(offset):
+        """今天往后第 offset 天，连同「用户会怎么说这一天」一起给出。
+
+        offset 必须在一年以内：解析器的「已经过去就算明年」规则，
+        只有在这个范围内才会把这句话还原回同一天。
+        """
+        day = datetime.date.today() + datetime.timedelta(days=offset)
+        return day, "%d 月 %d 号" % (day.month, day.day)
+
+    def setUp(self):
+        first, _ = self._day(2)
+        second, self.second_said = self._day(9)
+        third, _ = self._day(30)
+        # 谁都不是的那一天——用来测「筛空了怎么办」
+        _, self.nobody_said = self._day(45)
+        self.rows = {"/api/appointments/mine": {"list": [
+            {"id": 11, "house_no": "DL0007", "status": "pending",
+             "viewing_time": first.strftime("%Y-%m-%d") + " 10:00:00"},
+            {"id": 12, "house_no": "DL0009", "status": "confirmed",
+             "viewing_time": second.strftime("%Y-%m-%d") + " 14:00:00"},
+            {"id": 13, "house_no": "DL0008", "status": "pending",
+             "viewing_time": third.strftime("%Y-%m-%d") + " 09:00:00"},
+        ]}}
 
     def test_a_time_in_the_sentence_picks_the_appointment(self):
-        backend = RecordingBackend(self.ROWS)
+        backend = RecordingBackend(self.rows)
         status, message, card, ask = actions.propose(
-            "cancel_viewing", "取消 9 月 20 号那个看房", "tok", backend,
-            context={})
+            "cancel_viewing", "取消 %s那个看房" % self.second_said,
+            "tok", backend, context={})
         self.assertEqual(status, actions.CONFIRM)
         self.assertEqual(card["params"]["appointment_id"], 12)
 
@@ -1063,10 +1092,10 @@ class TestCancelNarrowsByTime(unittest.TestCase):
 
         解析错一次，取消掉的就是另一场看房。
         """
-        backend = RecordingBackend(self.ROWS)
+        backend = RecordingBackend(self.rows)
         status, message, card, ask = actions.propose(
-            "cancel_viewing", "取消 1 月 1 号那个看房", "tok", backend,
-            context={})
+            "cancel_viewing", "取消 %s那个看房" % self.nobody_said,
+            "tok", backend, context={})
         self.assertEqual(status, actions.NEED_SLOT)
         self.assertEqual(len(ask["options"]), 3)
 
