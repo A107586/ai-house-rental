@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app import gateway, house_query, leasing
 from app.console import force_utf8
+from app import prodcheck
 from app.auth import create_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
@@ -62,6 +63,10 @@ from app.routers import (account, agent, conversation, password_reset,
                          repair_data, reports, saved_search, support)
 from app.security import hash_password, verify_password
 
+# 上线自检放在建 app 之前：配置不合格就别把服务起起来。
+# 等到监听上了公网端口再报错已经晚了。见 app/prodcheck.py
+prodcheck.enforce()
+
 app = FastAPI(
     title="房屋租赁系统 · 业务后端",
     description="房源、预约、报修、收藏、用户的增删改查接口",
@@ -72,11 +77,18 @@ app = FastAPI(
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "static")
 
+# 跨域白名单。**默认只有本地地址**，上线时用 CORS_ORIGINS 覆盖
+# （逗号分隔）。写死在代码里的白名单上线那天一定会被忘掉，
+# 表现是前端一个接口都调不通，而浏览器控制台里只说一句 CORS 错误。
+_DEV_ORIGINS = ["http://localhost:3000", "http://localhost:5173",
+                "http://localhost:8000", "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173", "http://127.0.0.1:8000"]
+CORS_ORIGINS = [o.strip() for o in (os.environ.get("CORS_ORIGINS") or "").split(",")
+                if o.strip()] or _DEV_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173",
-                   "http://localhost:8000", "http://127.0.0.1:3000",
-                   "http://127.0.0.1:5173", "http://127.0.0.1:8000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

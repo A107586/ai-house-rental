@@ -1,0 +1,48 @@
+# 业务后端。
+#   sudo cp deploy/rental-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rental-api
+
+[Unit]
+Description=大连智租 业务后端 (FastAPI)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=rental
+Group=rental
+WorkingDirectory=/srv/rental/server
+EnvironmentFile=/etc/rental/rental.env
+
+# **只监听回环地址。** 对外一律走 nginx：
+# 直接暴露 8080 的话，X-Forwarded-For 就成了谁都能写的东西，
+# 限流与操作日志里的 IP 会全部失真。
+#
+# worker 数：N-01 实测 4 个 worker 把房源列表从 1947ms 压到 305ms。
+# 按 CPU 核数给，1~2 核的小机器写 2。
+# **刻意不加 `--proxy-headers`。** 它会拿 X-Forwarded-For 的**第一段**
+# 去改写 request.client.host，而第一段是客户端自己填的。
+# 转发头由应用自己按 TRUSTED_PROXY_HOPS 处理（从右边数），
+# 两套一起上只会让「到底信哪个」说不清。
+ExecStart=/srv/rental/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8080 --workers 4
+
+Restart=always
+RestartSec=3
+# 启动自检不过时进程会直接退出（这是设计），别让它疯狂重启刷日志
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# 只给它该有的权限
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 上传目录要可写，其余文件系统只读
+ReadWritePaths=/srv/rental/server/static /var/log/rental
+
+StandardOutput=append:/var/log/rental/api.log
+StandardError=append:/var/log/rental/api.log
+
+[Install]
+WantedBy=multi-user.target

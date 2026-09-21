@@ -100,12 +100,13 @@ def reset():
         _attempts.clear()
 
 
-def client_ip(request):
-    """取客户端 IP。经过反向代理时用 X-Forwarded-For 的第一段。"""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45]
-    return request.client.host if request.client else ""
+# 客户端地址的取法只有一处实现，见 `app/netaddr.py`。
+#
+# **这里原本自己写了一份**（和 `oplog.py` 里那份一模一样），取的是
+# `X-Forwarded-For` 的第一段——而那一段是客户端自己填的。
+# 实测：连错 8 次被限流之后，只要换一个 `X-Forwarded-For` 的值就又放行，
+# **限流等于不存在**。
+from app.netaddr import client_ip  # noqa: E402,F401
 
 
 # ---------------------------------------------------------------- 通用尝试限流

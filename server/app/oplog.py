@@ -112,9 +112,9 @@ def identify(authorization):
     return payload.get("uid"), payload.get("username", ""), payload.get("role", "")
 
 
-def client_ip(request):
-    """取客户端 IP。经过反向代理时优先用 X-Forwarded-For 的第一段。"""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45]
-    return request.client.host if request.client else ""
+# 客户端地址的取法只有一处实现，见 `app/netaddr.py`。
+#
+# 日志里这一栏原本也能被伪造：取的是 `X-Forwarded-For` 的第一段，
+# 而那一段由请求方自己填。**操作日志是用来追溯「谁在哪做了什么」的**，
+# 这一栏可以随便写，它就失去了作为证据的意义。
+from app.netaddr import client_ip  # noqa: E402,F401

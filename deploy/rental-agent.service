@@ -1,0 +1,41 @@
+# 智能体服务。
+#   sudo cp deploy/rental-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rental-agent
+
+[Unit]
+Description=大连智租 智能体服务 (Supervisor 多智能体)
+After=network.target rental-api.service
+Wants=rental-api.service
+
+[Service]
+Type=simple
+User=rental
+Group=rental
+WorkingDirectory=/srv/rental/agent
+EnvironmentFile=/etc/rental/rental.env
+
+# 同样只监听回环，理由比业务后端更硬：
+# **这个服务没有登录态**，鉴权全在业务后端，它只是转发用户的令牌。
+# 8000 暴露到公网，等于把一个按次计费的接口摆在外面。
+#
+# worker 只给 2：它主要在等大模型（IO 密集），给多了也没用，
+# 反而让每个进程各自持有一份熔断计数。
+# **刻意不加 `--proxy-headers`**，理由同业务后端那份单元文件。
+ExecStart=/srv/rental/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --workers 2
+
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/rental
+# 语料向量缓存若启用（EMBED_CACHE_PATH），这里要加上它所在目录
+
+StandardOutput=append:/var/log/rental/agent.log
+StandardError=append:/var/log/rental/agent.log
+
+[Install]
+WantedBy=multi-user.target

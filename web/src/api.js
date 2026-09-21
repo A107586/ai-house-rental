@@ -1,14 +1,16 @@
 // 后端接口封装。
 //
-// 两种运行方式都要支持：
+// 三种运行方式都要支持：
 //
 // 1. 开发模式（vite dev，5173 端口）
 //    两类请求都用相对地址，由 vite.config.js 里的代理转发，享受热更新。
 //
-// 2. 生产模式（业务后端 8080 直接托管 web/dist）
+// 2. 本机演示（业务后端 8080 直接托管 web/dist）
 //    /api 与页面同源，仍用相对地址；
-//    /agent 在另一个进程上，必须补上绝对地址。
-//    智能体服务的 CORS 已经放行了 8080 来源。
+//    /agent 在另一个进程上，补一个 http://主机名:8000 的绝对地址。
+//
+// 3. 公网部署（nginx 在前，443 收口）
+//    /api 与 /agent 都由 nginx 转发，**两者都是同源相对地址**。
 //
 // 这样组员只要跑 `npm run build`，之后访问 8080 就是完整网站，
 // 不需要再单独启动前端，也不会出现「访问 8080 只看到 Not Found」的困惑。
@@ -16,10 +18,29 @@
 const DEV_PORT = '5173'
 const isDev = typeof location !== 'undefined' && location.port === DEV_PORT
 
-// 智能体服务地址：开发模式走代理，生产模式直连 8000
-const AGENT_BASE = isDev
-  ? ''
-  : `${location.protocol}//${location.hostname}:8000`
+// 智能体服务地址。
+//
+// **HTTPS 页面下必须走同源**，这是第 3 种方式的由来：
+// 原先写死 `http://主机名:8000`，放到 https 站点上会踩两个坑——
+//
+//   一、混合内容：https 页面发 http 请求，浏览器直接拦掉，
+//       控制台报 Mixed Content，而界面上只表现为「智能体没反应」；
+//   二、8000 端口得对公网开着，而智能体服务**本来就不该暴露在公网上**
+//       （它没有登录态，一切鉴权都由业务后端负责）。
+//
+// 所以：构建时可用 VITE_AGENT_BASE 指定；没指定时，
+// https 页面一律走同源（交给 nginx 转发），http 页面保留原来的直连行为。
+const CONFIGURED_AGENT_BASE =
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? import.meta.env.VITE_AGENT_BASE
+    : undefined
+
+const AGENT_BASE = (() => {
+  if (CONFIGURED_AGENT_BASE !== undefined) return CONFIGURED_AGENT_BASE
+  if (isDev) return ''
+  if (typeof location !== 'undefined' && location.protocol === 'https:') return ''
+  return `${location.protocol}//${location.hostname}:8000`
+})()
 
 const agentUrl = (path) => AGENT_BASE + path
 
