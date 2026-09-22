@@ -20,9 +20,31 @@
 """
 
 import json
+import os
 
 from app.agents.toolbox import catalog
 from app.llm.base import LLMUnavailable
+
+
+def _max_tokens():
+    """选择器这一次调用的输出额度。
+
+    **它是总额度，思考也算在里面。** 150 是给不思考的模型定的：
+    输出只有一小段 JSON，够用且省时（实测 400 压到 60，同一句话
+    从 4.6 秒降到 3.7 秒，答案一字没变）。
+
+    但接**会思考的模型**时 150 是致命的：思考先把额度吃光，
+    `content` 返回空串，`extract_json` 解析失败，于是每一次都走
+    `tool="none"` 退回规则——而 `/health` 仍然显示 healthy=true、
+    failures=0，从监控上完全看不出大模型没在工作。
+
+    所以做成可配：不思考的模型保持 150，开思考时要给到
+    「思考预算 + JSON」以上，否则等于没接。
+    """
+    try:
+        return max(32, int(os.environ.get("LLM_PLANNER_MAX_TOKENS", "150")))
+    except (TypeError, ValueError):
+        return 150
 
 _SYSTEM = "你是租房平台助手的工具选择器。只输出一个 JSON 对象，不要任何解释。"
 
@@ -140,7 +162,8 @@ def plan(text, provider, logged_in=False, role="", house_no="",
         # 输出只有一小段 JSON，150 足够。给 400 的话，**推理型模型会
         # 拿这个额度去想**——实测 max_tokens 从 400 压到 60，
         # 同一句话从 4.6 秒降到 3.7 秒，答案一字没变
-        data = provider.complete_json(_SYSTEM, prompt, max_tokens=150)
+        data = provider.complete_json(_SYSTEM, prompt,
+                                      max_tokens=_max_tokens())
     except LLMUnavailable as exc:
         return dict(empty, why="大模型不可用：%s" % exc)
     except Exception as exc:                                 # noqa: BLE001

@@ -20,6 +20,7 @@ from app.agents.support.tools import progress
 from app.backend import BackendError
 
 
+from app.agents.support.tools.dates import until_text
 from app.agents.support.tools.money import money_text as _fmt_money
 
 
@@ -53,7 +54,10 @@ def bills(backend, token):
                % (len(unpaid), _fmt_money(total),
                   bill_type_text(first),
                   _fmt_money(first.get("amount")),
-                  "，%s 到期" % first["due_date"] if first.get("due_date") else ""))
+                  # 逾期几天是催缴时用户最该先知道的事，`until_text`
+                  # 在过期时会直接写成「已经过期 N 天」。
+                  "，%s 到期" % until_text(first["due_date"])
+                  if first.get("due_date") else ""))
     return message, {"total": len(rows), "unpaid": unpaid[:5]}
 
 
@@ -73,10 +77,13 @@ def contracts(backend, token):
     ended = len(rows) - len(active)
     if ended:
         head += "、%d 份已结束" % ended
+    # 结束日期带上天数：「还有几天到期」是这个接口最常被问到的一句，
+    # 只给日期等于让用户自己去数日历。
     message = ("%s。当前生效的是 %s（%s），租期 %s 至 %s。"
                % (head, current.get("house_no") or current.get("contract_no", ""),
                   current.get("contract_no", ""),
-                  current.get("start_date", ""), current.get("end_date", "")))
+                  current.get("start_date", ""),
+                  until_text(current.get("end_date"))))
     return message, {"list": rows[:5], "current": current, "total": len(rows)}
 
 

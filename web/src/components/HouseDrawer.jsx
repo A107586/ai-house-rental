@@ -36,6 +36,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
   const [phone, setPhone] = useState('')
   const [reply, setReply] = useState(null)
   const [busy, setBusy] = useState(false)
+  // 报修照片：已经传到本系统的地址。**在提交之前就带上**，
+  // 让模型先看一眼再定故障类型——照片挂到工单上是提交之后的事，
+  // 那时候分派早就定完了，看不看都一样。
+  const [repairPhotos, setRepairPhotos] = useState([])
+  const [picking, setPicking] = useState('')
   const [shot, setShot] = useState(0)
   // A-5：房东概要与相似房源。两者都是「锦上添花」，
   // 取不到就不显示，不能拖累详情页本身
@@ -99,7 +104,10 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     // 用 form 的 onSubmit 而不是 onKeyDown，回车与点击走同一条路径
     if (e) e.preventDefault()
     const content = (useText ?? text).trim()
-    if (!content || busy) return
+    // 报修允许只给照片不写字——「拍一张」正是这个功能存在的理由。
+    // 预约仍然必须有内容：没有时间，预约无从谈起。
+    if (busy) return
+    if (!content && !(tab === 'repair' && repairPhotos.length)) return
 
     if (tab === 'booking' && !user) {
       setReply({ status: 'error', message: '请先登录后再预约看房', alternatives: [] })
@@ -116,10 +124,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
       const result =
         tab === 'booking'
           ? await api.agentBooking(content, house.house_no, applicant)
-          : await api.agentRepair(content, house.house_no, applicant)
+          : await api.agentRepair(content, house.house_no, applicant, true, repairPhotos)
       setReply(result)
       if (result.status === 'created') {
         setText('')
+        setRepairPhotos([])
         refresh()
       }
     } catch (err) {
@@ -127,6 +136,29 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     } finally {
       setBusy(false)
     }
+  }
+
+  async function pickPhotos(event) {
+    const files = Array.from(event.target.files || [])
+    // 清空 input，否则连续选同一个文件不会再触发 change
+    event.target.value = ''
+    if (!files.length) return
+    setPicking('正在上传…')
+    const urls = []
+    for (const file of files.slice(0, 3 - repairPhotos.length)) {
+      if (file.size > 5 * 1024 * 1024) {
+        setPicking(`${file.name} 超过 5MB，已跳过`)
+        continue
+      }
+      try {
+        const { url } = await api.uploadImage(file)
+        urls.push(url)
+      } catch (err) {
+        setPicking(err.message)
+      }
+    }
+    setRepairPhotos((prev) => [...prev, ...urls].slice(0, 3))
+    if (urls.length) setPicking('')
   }
 
   function pickSlot(iso) {
@@ -509,11 +541,48 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
-            <button className="btn" type="submit" disabled={busy || !text.trim()}>
+            <button
+              className="btn"
+              type="submit"
+              disabled={busy || (!text.trim()
+                                 && !(tab === 'repair' && repairPhotos.length > 0))}
+            >
               {busy ? '处理中' : tab === 'booking' ? '预约' : '提交'}
             </button>
           </div>
         </form>
+
+        {/* 报修才给拍照。**提交之前**传，照片要参与分派。
+            现场拍一张，比让人把「水槽下面那根管子的接口在渗水」
+            打出来容易得多，而描述越糊，派的工种越容易错。 */}
+        {tab === 'repair' && user && (
+          <div className="examples">
+            <label className="chip-btn" style={{ cursor: 'pointer' }}>
+              📷 拍张照（可选，最多 3 张）
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={pickPhotos}
+                disabled={busy || repairPhotos.length >= 3}
+              />
+            </label>
+            {repairPhotos.map((url) => (
+              <span key={url} className="chip">
+                已选 1 张
+                <button
+                  className="chip-btn"
+                  style={{ marginLeft: 6 }}
+                  onClick={() => setRepairPhotos((p) => p.filter((x) => x !== url))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {picking && <span className="chip">{picking}</span>}
+          </div>
+        )}
 
         <div className="examples">
           <span>试试：</span>
@@ -527,6 +596,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
         {reply && (
           <div className={`reply ${REPLY_STYLE[reply.status] || 'failed'}`}>
             {reply.message}
+            {/* 照片经模型变成的那句话要摆在眼前。拿一个用户没看过的
+                句子去派单，师傅上门发现不是这回事时谁也说不清。 */}
+            {reply.vision && (
+              <div className="chips" style={{ marginTop: 9 }}>
+                <span className="chip">照片里我看到：{reply.vision}</span>
+              </div>
+            )}
             {reply.category && (
               <div className="chips" style={{ marginTop: 9 }}>
                 <span className="chip">类型：{reply.category}</span>

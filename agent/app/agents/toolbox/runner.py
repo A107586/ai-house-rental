@@ -18,6 +18,7 @@
 from app import memory
 from app.agents.support.tools import house as house_tool
 from app.agents.support.tools import pitch
+from app.agents.support.tools.dates import until_text
 from app.agents.support.tools.money import money_text
 
 # 找房一次给几套。和 main.PAGE_SIZE 必须一致——
@@ -110,6 +111,9 @@ ACCOUNT_TOOLS = {
     "landlord_appointments": ("/api/appointments/mine", "别人约我的看房"),
     "landlord_houses": ("/api/landlord/houses", "我名下的房源"),
     "landlord_tenants": ("/api/landlord/tenants", "我的租客"),
+    "agent_commissions": ("/api/agent/commissions", "佣金"),
+    "agent_delegations": ("/api/delegations", "我代理的房源"),
+    "agent_viewings": ("/api/viewings", "带看记录"),
 }
 
 # 各自的查询参数。my_* 与 landlord_* 打的是同一个接口，
@@ -119,6 +123,9 @@ ACCOUNT_QUERY = {
     "my_contracts": {"side": "tenant"},
     "my_repairs": {"side": "tenant"},
     "landlord_appointments": {"side": "landlord"},
+    # 委托表里一个人可能既是房东又是中介（K-13 的教训），
+    # 不指明 role 会把他作为房东收到的委托也算成「我代理的房」
+    "agent_delegations": {"role": "agent"},
 }
 
 
@@ -189,21 +196,47 @@ def _one_house(name, params, ctx):
     house = rows[0]
     label = "%s %s" % (house.get("community") or "", house.get("layout") or "")
     backend = ctx["backend"]
+    # 「这套」是猜出来的时候，先说清楚猜的是哪一套。
+    # 不说的话，用户刚看完 A 的讲解、接着问「周边有什么」，
+    # 拿到的是 B 的周边——他没有任何线索能发现指代跑偏了。
+    hint = ("（你说的是 %s）" % house.get("house_no")
+            if memory.is_weak_reference(ctx.get("text"),
+                                        ctx["last_house_nos"],
+                                        ctx["house_no"]) else "")
 
     if name == "house_reviews":
-        return {"message": house_tool.reviews(backend, house["house_no"],
-                                              label.strip()),
+        return {"message": hint + house_tool.reviews(backend, house["house_no"],
+                                                    label.strip()),
                 "house_no": house["house_no"],
                 "options": ["介绍下这套", "帮我约看房", "看看类似的"]}
 
     if name == "landlord_reputation":
-        return {"message": house_tool.landlord_reviews(
+        return {"message": hint + house_tool.landlord_reviews(
                     backend, house["house_no"], label.strip()),
                 "house_no": house["house_no"],
                 "options": ["这套评价怎么样", "帮我约看房"]}
 
+    # 先看这句话是不是在问某个**具体条件**（能养宠物吗、有电梯吗、
+    # 周边有什么）。是就回答那一条——`pitch.describe()` 只看房源、
+    # 不看问题，所以这类是非题会统统拿到同一段推销词。用户看不出
+    # 自己的问题有没有被回答，只能再问一遍：实测「这套能养宠物吗」
+    # 连点三次，三次都是同一段户型介绍。
+    direct = pitch.answer_attribute(house, ctx.get("text"))
+    if not direct:
+        # 关键词表列不全。没命中的交给模型按字段回答——
+        # 它拿不到字段以外的东西，答不上来会说「没写明」。
+        direct = pitch.answer_by_llm(house, ctx.get("text"),
+                                     ctx.get("provider"))
+    if direct:
+        # 答「没有标注」时给条出路，不然用户只知道这套不行，
+        # 不知道下一步该干什么。
+        if "没有标注" in direct:
+            direct += " 想看有这个条件的房子，跟我说一声我帮你筛。"
+        return {"message": hint + direct, "house_no": house["house_no"],
+                "options": ["介绍下这套", "帮我约看房", "看看类似的"]}
+
     message, data = pitch.describe(backend, house)
-    return {"message": message, "house_no": house["house_no"], "pitch": data,
+    return {"message": hint + message, "house_no": house["house_no"], "pitch": data,
             "options": ["帮我约看房", "收藏这套", "看看类似的"]}
 
 
@@ -235,9 +268,21 @@ def _account(name, ctx):
     if not rows:
         return {"message": "没有查到%s记录。" % label, "account": {"rows": []}}
 
-    return {"message": _summarize(name, data, rows, label),
-            "account": {"tool": name, "rows": rows[:20],
-                        "total": (data or {}).get("total") or len(rows)}}
+    out = {"message": _summarize(name, data, rows, label),
+           "account": {"tool": name, "rows": rows[:20],
+                       "total": (data or {}).get("total") or len(rows)}}
+    # **列的是房子，就把编号按屏幕顺序带出去。**
+    #
+    # 不带的话，下一句「第一套」没有可对应的列表：房东刚看完
+    # 「你名下有 9 套房源」，接着说「把第一套下架」，系统却回
+    # 「要操作哪一套？」——他明明刚数过。序号是双方唯一的共同坐标，
+    # 只要屏幕上有编号的列表，这个坐标就该建立起来。
+    if name in ("landlord_houses", "my_favorites"):
+        nos = [{"house_no": r.get("house_no")} for r in rows[:20]
+               if isinstance(r, dict) and r.get("house_no")]
+        if nos:
+            out["items"] = nos
+    return out
 
 
 def _summarize(name, data, rows, label):
@@ -268,9 +313,13 @@ def _summarize(name, data, rows, label):
         active = [r for r in rows if r.get("status") == "active"]
         if active:
             first = active[0]
+            # 「还有几天到期」问的是天数。原先只回日期，内容对但答非所问，
+            # 用户还得自己算——`until_text` 把换算在这里做掉。
+            # 月租同理：`first["rent"]` 直接 %s 会写成「1250.0 元」。
             return ("你有 %d 份生效中的租约。%s 租到 %s，月租 %s 元。"
                     % (len(active), first.get("house_no") or "",
-                       first.get("end_date") or "", first.get("rent") or ""))
+                       until_text(first.get("end_date")),
+                       money_text(first.get("rent"))))
         return "你有 %d 份租约记录，目前没有生效中的。" % len(rows)
 
     if name == "my_repairs":
@@ -283,5 +332,24 @@ def _summarize(name, data, rows, label):
         rented = [r for r in rows if r.get("status") == "rented"]
         return ("你名下有 %d 套房源：%d 套在架，%d 套已出租。"
                 % (len(rows), len(listed), len(rented)))
+
+    if name == "agent_commissions":
+        # **金额直接取返回体里算好的那两个数。**
+        # 自己再遍历一遍 list 求和，等于在客户端复制一份口径，
+        # 哪天后端改了「作废的佣金算不算」，两边就对不上账了。
+        # 这是这个人要照着去对工资的数字。
+        pending = money_text(data.get("pending_amount") or 0)
+        settled = money_text(data.get("settled_amount") or 0)
+        return ("你共有 %d 笔佣金记录：待结算 %s 元，已结算 %s 元。"
+                % (len(rows), pending, settled))
+
+    if name == "agent_delegations":
+        active = [r for r in rows if r.get("status") == "active"]
+        return ("你受托代理 %d 套房源，其中 %d 套委托还在生效。"
+                % (len(rows), len(active)))
+
+    if name == "agent_viewings":
+        houses = {r.get("house_no") for r in rows if r.get("house_no")}
+        return ("你带看过 %d 次，涉及 %d 套房源。" % (len(rows), len(houses)))
 
     return "查到 %d 条%s记录。" % (len(rows), label)

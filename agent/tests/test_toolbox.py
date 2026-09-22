@@ -281,6 +281,47 @@ class TestAccountSummary(unittest.TestCase):
         self.assertIn("你约的看房", mine)
         self.assertIn("别人约你的房", theirs)
 
+    def test_commission_amounts_come_from_the_response(self):
+        """佣金金额取返回体算好的那两个数，不在这里自己求和。
+
+        自己遍历 list 再加一遍，等于把「作废的佣金算不算」这个口径
+        抄了第二份；后端哪天改了，中介看到的数和工作台就对不上。
+        这里故意让 list 里的金额加起来**不等于**返回体给的总额，
+        断言说出来的是返回体那个数。
+        """
+        text = runner._summarize(
+            "agent_commissions",
+            {"pending_amount": 3600, "settled_amount": 12000},
+            [{"amount": 1}, {"amount": 1}, {"amount": 1}], "佣金")
+        self.assertIn("3 笔", text)
+        self.assertIn("3600", text)
+        self.assertIn("12000", text)
+
+    def test_commission_money_is_not_printed_as_float(self):
+        """1250.0 元、1e+06 元这种写法不能出现在钱上。"""
+        text = runner._summarize(
+            "agent_commissions",
+            {"pending_amount": 1250.0, "settled_amount": 1000000.0},
+            [{}], "佣金")
+        self.assertIn("1250 元", text)
+        self.assertIn("1000000 元", text)
+        self.assertNotIn("1250.0", text)
+        self.assertNotIn("e+", text)
+
+    def test_delegations_count_active_ones(self):
+        rows = [{"status": "active"}, {"status": "active"}, {"status": "ended"}]
+        text = runner._summarize("agent_delegations", {}, rows, "委托")
+        self.assertIn("3 套", text)
+        self.assertIn("2 套", text)
+
+    def test_viewings_count_distinct_houses(self):
+        """带看 4 次可能只涉及 2 套房，两个数都要说。"""
+        rows = [{"house_no": "DL0001"}, {"house_no": "DL0001"},
+                {"house_no": "DL0002"}, {"house_no": "DL0002"}]
+        text = runner._summarize("agent_viewings", {}, rows, "带看")
+        self.assertIn("4 次", text)
+        self.assertIn("2 套", text)
+
 
 class TestAccountNeedsLogin(unittest.TestCase):
 

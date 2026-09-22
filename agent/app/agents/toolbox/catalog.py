@@ -89,7 +89,11 @@ TOOLS = [
         "name": "house_detail",
         "kind": "read",
         "desc": "讲解某一套房：亮点、短板、适合谁。用户指着列表里的某一套"
-                "问「介绍一下」「怎么样」「值不值」时用它。",
+                "问「介绍一下」「怎么样」「值不值」时用它。"
+                "**问这套房的某个具体条件也用它**——能不能养宠物、有没有"
+                "电梯、带不带家具、能不能做饭、周边有什么、朝向如何，"
+                "这些都是房源自己的属性，查这一套就知道，"
+                "不是平台规则（别选 knowledge），也不是住户评价（别选 house_reviews）。",
         "params": {
             "house_no": ("string", "房源编号，如 DL0041。用户说「第三套」"
                                    "时填 ordinal，不要猜编号"),
@@ -195,6 +199,36 @@ TOOLS = [
         "required": [],
     },
 
+    # ------------------------------------------------ 中介侧（需登录）
+    #
+    # 这三条是长对话测试里发现漏的：系统有三种角色，
+    # 中介账号问「我这个月佣金多少」「我带看过几次」「我代理了哪些房」，
+    # 助手一条都答不上来——**而后端这三个接口一直都在**。
+    # 中介只好退回去翻工作台页面，等于对他这个角色，助手不存在。
+    {
+        "name": "agent_commissions",
+        "kind": "read",
+        "desc": "（中介用）我的佣金：待结多少、已结多少、共几笔。",
+        "params": {},
+        "required": [],
+    },
+    {
+        "name": "agent_delegations",
+        "kind": "read",
+        "desc": "（中介用）我受托代理的房源有哪些、还有几个在生效。"
+                "注意和 landlord_houses 区分——那个是「我自己名下的房」。",
+        "params": {},
+        "required": [],
+    },
+    {
+        "name": "agent_viewings",
+        "kind": "read",
+        "desc": "（中介用）我的带看记录：带看过几次、都是哪几套。"
+                "注意和 landlord_appointments 区分——那个是「谁约了我的房」。",
+        "params": {},
+        "required": [],
+    },
+
     # ------------------------------------------------ 写操作：只出确认卡片
     #
     # 这里的 `action` 是 actions.PROPOSERS 里的键。这一层**只负责把
@@ -289,7 +323,8 @@ BY_NAME = {t["name"]: t for t in TOOLS}
 NEEDS_LOGIN = {
     "my_bills", "my_contracts", "my_appointments", "my_repairs",
     "my_favorites", "landlord_appointments", "landlord_houses",
-    "landlord_tenants", "book_viewing", "cancel_viewing",
+    "landlord_tenants", "agent_commissions", "agent_delegations",
+    "agent_viewings", "book_viewing", "cancel_viewing",
     "reschedule_viewing", "pay_bill", "submit_repair", "favorite_house",
     "unfavorite_house", "end_contract", "renew_contract",
     "handle_appointment", "toggle_house",
@@ -299,6 +334,10 @@ NEEDS_LOGIN = {
 # 「我的预约」和「谁约了我的房」这两条对模型来说长得很像
 STAFF_ONLY = {"landlord_appointments", "landlord_houses", "landlord_tenants",
               "handle_appointment", "toggle_house"}
+
+# 只有中介用得上的。房东看到「我的佣金」只会更容易误选——
+# 佣金是房东**付出去**的钱，不是他能查的收入
+AGENT_ONLY = {"agent_commissions", "agent_delegations", "agent_viewings"}
 
 
 def visible_tools(logged_in, role):
@@ -314,6 +353,8 @@ def visible_tools(logged_in, role):
             continue
         if tool["name"] in STAFF_ONLY and role not in ("landlord", "agent",
                                                        "admin"):
+            continue
+        if tool["name"] in AGENT_ONLY and role not in ("agent", "admin"):
             continue
         out.append(tool)
     return out

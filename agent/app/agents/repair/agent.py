@@ -6,6 +6,7 @@
 前端只需处理一种形状。
 """
 
+from app.agents.repair.tools import vision
 from app.agents.repair.tools.classify import (URGENCY_LEVELS, classify_repair,
                                               describe)
 from app import fusion
@@ -101,12 +102,39 @@ def _never_downgrade_safety(rule_result, fused):
 
 
 def run(text, house_no=None, applicant=None, provider=None, backend=None,
-        submit=True):
+        submit=True, images=None):
     """报修智能体入口。
 
     :param submit: 为 False 时只分析不落库，用于前端预览分派结果。
+    :param images: 报修照片（本系统上传出来的地址或 data URI）。
+                   看得出问题时，把看到的写成一句话**并进描述**再分派。
     """
-    if not text or not text.strip():
+    text = (text or "").strip()
+
+    # 照片先翻译成文字，然后一切照旧走原来那条链路。
+    # 分派仍由 `analyze` 定，不让识图另开一套判断——那套有 50 个用例盯着。
+    seen = ""
+    if images:
+        has_fault, seen = vision.describe_fault(images, provider)
+        if seen and not has_fault:
+            # 模型明确说照片里没有损坏。**这句不能并进描述**，
+            # 并进去会让「照片拍的是厨房」变成报修内容里的故障现象。
+            seen = ""
+        if seen:
+            # 放在用户原话后面，并且标明是从照片看出来的。
+            # 工单上要看得见这句话的来历，师傅和用户才好当场核对。
+            if text:
+                text = "%s（照片显示：%s）" % (text, seen)
+            else:
+                text = "照片显示：%s" % seen
+
+    if not text:
+        if images:
+            return {
+                "intent": "repair", "status": "need_content", "ok": False,
+                "message": "照片里我没看出明确的损坏。麻烦用一句话说说"
+                           "是哪里坏了，比如「卫生间水管漏水」。",
+            }
         return {
             "intent": "repair", "status": "need_content", "ok": False,
             "message": "请描述一下具体是哪里坏了，比如「卫生间水管漏水」。",
@@ -124,6 +152,9 @@ def run(text, house_no=None, applicant=None, provider=None, backend=None,
         "urgency": result["urgency"],
         "assignee": result["assignee"],
         "analysis": analysis,
+        # 从照片读出来的那句话。前端要把它摆在用户眼前——
+        # 拿一个用户没看过的句子去派单，出了错谁也说不清
+        "vision": seen,
         "message": "已识别为「%s」故障，紧急程度「%s」，建议派单给%s。"
                    % (result["category"], result["urgency"], result["assignee"]),
     }

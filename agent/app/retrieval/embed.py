@@ -202,7 +202,14 @@ class VectorCache(object):
             return False
         self.model = model or self.model
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            # **裸文件名时 dirname 是空串，而 os.makedirs("") 抛
+            # FileNotFoundError**——它是 OSError 的子类，会被下面的
+            # except 静默吞掉，于是缓存永远存不下来，每次进程重启都要把
+            # 整个语料重新嵌入一遍（实测约 195 次请求、4 秒）。
+            # 而这个失败没有任何迹象：save() 返回 False，没人看返回值。
+            parent = os.path.dirname(self.path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             with open(self.path, "w", encoding="utf-8") as handle:
                 json.dump({"model": self.model, "vectors": self.vectors},
                           handle, ensure_ascii=False)

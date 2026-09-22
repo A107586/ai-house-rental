@@ -202,6 +202,46 @@ class OpenAICompatibleProvider(LLMProvider):
         self._last_error = last
         raise LLMUnavailable(last)
 
+    def complete_vision(self, system_prompt, user_prompt, images,
+                        max_tokens=None, deadline=None):
+        """带图片的补全，走 OpenAI 多模态消息格式。
+
+        和 `complete` 共用 `_post_with_retry`，所以熔断、重试、预算、
+        统计这几样一个不少——识图请求比纯文本慢一个数量级，
+        正是最需要这些护栏的那条路径。
+
+        图片放在文字前面，跟 OpenAI 文档里的示例顺序一致。
+        **没有实测过两种顺序的差别**，只是没有理由跟主流用法不一样。
+        """
+        content = [{"type": "image_url", "image_url": {"url": url}}
+                   for url in images if url]
+        if not content:
+            raise LLMUnavailable("没有给出任何图片")
+        content.append({"type": "text", "text": user_prompt})
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content},
+            ],
+            "temperature": 0.0,
+            "max_tokens": max_tokens or self._max_tokens,
+        }
+        request = urllib.request.Request(
+            self._base_url + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self._api_key,
+            },
+            method="POST",
+        )
+        body = self._post_with_retry(request, deadline=deadline)
+        try:
+            return body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            raise LLMUnavailable("大模型返回结构异常")
+
     def complete(self, system_prompt, user_prompt, max_tokens=None,
                  deadline=None):
         payload = {

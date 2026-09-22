@@ -46,6 +46,10 @@ __pycache__/
 .venv/
 venv/
 
+# 语料向量的落盘缓存。按内容哈希做键，删了会自动重算，
+# 不该进版本库：它跟着嵌入模型走，换个模型就是一份没用的大文件。
+agent/.embed_cache.json
+
 # ===== 本地开发数据库 =====
 server/rental.db
 # 根目录也挡一道：脚本在错的目录里 connect('rental.db')，

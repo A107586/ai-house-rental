@@ -36,10 +36,55 @@ class TestAccumulate(unittest.TestCase):
         self.assertEqual(slots["suozaidiqu"], "中山区")
 
     def test_only_recent_turns_are_replayed(self):
-        texts = ["沙河口区"] + ["随便看看"] * memory.MAX_TURNS + ["中山区"]
+        """说了 MAX_TURNS 次条件之后，最早那次就不算数了。
+
+        原先这个用例中间垫的是「随便看看」，而它根本不带条件；
+        末尾又说了「中山区」，覆盖语义本来就会让断言成立——
+        **无论窗口是几轮，这个用例都过**，等于什么也没盯住。
+        现在垫的是真的在改条件的轮次。
+        """
+        texts = ["沙河口区"] + ["两室一厅", "三室一厅"] * memory.MAX_TURNS
         slots, _ = memory.replay(texts)
-        # 沙河口区已经被挤出窗口
+        self.assertNotIn("suozaidiqu", slots)
+
+    def test_unrelated_turns_do_not_consume_the_window(self):
+        """查账单、看评价这些轮次不该把找房条件挤出去。
+
+        实测来源：一段 24 轮的会话，用户第 3 轮说了区域和预算，
+        中间问了十几轮合同、账单、评价，到第 22 轮说「还有更便宜的」时
+        条件已经全丢，系统答「建议把租价上限从 9 元提高一些」。
+        """
+        chat = ["我的合同什么时候到期", "这个月房租交了吗", "欠多少",
+                "怎么缴费", "评价怎么样", "房东靠谱吗", "谢谢",
+                "我约了哪几次看房", "我收藏了几套房", "报修处理了吗",
+                "还有别的吗", "嗯"]
+        slots, _ = memory.replay(["沙河口区两室一厅", "三千以内"] + chat)
+        self.assertEqual(slots["suozaidiqu"], "沙河口区")
+        self.assertEqual(slots["zujia_max"], 3000)
+        self.assertEqual(slots["fangwuhuxing"], "两室一厅")
+
+    def test_more_X_phrasings_are_recognised(self):
+        """「还有更便宜的吗」是最常见的说法之一，原表一条都不命中。
+
+        实测后果：24 轮那个剧本里预算纹丝不动，
+        系统把上一轮那套 2950 元的原样又端了回来。
+        """
+        slots, _ = memory.replay(["沙河口两室一厅三千以内", "还有更便宜的吗"])
+        self.assertLess(slots["zujia_max"], 3000)
+
+        slots, _ = memory.replay(["三千以内", "有没有更贵的"])
+        self.assertGreater(slots["zujia_max"], 3000)
+
+    def test_more_X_does_not_collide_with_the_opposite_direction(self):
+        """「更贵」不能同时撞上 cheaper 里的「太贵」「有点贵」「贵了」。"""
+        self.assertEqual(memory.relative_ops("有没有更贵的"), ["pricier"])
+        self.assertEqual(memory.relative_ops("还有更便宜的吗"), ["cheaper"])
+
+    def test_reset_still_counts_as_a_turn(self):
+        """「重新找」是条件性的轮次，不能因为它没带条件就被滤掉。"""
+        slots, _ = memory.replay(["沙河口区两室一厅", "重新找", "中山区"])
         self.assertEqual(slots["suozaidiqu"], "中山区")
+        self.assertNotIn("fangwuhuxing", slots)
 
 
 class TestOverrideAndClear(unittest.TestCase):

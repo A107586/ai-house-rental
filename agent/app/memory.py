@@ -42,11 +42,18 @@ CLEAR_SUFFIX = ("不限", "都行", "无所谓", "随便")
 RELATIVE_RULES = (
     # 「有点贵」不能漏：口语里嫌贵，说「有点贵」的比说「太贵」的更多。
     # 注意它不会误撞 pricier 的「贵点」——那是「贵」在前、「点」在后。
-    ("cheaper", ("再便宜", "便宜点", "便宜一点", "便宜些", "低一点", "低点",
-                 "少一点", "降一点", "预算紧", "太贵", "有点贵", "贵了")),
-    ("pricier", ("贵一点", "贵点", "高一点", "好一点的", "档次高", "太便宜")),
-    ("bigger", ("大一点", "大点", "大些", "宽敞", "再大", "太小")),
-    ("smaller", ("小一点", "小点", "紧凑", "再小", "太大")),
+    #
+    # 「更X」这一组是长对话测试补的：24 轮那个剧本里用户说
+    # 「还有更便宜的吗」，表里一条都没命中——`zujia_max` 纹丝不动，
+    # 系统把上一轮那套 2950 元的又端了回来。**「更便宜」不含
+    # 「再便宜」也不含「便宜点」**，字面上确实一个都对不上。
+    ("cheaper", ("再便宜", "更便宜", "便宜点", "便宜一点", "便宜些",
+                 "低一点", "低点", "少一点", "降一点", "预算紧",
+                 "太贵", "有点贵", "贵了")),
+    ("pricier", ("贵一点", "贵点", "更贵", "高一点", "好一点的",
+                 "档次高", "太便宜")),
+    ("bigger", ("大一点", "大点", "更大", "大些", "宽敞", "再大", "太小")),
+    ("smaller", ("小一点", "小点", "更小", "紧凑", "再小", "太大")),
 )
 
 # 每次相对调整的幅度。等比而非固定值：预算 2000 和 20000 的用户，
@@ -220,11 +227,29 @@ def continues_search(text):
 def replay(texts):
     """重放历史轮次，得到进入本轮之前的槽位。
 
-    只取最近 MAX_TURNS 轮，且一律用规则解析——历史轮次已经答复过了，
-    没必要为了重建上下文再去调一遍大模型。
+    一律用规则解析——历史轮次已经答复过了，没必要为了重建上下文
+    再去调一遍大模型。
+
+    **窗口只数「说了条件」的那些轮次。**
+
+    原先是无差别取最近 MAX_TURNS 句，在 24 轮的长会话测试里出了事：
+    用户第 3 轮说了「沙河口 / 三千以内 / 两室一厅」，中间问了十几轮
+    合同、账单、评价，等到第 22 轮说「还有更便宜的吗」，那三个条件
+    早被无关的闲聊挤出了窗口——重放出来的槽位是空的，
+    系统只能当他从没说过预算，于是给了一句莫名其妙的
+    「建议把租价上限从 9 元提高一些」。
+
+    窗口本来要限的是「一个条件说出来之后还算数多久」。这个「多久」
+    该按**他又提了几次条件**来数，而不是按他一共说了几句话——
+    问账单、看评价这些轮次既不改需求，也就不该消耗需求的寿命。
+
+    被滤掉的轮次本来就是空操作：没有重置、没有清除、解析不出条件，
+    `apply_turn` 对它们什么也不做。所以这里只改变了「谁能留在窗口里」，
+    没有改变任何一轮自身的语义，重放依然是纯函数、依然可重现。
     """
+    turns = [t for t in (texts or []) if is_reset(t) or continues_search(t)]
     slots, features = {}, []
-    for text in (texts or [])[-MAX_TURNS:]:
+    for text in turns[-MAX_TURNS:]:
         slots, features, _ = apply_turn(slots, features, text)
     return slots, features
 
@@ -388,6 +413,33 @@ def resolve_house(text, last_house_nos, current=None):
     if any(word in text for word in DEICTIC):
         return current or (last_house_nos[0] if last_house_nos else None)
     return None
+
+
+def is_weak_reference(text, last_house_nos, current=None):
+    """这次「这套」是不是**猜**出来的。
+
+    `resolve_house` 有四条路径，只有最后一条是猜：
+
+        打出编号    DL0007        —— 明确
+        说了序号    第二套         —— 明确
+        有打开的房   current       —— 屏幕上就是它
+        **都没有**  列表第一条      —— 猜
+
+    最后这条的问题不是猜得对不对，是**猜完不说**。用户刚看完一段
+    讲解，接着问「周边有什么」，拿到的是另一套房的周边——他没有
+    任何线索能发现指代跑偏了，只会觉得这个助手前言不搭后语。
+    实测里连续三轮「这套」指向了三套不同的房子。
+
+    返回 True 时，调用方该在回答前面点一句「（你说的是 DL00xx）」。
+    **猜可以，不告诉不行。**
+    """
+    if not last_house_nos:
+        return False
+    if house_no_in(text or "") or ordinal_indexes(text or ""):
+        return False
+    if current:
+        return False
+    return any(word in (text or "") for word in DEICTIC)
 
 
 def resolve_houses(text, last_house_nos):

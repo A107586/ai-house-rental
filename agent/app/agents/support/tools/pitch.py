@@ -27,7 +27,21 @@
 
 金额、面积、评分一律由代码从字段里取，不经过大模型改写：
 这些数字错一个，整段话就从「懂行」变成「不可信」。
+
+## 关于「问什么答什么」
+
+讲解之外还有一类：用户指着这套房问**一个具体条件**——能养宠物吗、
+有电梯吗、房租多少、一个人住合适吗。这类是非题不能拿整段讲解去答：
+他问的是一件事，拿到的是一段介绍，**他看不出自己的问题有没有被回答**，
+只能再问一遍。实测里同一个用户连问三句不同的话，三次拿到同一段推销词，
+最后的反馈是「怎么回复都一样」。
+
+两条路：`answer_attribute()` 是关键词表，命中就即答、零延迟、结果确定；
+没命中的交给 `answer_by_llm()`，让模型按字段回答，但**字段是白名单、
+没有的一律说「没写明」**——猜一个条件出来，用户会照着它去看房。
 """
+
+import json
 
 _TAG_PITCH = {
     "地铁": "出门就是地铁，通勤不用挤公交",
@@ -200,6 +214,147 @@ def suits(house):
     else:
         who = "对空间要求不高的"
     return "月租 %s 元这个价位，%s住着比较合适。" % (_money(rent), who)
+
+
+# 用户问某个具体条件时，问的词 -> (房源里怎么判断, 有的话怎么说, 没有怎么说)
+#
+# **「没有」必须说成「没有标注」而不是「不可以」。** 房东没勾这个标签，
+# 可能是真不允许，也可能只是没填——把缺失说成禁止是在替房东做决定，
+# 而用户会拿着这句话去退租、去投诉。
+_ASK_TAG = {
+    "宠物": ("可养宠物", "这套标了可养宠物，带毛孩子没问题。",
+             "这套没有标注可养宠物。"),
+    "养猫": ("可养宠物", "这套标了可养宠物，猫可以带。",
+             "这套没有标注可养宠物。"),
+    "养狗": ("可养宠物", "这套标了可养宠物，狗可以带。",
+             "这套没有标注可养宠物。"),
+    "做饭": ("可做饭", "这套能开火做饭。", "这套没有标注可做饭。"),
+    "开火": ("可做饭", "这套能开火做饭。", "这套没有标注可做饭。"),
+    "家具": ("有家具", "家具齐全，拎包就能住。", "这套没有标注带家具。"),
+    "家electric": ("有家具", "", ""),
+    "阳台": ("有阳台", "带阳台。", "这套没有标注阳台。"),
+    "地铁": ("地铁", "离地铁近。", "这套没有标注近地铁。"),
+    "学校": ("近学校", "旁边就是学校。", "这套没有标注近学校。"),
+    "医院": ("近医院", "离医院近。", "这套没有标注近医院。"),
+    "商圈": ("近商圈", "挨着商圈。", "这套没有标注近商圈。"),
+}
+
+
+def answer_attribute(house, question):
+    """用户问这套房的某个具体条件时，直接回答那一条。
+
+    返回一句话，或者 `None` 表示「这句话不是在问某个条件」，
+    由调用方退回整段讲解。
+
+    **为什么要单独一条路**：`describe()` 只看房源、不看问题，所以
+    「能养宠物吗」「有电梯吗」「周边有什么」会拿到同一段推销词。
+    用户问的是一个是非题，拿到的是一段介绍——他看不出自己的问题
+    有没有被回答，只能再问一遍。实测里这三句连点三次拿到同一段话。
+    """
+    q = (question or "").strip()
+    if not q:
+        return None
+    tags = [str(t) for t in (house.get("tags") or [])]
+
+    for word, (tag, yes, no) in _ASK_TAG.items():
+        if word and word in q and yes:
+            return yes if tag in tags else no
+
+    # 结构化字段：这些不是标签，房源表里有确切值
+    if "电梯" in q:
+        lift = house.get("elevator")
+        if lift is None and "电梯" not in tags:
+            return "这套没有写明有没有电梯。"
+        return "这套有电梯。" if (lift or "电梯" in tags) else "这套没有电梯。"
+    if "朝向" in q or "朝南" in q or "采光" in q:
+        ori = house.get("orientation")
+        if not ori:
+            return "这套没有写明朝向。"
+        extra = "，采光好" if ori in _SUNNY else ""
+        return "这套朝%s%s。" % (ori, extra)
+    if "暖气" in q or "供暖" in q:
+        h = house.get("heating")
+        return ("供暖方式是%s。" % h) if h else "这套没有写明供暖方式。"
+    if "多久" in q or "最短" in q or "几个月" in q:
+        m = house.get("min_months")
+        return ("最短租%s个月。" % m) if m else "这套没有写明最短租期。"
+    if "什么时候" in q and ("入住" in q or "看房" in q or "能租" in q):
+        d = house.get("available_from")
+        return ("%s 起可入住。" % d) if d else "这套没有写明可入住时间。"
+    if "周边" in q or "附近" in q:
+        near = [t for t in tags if t in ("地铁", "近学校", "近医院", "近商圈")]
+        where = "%s%s" % (house.get("district") or "",
+                          house.get("business_area") or house.get("community") or "")
+        if near:
+            return "在%s，周边：%s。" % (where, "、".join(near))
+        return "在%s，房源没有标注周边设施。" % where
+    return None
+
+
+# 「介绍一下」这类**要的就是整段讲解**，不该被当成具体问题拦下来。
+_WHOLE_PITCH = ("介绍", "怎么样", "值不值", "讲讲", "说说", "详情", "情况")
+
+# 给模型看的字段。**白名单而不是黑名单**：房源表里有 lat/lng、
+# verify_no、view_count 这类不该出现在回答里的东西，漏掉一个
+# 就可能被复述给用户。
+_ASK_FIELDS = ("title", "district", "community", "business_area", "layout",
+               "area", "rent_price", "deposit", "pay_plan", "service_fee",
+               "rent_type", "min_months", "orientation", "floor", "floor_level",
+               "elevator", "decoration", "heating", "tags", "available_from",
+               "rating", "review_count", "status")
+
+_ASK_SYSTEM = ("你是租房平台的房源客服。只依据给你的房源字段回答，"
+               "一到两句话，不要复述整套房源介绍。")
+
+_ASK_PROMPT = """房源字段（JSON）：
+{fields}
+
+用户问：{question}
+
+规则：
+1. **事实只能来自上面的字段。** 房租、押金、面积、朝向、租期这些
+   有确切值的，直接引用，不要自己算。
+2. 字段里没有的，说「房源信息里没写明」——但**别就这么停住**。
+   接着做一件有用的事：用已有字段给个有依据的判断（比如问「一个人住
+   合适吗」，可以说没写明，但两室一厅 70 平通常够住），
+   或者告诉他下一步能怎么办（看房时当面确认、让我帮你问房东）。
+   **只说「没写明」三个字，读起来像搜索引擎没查到，而不像有人在帮他。**
+3. 推断要和事实分开说，让他看得出哪句是房源写的、哪句是你的判断。
+   **别把判断说成事实**——他会照着去看房、去签约。
+4. 标签里没有某一项，是「没有标注」，**不等于「不可以」**。
+   房东可能只是没填，不要替房东做决定。
+5. 只答他问的那件事，两三句话。不要顺带把整套房再夸一遍。"""
+
+
+def answer_by_llm(house, question, provider, deadline=None):
+    """关键词表没覆盖到的具体问题，交给模型按字段回答。
+
+    返回一句话，或 `None`（模型不可用 / 这句话本来就是要整段讲解）。
+
+    **为什么需要它**：`answer_attribute()` 是关键词表，列不全。
+    实测用户问「房租多少钱」「一个人住合适吗」「有空调吗」——
+    三个都不在表里，于是三次拿到同一段推销词。用户的反馈是
+    「怎么回复都一样」，而他看不出是自己的问题没被理解，
+    还是这套房真的只有这些信息。
+    """
+    q = (question or "").strip()
+    if not q or provider is None or not getattr(provider, "available", False):
+        return None
+    if any(w in q for w in _WHOLE_PITCH):
+        return None
+
+    fields = {k: house[k] for k in _ASK_FIELDS if house.get(k) not in (None, "")}
+    try:
+        text = provider.complete(
+            _ASK_SYSTEM,
+            _ASK_PROMPT.format(fields=json.dumps(fields, ensure_ascii=False),
+                               question=q[:120]),
+            max_tokens=220, **({"deadline": deadline} if deadline else {}))
+    except Exception:                                        # noqa: BLE001
+        # 模型不可用不该让这一轮失败——退回整段讲解，那条路一直是通的
+        return None
+    text = (text or "").strip()
+    return text[:200] if text else None
 
 
 def describe(backend, house):

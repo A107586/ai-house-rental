@@ -31,6 +31,18 @@ class LLMProvider(object):
         """
         raise NotImplementedError
 
+    def complete_vision(self, system_prompt, user_prompt, images,
+                        max_tokens=None, deadline=None):
+        """带图片的补全。`images` 是 data URI 或 http 地址的列表。
+
+        **默认实现直接判不可用，而不是 NotImplementedError。**
+        识图是后加的能力，不是每个厂商、每个本地模型都带视觉头；
+        测试里那些只实现了 `complete` 的假 provider 也是完全合法的实现。
+        抛 `LLMUnavailable` 的话调用方照常降级，抛 NotImplementedError
+        就会一路冒到用户面前。
+        """
+        raise LLMUnavailable("当前大模型没有识图能力")
+
     def complete_json(self, system_prompt, user_prompt, max_tokens=None,
                       deadline=None):
         """要求模型输出 JSON，并解析为 dict。

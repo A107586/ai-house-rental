@@ -468,14 +468,19 @@ export const api = {
       shouji: applicant.phone || '',
     }),
 
-  // AI-04 报修工单智能分派
-  agentRepair: (text, houseNo, applicant = {}, submit = true) =>
+  // AI-04 报修工单智能分派。
+  //
+  // `images` 是已经上传到本系统的照片地址（`/static/uploads/...`）。
+  // 智能体那边只认这种地址和 data URI，外链一律丢弃——识图是由模型
+  // 那一端去取图的，放任意地址进去等于让用户指定「服务器去访问哪里」。
+  agentRepair: (text, houseNo, applicant = {}, submit = true, images = []) =>
     post(agentUrl('/agent/repair'), {
       text,
       house_no: houseNo,
       xingming: applicant.name || '',
       shouji: applicant.phone || '',
       submit,
+      images,
     }),
 
   // AI-02 合同智能审阅

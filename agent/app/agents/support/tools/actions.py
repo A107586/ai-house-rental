@@ -877,7 +877,13 @@ def _repair_after_content(content, house_no, context):
     # 所以问，但必须能一键跳过——为了传张图卡住报修，是本末倒置。
     images = (context or {}).get("images")
     if images is None:
-        question = "要拍张照片吗？说不清的地方拍一张，师傅能提前备好工具。"
+        # **先复述一遍听到的是什么，再问下一步。**
+        #
+        # 只问「要拍张照片吗」的话，用户刚说完「空调不制冷」，
+        # 拿到的第一句是一个不相干的问题——他不知道系统有没有听懂，
+        # 也不知道这张照片是要拍什么。复述一句是最便宜的确认：
+        # 听错了他当场就能纠正，而不是等卡片出来才发现报错了东西。
+        question = "收到，%s。要拍张照片吗？说不清的地方拍一张，师傅能提前备好工具。" % content[:30]
         return NEED_SLOT, question, None, _ask(
             "images", question,
             [_option(SKIP_UPLOAD, "跳过，直接提交")], kind="upload",
