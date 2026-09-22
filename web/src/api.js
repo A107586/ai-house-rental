@@ -120,6 +120,33 @@ export function setToken(token) {
   }
 }
 
+/**
+ * 本标签页的令牌失效了（401）。
+ *
+ * **只清自己那一份，外加 localStorage 里恰好是同一个令牌的那份。**
+ *
+ * 不能直接 `setToken('')`：那会把「下次开新标签页默认用谁」一并清掉，
+ * 而那一份可能是**另一个账号**的——一台电脑开两个窗口、后一个窗口
+ * 登录了别人，此时前一个窗口的令牌过期，不该把后一个人的登录状态
+ * 也一起抹掉。别的标签页自己的 `sessionStorage` 动不了，
+ * 但新开的标签页会莫名其妙变成未登录。
+ */
+function expireToken(dead) {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // 忽略
+  }
+  try {
+    // 同一个令牌才清。别人的那份还好好的，留着
+    if (localStorage.getItem(TOKEN_KEY) === dead) {
+      localStorage.removeItem(TOKEN_KEY)
+    }
+  } catch {
+    // 忽略
+  }
+}
+
 async function request(url, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
@@ -134,8 +161,9 @@ async function request(url, options = {}) {
   }
 
   if (response.status === 401 && url !== '/api/auth/login') {
-    // 令牌过期或无效，清掉本地状态，让用户重新登录
-    setToken('')
+    // 令牌过期或无效，清掉**本标签页**的状态，让用户重新登录。
+    // 别的标签页可能登着另一个账号，不能顺手把它也踢下去
+    expireToken(token)
     throw new Error('登录已失效，请重新登录')
   }
 
