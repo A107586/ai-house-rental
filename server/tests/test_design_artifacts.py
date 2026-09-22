@@ -81,6 +81,20 @@ class TestGeneratedArtifactsAreFresh(unittest.TestCase):
         code, output = run("gen_api_list.py", "--check")
         self.assertEqual(code, 0, output)
 
+    def test_test_counts_in_the_manual_match_reality(self):
+        """《测试说明》里的用例清单与总数必须和真实用例数一致。
+
+        这一条是被三份文档各说一个数逼出来的：测试说明写 1193、
+        技术架构说明写 1,445、概要设计写 1,580，**实际是 1662**。
+        更难看的是那张表本身——同样七行被复制粘贴了四遍，
+        一直没人发现，因为没有人会去数一张五十行的表。
+
+        现在那一段由 `gen_test_counts.py` 生成，说明取自每个测试模块
+        自己的 docstring；加了测试文件却忘了更新文档，这条就会红。
+        """
+        code, output = run("gen_test_counts.py", "--check")
+        self.assertEqual(code, 0, output)
+
     def test_database_doc_chapter_matches_the_models(self):
         """《数据库设计说明书》第三章是生成的，不能和模型对不上。
 
