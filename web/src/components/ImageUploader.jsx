@@ -18,6 +18,11 @@ export default function ImageUploader({ mode = 'house', houseNo, repairId,
   const [images, setImages] = useState([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  // 正在编辑说明的那张图：{id, text}。**草稿一定要经过这一步**——
+  // 图片说明是挂在房源上给租客看的公开文案，
+  // 让模型写完直接存，等于替房东发布了一句他没看过的话
+  const [editing, setEditing] = useState(null)
+  const [drafting, setDrafting] = useState(0)
   const inputRef = useRef(null)
 
   const key = mode === 'house' ? houseNo : repairId
@@ -78,6 +83,34 @@ export default function ImageUploader({ mode = 'house', houseNo, repairId,
     }
   }
 
+  /** 让助手看图写一句草稿，填进输入框等房东过目。 */
+  async function draftCaption(image) {
+    setError('')
+    setDrafting(image.id)
+    try {
+      const { caption } = await api.agentImageCaption(image.url)
+      if (caption) setEditing({ id: image.id, text: caption })
+      else setError('这次没写出来，可以再试一次，或者自己写一句')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDrafting(0)
+    }
+  }
+
+  async function saveCaption(id, text) {
+    setError('')
+    try {
+      await api.setHouseImageCaption(houseNo, id, text)
+      setEditing(null)
+      await load()
+      onChanged?.()
+    } catch (err) {
+      // 内容审核拦下来时后端回 400，原文照显——房东得知道是哪一句不行
+      setError(err.message)
+    }
+  }
+
   async function makeCover(id) {
     setError('')
     try {
@@ -118,15 +151,57 @@ export default function ImageUploader({ mode = 'house', houseNo, repairId,
               className={`up-cell ${image.is_cover ? 'cover' : ''}`}
               key={image.id}
             >
-              <img src={image.url} alt={image.caption || ''} loading="lazy" />
-              {image.is_cover && <span className="up-badge">封面</span>}
+              <div className="up-thumb">
+                <img src={image.url} alt={image.caption || ''} loading="lazy" />
+                {image.is_cover && <span className="up-badge">封面</span>}
+                {mode === 'house' && (
+                  <div className="up-acts">
+                    {!image.is_cover && (
+                      <button onClick={() => makeCover(image.id)}>设封面</button>
+                    )}
+                    <button onClick={() => remove(image.id)}>删除</button>
+                  </div>
+                )}
+              </div>
+              {/* 图片说明。有就显示，没有就给一个入口——
+                  它同时也是 <img alt>，读屏软件念的就是这一句。 */}
               {mode === 'house' && (
-                <div className="up-acts">
-                  {!image.is_cover && (
-                    <button onClick={() => makeCover(image.id)}>设封面</button>
-                  )}
-                  <button onClick={() => remove(image.id)}>删除</button>
-                </div>
+                editing?.id === image.id ? (
+                  <div className="up-caption edit">
+                    <input
+                      value={editing.text}
+                      maxLength={100}
+                      autoFocus
+                      placeholder="一句话说清这张图拍的是哪儿"
+                      onChange={(e) =>
+                        setEditing({ id: image.id, text: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveCaption(image.id, editing.text)
+                        if (e.key === 'Escape') setEditing(null)
+                      }}
+                    />
+                    <button onClick={() => saveCaption(image.id, editing.text)}>
+                      保存
+                    </button>
+                    <button onClick={() => setEditing(null)}>取消</button>
+                  </div>
+                ) : (
+                  <div className="up-caption">
+                    <span
+                      className={image.caption ? '' : 'muted'}
+                      onClick={() =>
+                        setEditing({ id: image.id, text: image.caption || '' })}
+                    >
+                      {image.caption || '还没有说明，点这里写'}
+                    </span>
+                    <button
+                      disabled={drafting === image.id}
+                      onClick={() => draftCaption(image)}
+                    >
+                      {drafting === image.id ? '看图中…' : '✨ 让助手写'}
+                    </button>
+                  </div>
+                )
               )}
             </div>
           ))}

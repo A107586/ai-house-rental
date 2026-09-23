@@ -2690,19 +2690,25 @@ td.accent {
   cursor: default;
 }
 
+/* 一格要装下缩略图和它的说明文字，96px 排不开一句中文 */
 .up-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
   gap: 8px;
 }
 
 .up-cell {
-  position: relative;
   border: 1px solid var(--line);
   border-radius: 6px;
   overflow: hidden;
-  aspect-ratio: 4 / 3;
   background: var(--surface-2);
+}
+
+/* 定高的是缩略图本身，不是整格——说明文字要排在它下面。
+   封面角标与操作按钮相对它定位。 */
+.up-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
 }
 
 .up-cell img {
@@ -2748,6 +2754,53 @@ td.accent {
 
 .up-acts button:hover {
   background: rgba(20, 30, 40, 0.85);
+}
+
+/* 图片说明。它同时就是 <img alt>，读屏软件念的是这一句。 */
+.up-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.up-caption > span {
+  flex: 1;
+  cursor: text;
+  word-break: break-all;
+}
+
+.up-caption .muted {
+  color: var(--muted);
+}
+
+.up-caption button {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.up-caption button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.up-caption.edit input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
 }
 
 

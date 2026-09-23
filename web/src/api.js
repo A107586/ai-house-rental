@@ -360,6 +360,12 @@ export const api = {
   },
 
   houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
+  // 改一张房源图的说明文字。这一列原先 324 条全是空的——
+  // 上传接口一直收 caption，而这里永远传 ''，没有任何入口能填。
+  setHouseImageCaption: (houseNo, imageId, caption) =>
+    request(`/api/houses/${encodeURIComponent(houseNo)}/images/${imageId}/caption`,
+      { method: 'POST', body: JSON.stringify({ caption }) }),
+
   addHouseImage: (houseNo, url, caption = '') =>
     request(`/api/houses/${houseNo}/images`,
       { method: 'POST', body: JSON.stringify({ url, caption }) }),
@@ -510,6 +516,12 @@ export const api = {
       submit,
       images,
     }),
+
+  // 看一张房源照片，写一句图片说明的**草稿**。
+  // 只出草稿不落库——图片说明是挂在房源上给租客看的公开文案，
+  // 得房东看过、点保存才走 setHouseImageCaption。
+  agentImageCaption: (imageUrl) =>
+    post(agentUrl('/agent/image-caption'), { images: [imageUrl] }),
 
   // AI-02 合同智能审阅
   agentContractReview: (text) =>

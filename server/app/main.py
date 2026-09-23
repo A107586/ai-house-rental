@@ -3277,6 +3277,44 @@ def set_cover(house_no: str, image_id: int,
     return {"ok": True}
 
 
+@app.post("/api/houses/{house_no}/images/{image_id}/caption")
+def set_image_caption(house_no: str, image_id: int,
+                      caption: str = Body(default="", embed=True),
+                      user: User = Depends(require_house_manager),
+                      session: Session = Depends(get_session)):
+    """改一张房源图片的说明文字。
+
+    这一列原先**324 条全是空的**：上传接口一直收 `caption`，
+    前端却永远传空串，没有任何入口能填它。少了它，相册的
+    `<img alt>` 也一直是空的——读屏软件念到那一段只有一串「图片」。
+
+    智能体那边可以看图写一句草稿（`POST /agent/image-caption`），
+    但**草稿必须由房东看过再落到这里**。图片说明是挂在房源上给
+    租客看的公开文案，和标题、描述一个性质。
+
+    所以这条接口和标题、描述走**同一道内容审核**——
+    不能因为它是「一句小字」就绕过去：私下联系方式塞在图片说明里，
+    和塞在描述里是一模一样的事。
+    """
+    house = _house_or_404(session, house_no)
+    _require_house_owner(session, user, house)
+    image = session.get(HouseImage, image_id)
+    if not image or image.house_id != house.id:
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    text = (caption or "").strip()[:100]
+    fields = {"图片说明": text}
+    # 先审再落库。命中拦截规则时 `moderate` 直接抛 400，
+    # 下面这两行根本不会执行——顺序不能反
+    verdict = moderate(fields, scene="house") if text else None
+    image.caption = text
+    if verdict is not None:
+        record_flag(session, verdict, fields, "house", user,
+                    house.id, house.house_no)
+    session.commit()
+    return {"ok": True, "caption": image.caption}
+
+
 @app.post("/api/repairs/{repair_id}/images")
 def add_repair_image(repair_id: int, url: str = Body(embed=True),
                      user: User = Depends(require_login),

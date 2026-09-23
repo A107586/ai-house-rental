@@ -18,6 +18,7 @@ from app.retrieval.tokenize import WORD_LEVEL
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
+from app.agents.describe.tools import caption
 from app.agents.handoff import agent as handoff
 from app.agents.property_finder import agent as property_finder
 from app.agents.property_finder.tools.parse_query import parse_query
@@ -378,6 +379,37 @@ def agent_viewing_summary(payload: ViewingSummaryRequest):
 def agent_describe(payload: DescribeRequest):
     """AI-08 房源描述自动生成。"""
     return describe.run(payload.model_dump(), provider=_llm())
+
+
+class ImageCaptionRequest(BaseModel):
+    """给一张房源照片写图片说明。
+
+    只收一张：这条是房东在相册里点某一张图触发的，
+    一次传一叠再让他挨个核对，和让他自己写没什么区别。
+    """
+
+    # 本系统上传出来的 `/static/...` 路径，或者 data URI。
+    # 收敛规则见 `app/images.py`，外链一律丢弃
+    images: list[str] = []
+
+
+@app.post("/agent/image-caption")
+def agent_image_caption(payload: ImageCaptionRequest):
+    """看一张房源照片，写一句图片说明的**草稿**。
+
+    **只出草稿，不落库。** 图片说明是挂在房源上给租客看的公开文案，
+    和标题、描述一个性质；模型写完直接存等于替房东对外发布一句
+    他没看过的话。落库走后端的
+    `POST /api/houses/{house_no}/images/{id}/caption`，
+    在那里过内容审核，也在那里要求房东已经看过。
+
+    写不出来就回空串，前端显示「这次没写出来，可以再试一次」——
+    这条链路整体是纯增强，任何一环出问题都不该影响相册本身。
+    """
+    text = caption.draft(
+        repair_vision.safe_images(payload.images, settings.backend_base_url),
+        _llm())
+    return {"caption": text, "ok": bool(text)}
 
 
 class ReportRequest(BaseModel):
