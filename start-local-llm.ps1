@@ -23,6 +23,21 @@
 #
 #  -ub 512         实测 128/256/512 之间差异在噪声内，512 是 llama-bench 最优。
 #
+#  -Mtp            可选开关。换成带 MTP（NextN）头的那份权重并打开投机解码。
+#                  **这是目前唯一能明显提速的开关**，理由：
+#
+#                  本机纯解码 39.2 t/s、权重 7.21 GB ⇒ 等效带宽 282 GB/s，
+#                  而这张卡（4080 Laptop，192bit × 18Gbps）峰值 432 GB/s，
+#                  **已经跑到 65%**。解码是纯带宽瓶颈，换引擎换不出带宽——
+#                  同类文章在 4080 SUPER 上报的 447 GB/s，比这张卡的理论
+#                  峰值还高，那是一张 736 GB/s 的卡。
+#
+#                  真正的提速来自投机解码：一次前向猜多个 token，
+#                  用同样的带宽吐更多字。而本体 GGUF 里没有 MTP 头
+#                  （851 张量、零个 blk.64.*），引擎会直说：
+#                    MTP draft context is null (GGUF missing nextn /
+#                    qwen35.nextn_predict_layers?)
+#
 #  -Vision         可选开关。加载视觉头，模型就能看报修照片
 #                  （见 agent/app/agents/repair/tools/vision.py）。
 #                  这块显存是把嵌入模型挪到 CPU 之后腾出来的。
@@ -36,7 +51,7 @@
 # 报的错却是几十行之外的「字符串缺少终止符」。
 # ---------------------------------------------------------------------------
 
-param([switch]$Vision)
+param([switch]$Vision, [switch]$Mtp)
 
 $ErrorActionPreference = 'Stop'
 
@@ -45,6 +60,20 @@ $Model  = 'D:\models\bonsai\Ternary-Bonsai-2-27B-PQ2_0.gguf'
 # Q8 的视觉头。BF16 那份大 300 MB，实测识图质量没有可见差别，
 # 在 12 GB 卡上不值这个显存。
 $MMProj = 'D:\models\bonsai\Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf'
+# 带 MTP（NextN）头的同一个本体。**不覆盖上面那份**——两份并存，
+# 不加 -Mtp 时一切照旧，随时可以对照着量。
+$ModelMtp = 'D:\models\bonsai\Ternary-Bonsai-2-27B-PQ2_0-MTP-Q8_0.gguf'
+
+if ($Mtp) {
+    if (-not (Test-Path -LiteralPath $ModelMtp)) {
+        Write-Host '找不到带 MTP 头的权重：' -ForegroundColor Red
+        Write-Host $ModelMtp
+        Write-Host '下载（7.66 GB）：' -ForegroundColor Yellow
+        Write-Host '  hf download ProCreations/Ternary-Bonsai-2-27B-MTP Ternary-Bonsai-2-27B-PQ2_0-MTP-Q8_0.gguf --local-dir D:\models\bonsai'
+        exit 1
+    }
+    $Model = $ModelMtp
+}
 
 foreach ($p in @($Engine, $Model)) {
     if (-not (Test-Path -LiteralPath $p)) {
@@ -73,9 +102,17 @@ $EngineArgs = @(
     '--kv-dtype', 'q8_0',
     '-ub', '512', '-b', '2048',
     '--no-kvmem',
-    '--spec-type', 'none',
     '--reasoning-effort', 'none'
 )
+
+if ($Mtp) {
+    # draft-mtp：用 blk.64 那一层先猜 N 个 token，再由本体一次验完。
+    # N=2 是原作者实测的最优点（N=3/4/5 接受率掉到 40.9 / 33.2 / 22.9%）
+    $EngineArgs += @('--spec-type', 'draft-mtp', '--spec-draft-n-max', '2')
+    Write-Host '已启用 MTP 投机解码（draft-mtp, N=2）。' -ForegroundColor Green
+} else {
+    $EngineArgs += @('--spec-type', 'none')
+}
 
 if ($Vision) {
     if (-not (Test-Path -LiteralPath $MMProj)) {
