@@ -34,6 +34,7 @@
 放在这里，改完模型跑一次 `python -m unittest discover -s tests -t .` 就会被提醒。
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -57,6 +58,11 @@ def run(script, *args):
     return done.returncode, (done.stdout or "") + (done.stderr or "")
 
 
+def _have(module):
+    """这个包装了没有。只看装没装，不导入——导入 openpyxl 要一百多毫秒。"""
+    return importlib.util.find_spec(module) is not None
+
+
 class TestGeneratedArtifactsAreFresh(unittest.TestCase):
 
     def test_build_scripts_match_the_models(self):
@@ -69,6 +75,18 @@ class TestGeneratedArtifactsAreFresh(unittest.TestCase):
         self.assertEqual(code, 0, output)
 
     def test_database_design_workbook_matches_the_models(self):
+        """交付用的 xlsx 与模型一致。
+
+        **没装 openpyxl 时跳过，而不是红。** 这条测的是「设计书有没有
+        和模型分叉」，缺一个生成器依赖跟那件事毫无关系；让它红的唯一
+        效果，是每个新 clone 下来的人都看到一条与自己无关的失败，
+        久而久之就学会了忽略红色。
+
+        但**跳过必须说清楚怎么补**，否则就成了另一种「跑绿了 ≠ 跑全了」。
+        """
+        if not _have("openpyxl"):
+            self.skipTest("没装 openpyxl，这条无法验证。"
+                          "补上：pip install -r scripts/requirements.txt")
         code, output = run("gen_db_xlsx.py", "--check")
         self.assertEqual(code, 0, output)
 
