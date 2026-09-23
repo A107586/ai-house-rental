@@ -50,6 +50,23 @@ END = "<!-- API-LIST:END -->"
 SUM_BEGIN = "<!-- MODULE-TABLE:BEGIN 本表由 scripts/gen_api_list.py 生成，不要手改 -->"
 SUM_END = "<!-- MODULE-TABLE:END -->"
 
+# 正文里**散落在标记段之外**的接口数。
+#
+# 原先只有两个标记段是生成的，而那张 ASCII 架构图和「HTTP 入口，N 个接口」
+# 这几处是手写的——于是同一份文档里出现了三个数：附录说 151、
+# 架构图说 150、入口那行说 18 而附录说 19。加一个接口就又岔开一次。
+#
+# 每条 (正则, 模板)，必须**恰好命中一处**：命中零处或多处说明文档结构
+# 变了，那时候宁可报错，也不要猜着改。
+INLINE = [
+    (r"│  [\d,]+ 个接口 · [\d,]+ 张表 · ",
+     "│  {server} 个接口 · {tables} 张表 · "),
+    (r"│  [\d,]+ 个接口 · [\d,]+ 个子智能体 ",
+     "│  {agent} 个接口 · {subagents} 个子智能体 "),
+    (r"agent/app/main\.py ──────── HTTP 入口，[\d,]+ 个接口",
+     "agent/app/main.py ──────── HTTP 入口，{agent} 个接口"),
+]
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db_meta import (MODULES, REQUIREMENTS, load_metadata,  # noqa: E402
                      module_of_path)
@@ -243,7 +260,31 @@ def main():
         else:
             bogus.append("`%s %s` 这个接口不存在" % (method, path))
 
-    # 二、附录与模块总表都要是最新的
+    # 二、正文里散落的那几个接口数
+    inline_stale = []
+    # `toolbox` 在 agents/ 目录下，但它**不是子智能体**——它是「让模型挑
+    # 哪个工具」的选路层，挑完才轮到子智能体干活
+    agents_dir = os.path.join(ROOT, "agent", "app", "agents")
+    subagents = [d for d in os.listdir(agents_dir)
+                 if os.path.isdir(os.path.join(agents_dir, d))
+                 and d not in ("__pycache__", "toolbox")]
+    counts = {
+        "server": str(len([r for r in server_rows if r[1] not in SKIP])),
+        "agent": str(len([r for r in agent_rows if r[1] not in SKIP])),
+        "tables": str(len(load_metadata().tables)),
+        "subagents": str(len(subagents)),
+    }
+    for pattern, template in INLINE:
+        hits = re.findall(pattern, text)
+        if len(hits) != 1:
+            print("  ! 这条正则命中了 %d 处（应当恰好 1 处）：%s"
+                  % (len(hits), pattern))
+            return 1
+        want = template.format(**counts)
+        if hits[0] != want:
+            inline_stale.append((pattern, want))
+
+    # 三、附录与模块总表都要是最新的
     appendix = build(server_rows, agent_rows)
     summary = module_table(server_rows, agent_rows)
     start = text.index(BEGIN)
@@ -258,7 +299,9 @@ def main():
             print("  ! 正文里 %s" % problem)
         if stale:
             print("  ! 附录 A 过期了：接口有增减，重跑 python scripts/gen_api_list.py")
-        if bogus or stale:
+        for _pattern, want in inline_stale:
+            print("  ! 正文里这句过期了，应为：%s" % want.strip())
+        if bogus or stale or inline_stale:
             return 1
         print("接口清单是最新的，正文引用的 %d 条接口全部存在。"
               % len(cited_endpoints(text)))
@@ -270,7 +313,13 @@ def main():
         print("先把正文里的接口改对，再生成。")
         return 1
 
+    # 先改正文里那几处零散的数——它们在标记段之外，改了不影响下面的下标计算
+    for pattern, want in inline_stale:
+        text = re.sub(pattern, lambda _m, w=want: w, text, count=1)
+
     # 先换模块总表，再换附录——换完总表位置会变，附录的下标要重新算
+    sum_start = text.index(SUM_BEGIN)
+    sum_stop = text.index(SUM_END) + len(SUM_END)
     text = text[:sum_start] + summary + text[sum_stop:]
     start = text.index(BEGIN)
     stop = text.index(END) + len(END)
