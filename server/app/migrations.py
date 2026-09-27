@@ -478,3 +478,18 @@ def _house_building_unit(connection, engine):
     """
     _add_column(connection, engine, "houses", "building", "VARCHAR(20) DEFAULT ''")
     _add_column(connection, engine, "houses", "unit", "VARCHAR(20) DEFAULT ''")
+
+
+@step("0017", "房源表：审核通过时间，堵住上下架绕过审核")
+def _house_approved_at(connection, engine):
+    """给 houses 补 approved_at，并回填已在架、已出租的房源。
+
+    回填只给 available / rented：它们要么审过、要么是免审发布的。
+    offline 的分不清是房东下架还是被驳回，**宁可留空**——
+    留空的代价是重新上架要再审一次，填错的代价是被驳回的房源直接上架。
+    """
+    _add_column(connection, engine, "houses", "approved_at", "DATETIME")
+    if _columns(engine, "houses") is not None:
+        connection.execute(text(
+            "UPDATE houses SET approved_at = COALESCE(published_at, CURRENT_TIMESTAMP) "
+            "WHERE approved_at IS NULL AND status IN ('available', 'rented')"))

@@ -644,7 +644,8 @@ def end_contract(session, contract, reason="", deduct=0):
 
     house = session.get(House, contract.house_id)
     if house and house.status == "rented":
-        house.status = "available"
+        # 出租期间改过房源内容的，审核记录已经清掉——回到待审，不直接上架
+        house.status = "available" if house.approved_at else "pending"
 
     # 通知文案要与实际资金流动一致。押金从没收到过却告诉租客
     # 「退还押金 3000 元」，会直接引出「钱退哪去了」的质问。

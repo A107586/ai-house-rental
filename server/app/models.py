@@ -17,7 +17,7 @@ import json
 from datetime import datetime
 
 from sqlalchemy import (Boolean, Date, DateTime, Float, ForeignKey, Integer,
-                        Numeric, String, Text, UniqueConstraint)
+                        Numeric, String, Text, UniqueConstraint, event)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -203,6 +203,12 @@ class House(Base):
     status: Mapped[str] = mapped_column(String(20), default="available", index=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     published_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    # 当前这版内容**通过审核的时刻**；没通过、被驳回、或改动后待重审时为空。
+    #
+    # 没有它的时候，「被驳回」和「房东自己下架」落成的是同一个 offline，
+    # 上下架接口又不看来路——房东把驳回的房源点一下上架，就绕过了审核；
+    # 待审核的也能直接改成 available。见 main.update_house_status。
+    approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     # lazy="selectin"：列表接口一次查 12 套房，若按默认的懒加载，
     # to_dict 里每读一次 landlord 就发一条 SQL——实测 12 套房发了 32 条。
@@ -580,6 +586,14 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     intent: Mapped[str] = mapped_column(String(30), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+@event.listens_for(House, "before_insert")
+def _approved_on_creation(mapper, connection, house):
+    """直接以「在架 / 已出租」建出来的房源（管理员发布、免审发布、演示数据）
+    视为已通过审核；以 pending 建出来的等管理员审。"""
+    if house.approved_at is None and house.status in ("available", "rented"):
+        house.approved_at = house.published_at or datetime.now()
 
 
 class HouseImage(Base):
