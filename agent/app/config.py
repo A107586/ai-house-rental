@@ -126,6 +126,29 @@ class Settings:
         self.llm_plan_budget = _get_float("LLM_PLAN_BUDGET", 8.0)
         # 单次请求上下文上限，避免 Token 消耗失控（非功能需求 N-08）
         self.llm_max_tokens = _get_int("LLM_MAX_TOKENS", 1024)
+        # **只给识图/图片说明这两条小预算调用用的「关掉思考」开关。**
+        #
+        # 它们的 max_tokens 是 120 和 80——按「模型不思考」设计的。
+        # 换成会思考的模型之后，思考会把这点预算全吃光，content 返回空，
+        # 报修的「照片里读到」那一栏就永远是空的（实测正是如此）。
+        # 这和 start-local-llm.ps1 里 `--reasoning-effort none` 防的是同一个坑，
+        # 区别是那里全局关，这里只关这两条——文本路径继续思考，
+        # 因为思考对它们的准确率有可见影响。
+        #
+        # 留空则不发这个字段，行为与改动前完全一致。**默认留空是有意的**：
+        # 不是每家兼容端点都认 `reasoning_effort`，无条件发出去有被拒的风险。
+        # 本地 NInfer 实测认 "none"（reasoning_tokens 归零）。
+        self.llm_vision_reasoning_effort = _get("LLM_VISION_REASONING_EFFORT", "")
+        # **给会思考的模型留的思考余量，加在每一次调用的 max_tokens 上。**
+        #
+        # 会思考的模型把思考也算进 max_tokens。本项目里好几处是按「不思考」
+        # 定的小预算：工具选择器 150、推荐语 220。思考开着的话它们全被吃光，
+        # 实测选择器 10 句里 4 句「输出不是 JSON 对象」，整轮退回规则——
+        # 这就是「规则用得太多」的直接原因：**模型那一层其实一直没接上**。
+        #
+        # 取值与引擎的思考预算对齐（start-ninfer.ps1 -ThinkingBudget，默认 512）。
+        # 不思考的端点（DeepSeek 非推理版、kvmem 关思考时）留 0 即可。
+        self.llm_thinking_headroom = _get_int("LLM_THINKING_HEADROOM", 0)
 
         # ---- 向量嵌入（AI-03 智能客服的可选通道）----
         # 与 LLM_* 是**独立的一组**配置，不能复用：团队的大模型是 DeepSeek，

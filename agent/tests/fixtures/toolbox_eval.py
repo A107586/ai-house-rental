@@ -66,6 +66,15 @@ CASES = [
     ("我约了哪几场看房", "my_appointments", "tenant"),
     ("我报的修处理得怎么样了", "my_repairs", "tenant"),
     ("我收藏了哪些房子", "my_favorites", "tenant"),
+    # 下面几条来自一次真实会话里全部掉进兜底的问法
+    ("我租了哪些房", "my_contracts", "tenant"),
+    ("在租的有哪些", "my_contracts", "tenant"),
+    ("我的历史浏览记录", "my_history", "tenant"),
+    ("我最近看过哪些房子", "my_history", "tenant"),
+    ("我的待处理事项有哪些", "my_todos", "tenant"),
+    # 「代办」是「待办」的常见错字，但「你能帮我代办什么」问的是功能
+    ("我的代办有哪些", "my_todos", "tenant"),
+    ("你能帮我代办哪些事", "knowledge", "tenant"),
     ("有人约我的房吗", "landlord_appointments", "landlord"),
     ("我名下有几套房", "landlord_houses", "landlord"),
     ("我的租客都有谁", "landlord_tenants", "landlord"),
@@ -97,6 +106,23 @@ CASES = [
     ("提前退租要赔钱吗", "knowledge", ""),
     ("报修多久能上门", "knowledge", ""),
 
+    # ---------------------------------------------------------- 针对对话本身
+    ("我上一条问了什么", "converse", "tenant"),
+    ("你这太草率了，总结下呗", "converse", "tenant"),
+    ("房东一直不回我消息，我很生气，这平台到底管不管", "converse", "tenant"),
+
+    # 房东的经营与欠租——原先分别被答成房源介绍、房东自己的账单
+    ("这个月我收了多少租金", "landlord_income", "landlord"),
+    ("有没有租客拖欠房租的", "landlord_tenants", "landlord"),
+    # 房东问的是名下房源的报修与合同，原先查成了他自己作为租客的那份
+    ("有租客给我报修吗", "landlord_repairs", "landlord"),
+    ("下个月有哪些合同到期", "landlord_contracts", "landlord"),
+    ("帮我把DL0023的租金改成2300", "edit_house", "landlord"),
+    ("我哪套房评价最差", "landlord_houses", "landlord"),
+    ("帮我提醒一下欠租的那个人", "remind_tenant", "landlord"),
+    ("西岗区两室一厅70平一般租多少", "pricing_suggest", "landlord"),
+    ("平台现在有多少房源待审核", "admin_todos", "admin"),
+
     # ---------------------------------------------------------- 不该交给工具层
     ("你好", None, ""),
     ("谢谢", None, ""),
@@ -106,6 +132,7 @@ CASES = [
 
 # 未登录时这些工具不该出现在候选里——挑中了就是身份过滤没生效
 LOGIN_ONLY = ("my_bills", "my_contracts", "my_appointments", "my_repairs",
-              "my_favorites", "pay_bill", "book_viewing", "submit_repair",
+              "my_favorites", "my_history", "my_todos",
+              "pay_bill", "book_viewing", "submit_repair",
               "end_contract", "renew_contract", "favorite_house",
               "unfavorite_house", "cancel_viewing", "reschedule_viewing")

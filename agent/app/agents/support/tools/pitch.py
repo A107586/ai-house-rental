@@ -260,6 +260,15 @@ def answer_attribute(house, question):
         if word and word in q and yes:
             return yes if tag in tags else no
 
+    # 「第一套房东是谁，能联系吗」——原先交给模型按字段答，字段表里没有房东，
+    # 于是回「房源信息里没写房东」。名字只给姓（和房东口碑那句同一个口径），
+    # 联系方式平台在看房确认后才给，照实说，并把能做的那一步递过去。
+    if "房东" in q and any(w in q for w in ("谁", "联系", "电话", "手机", "微信", "姓什么")):
+        name = str(house.get("landlord_name") or "").strip()
+        who = ("这套的房东是%s**。" % name[0]) if name else "这套没有写明房东是谁。"
+        return (who + "平台不在看房前给联系方式：预约看房被房东确认后，"
+                "联系方式会通过站内消息发给你。要我帮你约个时间吗？")
+
     # 结构化字段：这些不是标签，房源表里有确切值
     if "电梯" in q:
         lift = house.get("elevator")

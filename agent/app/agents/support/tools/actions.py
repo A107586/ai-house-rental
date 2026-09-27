@@ -90,6 +90,11 @@ from app.agents.support.tools.money import money_text as _money
 _DO_VERBS = ["帮我", "给我", "替我", "去", "把", "请"]
 
 ACTION_KEYWORDS = [
+    # **催租排在交租前面。**「提醒他交房租」「催一下房租」里都有「交房租」，
+    # 让 pay_bill 先看的话，房东想催租客，卡片上却是替自己交钱。
+    ("remind_tenant", ["催租", "催缴", "催一下租", "催房租", "催一下房租",
+                       "提醒欠租", "提醒一下欠租", "提醒租客", "提醒他交",
+                       "提醒她交", "催他交", "催她交", "催一下欠"]),
     ("pay_bill", ["交房租", "交租", "缴费", "把房租交", "付房租", "交账单",
                   "把账单交", "缴租金", "交一下房租"]),
     ("cancel_viewing", ["取消预约", "取消看房", "别去看了", "不看了",
@@ -167,6 +172,12 @@ _ASKING = [
     # 问进度（这是查询，不是指令）
     "到哪一步", "处理了吗", "处理好了吗", "回复了吗", "进度", "怎么样了",
     "有结果", "通过了吗", "审核过了吗",
+    # 问钱、问责任、问后果。**这一组是一次真实用户测试撞出来的**：
+    # 「提前一个月退租要赔多少钱」「押金我能扣多少」都弹出了退租确认卡，
+    # 「维修费谁出」弹出了报修卡——三句都是在问规则，句子里只是恰好有
+    # 「退租」「维修」。表里原先没有「多少」和「谁」，一个问句都认不出来。
+    "多少", "谁出", "谁付", "谁负责", "谁承担", "谁来", "会怎样", "会怎么样",
+    "啥时候", "咋",
 ]
 
 # **软否决词**：只在句子里**没有祈使语气**时才一票否决。
@@ -182,7 +193,17 @@ _ASKING = [
 # 「退租要打扫干净吗」曾触发退租、「可以用公积金付房租吗」曾触发缴费。
 # 三条都是知识型问题，却因为句子里有业务动词而被当成了指令。
 # 「哪」一个字覆盖哪种／哪个／哪些／哪儿，不必逐个列举
-_SOFT_ASKING = ["吗", "什么", "哪", "呢", "算不算", "属于"]
+_SOFT_ASKING = ["吗", "什么", "哪", "呢", "算不算", "属于", "谁"]
+
+# **要的是一份文书，不是去办这件事。**
+#
+# 「帮我写一份退租申请书」里有「帮我」、有「退租」，三层规则全部命中，
+# 结果是一张**退租确认卡**——用户要的是一段文字，助手却准备替他解约。
+# 这类说法的共同点是宾语是一件「文字产物」，把它挑出来一票否决。
+# 只收文书类名词和「写一份/写一封」：「帮我写个评价」是真要提交评价，
+# 「起草一份合同」是房东真要发起签约，这两类不能被连带否决。
+_DOCUMENT = ("申请书", "申请表", "申请信", "模板", "范本", "范文", "文案",
+             "说明书", "通知书", "一封信", "写一份", "写一封", "拟一份")
 
 
 # 「动词 × 对象」共现规则。固定短语覆盖不了中文的语序自由：
@@ -229,6 +250,7 @@ STRONG_PAIRS = [
 ]
 
 ACTION_PAIRS = [
+    ("remind_tenant", ["提醒", "催"], ["欠租", "租客", "欠费", "拖欠"]),
     ("pay_bill", ["交", "缴", "付", "支付", "结清"],
      ["房租", "租金", "账单", "费用", "这个月"]),
     ("cancel_viewing", ["取消", "退掉", "撤销"], ["预约", "看房"]),
@@ -245,6 +267,45 @@ ACTION_PAIRS = [
 # 那这句话就只是说得客气，不是在提问。
 _POLITENESS = ("能不能", "可不可以", "可以吗", "行不行", "方便吗", "麻烦你",
                "能否", "可以帮", "能帮")
+
+
+_CAN_BOOK = re.compile(r"(能|可以|可不可以)(帮我)?(约|预约)")
+
+
+def asks_rather_than_requests(text):
+    """这句话是在**问**，还是在**请我去做**。给「模型挑中了写操作」那道护栏用。
+
+    和 router._looks_like_question 的区别在于**认得客气的请求**：
+    「我想明天上午去看这套，可以吗」「明天上午十点吧」是在约看房，
+    只是说得客气。护栏第一版用的是 _looks_like_question，它见「可以吗」就判提问、
+    见句尾「吧」也判提问——两句正常的约看房被拦成知识问答，回了一句
+    「平台资料里没写到这一条」。
+
+    判据：
+      1. 要一份文书（申请书、模板）——不是去办，算「问」；
+      2. 疑问成分只有客气话（能不能 / 可以吗 / 能帮）——是请求；
+      3. 还剩真正的疑问词（多少、谁出、怎么、会怎样）——是问；
+      4. 只带软疑问词（吗 / 什么 / 哪 / 谁）又没有祈使词——是问。
+    句尾的「吧」不算疑问：「那就十点吧」是拍板，不是提问。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if any(word in raw for word in _DOCUMENT):
+        return True
+    if any(p in raw for p in _POLITENESS) and _only_politeness(raw):
+        return False
+    # 「这套能约周六下午看吗」——带着具体时间问能不能约，就是在约。
+    # 原先被判成提问，模型挑中的约看房被拦下，对话兜底回了一句
+    # 「你告诉我具体是周六哪天、下午几点」：他刚说过。
+    # 只放行「约」这一类且必须带时间：「押金能退吗」同样是「能 X 吗」，那是在问规则。
+    if (_CAN_BOOK.search(raw) and (parse_datetime(raw) or {}).get("date")
+            and not any(word in raw for word in _ASKING)):
+        return False
+    if any(word in raw for word in _ASKING):
+        return True
+    return (any(word in raw for word in _SOFT_ASKING)
+            and not any(verb in raw for verb in _DO_VERBS))
 
 
 def _only_politeness(raw):
@@ -275,6 +336,17 @@ def _explicit(raw):
     return ""
 
 
+# **「提醒我交房租」不是「帮我交房租」。** 他要的是知道什么时候该交、交多少，
+# 原先被当成缴费，弹了一张 750 元的确认卡。高风险卡要点按钮才执行，
+# 扣不了钱，但答非所问。去掉动作之后这句话会落到查账单上。
+_REMIND_ME = ("提醒我", "提醒一下我", "到时候告诉我", "记得告诉我", "别让我忘了")
+
+
+def reminds_me(text):
+    """「提醒我交房租」这类：要的是提醒，不是现在去办。"""
+    return any(word in (text or "") for word in _REMIND_ME)
+
+
 def detect(text):
     """判断这句话是不是在要求代办一件事，返回动作名或空串。
 
@@ -290,6 +362,11 @@ def detect(text):
     """
     raw = (text or "").strip()
     if not raw:
+        return ""
+
+    if any(word in raw for word in _DOCUMENT):
+        return ""
+    if any(word in raw for word in _REMIND_ME):
         return ""
 
     imperative = any(verb in raw for verb in _DO_VERBS)
@@ -338,23 +415,65 @@ AFFIRM = ["好", "好的", "行", "可以", "确认", "对", "是的", "嗯", "�
 DENY = ["不", "不用", "算了", "取消", "先不", "再想想", "不要", "no", "等等"]
 
 
+# 肯定 / 否定词后面还能跟的东西：语气词、客气话、再叠一个同向的词。
+# 除此之外还有别的内容，这句话就不只是「好」或「不」。
+_FILLER = set("的吧啊呀了哈嗯呢哦噢喔滴啦嘛，,。.!！~ ")
+_AFFIRM_TAIL = ("谢谢", "麻烦了", "麻烦你了", "就这样", "没问题", "一下", "帮我办",
+                "办吧", "交吧", "约吧", "提交", "确认") + tuple(AFFIRM)
+_DENY_TAIL = ("谢谢", "先这样", "改天", "再说", "需要", "用", "要") + tuple(DENY)
+# 「不约了」「先不交了」：不 + 一个动词
+_NOT_VERB = re.compile(r"^不[一-鿿]{1,2}了?$")
+
+
+def _only_tail(rest, tails):
+    """`rest` 能不能全部被语气词和 `tails` 里的词吃掉。"""
+    rest = rest.strip()
+    while rest:
+        if rest[0] in _FILLER:
+            rest = rest[1:]
+            continue
+        for word in sorted(tails, key=len, reverse=True):
+            if rest.startswith(word):
+                rest = rest[len(word):]
+                break
+        else:
+            return False
+    return True
+
+
+def _is_short_reply(text, words, tails, extra=None):
+    raw = (text or "").strip().strip("，。！,.!~ ")
+    if not raw or len(raw) > 8:
+        return False
+    # **问句不是应答。** 原先只看开头：「可以养宠物吗」「对面有超市吗」
+    # 「行李能放吗」都以肯定词开头，被当成了「好的」——卡片挂着的时候，
+    # 中风险的那几类（约看房、收藏、报修）会被这句话**直接执行**。
+    if raw[-1] in "吗么呢?？" or "吗" in raw:
+        return False
+    for word in sorted(words, key=len, reverse=True):
+        if raw == word:
+            return True
+        if raw.startswith(word):
+            rest = raw[len(word):]
+            if _only_tail(rest, tails) or (extra and extra(rest)):
+                return True
+    return False
+
+
 def is_affirm(text):
     """用户是不是在肯定上一张确认卡片。
 
     要求整句话短——「好的」是确认，「好的，那退租要打扫吗」是新问题。
-    长句里出现「好」大概率只是语气词，不能当确认用。
+    也不能只看开头：「好贵啊」「对面有超市吗」开头都是肯定词。
     """
-    raw = (text or "").strip().strip("，。！,.!~ ")
-    if not raw or len(raw) > 8:
-        return False
-    return any(raw == word or raw.startswith(word) for word in AFFIRM)
+    return _is_short_reply(text, AFFIRM, _AFFIRM_TAIL)
 
 
 def is_deny(text):
-    raw = (text or "").strip().strip("，。！,.!~ ")
-    if not raw or len(raw) > 8:
-        return False
-    return any(raw == word or raw.startswith(word) for word in DENY)
+    """「不用了」「算了不约了」是否定；「不知道哪套好」「不贵」不是。"""
+    return _is_short_reply(
+        text, DENY, _DENY_TAIL,
+        extra=lambda rest: bool(_NOT_VERB.match(rest.strip("，,。 "))))
 
 
 # 序数词 -> 下标。用户看到一串选项，最自然的回答就是「第一个」。
@@ -372,6 +491,39 @@ _ORDINALS = {
 # 死循环。第一个选项通常也是最近／最相关的那个。
 _ANY_OF_THEM = ["都可以", "都行", "随便", "都成", "你定", "你看着办",
                 "无所谓", "哪个都行", "都方便"]
+
+
+def _pick_from_request(text, options):
+    """请求原话里是不是已经指明了哪一项。
+
+    和 pick_option 的区别：**不认「都行 / 随便」**。那类词是回答追问时
+    「你挑吧」的意思；出现在第一句请求里时，用户并没有在点选项——
+    取消、确认这类动作宁可多问一句，也不能替他挑第一条。
+    """
+    raw = (text or "").strip()
+    if not raw or not options or any(word in raw for word in _ANY_OF_THEM):
+        return ""
+    # **不拿选项的值（预约 id）去比原话。** 请求里常带日期和数字：
+    # 「取消 11 月 8 号那个看房」里的 11 会撞上 id=11 的那条——
+    # 取消掉的就是另一场看房。回答追问时句子短，那样比没问题；这里不行。
+    # 只认两种不会撞车的：「最早 / 最晚」按时间挑；说中了标签里的完整片段
+    # （房源编号、日期），且只有一条说中。
+    timed = [(m.group(0), o["value"]) for o in options
+             for m in [_LEADING_TIME.match(o.get("label") or "")] if m]
+    if timed and len(timed) == len(options):
+        if any(w in raw for w in ("最早", "最先", "早的那")):
+            return min(timed)[1]
+        if any(w in raw for w in ("最晚", "最迟", "晚的那")):
+            return max(timed)[1]
+    scored = []
+    for option in options:
+        label = (option.get("label") or "").replace("　", " ")
+        hit = sum(len(p) for p in label.split() if len(p) >= 5 and p in raw)
+        if hit:
+            scored.append((hit, option["value"]))
+    if len(scored) == 1:
+        return scored[0][1]
+    return ""
 
 
 def _value_said(value, raw):
@@ -438,12 +590,26 @@ def pick_option(text, options):
             return winners[0]
         return ""
 
+    # 「同意最早那个看房申请」——选项标签开头是时间，「最早 / 最晚」
+    # 按时间挑，而不是按列表顺序。实测原先追问了一句「要处理哪一条」，
+    # 而用户已经说清楚了。「最近」不收：可以是「最新的」也可以是「离现在最近的」。
+    timed = [(m.group(0), o["value"]) for o in options
+             for m in [_LEADING_TIME.match(o.get("label") or "")] if m]
+    if timed and len(timed) == len(options):
+        if any(w in raw for w in ("最早", "最先", "早的那")):
+            return min(timed)[1]
+        if any(w in raw for w in ("最晚", "最迟", "晚的那")):
+            return max(timed)[1]
+
     compact = raw.strip("，。 ")
     for word, index in _ORDINALS.items():
         if compact == word or compact.startswith(word):
             if index < len(options):
                 return options[index]["value"]
     return ""
+
+
+_LEADING_TIME = re.compile(r"\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?")
 
 
 def _option(value, label):
@@ -512,7 +678,9 @@ def _bill_kind_wanted(text):
 
 
 def _propose_pay_bill(text, token, backend, context):
-    rows = _rows(backend.get("/api/bills/mine", token=token))
+    # 只收我要交的：房东账号不带 side 会拿到租客欠他的账单，卡片就成了替租客付钱
+    rows = _rows(backend.get("/api/bills/mine", params={"side": "tenant"},
+                             token=token))
     # **金额为 0 的不算待缴。**
     #
     # 免押的合同会排出一张 0 元的押金账单——它在库里是一条正常记录，
@@ -611,6 +779,8 @@ def _propose_cancel_viewing(text, token, backend, context):
     if not chosen:
         pending = _narrow_by_time(pending, text)
     options = _appointment_options(pending)
+    if not chosen and len(pending) > 1:
+        chosen = _pick_from_request(text, options)
     if not chosen and len(pending) > 1:
         return (NEED_SLOT, "你有 %d 条预约，要取消哪一条？" % len(pending), None,
                 _ask("appointment_id", "要取消哪一条预约？", options))
@@ -902,13 +1072,50 @@ def _repair_after_content(content, house_no, context):
         warning="提交后系统会自动判断故障类型与紧急程度并派单。")
 
 
+def _pick_contract(active, text, context, verb):
+    """几份生效中的租约里，这次说的是哪一份。返回 ``(租约, 追问)``，二者有一个是 None。
+
+    原先一律取第一份。实测租客有 3 份在租，说「我的房子快到期了，想续租」，
+    卡片上是一份租到明年九月的——**离到期最远的那份**。续租、退租都是
+    高风险动作，卡片摆错了对象，用户稍不留神就点了确认。
+    说了编号（合同号或房源号）就按编号认；只有一份就是它；否则问。
+    """
+    from app.memory import house_no_in
+
+    context = context or {}
+    picked = str(context.get("contract_no") or "")
+    said = house_no_in(text) or str(context.get("house_no") or "").upper()
+    for row in active:
+        if picked and row.get("contract_no") == picked:
+            return row, None
+        if row.get("contract_no") and row["contract_no"] in (text or ""):
+            return row, None
+    by_house = [r for r in active if said and r.get("house_no") == said]
+    if len(by_house) == 1:
+        return by_house[0], None
+    typed = house_no_in(text)
+    # 点名了一套，却不是他在租的——别悄悄换成另一份，问清楚
+    if len(active) == 1 and not (typed and not by_house):
+        return active[0], None
+    ordered = sorted(active, key=lambda r: r.get("end_date") or "9")
+    options = [_option(r.get("contract_no"), "%s 租到 %s" % (
+        r.get("house_no") or r.get("contract_no"), r.get("end_date") or ""))
+        for r in ordered[:5]]
+    question = "你有 %d 份生效中的租约，要%s哪一份？" % (len(active), verb)
+    if typed and not by_house:
+        question = "%s 不在你生效中的租约里。%s" % (typed, question)
+    return None, (NEED_SLOT, question, None, _ask("contract_no", question, options))
+
+
 def _propose_renew_contract(text, token, backend, context):
     rows = _rows(backend.get("/api/contracts/mine", token=token))
     active = [c for c in rows if c.get("status") in ("active", "生效中")]
     if not active:
         return NOT_APPLICABLE, "你名下没有生效中的租约。", None, None
 
-    target = active[0]
+    target, asking = _pick_contract(active, text, context, "续")
+    if asking:
+        return asking
     months = 12
     for candidate in (24, 18, 12, 6, 3, 1):
         if "%d个月" % candidate in text or "%d 个月" % candidate in text:
@@ -935,7 +1142,9 @@ def _propose_end_contract(text, token, backend, context):
     if not active:
         return NOT_APPLICABLE, "你名下没有生效中的租约。", None, None
 
-    target = active[0]
+    target, asking = _pick_contract(active, text, context, "退")
+    if asking:
+        return asking
     return CONFIRM, "", _card(
         "end_contract", "退租",
         "发起租约 %s 的退租" % target.get("contract_no", ""), RISK_HIGH,
@@ -1012,13 +1221,23 @@ def _propose_clear_history(text, token, backend, context):
 
 
 def _propose_toggle_house(text, token, backend, context):
-    house_no = (context or {}).get("house_no") or ""
+    context = context or {}
+    # **上架还是下架，要在第一句话里就定下来，并带到下一轮。**
+    # 原先每轮都从「当前这句话」里找「下架」：先问了「要操作哪一套？」，
+    # 用户答「DL0029」，这句话里没有「下架」——卡片就成了**上架**。
+    status = context.get("status") or ("offline" if "下架" in (text or "")
+                                       else "available")
+    offline = status == "offline"
+    rows = _rows(backend.get("/api/landlord/houses", token=token))
+    mine = {r.get("house_no") for r in rows}
+    # 上游给的 house_no 可能是他刚在找房那边看过的别人的房，不是他的就不认
+    house_no = context.get("house_no") or ""
+    if house_no not in mine:
+        house_no = ""
     if not house_no:
-        rows = _rows(backend.get("/api/landlord/houses", token=token))
         if not rows:
             return NOT_APPLICABLE, "你名下还没有房源。", None, None
         if len(rows) > 1:
-            offline = "下架" in text
             # 要下架就只列在租的，要上架就只列已下架的——把不可能的选项
             # 摆出来，用户点了才发现做不成，等于让他白点一次。
             candidates = [r for r in rows
@@ -1026,19 +1245,56 @@ def _propose_toggle_house(text, token, backend, context):
             options = _house_options(candidates or rows, label=lambda r:
                                      "%s %s" % (r.get("house_no"),
                                                 (r.get("title") or "")[:16]))
-            question = "你名下有 %d 套房源，要操作哪一套？" % len(rows)
+            question = "你名下有 %d 套房源，要%s哪一套？" % (
+                len(rows), "下架" if offline else "上架")
             return NEED_SLOT, question, None, _ask("house_no", question,
-                                                   options)
+                                                   options,
+                                                   carry={"status": status})
         house_no = rows[0].get("house_no")
 
-    offline = "下架" in text
-    status = "offline" if offline else "available"
     return CONFIRM, "", _card(
         "toggle_house", "房源上下架",
         "把房源 %s %s" % (house_no, "下架" if offline else "上架"),
         RISK_MEDIUM, {"house_no": house_no, "status": status},
         warning="下架后房源不再对外展示，已有的预约不受影响。"
                 if offline else "")
+
+
+def _propose_remind_tenant(text, token, backend, context):
+    """房东催欠租的租客。**只列真的有逾期账单的人**——没逾期的催了是骚扰。"""
+    try:
+        rows = _rows(backend.get("/api/landlord/tenants", token=token))
+    except BackendError:
+        # 租客账号调这个接口是 403。「提醒我交房租」这种话会走到这里
+        return (NOT_APPLICABLE,
+                "催缴提醒是房东发给租客的。你要交房租的话，说「帮我交房租」就行。",
+                None, None)
+    owing = [r for r in rows if (r.get("overdue_count") or 0) > 0]
+    if not owing:
+        return NOT_APPLICABLE, "你的租客都没有逾期账单，不用催。", None, None
+
+    picked = str((context or {}).get("tenant_id") or "")
+    target = next((r for r in owing if str(r.get("id")) == picked), None)
+    if target is None:
+        named = [r for r in owing if r.get("username") and r["username"] in (text or "")]
+        if len(named) == 1:
+            target = named[0]
+    if target is None and len(owing) > 1:
+        options = [_option(str(r.get("id")), "%s 逾期 %d 笔，欠 %s 元" % (
+            r.get("username") or r.get("real_name") or "",
+            r.get("overdue_count") or 0, _money(r.get("unpaid_total") or 0)))
+            for r in owing[:5]]
+        question = "有 %d 位租客有逾期账单，要提醒哪一位？" % len(owing)
+        return NEED_SLOT, question, None, _ask("tenant_id", question, options)
+    target = target or owing[0]
+    who = target.get("username") or target.get("real_name") or ""
+    return CONFIRM, "", _card(
+        "remind_tenant", "催缴提醒",
+        "给 %s 发一条催缴提醒（逾期 %d 笔）" % (who, target.get("overdue_count") or 0),
+        RISK_MEDIUM, {"tenant_id": target.get("id")},
+        detail={"tenant": who, "overdue_count": target.get("overdue_count"),
+                "unpaid_total": target.get("unpaid_total")},
+        warning="租客会收到一条站内消息，列出他的逾期笔数和金额。同一位租客一天只能催一次。")
 
 
 def _propose_submit_review(text, token, backend, context):
@@ -1100,6 +1356,11 @@ def _propose_handle_appointment(text, token, backend, context):
                            "%s %s" % ((r.get("viewing_time") or "")[:16],
                                       r.get("house_no", "")))
                    for r in pending[:5]]
+        # 第一句话就说清楚了的（「同意最早那个」「同意 DL0057 那个」），
+        # 别再反问一遍「要处理哪一条」——实测房东刚说完「最早那个」就被问了。
+        said = _pick_from_request(text, options)
+        target = next((r for r in pending if str(r.get("id")) == said), None)
+    if target is None and len(pending) > 1:
         question = "有 %d 条待处理预约，要处理哪一条？" % len(pending)
         return NEED_SLOT, question, None, _ask("appointment_id", question,
                                                options)
@@ -1246,6 +1507,49 @@ def _form_context(name, token, backend, slots):
     return context
 
 
+# 「把 DL0023 的租金改成 2300」一句话里三项都齐了。原先表单只看上下文，
+# 照样一项项问「改哪一套？」「改哪一项？」——用户刚说过的话被当没听见。
+_EDIT_FIELDS = [("rent_price", ("月租", "租金", "房租")), ("deposit", ("押金",)),
+                ("title", ("标题",)), ("address", ("地址",)),
+                ("description", ("描述", "介绍"))]
+_EDIT_NUMBER = re.compile(
+    r"(?:改成|改为|改到|调成|调为|调到|降到|涨到|设为|设成|定为|定成)\s*"
+    r"([0-9]+(?:\.[0-9]+)?|[零一二两三四五六七八九十百千万]+)\s*(?:块|元)?")
+
+
+def _edit_house_from_text(text):
+    """从请求原话里认出房源编号、改哪一项、改成多少。认不出的项不填，照常再问。
+
+    **只认「改成 / 调到 …」后面的绝对值。**「降两百」是相对量，
+    要先知道现价才能算——算错了就是按错的价格挂出去，宁可再问一句。
+    文本类字段（标题、地址）也只认出是哪一项，值让用户单独说：
+    从一句话里截出一段文字当新标题，截错了比多问一句麻烦得多。
+    """
+    from app.cn_number import cn_to_int
+    from app.memory import house_no_in
+
+    text = text or ""
+    out = {}
+    house_no = house_no_in(text)
+    if house_no:
+        out["house_no"] = house_no
+    hits = [field for field, words in _EDIT_FIELDS if any(w in text for w in words)]
+    if len(hits) != 1:
+        return out
+    out["field"] = hits[0]
+    if hits[0] in ("rent_price", "deposit"):
+        matched = _EDIT_NUMBER.search(text)
+        if matched:
+            raw = matched.group(1)
+            try:
+                value = float(raw) if raw[0].isdigit() else cn_to_int(raw)
+            except (TypeError, ValueError):
+                value = None
+            if value:
+                out["value"] = str(int(value)) if float(value).is_integer() else str(value)
+    return out
+
+
 def _propose_form(name):
     """把一张声明式表单变成一个提议器：一次问一项，填完出确认卡。"""
 
@@ -1272,6 +1576,25 @@ def _propose_form(name):
         env = _form_context(name, token, backend, slots)
         if name in ("sign_contract", "edit_house") and not env.get("_houses"):
             return NOT_APPLICABLE, "你名下还没有房源。", None, None
+        # 上游塞进来的 house_no（用户刚看过的那套）不是他名下的就不认：
+        # 卡片照样出得来，要到点确认时后端才拒，是最糟的一种失败
+        if name in ("sign_contract", "edit_house") and slots.get("house_no")                 and slots["house_no"] not in {h.get("house_no") for h in env["_houses"]}:
+            slots.pop("house_no")
+        if name == "edit_house":
+            parsed = _edit_house_from_text(text)
+            # 编号不是他名下的就不收：卡片能出，执行时后端才拒，是最糟的一种
+            mine = {h.get("house_no") for h in env["_houses"]}
+            if parsed.get("house_no") not in mine:
+                parsed.pop("house_no", None)
+            if "value" in parsed:
+                ok, cleaned = forms.validate(name, "value", parsed["value"],
+                                             {**slots, **parsed})
+                if ok:
+                    parsed["value"] = cleaned
+                else:
+                    parsed.pop("value")
+            for key, value in parsed.items():
+                slots.setdefault(key, value)
 
         field = forms.next_missing(name, slots)
         if field is not None:
@@ -1331,6 +1654,7 @@ PROPOSERS = {
     "handle_appointment": _propose_handle_appointment,
     "update_repair": _propose_update_repair,
     "toggle_house": _propose_toggle_house,
+    "remind_tenant": _propose_remind_tenant,
     "activate_contract": _propose_activate_contract,
     "verify_request": _propose_verify_request,
     "publish_house": _propose_form("publish_house"),
@@ -1461,7 +1785,19 @@ def _exec_toggle_house(params, token, backend):
     data = backend._request(
         "PATCH", "/api/houses/%s/status" % params["house_no"],
         params={"status": params["status"]}, token=token)
+    # 没通过审核的房源，「上架」在后端会变成「提交审核」——照后端说的讲，
+    # 别告诉房东「已上架」而页面上显示的是待审核
+    if isinstance(data, dict) and data.get("message"):
+        return data["message"], data
     return ("房源已%s。" % ("下架" if params["status"] == "offline" else "上架"),
+            data)
+
+
+def _exec_remind_tenant(params, token, backend):
+    data = backend.post("/api/landlord/tenants/%s/remind" % params["tenant_id"],
+                        {}, token=token)
+    return ("已发出催缴提醒：%s 笔逾期、共 %s 元。租客那边会收到站内消息。"
+            % ((data or {}).get("count", ""), _money((data or {}).get("amount") or 0)),
             data)
 
 
@@ -1547,6 +1883,7 @@ EXECUTORS = {
     "handle_appointment": _exec_handle_appointment,
     "update_repair": _exec_update_repair,
     "toggle_house": _exec_toggle_house,
+    "remind_tenant": _exec_remind_tenant,
     "activate_contract": _exec_activate_contract,
     "verify_request": _exec_verify_request,
     "publish_house": _exec_publish_house,
@@ -1571,6 +1908,7 @@ LABELS = {
     "activate_contract": "确认签约", "verify_request": "申请核验",
     "update_profile": "修改手机号", "publish_house": "发布房源",
     "sign_contract": "发起签约", "edit_house": "修改房源",
+    "remind_tenant": "催缴提醒",
 }
 
 
@@ -1590,6 +1928,7 @@ ALLOWED_PARAMS = {
     "handle_appointment": {"appointment_id", "status"},
     "update_repair": {"repair_id", "status"},
     "toggle_house": {"house_no", "status"},
+    "remind_tenant": {"tenant_id"},
     "activate_contract": {"contract_no"},
     "verify_request": {"house_no"},
     "publish_house": {"district", "community", "address", "layout",

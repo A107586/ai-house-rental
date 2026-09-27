@@ -34,6 +34,21 @@ _FUNCTION_CHARS = set(
     "上下前后里外中间左右为了因所以但如果虽然"
 )
 
+
+def _mostly_function(word):
+    """这个词是不是虚字撑起来的。
+
+    两字词：首尾有一个虚字就算（「帮我」「能够」）。
+    三字以上：**一半以上**是虚字才算（「怎么办」算，「中介费」不算）。
+    原先三字词也按首尾判，「中介费」只因为「中」在虚字表里（为了「中间」）
+    就被整个丢掉，「你们收中介费吗」被判「没有话题词」拒答——
+    答案就排在检索第一位。
+    """
+    if len(word) <= 2:
+        return word[0] in _FUNCTION_CHARS or word[-1] in _FUNCTION_CHARS
+    return sum(ch in _FUNCTION_CHARS for ch in word) * 2 >= len(word)
+
+
 # 通道编号，供解释与日志使用
 CHANNEL_BODY = "body"
 CHANNEL_TITLE = "title"
@@ -502,8 +517,7 @@ class KnowledgeIndex(object):
         # 同样保序去重：`topic_words` 可能返回重复词，而并列时
         # 取哪一个必须是确定的（理由见 `key_term` 里那段）
         words = [w for w in dict.fromkeys(topic_words(query))
-                 if len(w) >= 2 and not w.isascii()
-                 and not (w[0] in _FUNCTION_CHARS or w[-1] in _FUNCTION_CHARS)]
+                 if len(w) >= 2 and not w.isascii() and not _mostly_function(w)]
         if not words:
             return ""
         return max(words,

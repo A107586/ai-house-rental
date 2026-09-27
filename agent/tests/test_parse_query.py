@@ -57,6 +57,17 @@ class TestDistrict(unittest.TestCase):
         """非大连的区县也要能识别。"""
         self.assertEqual(parse_query("朝阳区两室一厅")["filters"]["suozaidiqu"], "朝阳区")
 
+    def test_pronoun_is_not_a_district(self):
+        """「其他地区」「换个地区」不是地名。
+
+        通用兜底只认「两到四个汉字 + 区」这个形状，这几句正好也是，
+        于是「区域改为 找其他地区。」——之后再怎么搜都是空的。
+        真区名走的是精确匹配，上面那条 generic 用例保证它没被误伤。
+        """
+        for text in ("那找其他地区3000以内的", "换个地区", "其他区域看看",
+                     "这个区还有别的吗"):
+            self.assertNotIn("suozaidiqu", parse_query(text)["filters"], text)
+
 
 class TestLayout(unittest.TestCase):
 

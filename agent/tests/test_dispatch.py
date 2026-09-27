@@ -658,5 +658,254 @@ class TestSmallTalk(unittest.TestCase):
         self.assertNotIn("租房助手", result.get("message", ""))
 
 
+class _ChatOnlyProvider(LLMProvider):
+    """只放行多轮对话那一问，其余（选工具、检索组织回答）一律不可用。"""
+
+    available = True
+
+    def __init__(self):
+        self.seen = None
+
+    def complete(self, system, prompt, max_tokens=None):
+        raise LLMUnavailable("只放行对话")
+
+    def complete_json(self, system, prompt, max_tokens=None):
+        raise LLMUnavailable("只放行对话")
+
+    def chat(self, system, messages, max_tokens=None, deadline=None,
+             temperature=0.0):
+        self.seen = list(messages)
+        self.system = system
+        return "你上一条问的是「第一套评价怎么样」。"
+
+
+class TestConverseFallback(unittest.TestCase):
+    """工具、规则、检索都接不住时，拿着完整对话正常回话。
+
+    原来这里直接回「这个我没查到相关规定，也没太理解你想做什么」。
+    实测「我上一条问了什么」「你这太草率了，总结下呗」都撞在这句上——
+    答案明明就在刚才的对话里，只是没有任何一条路径拿得到助手说过的话。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        support.reset_knowledge_base()
+
+    def test_answers_from_the_dialogue(self):
+        fake = _ChatOnlyProvider()
+        with mock.patch("app.main.provider", fake):
+            result = ask("我上一条问了什么", history=[
+                {"role": "user", "content": "第一套评价怎么样"},
+                {"role": "assistant", "content": "共 1 条评价，平均 4.0 分"}])
+        self.assertEqual(result["route_source"], "converse")
+        self.assertIn("第一套评价怎么样", result["message"])
+        # 助手的话必须送到模型面前，不然这类追问无从回答
+        self.assertIn({"role": "assistant", "content": "共 1 条评价，平均 4.0 分"},
+                      fake.seen)
+        self.assertEqual(fake.seen[-1], {"role": "user", "content": "我上一条问了什么"})
+
+    def test_assistant_turns_are_not_replayed_as_search_conditions(self):
+        """带署名的历史里，助手的话只进对话，不进槽位重放。"""
+        result = ask("三千以内的", history=[
+            {"role": "user", "content": "中山区两室一厅"},
+            {"role": "assistant", "content": "租价 3050–3950 元，面积 61 平"}])
+        self.assertEqual(result["intent"], "search")
+        ctx = result.get("context") or {}
+        self.assertNotIn("mianji_min", ctx)
+        self.assertEqual(ctx.get("zujia_max"), 3000)
+
+    def test_no_basis_reply_is_told_the_nearest_questions(self):
+        """闸门拒答时，挨得最近的 FAQ 标题交给模型指路，并留在「猜你想问」里。"""
+        fake = _ChatOnlyProvider()
+        with mock.patch("app.main.provider", fake):
+            result = ask("我能在房子里开民宿吗")
+        if result.get("route_source") != "converse":
+            self.skipTest("这句在当前语料下直接答上了，用不上兜底")
+        self.assertIn("挨得最近的几条问题", fake.system)
+        self.assertTrue(result["alternatives"])
+        for title in result["alternatives"]:
+            self.assertIn(title, fake.system)
+
+    def test_without_a_model_the_old_guidance_stays(self):
+        """模型不可用时退回原来那句引导，不能返回空话。"""
+        result = ask("帮我订个外卖")
+        self.assertEqual(result["status"], "refused")
+        self.assertTrue(result["alternatives"])
+
+
+class TestQuestionsDoNotOpenRepairs(unittest.TestCase):
+    """房东问「维修费谁出」，原先开了一张报修单还追问要不要拍照。"""
+
+    @classmethod
+    def setUpClass(cls):
+        support.reset_knowledge_base()
+
+    def test_liability_question_does_not_start_a_repair(self):
+        result = ask("租客说热水器坏了，维修费谁出", token="t")
+        self.assertIsNone(result.get("action"))
+        self.assertNotEqual((result.get("pending") or {}).get("action"), "submit_repair")
+
+    def test_real_fault_report_still_starts_one(self):
+        """真在报故障的不受影响：走的仍是报修代办（未登录时卡在「先登录」）。"""
+        result = ask("厨房水管漏水了，帮我报修")
+        self.assertEqual(result["status"], "need_login")
+        self.assertIn("登录", result["message"])
+
+
+class TestSecondReviewFindings(unittest.TestCase):
+    """整体复查时找出来的。"""
+
+    def test_thanks_mid_form_keeps_the_form(self):
+        pending = {"action": "publish_house", "slots": {"district": "西岗区"},
+                   "ask": {"slot": "community", "question": "小区叫什么？",
+                           "options": []}}
+        result = ask("谢谢", pending=pending)
+        self.assertIn("不客气", result["message"])
+        self.assertEqual(result.get("pending"), pending)
+
+    def test_a_fault_that_lasted_days_still_opens_a_repair(self):
+        """「好几天」不是在问要多久。原先这句会被当成问时长，报修单开不出来。"""
+        result = ask("空调坏了好几天了")
+        self.assertIn(result["status"], ("analyzed", "need_login"))
+        self.assertEqual(result["intent"], "repair")
+
+
+class TestSweepFindings(unittest.TestCase):
+    """多轮边界扫一遍撞出来的。"""
+
+    def test_stop_phrases_cancel_the_form(self):
+        from app.agents.support import agent as support_agent
+        for text in ("不签了", "先不发了", "那就不改了", "不要了吧"):
+            self.assertTrue(support_agent._soft_deny(text), text)
+        for text in ("不贵了", "不错", "不知道"):
+            self.assertFalse(support_agent._soft_deny(text), text)
+
+    def test_clearing_a_field_by_name(self):
+        slots, _, _ = memory.apply_turn({"suozaidiqu": "中山区", "fangwuhuxing": "三室"},
+                                        [], "取消区域限制")
+        self.assertEqual(slots, {"fangwuhuxing": "三室"})
+        slots, _, _ = memory.apply_turn({"yajin_yue": 1, "fukuan_yue": 3, "zujia_max": 2000},
+                                        [], "付款方式不限")
+        self.assertEqual(slots, {"zujia_max": 2000})
+
+    def test_refinement_is_searched_not_discussed(self):
+        """「押一付三的呢」——选择器挑了对话，回了句「要我按这个条件搜吗」。"""
+        plan = {"tool": "converse", "params": {}, "confidence": 0.9, "why": "x"}
+        searched = {}
+
+        def fake_run_read(name, params, ctx):
+            searched["name"] = name
+            return {"intent": "search", "status": "ok", "ok": True,
+                    "message": "找到了", "items": []}
+        with mock.patch("app.main.tool_planner.plan", return_value=plan),                 mock.patch("app.main.tool_runner.run_read", side_effect=fake_run_read),                 mock.patch("app.main._llm", return_value=_ChatOnlyProvider()):
+            ask("押一付三的呢", history=["中山区两室一厅，三千五以内"])
+        self.assertEqual(searched.get("name"), "search_houses")
+
+    def test_meaning_question_stays_knowledge(self):
+        plan = {"tool": "knowledge", "params": {}, "confidence": 0.9, "why": "x"}
+        with mock.patch("app.main.tool_planner.plan", return_value=plan),                 mock.patch("app.main.tool_runner.run_read") as run_read,                 mock.patch("app.main._llm", return_value=_ChatOnlyProvider()):
+            ask("押一付三是什么意思", history=["中山区两室一厅，三千五以内"])
+        self.assertFalse(any(c.args and c.args[0] == "search_houses"
+                             for c in run_read.call_args_list))
+
+
+class TestTopicHints(unittest.TestCase):
+
+    def test_sentence_pattern_names_its_topic(self):
+        """「最短能租几个月」分词后没有名词，闸门判「没有话题」拒答——答案就排在第一。"""
+        from app.agents.support import corpus
+        self.assertIn("租期", corpus.add_topic_hints("最短能租几个月"))
+        self.assertIn("签约", corpus.add_topic_hints("带看完客户想签，怎么操作"))
+        # 没内容的话不能被补出话题
+        for text in ("怎么办", "随便看看", "你好"):
+            self.assertEqual(corpus.add_topic_hints(text), text)
+
+
+class TestCardSurvivesTheRulesPath(unittest.TestCase):
+
+    def test_off_topic_question_on_the_rules_path_keeps_the_card(self):
+        """「明天天气怎么样」走规则链路，原先答完确认卡就没了。"""
+        card = {"action": "book_viewing",
+                "card": {"name": "book_viewing", "label": "预约看房",
+                         "summary": "预约 2026-09-28 10:00 看房源 DL0103",
+                         "risk": "medium",
+                         "params": {"house_no": "DL0103",
+                                    "viewing_time": "2026-09-28 10:00"}}}
+        result = ask("明天天气怎么样", pending=card)
+        self.assertIsNone(result.get("action"))
+        self.assertEqual(result.get("pending"), card)
+        self.assertIn("确认卡还在", result["message"])
+
+
+class TestWhichOfTheListIsAnsweredWithoutTheModel(unittest.TestCase):
+
+    def test_cheapest_of_the_list(self):
+        """机器忙、选择器超时时，这句话原先被检索答成了一条账单 FAQ。"""
+        rows = {"DL1": {"house_no": "DL1", "title": "甲", "rent_price": 2000},
+                "DL2": {"house_no": "DL2", "title": "乙", "rent_price": 900}}
+        with mock.patch("app.main._fetch_houses",
+                        side_effect=lambda nos: [rows[n] for n in nos if n in rows]),                 mock.patch("app.main.tool_planner.plan") as plan:
+            result = ask("刚才那几套里哪个最便宜", last_house_nos=["DL1", "DL2"])
+        self.assertIn("第 2 套", result["message"])
+        plan.assert_not_called()
+
+
+class TestCountingHandoffsIsNotAHandoff(unittest.TestCase):
+
+    def test_count_question(self):
+        """管理员问「今天有多少转人工」，原先当场给他自己建了一张工单。"""
+        from app.agents.support.tools.classify_ask import wants_handoff
+        self.assertFalse(wants_handoff("今天有多少转人工"))
+        self.assertFalse(wants_handoff("转人工的有几个"))
+        self.assertTrue(wants_handoff("帮我转人工，押金退多少我搞不清"))
+        self.assertTrue(wants_handoff("转人工吧"))
+
+
+class TestCardSurvivesAQuestion(unittest.TestCase):
+    """约看房的确认卡挂着时问一句「可以养宠物吗」。
+
+    原先两头都错：这句话以「可以」开头被当成确认；修掉之后，
+    答完问题卡片又从待办里消失了，再说「好的」助手已不记得要确认什么。
+    """
+
+    CARD = {"action": "book_viewing",
+            "card": {"name": "book_viewing", "label": "预约看房",
+                     "summary": "预约 2026-09-26 10:00 看房源 DL0009",
+                     "risk": "medium",
+                     "params": {"house_no": "DL0009",
+                                "viewing_time": "2026-09-26 10:00"}}}
+
+    def test_question_keeps_the_card_with_a_reminder(self):
+        answered = {"intent": "support", "status": "answered", "ok": True,
+                    "message": "这套没有标注可养宠物。", "items": []}
+        with mock.patch("app.main._try_toolbox", return_value=dict(answered)):
+            result = ask("可以养宠物吗", pending=self.CARD, token="t")
+        self.assertIsNone(result.get("action"), "问句不能被当成确认")
+        self.assertEqual(result["pending"], self.CARD)
+        self.assertIn("确认卡还在", result["message"])
+        self.assertIn("DL0009", result["message"])
+
+    def test_a_new_card_replaces_the_old_one(self):
+        new_card = {"name": "favorite_house", "label": "收藏"}
+        other = {"intent": "support", "status": "confirm", "ok": True,
+                 "message": "要收藏吗？", "items": [], "action": new_card,
+                 "pending": {"action": "favorite_house", "card": new_card}}
+        with mock.patch("app.main._try_toolbox", return_value=dict(other)):
+            result = ask("收藏第一套", pending=self.CARD, token="t")
+        self.assertEqual(result["pending"]["action"], "favorite_house")
+
+
+class TestQuickReplies(unittest.TestCase):
+    """寒暄与「你会什么」不经过模型，秒回。"""
+
+    def test_capability_question(self):
+        result = ask("你能帮我干什么")
+        self.assertIn("找房", result["message"])
+        self.assertIn("代你办", result["message"])
+
+    def test_thanks(self):
+        self.assertIn("不客气", ask("谢谢")["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

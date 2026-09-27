@@ -74,14 +74,22 @@ _PROMPT = """用户对助手说了一句话。从下面的工具里挑**一个**
 """
 
 
-def _context_block(house_no, last_house_nos, context_text):
+def _context_block(house_no, last_house_nos, context_text, dialogue=None):
     """告诉模型「现在屏幕上有什么」。
 
     **只给编号和条数，不给整份房源明细。** 给明细的话模型会忍不住
     直接从里面编答案，而房源字段必须由代码从库里取——
     金额、评分错一个，整段话就从「懂行」变成「不可信」。
+
+    最近几句对话只给开头一截：够它判断「总结下呗」「那第二个呢」
+    是在接哪句话，不够它照抄数字。
     """
     lines = []
+    if dialogue:
+        said = ["%s：%s" % ("用户" if m.get("role") == "user" else "助手",
+                           (m.get("content") or "").replace("\n", " ")[:60])
+                for m in dialogue]
+        lines.append("最近的对话：" + " / ".join(said))
     if context_text:
         lines.append("已记住的检索条件：%s" % context_text)
     if last_house_nos:
@@ -107,6 +115,15 @@ def _coerce(value, kind):
         return None
     if kind == "string":
         return str(value).strip() or None
+    if kind == "boolean":
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("true", "1", "yes", "是"):
+            return True
+        if text in ("false", "0", "no", "否"):
+            return False
+        return None
     if kind == "number":
         try:
             num = float(value)
@@ -141,7 +158,7 @@ def _clean(tool, params):
 
 
 def plan(text, provider, logged_in=False, role="", house_no="",
-         last_house_nos=None, context_text=""):
+         last_house_nos=None, context_text="", dialogue=None):
     """挑一个工具。返回 ``{"tool", "params", "confidence", "why"}``。
 
     模型不可用、超时、输出不是 JSON、挑了一个不存在的工具——
@@ -155,7 +172,8 @@ def plan(text, provider, logged_in=False, role="", house_no="",
     tools = catalog.visible_tools(logged_in, role)
     prompt = _PROMPT.format(
         catalog=catalog.render_catalog(tools),
-        context=_context_block(house_no, last_house_nos or [], context_text),
+        context=_context_block(house_no, last_house_nos or [], context_text,
+                               dialogue),
         text=(text or "").strip()[:300])
 
     try:

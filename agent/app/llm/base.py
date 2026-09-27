@@ -43,6 +43,23 @@ class LLMProvider(object):
         """
         raise LLMUnavailable("当前大模型没有识图能力")
 
+    def chat(self, system_prompt, messages, max_tokens=None, deadline=None,
+             temperature=0.0):
+        """多轮消息的补全。
+
+        默认实现把对话压平成一段文字交给 `complete`——只实现了 `complete`
+        的厂商和测试里的假 provider 因此都能直接用，只是模型看到的是
+        转述而不是原生的多轮格式。
+        """
+        lines = []
+        for m in messages or []:
+            who = "用户" if m.get("role") == "user" else "助手"
+            lines.append("%s：%s" % (who, m.get("content") or ""))
+        kwargs = {"max_tokens": max_tokens}
+        if deadline is not None:
+            kwargs["deadline"] = deadline
+        return self.complete(system_prompt, "\n".join(lines), **kwargs)
+
     def complete_json(self, system_prompt, user_prompt, max_tokens=None,
                       deadline=None):
         """要求模型输出 JSON，并解析为 dict。

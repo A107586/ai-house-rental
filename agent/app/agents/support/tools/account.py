@@ -33,9 +33,13 @@ def _rows(data):
 
 # ---------------------------------------------------------------- 租客侧
 
+# 「我的账单」只算我要交的。不带它，房东账号拿到的是租客欠他的那些，
+# 助手会把应收说成「你还欠 39650 元」（见后端 bills/mine 的 side）
+TENANT_SIDE = {"side": "tenant"}
+
 def bills(backend, token):
     """账单：未缴金额与最近一期。"""
-    rows = _rows(backend.get("/api/bills/mine", token=token))
+    rows = _rows(backend.get("/api/bills/mine", params=TENANT_SIDE, token=token))
     if not rows:
         return "你名下还没有账单记录。", {"total": 0, "unpaid": []}
 
@@ -84,7 +88,11 @@ def contracts(backend, token):
                   current.get("contract_no", ""),
                   current.get("start_date", ""),
                   until_text(current.get("end_date"))))
-    return message, {"list": rows[:5], "current": current, "total": len(rows)}
+    # 卡片只摆前几行。生效中的排前面——原来按后端顺序截前五，
+    # 「在租的有哪些」的回答里夹着一份去年就结束的租约。
+    ended_rows = [c for c in rows if c not in active]
+    return message, {"list": (active + ended_rows)[:5], "current": current,
+                     "total": len(rows)}
 
 
 # 后端存的是状态码，用户看的得是中文。

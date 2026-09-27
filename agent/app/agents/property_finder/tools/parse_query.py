@@ -30,6 +30,13 @@ _DISTRICT_SHORT = {d[:-1]: d for d in DALIAN_DISTRICTS if d.endswith("区")}
 
 _GENERIC_AREA = re.compile(r"([一-龥]{2,4}(?:区|县|市))")
 
+# 通用兜底是给「库里没有、但确实是地名」的区留的（比如外地的朝阳区）。
+# 代价是它只认「两到四个汉字 + 区」这个形状，而「找其他地区」「换个地区」
+# 「这个区」正好也是这个形状——于是助手会一本正经地回「区域改为 找其他地区。」
+# 这里只拦兜底那一条路：真区名走的是上面的 DALIAN_DISTRICTS 精确匹配，不受影响。
+_AREA_PRONOUNS = ("其他", "其它", "别的", "另外", "另一", "换个", "换一",
+                  "这个", "那个", "哪个", "某个", "任意", "随便", "附近", "周边")
+
 # ---------------------------------------------------------------- 户型
 
 _SHI = re.compile(r"([" + CN_NUM_CHARS + r"\d])\s*室")
@@ -107,6 +114,28 @@ def _norm_digit(token):
     return value if 1 <= value <= 9 else None
 
 
+# 「押一付三」「押1付1」「月付」「季付」。房源表里有这两列
+# （deposit_months / pay_months），详情页的「押一付三」就是拼它们出来的。
+_PAY_PLAN = re.compile(r"押\s*([零一二两三四五六0-6])\s*付\s*(十二|12|[一二两三四六1-9])")
+_PAY_ONLY = (("半年付", 6), ("年付", 12), ("季付", 3), ("月付", 1))
+_CN_SMALL = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+             "六": 6, "十二": 12}
+
+
+def pay_plan(text):
+    """认出押几付几。返回 ``(押金月数, 付款月数)``，没说的那项是 None。"""
+    raw = text or ""
+    matched = _PAY_PLAN.search(raw)
+    if matched:
+        deposit, pay = matched.groups()
+        return (_CN_SMALL.get(deposit, None) if not deposit.isdigit() else int(deposit),
+                _CN_SMALL.get(pay, None) if not pay.isdigit() else int(pay))
+    for word, months in _PAY_ONLY:
+        if word in raw:
+            return None, months
+    return None, None
+
+
 def parse_query(text):
     """把一句自然语言解析成结构化筛选条件。
 
@@ -140,7 +169,7 @@ def parse_query(text):
                 break
     if area is None:
         generic = _GENERIC_AREA.search(raw)
-        if generic:
+        if generic and not any(p in generic.group(1) for p in _AREA_PRONOUNS):
             area = generic.group(1)
     if area:
         filters["suozaidiqu"] = area
@@ -247,6 +276,15 @@ def parse_query(text):
             filters["fangyuanleixing"] = name
             matched.append("房源类型")
             break
+
+    # ---------- 押几付几 ----------
+    deposit, pay = pay_plan(raw)
+    if deposit is not None:
+        filters["yajin_yue"] = deposit
+        matched.append("押金月数")
+    if pay is not None:
+        filters["fukuan_yue"] = pay
+        matched.append("付款周期")
 
     # ---------- 特征偏好 ----------
     features = [name for name, words in FEATURES.items() if any(w in raw for w in words)]

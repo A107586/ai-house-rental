@@ -31,7 +31,8 @@ class OpenAICompatibleProvider(LLMProvider):
     name = "openai_compatible"
 
     def __init__(self, api_key, base_url, model, timeout=30.0, max_tokens=1024,
-                 total_budget=None):
+                 total_budget=None, vision_reasoning_effort="",
+                 thinking_headroom=0):
         if not api_key:
             raise ValueError("api_key 不能为空")
         self._api_key = api_key
@@ -50,6 +51,10 @@ class OpenAICompatibleProvider(LLMProvider):
         # （429 是立刻返回的，几乎不花时间），而真超时最多再试一次。
         self._total_budget = total_budget or (timeout * 2)
         self._max_tokens = max_tokens
+        # 见 config.llm_vision_reasoning_effort：只作用于 complete_vision。
+        self._vision_reasoning_effort = vision_reasoning_effort or ""
+        # 见 config.llm_thinking_headroom 与 _budget()
+        self._thinking_headroom = max(0, int(thinking_headroom or 0))
         # 调用统计。进程内存着就够——要的是「现在通不通」，不是历史报表
         self._calls = 0
         self._failures = 0
@@ -227,6 +232,15 @@ class OpenAICompatibleProvider(LLMProvider):
             "temperature": 0.0,
             "max_tokens": max_tokens or self._max_tokens,
         }
+        # 这条路径的 max_tokens 只有 120（vision.py）/ 80（caption.py）。
+        # 会思考的模型会把它全吃光、content 返回空，识图于是静默变成
+        # 「照片里什么都没读到」——而请求本身是 200，不会报错。
+        # 两条出路：单独关思考（LLM_VISION_REASONING_EFFORT），
+        # 或者不关、补上思考余量。关了就不用补。
+        if self._vision_reasoning_effort:
+            payload["reasoning_effort"] = self._vision_reasoning_effort
+        else:
+            payload["max_tokens"] = self._budget(max_tokens)
         request = urllib.request.Request(
             self._base_url + "/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -242,17 +256,33 @@ class OpenAICompatibleProvider(LLMProvider):
         except (KeyError, IndexError, TypeError):
             raise LLMUnavailable("大模型返回结构异常")
 
+    def _budget(self, max_tokens):
+        """调用方给的是「要输出多少」，思考的那份由这里补上。
+
+        会思考的模型把思考也算进 max_tokens。选择器给 150，思考 512——
+        实测 10 句里 4 句 content 为空，「输出不是 JSON 对象」，整轮退回规则；
+        给到 800 之后 10/10 出结论，平均耗时还从 4.9s 降到 4.4s
+        （被截断的思考照样花时间，只是白花）。
+        在这里统一补，比挨个调用点去改稳：新加的调用自动享受。
+        """
+        return (max_tokens or self._max_tokens) + self._thinking_headroom
+
     def complete(self, system_prompt, user_prompt, max_tokens=None,
                  deadline=None):
+        return self.chat(system_prompt,
+                         [{"role": "user", "content": user_prompt}],
+                         max_tokens=max_tokens, deadline=deadline)
+
+    def chat(self, system_prompt, messages, max_tokens=None, deadline=None,
+             temperature=0.0):
+        """多轮消息版的补全。``complete`` 是它只有一条用户消息的特例。"""
         payload = {
             "model": self._model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": [{"role": "system", "content": system_prompt}]
+                        + list(messages),
             # 解析类任务需要稳定输出，温度压到最低
-            "temperature": 0.0,
-            "max_tokens": max_tokens or self._max_tokens,
+            "temperature": temperature,
+            "max_tokens": self._budget(max_tokens),
         }
         request = urllib.request.Request(
             self._base_url + "/chat/completions",
@@ -289,6 +319,10 @@ def build_provider(settings):
                 total_budget=getattr(settings, "llm_total_budget", None),
                 timeout=settings.llm_timeout,
                 max_tokens=settings.llm_max_tokens,
+                vision_reasoning_effort=getattr(
+                    settings, "llm_vision_reasoning_effort", ""),
+                thinking_headroom=getattr(
+                    settings, "llm_thinking_headroom", 0),
             )
         except ValueError:
             return NullProvider()

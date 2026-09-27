@@ -57,7 +57,12 @@ TOOLS = [
         "desc": "按条件找房。用户说了地段、价格、户型、面积、朝向、"
                 "配套（地铁/电梯/家具/养宠物）等任意条件时用它。",
         "params": {
-            "district": ("string", "行政区，如 中山区、沙河口区、金州区"),
+            # 「高新园区」「软件园」不是行政区，填进来一套也筛不出，
+            # 而且会卡在上下文里——实测之后整轮对话都是 0 套
+            "district": ("string", "行政区，只能填大连的区县名：中山区、西岗区、"
+                                   "沙河口区、甘井子区、旅顺口区、金州区、普兰店区、"
+                                   "瓦房店市、庄河市、长海县。园区、商圈、公司所在地"
+                                   "不是行政区，不要填这里"),
             "rent_max": ("number", "租金上限，单位元/月"),
             "rent_min": ("number", "租金下限，单位元/月"),
             "layout": ("string", "户型，如 一室一厅、两室一厅"),
@@ -143,13 +148,19 @@ TOOLS = [
         "name": "my_bills",
         "kind": "read",
         "desc": "查我的账单：欠多少房租、有没有逾期、什么时候到期。",
-        "params": {},
+        "params": {
+            # 「哪几笔逾期了」原先拿到的是和「我有哪些待缴费」一字不差的回答
+            "overdue_only": ("boolean", "只看已经逾期的，用户问「哪几笔逾期了」时填 true"),
+        },
         "required": [],
     },
     {
         "name": "my_contracts",
         "kind": "read",
-        "desc": "查我的租约：租到什么时候、租金多少、还有几天到期。",
+        # 「我租了哪些房」「在租的有哪些」都是它。原说明只写了「租约」，
+        # 模型实测会答「没有查询已租房源的工具」然后挑 none。
+        "desc": "查我的租约 / 我租的房：租了哪几套、哪些还在租、租到什么时候、"
+                "租金多少、还有几天到期。",
         "params": {},
         "required": [],
     },
@@ -174,6 +185,43 @@ TOOLS = [
         "params": {},
         "required": [],
     },
+    {
+        "name": "converse",
+        "kind": "read",
+        # 没有它的时候，「总结下呗」「我上一条问了什么」只能挑 none，
+        # 然后被规则链路硬塞进某个查询——实测「总结下呗」被当成又问了一遍评价。
+        # 不收寒暄与跑题闲聊：寒暄有规则秒回，跑题的落到对话兜底也能接住，
+        # 犯不着为它们多等一次选择。
+        # 抱怨是后补的：「房东一直不回我消息，我很生气，这平台到底管不管」
+        # 原先被规则当成「查站内消息」，回了一句「我这边没有看到处理记录」。
+        "desc": "不查任何数据，只针对刚才这段对话回话：问上一条问了什么、"
+                "要你总结或解释刚才说的内容、嫌刚才的回答草率要讲细一点；"
+                "用户在抱怨、生气、投诉（房东不回消息、服务太差）时也用它。"
+                "问平台规则的不是它（那是 knowledge），"
+                "要查房源、查自己账单预约的也不是它。",
+        "params": {},
+        "required": [],
+    },
+    {
+        "name": "my_history",
+        "kind": "read",
+        "desc": "查我最近浏览过的房源（浏览记录、足迹、看过哪些房）。",
+        "params": {},
+        "required": [],
+    },
+    {
+        "name": "my_todos",
+        "kind": "read",
+        # 「待办」常被打成「代办」。和「你能帮我代办什么」（问功能）区分：
+        # 带「我的」、问「有哪些 / 还有什么没处理」的是它。
+        "desc": "汇总我还没处理完的事（我的待办 / 待处理事项 / 还有什么要办的 / "
+                "我现在该处理哪些事）。租客：待缴账单、逾期、待确认的看房预约、"
+                "待签的租约、进行中的报修、待评价、未读消息；房东：别人约我的看房"
+                "等我确认、欠租的租客、名下房源的报修。"
+                "问「你能帮我办什么」的不是它，那是 knowledge。",
+        "params": {},
+        "required": [],
+    },
 
     # ------------------------------------------------ 房东 / 中介侧（需登录）
     {
@@ -188,13 +236,81 @@ TOOLS = [
         "name": "landlord_houses",
         "kind": "read",
         "desc": "（房东或中介用）我名下/在托的房源，在架几套、租出去几套。",
-        "params": {},
+        "params": {
+            # 「哪几套还空着」原先拿到的是全部 9 套，和「我有几套房」同一句话
+            "status": ("string", "只看某一种：available=在架还空着，"
+                                 "rented=已租出，offline=已下架"),
+            # 「哪套房评价最差」原先答成了某一套房的评价详情，还说「很好」
+            "by_rating": ("string", "按评价排：worst=问哪套评价最差，best=问哪套最好"),
+        },
         "required": [],
     },
     {
         "name": "landlord_tenants",
         "kind": "read",
-        "desc": "（房东用）我的租客有哪些、租到什么时候。",
+        # 「有没有租客拖欠房租的」原先被挑成了 my_bills——查的是房东
+        # **自己**欠别人的账单。说明里得把「欠租的租客」写出来。
+        "desc": "（房东用）我的租客有哪些、租到什么时候、哪个租客拖欠房租/有逾期账单。",
+        "params": {
+            "overdue_only": ("boolean", "只看欠租、有逾期账单的租客，"
+                                        "问「有没有租客拖欠」「谁欠租」时填 true"),
+        },
+        "required": [],
+    },
+    # 这两条是模拟房东实测漏的：「有租客给我报修吗」「下个月有哪些合同到期」
+    # 只能挑 my_repairs / my_contracts——查的是他**自己作为租客**的那份，
+    # 回一句「你提交过 0 张报修单」，答非所问。后端早就有 side=landlord。
+    {
+        "name": "landlord_repairs",
+        "kind": "read",
+        "desc": "（房东用）租客给我名下房源报的修：有没有人报修、哪些还没处理。"
+                "注意和 my_repairs 区分——那个是「我自己报的修」。",
+        "params": {},
+        "required": [],
+    },
+    {
+        "name": "landlord_contracts",
+        "kind": "read",
+        "desc": "（房东用）我出租出去的合同：哪些快到期、哪些等租客确认、各租多少钱。"
+                "注意和 my_contracts 区分——那个是「我自己租的房」。",
+        "params": {
+            "expiring_days": ("number", "只看多少天内到期的，问「下个月有哪些到期」"
+                                        "填 31，「快到期的」填 60"),
+        },
+        "required": [],
+    },
+    # 「西岗区两室一厅70平一般租多少」原先被当成找房，筛出 0 套，
+    # 回「把面积要求降低一些」——房东问的是定价，后端早有 /api/pricing/suggest。
+    {
+        "name": "pricing_suggest",
+        "kind": "read",
+        "desc": "（房东用）定价参考：某个区、某种户型、多大面积一般租多少，"
+                "我要发布/调价的房子定多少合适。",
+        "params": {
+            "district": ("string", "行政区，如 西岗区"),
+            "layout": ("string", "户型，如 两室一厅"),
+            "area": ("number", "面积（平米）"),
+        },
+        "required": [],
+    },
+    {
+        "name": "landlord_income",
+        "kind": "read",
+        # 没有它的时候，「这个月我收了多少租金」被规则层当成「问这套房的租金」，
+        # 答了一段房源介绍。
+        "desc": "（房东用）经营数据：这个月收了多少租金、还有多少待收、出租率、"
+                "预期收入。",
+        "params": {},
+        "required": [],
+    },
+
+    # 管理员原先一个工具都没有：「平台现在有多少房源待审核」被当成找房，
+    # 「今天有多少转人工」更糟——当场给他自己建了一张转人工工单。
+    {
+        "name": "admin_todos",
+        "kind": "read",
+        "desc": "（管理员用）平台待办：多少房源待审核/待核验、多少转人工没回复"
+                "（含今天新增）、举报、内容复核、角色与中介资质申请。",
         "params": {},
         "required": [],
     },
@@ -292,6 +408,23 @@ TOOLS = [
         "desc": "（房东用）把房源上架或下架。",
         "params": {}, "required": [],
     },
+    # 没有它的时候，「我想把空着的那套租金降两百」模型只能答「没有修改租金的工具」
+    # 挑 none，退回规则链路后被「租金」二字带去查了**房东自己的账单**。
+    # 编号、改哪项、改成多少由表单自己从原话里认，这里不收参数。
+    # 「帮我提醒一下欠租的那个人」原先只能答一句 FAQ——平台根本没有这个动作
+    {
+        "name": "remind_tenant", "kind": "write", "action": "remind_tenant",
+        "desc": "（房东用）给欠租、有逾期账单的租客发一条催缴提醒。",
+        "params": {}, "required": [],
+    },
+    {
+        "name": "edit_house", "kind": "write", "action": "edit_house",
+        # 「空着的那套租金降两百，怎么操作」实测被挑成了 landlord_houses，
+        # 列了一遍空房却没说怎么改。问怎么改也归它：写操作护栏见到问句会转去知识库答流程
+        "desc": "（房东用）修改自己房源的租金、押金、标题、地址或描述，包括降价、涨价；"
+                "问「怎么改价」「降价怎么操作」也选它。",
+        "params": {}, "required": [],
+    },
 
     # ------------------------------------------------ 兜底
     {
@@ -322,22 +455,30 @@ BY_NAME = {t["name"]: t for t in TOOLS}
 # 而用户问的可能根本不是这件事
 NEEDS_LOGIN = {
     "my_bills", "my_contracts", "my_appointments", "my_repairs",
-    "my_favorites", "landlord_appointments", "landlord_houses",
-    "landlord_tenants", "agent_commissions", "agent_delegations",
-    "agent_viewings", "book_viewing", "cancel_viewing",
+    "my_favorites", "my_history", "my_todos",
+    "landlord_appointments", "landlord_houses",
+    "landlord_tenants", "landlord_income", "landlord_repairs",
+    "landlord_contracts", "pricing_suggest", "admin_todos", "agent_commissions",
+    "agent_delegations", "agent_viewings", "book_viewing", "cancel_viewing",
     "reschedule_viewing", "pay_bill", "submit_repair", "favorite_house",
     "unfavorite_house", "end_contract", "renew_contract",
-    "handle_appointment", "toggle_house",
+    "handle_appointment", "toggle_house", "edit_house", "remind_tenant",
 }
 
 # 只有房东/中介用得上的。租客账号看到它们没有坏处，但会增加误选——
 # 「我的预约」和「谁约了我的房」这两条对模型来说长得很像
 STAFF_ONLY = {"landlord_appointments", "landlord_houses", "landlord_tenants",
-              "handle_appointment", "toggle_house"}
+              "landlord_income", "landlord_repairs", "landlord_contracts",
+              "pricing_suggest",
+              "handle_appointment", "toggle_house", "edit_house",
+              "remind_tenant"}
 
 # 只有中介用得上的。房东看到「我的佣金」只会更容易误选——
 # 佣金是房东**付出去**的钱，不是他能查的收入
 AGENT_ONLY = {"agent_commissions", "agent_delegations", "agent_viewings"}
+
+# 只有管理员用得上的
+ADMIN_ONLY = {"admin_todos"}
 
 
 def visible_tools(logged_in, role):
@@ -355,6 +496,8 @@ def visible_tools(logged_in, role):
                                                        "admin"):
             continue
         if tool["name"] in AGENT_ONLY and role not in ("agent", "admin"):
+            continue
+        if tool["name"] in ADMIN_ONLY and role != "admin":
             continue
         out.append(tool)
     return out

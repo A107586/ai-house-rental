@@ -41,6 +41,9 @@ class RecordingBackend(object):
     def get(self, path, params=None, token=None):
         self.reads.append(path)
         if path in self.payloads:
+            # 夹具给的是异常就抛出来，模拟后端拒绝（比如租客调房东接口的 403）
+            if isinstance(self.payloads[path], Exception):
+                raise self.payloads[path]
             return self.payloads[path]
         return {"list": []}
 
@@ -246,6 +249,27 @@ class TestCardContents(unittest.TestCase):
         _, _, card, _ = actions.propose("end_contract", "我要退租", "tok", backend)
         self.assertIn("不可撤销", card["warning"])
         self.assertIn("违约金", card["warning"])
+
+    def test_several_active_leases_ask_which_one(self):
+        """三份在租时「想续租」原先直接取第一份——租到明年九月的那份。"""
+        leases = {"/api/contracts/mine": {"list": [
+            {"contract_no": "HT1", "house_no": "DL0001", "status": "active",
+             "end_date": "2027-09-22"},
+            {"contract_no": "HT2", "house_no": "DL0002", "status": "active",
+             "end_date": "2026-10-31"}]}}
+        for name in ("renew_contract", "end_contract"):
+            status, _, _, ask = actions.propose(name, "我的房子快到期了", "tok",
+                                                RecordingBackend(leases))
+            self.assertEqual(status, actions.NEED_SLOT, name)
+            self.assertEqual(ask["options"][0]["value"], "HT2",
+                             "先到期的排前面")
+            _, _, card, _ = actions.propose(name, "DL0002 那套", "tok",
+                                            RecordingBackend(leases))
+            self.assertEqual(card["params"]["contract_no"], "HT2", name)
+            _, _, card, _ = actions.propose(name, "续租", "tok",
+                                            RecordingBackend(leases),
+                                            context={"contract_no": "HT1"})
+            self.assertEqual(card["params"]["contract_no"], "HT1", name)
 
     def test_repair_content_strips_the_imperative(self):
         """工单内容不该带上「帮我报修」这几个字——它会跟着进故障分类，
@@ -703,6 +727,11 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
              "status": "offline"}]},
         "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}],
                           "unread": 1},
+        "/api/landlord/tenants": {"list": [
+            {"id": 7, "username": "tenant1", "overdue_count": 2,
+             "unpaid_total": 6100},
+            {"id": 9, "username": "tenant9", "overdue_count": 1,
+             "unpaid_total": 750}]},
     }
 
     # 「确认签约」要的是待生效合同，和上面那份生效中的不是一回事
@@ -749,6 +778,7 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         "publish_house": "我要发布房源",
         "sign_contract": "帮我发起签约",
         "edit_house": "改一下房源",
+        "remind_tenant": "帮我催一下租",
     }
 
     def test_every_action_is_covered_by_this_test(self):
@@ -772,7 +802,7 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         """有多个候选时要给可点选项，而不是把编号拼进一句话让用户照着打。"""
         for name in ("unfavorite_house", "favorite_house", "submit_review",
                      "handle_appointment", "update_repair", "toggle_house",
-                     "activate_contract", "verify_request"):
+                     "activate_contract", "verify_request", "remind_tenant"):
             with self.subTest(action=name):
                 backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
                 status, message, _, ask = actions.propose(
@@ -894,6 +924,42 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
             context={"house_no": None})
         self.assertEqual(ask["slot"], "house_no")
         self.assertIn("1/3", message)
+
+    def test_edit_request_that_says_everything_goes_straight_to_the_card(self):
+        """「把 DL0101 的租金改成 2300」三项都说了，不该再一项项问。"""
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, card, _ = actions.propose(
+            "edit_house", "帮我把DL0101的租金改成2300", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(card["params"],
+                         {"house_no": "DL0101", "field": "rent_price",
+                          "value": 2300})
+
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, card, _ = actions.propose(
+            "edit_house", "DL0102押金调到两千五", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(card["params"]["value"], 2500)
+
+    def test_edit_request_only_takes_what_it_can_be_sure_of(self):
+        """别人的房、相对量「降两百」、文本类的新值：都不从原话里猜。"""
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, _, ask = actions.propose(
+            "edit_house", "把DL0999的租金改成2300", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(ask["slot"], "house_no")
+
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, _, ask = actions.propose(
+            "edit_house", "DL0101的租金降两百", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(ask["slot"], "value")
+
+        backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
+        _, _, _, ask = actions.propose(
+            "edit_house", "DL0101的标题改成阳光大三室", "tok", backend,
+            context={"house_no": None})
+        self.assertEqual(ask["slot"], "value")
 
     def test_every_form_field_is_whitelisted(self):
         """表单字段与参数白名单必须一一对应，缺一项执行就会被拦。"""
@@ -1134,6 +1200,312 @@ class TestOptionMatchingIsUnambiguous(unittest.TestCase):
         这时候按顺序猜一个，就是在赌；宁可回去再问一次。
         """
         self.assertEqual(actions.pick_option("DL0007", self.OPTIONS), "")
+
+
+class TestQuestionsAreNotActions(unittest.TestCase):
+    """**一次真实用户测试里全部弹出了确认卡的问句。**
+
+    问钱、问责任的句子里恰好带着「退租」「维修」：表里原先没有「多少」「谁」，
+    一句也认不出是在提问——提前退租要赔多少，拿到的是一张退租确认卡。
+    """
+
+    def test_money_and_liability_questions(self):
+        for text in ("提前一个月退租要赔多少钱", "租客提前退租，押金我能扣多少",
+                     "租客说热水器坏了，维修费谁出", "逾期了会怎么样，要交滞纳金吗"):
+            self.assertEqual(actions.detect(text), "", text)
+
+    def test_asking_for_a_document_is_not_doing_it(self):
+        """要一份退租申请书，不是要去退租。"""
+        self.assertEqual(actions.detect("帮我写一份退租申请书"), "")
+
+    def test_real_requests_still_detected(self):
+        for text, name in (("帮我退租", "end_contract"),
+                           ("帮我把这个月房租交了", "pay_bill"),
+                           ("能帮我交下房租吗", "pay_bill"),
+                           ("厨房水管漏水，帮我报修", "submit_repair"),
+                           ("帮我续租一年", "renew_contract")):
+            self.assertEqual(actions.detect(text), name, text)
+
+
+class TestShortReplies(unittest.TestCase):
+    """「好」「不」开头的句子不一定是应答。"""
+
+    def test_questions_are_not_yes(self):
+        """卡片挂着时这些话原先会被当成「好的」——中风险的卡片直接执行。"""
+        for text in ("可以养宠物吗", "对面有超市吗", "好贵啊", "行李能放吗",
+                     "好的那退租要打扫吗"):
+            self.assertFalse(actions.is_affirm(text), text)
+        for text in ("好", "好的谢谢", "可以的", "确认一下", "好的，确认", "就这个吧"):
+            self.assertTrue(actions.is_affirm(text), text)
+
+    def test_negative_words_are_not_always_no(self):
+        for text in ("不知道哪套好", "不贵", "不错", "取消预约", "不能养宠物吗"):
+            self.assertFalse(actions.is_deny(text), text)
+        for text in ("不用了谢谢", "算了不约了", "取消吧", "先不了", "不要了"):
+            self.assertTrue(actions.is_deny(text), text)
+
+
+class TestAskingToBookIsBooking(unittest.TestCase):
+
+    def test_can_i_book_at_a_time_is_a_request(self):
+        """「这套能约周六下午看吗」原先被当成提问，约看房被拦下。"""
+        self.assertFalse(actions.asks_rather_than_requests("这套能约周六下午看吗"))
+        self.assertFalse(actions.asks_rather_than_requests("能约明天上午十点吗"))
+        # 没有时间、或问的是规则，仍然是提问
+        self.assertTrue(actions.asks_rather_than_requests("能约看房吗"))
+        self.assertTrue(actions.asks_rather_than_requests("押金能退吗"))
+        self.assertTrue(actions.asks_rather_than_requests("预约要多久能确认"))
+
+
+class TestWhichHouseNeedsAHouse(unittest.TestCase):
+    """「要收藏哪一套？」之后说「我的收藏里有啥」——原先整句被当成房源编号。"""
+
+    PENDING = {"action": "favorite_house", "slots": {},
+               "ask": {"slot": "house_no", "question": "要收藏哪一套？",
+                       "options": []}}
+
+    def test_unrelated_sentence_is_not_a_house_number(self):
+        for text in ("我的收藏里有啥", "我还没签合同，可以先交押金锁房吗", "算账单"):
+            self.assertFalse(support.claims_pending(text, self.PENDING), text)
+
+    def test_real_answers_still_count(self):
+        for text in ("DL0007", "第二套", "就这套"):
+            self.assertTrue(support.claims_pending(text, self.PENDING), text)
+
+
+class TestOwnershipAndIntentSurviveTheSecondTurn(unittest.TestCase):
+    """整体复查时找出来的。"""
+
+    HOUSES = {"/api/landlord/houses": {"list": [
+        {"house_no": "DL0101", "title": "甲", "status": "available"},
+        {"house_no": "DL0102", "title": "乙", "status": "available"}]}}
+
+    def test_delisting_stays_delisting_after_picking_the_house(self):
+        """先问「要下架哪一套」，答「DL0102」——原先卡片变成了**上架**。"""
+        backend = RecordingBackend(self.HOUSES)
+        first = support.run("把房源下架", token="t", backend=backend)
+        self.assertEqual(first["status"], "need_slot")
+        second = support.run("DL0102", token="t", backend=backend,
+                             pending=first["pending"])
+        self.assertEqual(second["action"]["params"],
+                         {"house_no": "DL0102", "status": "offline"})
+
+    def test_someone_elses_house_from_context_is_ignored(self):
+        """刚在找房那边看过的别人的房，不能直接上卡片。"""
+        backend = RecordingBackend({**self.HOUSES})
+        status, _, card, ask = actions.propose("toggle_house", "下架", "t", backend,
+                                               context={"house_no": "DL0074"})
+        self.assertEqual(status, actions.NEED_SLOT)
+        backend = RecordingBackend({**self.HOUSES})
+        _, _, _, ask = actions.propose("edit_house", "改一下房源", "t", backend,
+                                       context={"house_no": "DL0074"})
+        self.assertEqual(ask["slot"], "house_no")
+
+    def test_a_dated_question_does_not_move_the_viewing(self):
+        card = {"action": "book_viewing", "card": {"name": "book_viewing",
+                "params": {"house_no": "DL0009", "viewing_time": "2026-09-26 10:00"}}}
+        self.assertFalse(support.claims_pending("明天天气怎么样", card))
+        self.assertTrue(support.claims_pending("等等，改成周日上午吧", card))
+        self.assertTrue(support.claims_pending("周日上午可以吗", card))
+
+    def test_cancelling_the_unsubmitted_booking_drops_the_card(self):
+        card = {"action": "book_viewing", "card": {"name": "book_viewing",
+                "params": {"house_no": "DL0082", "viewing_time": "2026-09-28 10:00"}}}
+        self.assertTrue(support.claims_pending("把刚才约的那个取消掉", card))
+        backend = RecordingBackend({})
+        result = support.run("把刚才约的那个取消掉", token="t", backend=backend,
+                             pending=card)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(backend.writes, [])
+
+    def test_listing_an_unapproved_house_says_it_went_to_review(self):
+        """后端把没过审的「上架」改成了「提交审核」，回执得照实说。"""
+        class Backend(RecordingBackend):
+            def _request(self, method, path, params=None, payload=None, token=None):
+                return {"ok": True, "house": {"status": "pending"},
+                        "message": "这套房源的当前内容还没通过审核，已提交审核，通过后会自动上架。"}
+        ok, message, _ = actions.execute(
+            "toggle_house", {"house_no": "DL0101", "status": "available"}, "t", Backend())
+        self.assertTrue(ok)
+        self.assertIn("已提交审核", message)
+        self.assertNotIn("房源已上架", message)
+
+    def test_renewing_a_house_you_do_not_rent_asks(self):
+        lease = {"/api/contracts/mine": {"list": [
+            {"contract_no": "HT1", "house_no": "DL0007", "status": "active",
+             "end_date": "2027-09-22"}]}}
+        status, message, _, _ = actions.propose("renew_contract", "我想续租DL0099",
+                                                "t", RecordingBackend(lease))
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertIn("DL0099 不在你生效中的租约里", message)
+
+
+class TestRemindMeIsNotPayNow(unittest.TestCase):
+
+    def test_remind_me_is_not_an_action(self):
+        """「提醒我交房租」原先弹了一张 750 元的缴费确认卡。"""
+        for text in ("提醒我交房租", "到时候提醒我交租", "别让我忘了交房租"):
+            self.assertEqual(actions.detect(text), "", text)
+            self.assertTrue(actions.reminds_me(text))
+        self.assertEqual(actions.detect("帮我交房租"), "pay_bill")
+
+    def test_router_model_picking_pay_is_overridden(self):
+        """规则那一路的路由模型也会挑 pay_bill，照样得拦。"""
+        from unittest import mock
+        from app.agents.support.tools import router
+        provider = mock.Mock(available=True)
+        provider.complete_json.return_value = {"kind": "action", "name": "pay_bill"}
+        got = router.route("提醒我交房租", provider=provider)
+        self.assertEqual((got["kind"], got["name"]), (router.KIND_QUERY, "bill"))
+
+
+class TestRemindTenant(unittest.TestCase):
+    """「帮我提醒一下欠租的那个人」原先只能背一句 FAQ。"""
+
+    OWING = {"/api/landlord/tenants": {"list": [
+        {"id": 7, "username": "tenant1", "overdue_count": 2, "unpaid_total": 6100},
+        {"id": 8, "username": "tenant2", "overdue_count": 0, "unpaid_total": 0}]}}
+
+    def test_detected_before_paying(self):
+        """「提醒他交房租」里有「交房租」——不能变成房东替自己交钱。"""
+        for text in ("帮我提醒一下欠租的那个人", "催一下房租", "提醒他交房租",
+                     "帮我催租"):
+            self.assertEqual(actions.detect(text), "remind_tenant", text)
+        self.assertEqual(actions.detect("帮我交房租"), "pay_bill")
+
+    def test_only_the_overdue_tenant_is_offered(self):
+        _, _, card, _ = actions.propose("remind_tenant", "帮我催租", "tok",
+                                        RecordingBackend(self.OWING))
+        self.assertEqual(card["params"], {"tenant_id": 7})
+        self.assertIn("tenant1", card["summary"])
+
+    def test_nobody_owing(self):
+        backend = RecordingBackend({"/api/landlord/tenants": {"list": [
+            {"id": 8, "username": "tenant2", "overdue_count": 0}]}})
+        status, message, _, _ = actions.propose("remind_tenant", "帮我催租", "tok",
+                                                backend)
+        self.assertEqual(status, actions.NOT_APPLICABLE)
+        self.assertIn("不用催", message)
+
+    def test_tenant_account_is_pointed_to_paying(self):
+        backend = RecordingBackend({"/api/landlord/tenants": BackendError("403")})
+        status, message, _, _ = actions.propose("remind_tenant", "提醒租客", "tok",
+                                                backend)
+        self.assertEqual(status, actions.NOT_APPLICABLE)
+        self.assertIn("帮我交房租", message)
+
+
+class TestPendingIsNotAHijacker(unittest.TestCase):
+    """待办挂着的时候，新话题不能被塞进旧的空里。"""
+
+    APPOINTMENTS = {"action": "handle_appointment", "slots": {},
+                    "ask": {"slot": "appointment_id",
+                            "question": "要处理哪一条？",
+                            "options": [{"value": "6", "label": "2026-09-24 14:00 DL0057"},
+                                        {"value": "16", "label": "2026-09-23 15:00 DL0007"}]}}
+
+    def test_unrelated_question_does_not_claim_an_option_slot(self):
+        """实测：房东被问「要处理哪条预约」后说「这个月我收了多少租金」，
+        整句被当成了预约编号，接下来两轮说什么都被塞进同一格。"""
+        for text in ("这个月我收了多少租金", "帮我提醒一下欠租的那个人"):
+            self.assertFalse(support.claims_pending(text, self.APPOINTMENTS), text)
+
+    def test_picking_or_naming_an_option_still_claims(self):
+        self.assertTrue(support.claims_pending("第一个", self.APPOINTMENTS))
+        self.assertTrue(support.claims_pending("16", self.APPOINTMENTS))
+
+    def test_question_during_photo_prompt_is_an_interruption(self):
+        """「要拍张照片吗」之后问「报修大概多久有人来」，原先生成了报修确认卡。"""
+        pending = {"action": "submit_repair",
+                   "slots": {"content": "下水道堵了"},
+                   "ask": {"slot": "images", "question": "要拍张照片吗？",
+                           "options": [{"value": "__skip__", "label": "跳过，直接提交"}]}}
+        self.assertFalse(support.claims_pending("报修大概多久有人来", pending))
+
+    def test_soft_denial_drops_the_card(self):
+        """「算了先不约了」比 is_deny 要求的长，原先被当成新请求，
+        模型挑了 cancel_viewing，列出用户已有的预约问要取消哪一条。"""
+        card = {"action": "book_viewing",
+                "card": {"name": "book_viewing", "risk": "medium",
+                         "params": {"house_no": "DL0044",
+                                    "viewing_time": "2026-09-26 15:00"}}}
+        self.assertTrue(support.claims_pending("算了先不约了，我再想想", card))
+
+    def test_new_time_on_a_booking_card_is_a_revision(self):
+        card = {"action": "book_viewing",
+                "card": {"name": "book_viewing", "risk": "medium",
+                         "params": {"house_no": "DL0044",
+                                    "viewing_time": "2026-09-26 15:00"}}}
+        self.assertTrue(support.claims_pending("等等，改成周日上午十点吧", card))
+        self.assertFalse(support.claims_pending("押金一般多久退", card))
+
+
+class TestSecondRoundFindings(unittest.TestCase):
+    """第二轮房东测试撞出来的。"""
+
+    def test_earliest_option_by_time(self):
+        """「同意最早那个看房申请」——说清楚了，就别再问一遍要处理哪条。"""
+        options = [{"value": "6", "label": "2026-09-24 14:00 DL0057"},
+                   {"value": "16", "label": "2026-09-23 15:00 DL0007"}]
+        self.assertEqual(actions.pick_option("同意最早那个看房申请", options), "16")
+        self.assertEqual(actions.pick_option("最晚那个", options), "6")
+
+    def test_income_and_how_to_are_not_questions_about_a_house(self):
+        """句子里有「租金」二字，原先就被当成「问这套房月租多少」。"""
+        from app.agents.support.tools import house
+        for text in ("这个月我收了多少租金", "我想把空着的那套租金降两百，怎么操作"):
+            self.assertEqual(house.asks_about_house(text, "DL0029"), "", text)
+        self.assertTrue(house.asks_about_house("这套租金多少", "DL0029"))
+
+
+class TestPlannedRulesQuestionSkipsTheHouse(unittest.TestCase):
+
+    def test_rules_question_with_a_house_in_focus(self):
+        """刚看完一套房，接着问「租客不交房租能换锁吗」——答成了那套房的月租。"""
+        from app.agents.support.tools import router
+        backend = RecordingBackend({"/api/houses/DL0023": {
+            "house_no": "DL0023", "rent_price": 2450, "deposit": 2450}})
+        result = support.run(
+            "租客一直不交房租，我能直接换锁吗", token="t", backend=backend,
+            house_no="DL0023",
+            routing={"kind": router.KIND_KNOWLEDGE, "name": "none",
+                     "source": "toolbox",
+                     "rule": {"kind": router.KIND_KNOWLEDGE, "name": "none"}})
+        self.assertNotEqual(result["retrieval"].get("mode"), "house")
+        self.assertNotIn("2450", result["message"])
+
+
+class TestPoliteRequestsAreNotQuestions(unittest.TestCase):
+    """第三轮测试撞出来的回归：选择器那道疑问句护栏把客气的约看房拦成了知识问答。"""
+
+    def test_polite_or_settling_phrases_are_requests(self):
+        for text in ("我想明天上午去看这套，可以吗", "明天上午十点吧",
+                     "能帮我交下房租吗", "这周六下午两点去看这套"):
+            self.assertFalse(actions.asks_rather_than_requests(text), text)
+
+    def test_real_questions_are_still_questions(self):
+        for text in ("提前一个月退租要赔多少钱", "租客说热水器坏了，维修费谁出",
+                     "帮我写一份退租申请书", "退租要打扫干净吗",
+                     "你能帮我看看退租要注意什么吗"):
+            self.assertTrue(actions.asks_rather_than_requests(text), text)
+
+
+class TestPickFromRequest(unittest.TestCase):
+    OPTIONS = [{"value": "6", "label": "2026-09-24 14:00 DL0057"},
+               {"value": "16", "label": "2026-09-23 15:00 DL0007"}]
+
+    def test_earliest_and_named_house(self):
+        self.assertEqual(actions._pick_from_request("同意最早那个看房申请", self.OPTIONS), "16")
+        self.assertEqual(actions._pick_from_request("同意DL0057那个", self.OPTIONS), "6")
+
+    def test_numbers_in_dates_never_match_ids(self):
+        """「取消 11 月 8 号那个看房」里的 11 不能撞上 id=11 的那条。"""
+        options = [{"value": "11", "label": "2026-10-01 10:00 DL0007"},
+                   {"value": "12", "label": "2026-10-02 10:00 DL0009"}]
+        self.assertEqual(actions._pick_from_request("取消 11 月 8 号那个看房", options), "")
+
+    def test_any_of_them_is_not_a_choice_in_a_request(self):
+        self.assertEqual(actions._pick_from_request("随便哪个都行", self.OPTIONS), "")
 
 
 if __name__ == "__main__":

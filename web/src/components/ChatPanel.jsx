@@ -108,6 +108,10 @@ const houseRow = (item) => ({
 // 每一类查询结果怎么摆成几行。**这张表和智能体那边的工具清单是一一对应的**——
 // 后端 `tools/account.py` 里 HANDLERS 有几项，这里就该有几项，
 // 少一项就意味着那个工具查到了数据却只回一句话、什么都看不见。
+// 查库卡片里哪几类是「一列房源」。用户对着它们说「第一套」时，
+// 指的就是卡片上第一行——见 lastHouseNos()。
+const HOUSE_LIST_TOPICS = new Set(['favorite', 'history', 'house'])
+
 const ACCOUNT_ROWS = {
   bill: (data) => (data.unpaid || []).map((bill) => ({
     key: bill.bill_no,
@@ -548,9 +552,16 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     saveDraft(user, messages, pending)
   }, [user, messages, pending])
 
-  // 未登录时的上下文兜底：把用户自己说过的话再带回去
+  // 未登录时的上下文兜底：把对话再带回去。
+  //
+  // **带署名，双方的话都带。** 服务端 user_turns() 只挑 role=user 的去重放
+  // 找房条件，助手的话不会被当成条件解析；而「我上一条问了什么」「总结一下」
+  // 这类追问，答案在助手说过的话里——原来只传用户的话，它们无从回答。
   function localHistory() {
-    return messages.filter((m) => m.role === 'user').map((m) => m.content)
+    return messages
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+      .slice(-16)
+      .map((m) => ({ role: m.role, content: String(m.content).slice(0, 600) }))
   }
 
   // 上一轮结果的房源编号，用于消解「第二套」「那套」。
@@ -559,6 +570,19 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 指的显然是他正在看的那套，而不是上一轮搜索结果里的第一条。
   function lastHouseNos() {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
+      // **屏幕上最近一份房源列表，不管它是用哪种卡片摆出来的。**
+      //
+      // 原来只认 `items`（找房结果的样式）。可「我的浏览记录」「我的收藏」
+      // 是查库卡片，房源放在 account.data.list 里——于是用户刚看完浏览记录
+      // 问「第一套评价怎么样」，助手数的是**更早那一份**列表的第一套，
+      // 答了一套他根本没在屏幕上看见的房。
+      const acc = messages[i].account
+      const accNos = acc && HOUSE_LIST_TOPICS.has(acc.tool || acc.topic)
+        ? (acc.data?.list || []).map((h) => h.house_no).filter(Boolean)
+        : []
+      if (accNos.length && !messages[i].items?.length) {
+        return houseNo && !accNos.includes(houseNo) ? [...accNos, houseNo] : accNos
+      }
       if (messages[i].items?.length) {
         const nos = messages[i].items.map((h) => h.house_no)
         // **不能把当前房源插到队首。**
@@ -577,6 +601,23 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     return houseNo ? [houseNo] : []
   }
 
+  // 最近一轮**单讲一套房**的回答讲的是哪套。
+  //
+  // 实测：列出 10 套之后问「DL0103 怎么样」，助手介绍完 DL0103，
+  // 用户接着说「这套能约周六吗」——约成了列表第一套 DL0074。
+  // 「这套」原来只认页面上打开的房源，其次就是列表第一条，
+  // 刚刚才聊过的那一套反而不在候选里。往回找，碰到更晚的列表就停：
+  // 那之后屏幕上是一整列房，「这套」指哪条又回到了序号的问题。
+  function focusHouse() {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i]
+      if (m.items?.length) return ''
+      if (m.account && HOUSE_LIST_TOPICS.has(m.account.tool || m.account.topic)) return ''
+      if (m.focus) return m.focus
+    }
+    return ''
+  }
+
   async function send(e, override) {
     if (e) e.preventDefault()
     const content = (override ?? text).trim()
@@ -584,6 +625,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
     const history = localHistory()
     const houseNos = lastHouseNos()
+    const focus = focusHouse()
     setMessages((prev) => [...prev, { role: 'user', content }])
     setText('')
     setBusy(true)
@@ -594,7 +636,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
     try {
       const res = await api.agentChat(content, sessionId, history, houseNos,
-                                     pending, { seen: houseNos.length, houseNo })
+                                     pending,
+                                     { seen: houseNos.length, houseNo: focus || houseNo })
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -653,6 +696,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 助手挑出来的那一套，列表里给它一个标记——
         // 光在文字里说「我推荐第 6 套」，用户还得自己往下数
         recommended: res.recommended || null,
+        // 这一轮单讲的是哪套房，下一句「这套」先指它，见 focusHouse()
+        focus: (res.items || []).length ? '' : (res.house_no || ''),
         notes: res.notes || [],
         intent: res.intent,
         ok: res.ok,
@@ -722,7 +767,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     try {
       const res = await api.supportHandoff(
         message.handoff.question, message.handoff.reason,
-        localHistory().slice(-5).join('\n'))
+        localHistory().slice(-6)
+          .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content}`)
+          .join('\n'))
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: `已转给管理员，工单号 ${res.handoff.handoff_no}。`
