@@ -36,7 +36,10 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError, OSError):
         pass
 
-LLM = "http://127.0.0.1:18240/v1/chat/completions"
+# 引擎地址可覆盖：KVMem 默认 18240，NInfer（ninfer-serve）常起在 18242。
+# 两个都讲 OpenAI /v1/chat/completions，所以同一段测量代码通用。
+LLM = os.environ.get("BENCH_LLM_URL",
+                     "http://127.0.0.1:18240/v1") + "/chat/completions"
 BE = "http://127.0.0.1:8080"
 AG = "http://127.0.0.1:8000"
 OUT = "D:/kvmem/mtp_%s.json"
@@ -64,8 +67,26 @@ def post(url, body, timeout=300):
     return data, time.time() - started
 
 
+_MODEL_ID = None
+
+
+def model_id():
+    """向引擎问它自己叫什么。
+
+    写死模型名会在换引擎时炸：KVMem 报的是 GGUF 文件名，
+    NInfer 报的是制品身份（`qwen3.8-27b`），不一致就 404。
+    """
+    global _MODEL_ID
+    if _MODEL_ID is None:
+        url = LLM.rsplit("/chat/completions", 1)[0] + "/models"
+        req = urllib.request.Request(url, headers={"Authorization": "Bearer none"})
+        data = json.loads(urllib.request.urlopen(req, timeout=30).read())
+        _MODEL_ID = (data.get("data") or [{}])[0].get("id") or "model"
+    return _MODEL_ID
+
+
 def llm(messages, max_tokens):
-    body = {"model": "Ternary-Bonsai-2-27B-PQ2_0.gguf", "messages": messages,
+    body = {"model": model_id(), "messages": messages,
             "max_tokens": max_tokens, "temperature": 0.0}
     data, elapsed = post(LLM, body)
     usage = data.get("usage") or {}

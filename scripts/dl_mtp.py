@@ -10,7 +10,10 @@ URL = ("https://www.modelscope.cn/api/v1/models/ProCreations/"
        "&FilePath=Ternary-Bonsai-2-27B-PQ2_0-MTP-Q8_0.gguf")
 DEST = "D:/models/bonsai/Ternary-Bonsai-2-27B-PQ2_0-MTP-Q8_0.gguf"
 PART = DEST + ".part"
-EXPECT = 7657  # MB，用来判断下完没有
+# 完整文件的确切字节数。**用相等判据，不用「大于某个阈值」**——
+# 阈值判据对「少了最后几兆」是盲的，而断点续传恰恰最容易在末尾出问题。
+# 这个数从远端拿（见 `remote_size`），下面这个只是取不到时的兜底。
+EXPECT_BYTES = 7657489728
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -23,13 +26,32 @@ def size(path):
     return os.path.getsize(path) if os.path.exists(path) else 0
 
 
+def remote_size():
+    """问远端这个文件到底多少字节。取不到就用写死的兜底值。"""
+    try:
+        req = urllib.request.Request(URL, headers={
+            "Range": "bytes=0-0", "User-Agent": "Mozilla/5.0"})
+        rng = urllib.request.urlopen(req, timeout=40).headers.get("Content-Range")
+        return int(rng.split("/")[-1])
+    except Exception:                                            # noqa: BLE001
+        return EXPECT_BYTES
+
+
 def main():
-    if size(DEST) > EXPECT * 1000 * 1000:
+    want = remote_size()
+    if size(DEST) == want:
         print("已经有了：%.3f GB" % (size(DEST) / 1e9))
         return 0
 
     started = time.time()
-    for attempt in range(1, 21):
+    # **有进展就把重试次数清零**，只有「连着失败而且一个字节都没多下来」
+    # 才算真的卡住。
+    #
+    # 第一版写的是 `for attempt in range(1, 21)`——总共只给 20 次机会。
+    # 实测这条线路每三百来兆断一次（SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC），
+    # 于是 7.66 GB 下到 7.28 GB（95%）时次数用尽，**明明一直在前进却放弃了**。
+    stuck = 0
+    while stuck < 8:
         done = size(PART)
         req = urllib.request.Request(URL, headers={
             "User-Agent": "Mozilla/5.0",
@@ -52,19 +74,25 @@ def main():
                         print("  %.0f / %.0f MB  (%.1f MB/s)"
                               % (mb, total / 1e6, speed), flush=True)
         except Exception as exc:                                 # noqa: BLE001
-            print("第 %d 次中断（已下 %.0f MB）：%s"
-                  % (attempt, size(PART) / 1e6, str(exc)[:90]), flush=True)
-            time.sleep(min(5 * attempt, 30))
+            grew = size(PART) > done
+            stuck = 0 if grew else stuck + 1
+            print("中断（已下 %.0f MB，%s）：%s"
+                  % (size(PART) / 1e6,
+                     "有进展，重试次数清零" if grew else "没进展 %d/8" % stuck,
+                     str(exc)[:90]), flush=True)
+            time.sleep(min(5 * (stuck + 1), 30))
             continue
 
-        if size(PART) > EXPECT * 1000 * 1000:
+        if size(PART) == want:
             os.replace(PART, DEST)
             print("下完：%.3f GB，用时 %.1f 分钟"
                   % (size(DEST) / 1e9, (time.time() - started) / 60))
             return 0
-        print("大小不对（%.0f MB），继续接" % (size(PART) / 1e6), flush=True)
+        stuck = 0 if size(PART) > done else stuck + 1
+        print("还差 %.0f MB，继续接" % ((want - size(PART)) / 1e6), flush=True)
 
-    print("重试用尽，只下到 %.0f MB" % (size(PART) / 1e6))
+    print("连着 8 次没有任何进展，只下到 %.0f MB（再跑一次会接着下）"
+          % (size(PART) / 1e6))
     return 1
 
 
