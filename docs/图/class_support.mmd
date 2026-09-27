@@ -1,0 +1,115 @@
+classDiagram
+    direction LR
+    class Api["智能客服与知识 · HTTP 接口（12 个）"] {
+        <<router>>
+        +clear_chat() DELETE /api/chat-messages
+        +list_chat() GET /api/chat-messages
+        +log_chat(ChatLog) POST /api/chat-messages
+        +list_faqs() GET /api/faqs
+        +create_faq(FaqPayload) POST /api/faqs
+        +delete_faq() DELETE /api/faqs/:faq_id
+        +toggle_faq() PATCH /api/faqs/:faq_id
+        +update_faq(FaqPayload) PUT /api/faqs/:faq_id
+        +support_feedback(FeedbackPayload) POST /api/support/feedback
+        +create_handoff(HandoffPayload) POST /api/support/handoff
+        +my_handoffs() GET /api/support/handoffs/mine
+        +log_support(SupportLogPayload) POST /api/support/logs
+    }
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +current_user(authorization, session)
+        +require_login(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class ChatLog["ChatLog"] {
+        <<DTO>>
+        +str session_id
+        +str role
+        +str content
+        +str intent
+    }
+    Api ..> ChatLog
+    class FaqPayload["FaqPayload"] {
+        <<DTO>>
+        +str code
+        +str question
+        +str answer
+        +str category
+        +str aliases
+        +bool is_published
+        +int sort_order
+    }
+    Api ..> FaqPayload
+    class FeedbackPayload["FeedbackPayload"] {
+        <<DTO>>
+        +int log_id
+        +int value
+        +str session_id
+    }
+    Api ..> FeedbackPayload
+    class HandoffPayload["HandoffPayload"] {
+        <<DTO>>
+        +str question
+        +str reason
+        +str context
+    }
+    Api ..> HandoffPayload
+    class SupportLogPayload["SupportLogPayload"] {
+        <<DTO>>
+        +str question
+        +str status
+        +str mode
+        +str session_id
+        +list~str~ cited
+        +str top_id
+        +float cover
+        +str answer_source
+        +str gate_reason
+        +int latency_ms
+    }
+    Api ..> SupportLogPayload
+    class ChatMessage["ChatMessage · 对话记录"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +str role
+        +… 另 4 列（见数据库设计书）
+    }
+    class Faq["Faq · 客服知识条目"] {
+        <<entity>>
+        +int id «PK»
+        +str code «UK»
+        +str category
+        +bool is_published
+        +… 另 6 列（见数据库设计书）
+        +to_dict()
+    }
+    class SupportLog["SupportLog · 客服问答日志"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +str status
+        +… 另 11 列（见数据库设计书）
+        +to_dict()
+    }
+    class SupportHandoff["SupportHandoff · 转人工工单"] {
+        <<entity>>
+        +int id «PK»
+        +str handoff_no «UK»
+        +int user_id «FK»
+        +str status
+        +int handler_id «FK»
+        +… 另 6 列（见数据库设计书）
+        +to_dict()
+    }
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    User "0..1" -- "0..*" ChatMessage : user_id
+    User "0..1" -- "0..*" SupportLog : user_id
+    User "1" -- "0..*" SupportHandoff : user_id
+    User "0..1" -- "0..*" SupportHandoff : handler_id

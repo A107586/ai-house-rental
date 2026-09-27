@@ -17,3 +17,11 @@ openpyxl>=3.1,<4.0
 
 # scripts/gen_outline_docx.py —— 概要设计说明书的 docx 版
 python-docx>=1.1,<2.0
+
+# 上面两个脚本往 Word / Excel 里贴 docs/图/ 下的 PNG（类图、E-R 图）：
+# openpyxl 插图要它，docx 按图的宽高比选横向还是纵向页也要它
+Pillow>=10.0
+
+# 图本身由 scripts/gen_diagrams.py 用 mermaid-cli 渲染，那是 Node 的包，
+# 见 scripts/package.json。**只有重新出图时才需要**；
+# 只改文字、或只跑测试（--check 不渲染）都用不到。

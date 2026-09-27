@@ -1,0 +1,136 @@
+classDiagram
+    direction LR
+    class Api["中介 · HTTP 接口（14 个）"] {
+        <<router>>
+        +my_commissions() GET /api/agent/commissions
+        +dashboard() GET /api/agent/dashboard
+        +submit_license(LicenseSubmit) POST /api/agent/license
+        +open_houses() GET /api/agent/open-houses
+        +my_profile() GET /api/agent/profile
+        +update_profile(ProfileUpdate) PUT /api/agent/profile
+        +agent_directory() GET /api/agents/directory
+        +list_delegations() GET /api/delegations
+        +create_delegation(DelegationCreate) POST /api/delegations
+        +suggest_agents() GET /api/delegations/suggest
+        +respond_delegation() PATCH /api/delegations/:delegation_id
+        +end_delegation() POST /api/delegations/:delegation_id/end
+        +list_viewings() GET /api/viewings
+        +create_viewing(ViewingCreate) POST /api/viewings
+    }
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +require_login(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_moderation["moderation.py"] {
+        <<service · 平台治理>>
+        +check(text, scene)
+    }
+    Api ..> m_moderation
+    class m_permissions["permissions.py"] {
+        <<service · 账号与权限>>
+        +active_delegation(session, house_id, agent_id)
+        +can_see_tenant_contact(session, user, appointment, house)
+    }
+    Api ..> m_permissions
+    class LicenseSubmit["LicenseSubmit"] {
+        <<DTO>>
+        +str license_no
+        +list~str~ license_images
+    }
+    Api ..> LicenseSubmit
+    class ProfileUpdate["ProfileUpdate"] {
+        <<DTO>>
+        +list~str~ service_districts
+        +str intro
+        +int years
+        +bool accepting
+    }
+    Api ..> ProfileUpdate
+    class DelegationCreate["DelegationCreate"] {
+        <<DTO>>
+        +str house_no
+        +str agent_username
+        +float commission_rate
+    }
+    Api ..> DelegationCreate
+    class ViewingCreate["ViewingCreate"] {
+        <<DTO>>
+        +str house_no
+        +str tenant_username
+        +int appointment_id
+        +bool showed_up
+        +int duration_minutes
+        +str feedback
+        +list~str~ concerns
+        +str intention
+    }
+    Api ..> ViewingCreate
+    class AgentProfile["AgentProfile · 中介档案"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK,UK»
+        +str license_status
+        +int reviewed_by «FK»
+        +… 另 9 列（见数据库设计书）
+        +/districts
+        +/can_take_orders
+        +to_dict(contact)
+    }
+    class HouseDelegation["HouseDelegation · 房源委托"] {
+        <<entity>>
+        +int id «PK»
+        +int house_id «FK»
+        +int landlord_id «FK»
+        +int agent_id «FK»
+        +str status
+        +… 另 6 列（见数据库设计书）
+        +to_dict()
+    }
+    class ViewingRecord["ViewingRecord · 带看记录"] {
+        <<entity>>
+        +int id «PK»
+        +int appointment_id «FK»
+        +int house_id «FK»
+        +int tenant_id «FK»
+        +int agent_id «FK»
+        +… 另 6 列（见数据库设计书）
+        +to_dict()
+    }
+    class AgentCommission["AgentCommission · 佣金"] {
+        <<entity>>
+        +int id «PK»
+        +int contract_id «FK»
+        +int delegation_id «FK»
+        +int agent_id «FK»
+        +decimal amount
+        +str status
+        +… 另 4 列（见数据库设计书）
+        +to_dict()
+    }
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    class House["House · 房源（房源）"]
+    <<entity>> House
+    class Appointment["Appointment · 看房预约（看房预约）"]
+    <<entity>> Appointment
+    class Contract["Contract · 租赁合同（合同与账单）"]
+    <<entity>> Contract
+    User "1" -- "0..1" AgentProfile : user_id
+    User "0..1" -- "0..*" AgentProfile : reviewed_by
+    House "1" -- "0..*" HouseDelegation : house_id
+    User "1" -- "0..*" HouseDelegation : landlord_id
+    User "1" -- "0..*" HouseDelegation : agent_id
+    Appointment "0..1" -- "0..*" ViewingRecord : appointment_id
+    House "1" -- "0..*" ViewingRecord : house_id
+    User "1" -- "0..*" ViewingRecord : tenant_id
+    User "1" -- "0..*" ViewingRecord : agent_id
+    Contract "1" -- "0..*" AgentCommission : contract_id
+    HouseDelegation "0..1" -- "0..*" AgentCommission : delegation_id
+    User "1" -- "0..*" AgentCommission : agent_id
+    m_permissions ..> HouseDelegation

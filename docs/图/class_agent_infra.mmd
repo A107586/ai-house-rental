@@ -1,0 +1,132 @@
+classDiagram
+    direction TB
+    class LLMUnavailable["LLMUnavailable（llm/base.py）"] {
+        <<exception>>
+    }
+    class LLMProvider["LLMProvider（llm/base.py）"] {
+        +complete(system_prompt, user_prompt, max_tokens, deadline)
+        +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
+        +chat(system_prompt, messages, max_tokens, deadline, temperature)
+        +complete_json(system_prompt, user_prompt, max_tokens, deadline)
+        +stats()
+        +available()
+    }
+    class NullProvider["NullProvider（llm/base.py）"] {
+        <<abstract>>
+        +complete(system_prompt, user_prompt, max_tokens, deadline)
+        +available()
+    }
+    class DeadlineProvider["DeadlineProvider（llm/budget.py）"] {
+        +__init__(inner, deadline)
+        +name()
+        +available()
+        +left()
+        +complete(system_prompt, user_prompt, max_tokens, deadline)
+        +complete_json(system_prompt, user_prompt, max_tokens, deadline)
+        +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
+        +chat(system_prompt, messages, max_tokens, deadline, temperature)
+        +stats()
+    }
+    class OpenAICompatibleProvider["OpenAICompatibleProvider（llm/providers.py）"] {
+        +__init__(api_key, base_url, model, timeout, max_tokens, total_budget, vision_reasoning_effort, thinking_headroom)
+        +stats()
+        +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
+        +complete(system_prompt, user_prompt, max_tokens, deadline)
+        +chat(system_prompt, messages, max_tokens, deadline, temperature)
+    }
+    class KnowledgeIndex["KnowledgeIndex（retrieval/index.py）"] {
+        +__init__(chunks, embedder, cache, model)
+        +vector_enabled()
+        +search(query, expanded, top_k, per_channel)
+        +rerank(query, ranked, detail, top_k, expanded)
+        +coverage(query, chunk_id)
+        +unseen_ratio(query)
+        +title_coverage(query, chunk_id)
+        +key_term(query)
+        +topic_term(query)
+        +term_in_corpus(term)
+        +key_term_hit(query, chunk_id)
+        +doc_ratio(term)
+        +key_term_hit_for(term, chunk_id)
+        +get(chunk_id)
+        +titles(chunk_ids)
+    }
+    class BM25Index["BM25Index（retrieval/bm25.py）"] {
+        +__init__(documents, k1, b)
+        +scores(query_tokens)
+        +search(query_tokens, top_k)
+    }
+    class EmbeddingUnavailable["EmbeddingUnavailable（retrieval/embed.py）"] {
+        <<exception>>
+    }
+    class EmbeddingProvider["EmbeddingProvider（retrieval/embed.py）"] {
+        +embed(texts)
+    }
+    class NullEmbedding["NullEmbedding（retrieval/embed.py）"] {
+        +embed(texts)
+    }
+    class OpenAICompatibleEmbedding["OpenAICompatibleEmbedding（retrieval/embed.py）"] {
+        +__init__(base_url, model, api_key, timeout, batch_size)
+        +embed(texts)
+    }
+    class VectorCache["VectorCache（retrieval/embed.py）"] {
+        +__init__(path)
+        +load()
+        +get(text, model)
+        +put(text, vector)
+        +save(model)
+    }
+    class BackendError["BackendError（backend.py）"] {
+        <<exception>>
+    }
+    class BackendClient["BackendClient（backend.py）"] {
+        +__init__(base_url, timeout)
+        +get(path, params, token)
+        +post(path, payload, token)
+        +list_history(token)
+        +list_favorites(token)
+        +list_candidates(params, limit)
+        +stats(token)
+        +list_notices()
+        +list_chat(session_id, token, limit)
+        +log_chat(session_id, role, content, token, intent)
+        +list_properties(params)
+        +list_viewings(house_no)
+        +create_viewing(house_no, moment, applicant, token)
+        +create_repair(house_no, content, category, urgency, assignee, analysis, applicant)
+        +list_faqs()
+        +log_support(payload, token)
+        +create_handoff(question, reason, context, token)
+    }
+    class Trace["Trace（trace.py）"] {
+        +__init__(intent)
+        +step(name)
+        +note(key, value)
+        +dump()
+    }
+    class Settings["Settings（config.py）"] {
+        +__init__()
+        +llm_enabled()
+        +describe()
+    }
+    class KnowledgeBase["KnowledgeBase（agents/support/agent.py）"] {
+        +__init__(backend, settings)
+        +refresh(force)
+    }
+    class Exception
+    Exception <|-- LLMUnavailable
+    LLMProvider <|-- NullProvider
+    LLMProvider <|-- DeadlineProvider
+    LLMProvider <|-- OpenAICompatibleProvider
+    KnowledgeIndex *-- BM25Index : body_index
+    KnowledgeIndex *-- BM25Index : title_index
+    Exception <|-- EmbeddingUnavailable
+    EmbeddingProvider <|-- NullEmbedding
+    EmbeddingProvider <|-- OpenAICompatibleEmbedding
+    Exception <|-- BackendError
+    KnowledgeBase *-- KnowledgeIndex : index
+    DeadlineProvider o-- LLMProvider : inner
+    KnowledgeIndex o-- EmbeddingProvider : embedder
+    KnowledgeIndex o-- VectorCache : cache
+    KnowledgeBase o-- BackendClient : backend
+    KnowledgeBase o-- Settings : settings

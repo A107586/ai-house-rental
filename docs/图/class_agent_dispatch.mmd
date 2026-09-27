@@ -1,0 +1,161 @@
+classDiagram
+    direction LR
+    class AgentApi["智能体服务 · HTTP 接口（19 个）"] {
+        <<router>>
+        +agent_booking(BookingRequest) POST /agent/booking
+        +agent_chat(ChatRequest) POST /agent/chat
+        +agent_contract(ContractRequest) POST /agent/contract/review
+        +agent_describe(DescribeRequest) POST /agent/describe
+        +agent_handoff(HandoffRequest) POST /agent/handoff
+        +agent_image_caption(ImageCaptionRequest) POST /agent/image-caption
+        +agent_parse(SearchRequest) POST /agent/parse
+        +agent_recommend(RecommendRequest) POST /agent/recommend
+        +agent_repair(RepairRequest) POST /agent/repair
+        +agent_report(ReportRequest) POST /agent/report
+        +agent_route(ChatRequest) POST /agent/route
+        +agent_search(SearchRequest) POST /agent/search
+        +agent_support(SupportRequest) POST /agent/support
+        +agent_support_actions() GET /agent/support/actions
+        +agent_support_confirm(ConfirmRequest) POST /agent/support/confirm
+        +support_greeting(GreetingRequest) POST /agent/support/greeting
+        +agent_support_knowledge() GET /agent/support/knowledge
+        +agent_viewing_summary(ViewingSummaryRequest) POST /agent/viewing-summary
+        +health() GET /health
+    }
+    class supervisor["supervisor.py 总调度"] {
+        <<dispatcher>>
+        +classify_by_rules(text)
+        +classify(text, provider)
+        +label(intent)
+    }
+    class fusion["fusion.py"] {
+        <<module>>
+        +describe_source(source)
+        +fuse(rule_result, provider, system, prompt, sanitize, guards, enabled, trace, confidence, confidence_threshold)
+        +render_reference(rule_result, labels)
+    }
+    class memory["memory.py"] {
+        <<module>>
+        +is_reset(text)
+        +clears(text)
+        +negated_values(text)
+        +strip_negated(text)
+        +relative_ops(text)
+        +apply_relative(slots, op)
+        +speaks_up(note)
+        +known_district(value)
+        +apply_turn(slots, features, text, filters, feats)
+        +continues_search(text)
+        +replay(texts)
+        +describe(slots, features)
+        +ordinal_indexes(text)
+        +house_no_in(text)
+        +resolve_house(text, last_house_nos, current)
+        +is_weak_reference(text, last_house_nos, current)
+        +resolve_houses(text, last_house_nos)
+    }
+    class tb_catalog["toolbox/catalog.py"] {
+        <<toolbox>>
+        +TOOLS 40 个工具（写操作 13 个）
+        +visible_tools(logged_in, role)
+        +render_catalog(tools)
+    }
+    class tb_planner["toolbox/planner.py"] {
+        <<toolbox>>
+        +plan(text, provider, logged_in, role, house_no, last_house_nos, context_text, dialogue)
+        +describe(decision)
+        +dump(decision)
+    }
+    class tb_runner["toolbox/runner.py"] {
+        <<toolbox>>
+        +run_read(name, params, ctx)
+        +direct_list_answer(text, picked, listed, fetch)
+        +distance_note(text, rows)
+    }
+    class ag_booking["booking · AI-06 预约"] {
+        <<agent>>
+        +run(text, house_no, applicant, now, backend, taken, token)
+        +tools parse_datetime, slots
+    }
+    class ag_contract["contract · AI-02 合同审阅"] {
+        <<agent>>
+        +run(text, provider)
+        +tools extract, risk
+    }
+    class ag_describe["describe · AI-08 房源描述"] {
+        <<agent>>
+        +run(house, provider, polish)
+        +tools caption, compose
+    }
+    class ag_handoff["handoff · AI-03 转人工"] {
+        <<agent>>
+        +run(text, viewed, provider)
+        +tools soft
+    }
+    class ag_property_finder["property_finder · AI-01 找房"] {
+        <<agent>>
+        +run(text, page, limit, provider, backend, filters, features, source)
+        +tools parse_query, search_properties
+    }
+    class ag_recommend["recommend · AI-07 推荐"] {
+        <<agent>>
+        +run(token, limit, backend)
+        +tools profile, score
+    }
+    class ag_repair["repair · AI-04 报修分析"] {
+        <<agent>>
+        +run(text, house_no, applicant, provider, backend, submit, images)
+        +tools classify, vision
+    }
+    class ag_report["report · AI-05 经营报告"] {
+        <<agent>>
+        +run(stats, provider, polish)
+        +tools analyze
+    }
+    class ag_support["support · AI-03 智能客服"] {
+        <<agent>>
+        +run(text, token, history, provider, backend, settings, house_no, house_nos, pending, routing)
+        +KnowledgeBase «class»
+        +tools account, actions, answer, classify_ask, dates, forms, gate, greeting, house, money, pitch, progress, router, toolcall
+    }
+    class ag_viewing["viewing · J-05 带看小结"] {
+        <<agent>>
+        +run(text, provider)
+        +tools extract
+    }
+    AgentApi ..> ag_booking
+    AgentApi ..> ag_contract
+    AgentApi ..> ag_describe
+    AgentApi ..> ag_handoff
+    AgentApi ..> ag_property_finder
+    AgentApi ..> ag_recommend
+    AgentApi ..> ag_repair
+    AgentApi ..> ag_report
+    AgentApi ..> ag_support
+    AgentApi ..> ag_viewing
+    AgentApi ..> fusion
+    AgentApi ..> memory
+    AgentApi ..> supervisor
+    AgentApi ..> tb_catalog
+    AgentApi ..> tb_planner
+    AgentApi ..> tb_runner
+    ag_handoff ..> ag_property_finder
+    ag_handoff ..> fusion
+    ag_property_finder ..> fusion
+    ag_repair ..> fusion
+    ag_support ..> ag_booking
+    ag_support ..> memory
+    ag_viewing ..> fusion
+    supervisor ..> fusion
+    tb_planner ..> tb_catalog
+    tb_runner ..> ag_support
+    tb_runner ..> memory
+    class LLMProvider["LLMProvider（见基础设施图）"]
+    ag_contract ..> LLMProvider
+    ag_describe ..> LLMProvider
+    ag_handoff ..> LLMProvider
+    ag_property_finder ..> LLMProvider
+    ag_repair ..> LLMProvider
+    ag_report ..> LLMProvider
+    ag_support ..> LLMProvider
+    ag_viewing ..> LLMProvider

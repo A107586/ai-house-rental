@@ -1,0 +1,8 @@
+{
+  "name": "rental-doc-scripts",
+  "private": true,
+  "description": "Renders docs/图/*.png for scripts/gen_diagrams.py. Install with PUPPETEER_SKIP_DOWNLOAD=1; the local Edge/Chrome is used instead of a downloaded Chromium.",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^12.0.0"
+  }
+}

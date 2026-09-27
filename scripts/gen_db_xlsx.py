@@ -193,10 +193,15 @@ def write_readme(book):
         ("", "这里写的是模型里的 Python 侧默认值（ORM 插入时填）。"),
         ("", "建库脚本的 DDL 里不写它们：写了就等于多一份由数据库执行的"),
         ("", "语义，两边不一致时谁说了算会说不清。"),
+        ("", ""),
+        ("E-R 图页", ""),
+        ("", "参考工作簿的 Sheet1 要求「划分主表和从表，确定主外键关系」。"),
+        ("", "本工作簿的「E-R图」页把全部表的主外键关系画了出来，"),
+        ("", "图由 scripts/gen_diagrams.py 从模型的外键生成，与本工作簿同源。"),
     ]
     for row in lines:
         sheet.append(list(row))
-    for cell in ("A1", "A8", "A14"):
+    for cell in ("A1", "A8", "A13", "A18"):         # 各段标题所在行
         sheet[cell].font = Font(bold=True)
     sheet.column_dimensions["A"].width = 34
     sheet.column_dimensions["B"].width = 86
@@ -226,6 +231,39 @@ def write_index(book, metadata, ordered):
         for cell in row:
             cell.alignment = WRAP
     sheet.freeze_panes = "A2"
+    return sheet
+
+
+ER_IMAGES = [("er_overview", "图 1　E-R 总览：只有实体与关系，线上写外键列名"),
+             ("er", "图 2　E-R 全图：每张表的主键（PK）、外键（FK）、唯一键（UK）")]
+
+
+def write_er(book):
+    """E-R 图页。参考工作簿的 Sheet1 写着「划分主表和从表，确定主外键关系」，
+    这一页把关系画出来；图由 gen_diagrams.py 从模型生成，这里只是贴进来。
+
+    **缺图就报错，不静默跳过**：少一页 E-R 图的设计书照样能打开，
+    没人会发现它少了。"""
+    from openpyxl.drawing.image import Image
+    sheet = book.create_sheet("E-R图")
+    sheet["A1"] = "表间关系（E-R 图）"
+    sheet["A1"].font = Font(size=14, bold=True)
+    sheet["A2"] = ("由 scripts/gen_diagrams.py 从 server/app/models.py 的外键生成；"
+                   "Crow's Foot 记法：|| 恰好一个，|o 零或一个，o{ 零或多个。"
+                   "图片可放大查看。")
+    row = 4
+    for name, caption in ER_IMAGES:
+        path = os.path.join(ROOT, "docs", "图", name + ".png")
+        if not os.path.exists(path):
+            raise SystemExit("缺少 %s，先运行 python scripts/gen_diagrams.py" % path)
+        sheet.cell(row=row, column=1, value=caption).font = Font(bold=True)
+        image = Image(path)
+        width = 1400
+        image.height = int(image.height * width / image.width)
+        image.width = width
+        sheet.add_image(image, "A%d" % (row + 1))
+        row += 2 + int(image.height / 20) + 2      # 默认行高约 20 像素
+    sheet.column_dimensions["A"].width = 120
     return sheet
 
 
@@ -325,6 +363,7 @@ def build(metadata):
                 sum(len(t.foreign_keys) for t in tables.values()))
     write_readme(book)
     write_index(book, metadata, ordered)
+    write_er(book)
     write_matrix(book, ordered)
     for name in ordered:
         write_table_sheet(book, tables[name], today)
@@ -362,7 +401,10 @@ def read_fingerprint(path):
         return None
     book = load_workbook(path, read_only=True, data_only=True)
     parts = []
-    skip = {"封面", "说明", "表清单", "需求追溯"}
+    skip = {"封面", "说明", "表清单", "E-R图", "需求追溯"}
+    if "E-R图" not in book.sheetnames:
+        book.close()
+        return None                     # 缺 E-R 图页也算过期
     for sheet in book.worksheets:
         if sheet.title in skip:
             continue

@@ -1,0 +1,182 @@
+classDiagram
+    direction LR
+    class Api["合同与账单 · HTTP 接口（16 个）"] {
+        <<router>>
+        +my_bills() GET /api/bills/mine
+        +pay_bill(PayRequest) POST /api/bills/:bill_no/pay
+        +create_contract(ContractCreate) POST /api/contracts
+        +my_contracts() GET /api/contracts/mine
+        +get_contract() GET /api/contracts/:contract_no
+        +update_contract(ContractUpdate) PATCH /api/contracts/:contract_no
+        +activate_contract() POST /api/contracts/:contract_no/activate
+        +contract_detail() GET /api/contracts/:contract_no/detail
+        +end_contract(ContractEnd) POST /api/contracts/:contract_no/end
+        +renew_contract(ContractRenew) POST /api/contracts/:contract_no/renew
+        +save_review_result(ReviewResultIn) POST /api/contracts/:contract_no/review-result
+        +payment_notify() POST /api/payments/notify
+        +payment_receipt() GET /api/payments/:trade_no
+        +mock_pay() POST /api/payments/:trade_no/mock-pay
+        +payment_status() GET /api/payments/:trade_no/status
+        +my_refunds() GET /api/refunds/mine
+    }
+    class m_gateway["gateway.py"] {
+        <<service>>
+        +sign(params)
+        +verify(params)
+        +get_gateway()
+        +dumps(params)
+    }
+    Api ..> m_gateway
+    class m_leasing["leasing.py"] {
+        <<service>>
+        +add_months(moment, months)
+        +months_between(start, end)
+        +resolve_deposit(house, deposit_months, default_deposit_months)
+        +create_contract(session, house, tenant, start_date, months, deposit_months, pay_months, content, default_deposit_months)
+        +house_specific_clauses(house, deposit, pay_months)
+        +render_contract_text(house, tenant, start_date, end_date, rent, deposit, pay_months)
+        +settle_delegation(session, contract, house)
+        +activate_contract(session, contract)
+        +generate_bills(session, contract)
+        +start_payment(session, bill, user, method, idempotency_key)
+        +confirm_payment(session, payment, payload, result)
+        +close_payment(session, payment, reason)
+        +sweep_expired_payments(session, now)
+        +pay_bill(session, bill, user, method, idempotency_key)
+        +end_contract(session, contract, reason, deduct)
+        +renew_contract(session, contract, months)
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_config_store["config_store.py"] {
+        <<service · 平台治理>>
+        +get_int(session, key, default)
+    }
+    Api ..> m_config_store
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +require_login(user)
+        +require_staff(user)
+    }
+    Api ..> m_deps
+    class MockGateway["MockGateway（gateway.py）"] {
+        +__init__()
+        +create(trade_no, amount, subject)
+        +build_notify(trade_no, gateway_trade_no, amount, result)
+        +query(gateway_trade_no)
+    }
+    class PaymentGateway["PaymentGateway（gateway.py）"] {
+        +create(trade_no, amount, subject)
+        +build_notify(trade_no, gateway_trade_no, amount, result)
+        +query(gateway_trade_no)
+    }
+    PaymentGateway <|-- MockGateway
+    m_gateway ..> PaymentGateway
+    class PayRequest["PayRequest"] {
+        <<DTO>>
+        +str method
+        +str idempotency_key
+    }
+    Api ..> PayRequest
+    class ContractCreate["ContractCreate"] {
+        <<DTO>>
+        +str house_no
+        +str tenant_username
+        +datetime start_date
+        +int months
+        +int deposit_months
+        +int pay_months
+    }
+    Api ..> ContractCreate
+    class ContractUpdate["ContractUpdate"] {
+        <<DTO>>
+        +datetime start_date
+        +int months
+        +int deposit_months
+        +int pay_months
+    }
+    Api ..> ContractUpdate
+    class ContractEnd["ContractEnd"] {
+        <<DTO>>
+        +str reason
+        +float deduct
+    }
+    Api ..> ContractEnd
+    class ContractRenew["ContractRenew"] {
+        <<DTO>>
+        +int months
+    }
+    Api ..> ContractRenew
+    class ReviewResultIn["ReviewResultIn"] {
+        <<DTO>>
+        +int score
+        +str summary
+        +int risk_count
+        +str source
+    }
+    Api ..> ReviewResultIn
+    class Contract["Contract · 租赁合同"] {
+        <<entity>>
+        +int id «PK»
+        +str contract_no «UK»
+        +int house_id «FK»
+        +int tenant_id «FK»
+        +int landlord_id «FK»
+        +int agent_id «FK»
+        +str status
+        +… 另 12 列（见数据库设计书）
+        +/days_left
+        +/review_summary
+        +to_dict()
+    }
+    class Bill["Bill · 账单"] {
+        <<entity>>
+        +int id «PK»
+        +str bill_no «UK»
+        +int contract_id «FK»
+        +str type
+        +decimal amount
+        +str status
+        +… 另 5 列（见数据库设计书）
+        +/overdue
+        +to_dict()
+    }
+    class Payment["Payment · 缴费流水"] {
+        <<entity>>
+        +int id «PK»
+        +str trade_no «UK»
+        +int bill_id «FK,UK»
+        +int user_id «FK»
+        +decimal amount
+        +str status
+        +str idempotency_key «UK»
+        +… 另 9 列（见数据库设计书）
+        +to_dict()
+    }
+    class Refund["Refund · 押金退款流水"] {
+        <<entity>>
+        +int id «PK»
+        +str refund_no «UK»
+        +int contract_id «FK»
+        +int payment_id «FK»
+        +str status
+        +… 另 5 列（见数据库设计书）
+        +to_dict()
+    }
+    class House["House · 房源（房源）"]
+    <<entity>> House
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    House "1" -- "0..*" Contract : house_id
+    User "1" -- "0..*" Contract : tenant_id
+    User "1" -- "0..*" Contract : landlord_id
+    User "0..1" -- "0..*" Contract : agent_id
+    Contract "1" -- "0..*" Bill : contract_id
+    Bill "1" -- "0..1" Payment : bill_id
+    User "0..1" -- "0..*" Payment : user_id
+    Contract "1" -- "0..*" Refund : contract_id
+    Payment "0..1" -- "0..*" Refund : payment_id
+    m_leasing ..> Bill
+    m_leasing ..> Contract
+    m_leasing ..> Payment
+    m_leasing ..> Refund

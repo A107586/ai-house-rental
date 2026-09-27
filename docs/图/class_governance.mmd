@@ -1,0 +1,157 @@
+classDiagram
+    direction LR
+    class Api["平台治理 · HTTP 接口（29 个）"] {
+        <<router>>
+        +license_queue() GET /api/admin/agent-queue
+        +platform_agent_stats() GET /api/admin/agent-stats
+        +admin_agents() GET /api/admin/agents
+        +create_agent() POST /api/admin/agents
+        +review_license(LicenseReview) PATCH /api/admin/agents/:user_id
+        +admin_appointments() GET /api/admin/appointments
+        +list_config() GET /api/admin/config
+        +update_config(ConfigUpdate) PATCH /api/admin/config
+        +admin_contracts() GET /api/admin/contracts
+        +admin_faqs() GET /api/admin/faqs
+        +list_flags() GET /api/admin/flags
+        +handle_flag() PATCH /api/admin/flags/:flag_id
+        +admin_handoffs() GET /api/admin/handoffs
+        +reply_handoff(HandoffReplyPayload) POST /api/admin/handoffs/:handoff_no/reply
+        +admin_houses() GET /api/admin/houses
+        +admin_landlords() GET /api/admin/landlords
+        +list_logs() GET /api/admin/logs
+        +log_actions() GET /api/admin/logs/actions
+        +admin_notices() GET /api/admin/notices
+        +list_reports() GET /api/admin/reports
+        +handle_report(ReportHandle) PATCH /api/admin/reports/:report_no
+        +support_analytics() GET /api/admin/support/analytics
+        +admin_users() GET /api/admin/users
+        +admin_update_user(UserUpdate) PATCH /api/admin/users/:user_id
+        +issue_reset_code() POST /api/admin/users/:user_id/reset-code
+        +verify_queue() GET /api/admin/verify-queue
+        +public_config() GET /api/config
+        +stats() GET /api/stats
+        +health() GET /health
+    }
+    class m_config_store["config_store.py"] {
+        <<service>>
+        +ensure_defaults(session)
+        +raw(session, key)
+        +get_int(session, key, default)
+        +get_bool(session, key, default)
+        +get_text(session, key, default)
+        +validate(key, value)
+        +set_value(session, key, value)
+        +list_all(session, public_only)
+    }
+    Api ..> m_config_store
+    class m_moderation["moderation.py"] {
+        <<service>>
+        +normalize(text)
+        +find_contacts(text)
+        +check(text, scene)
+        +check_all(fields, scene)
+    }
+    Api ..> m_moderation
+    class m_netaddr["netaddr.py"] {
+        <<service>>
+        +client_ip(request, hops)
+    }
+    Api ..> m_netaddr
+    class m_oplog["oplog.py"] {
+        <<service>>
+        +action_of(method, path)
+        +should_log(method, path)
+        +identify(authorization)
+    }
+    Api ..> m_oplog
+    class m_ratelimit["ratelimit.py"] {
+        <<service>>
+        +check(ip)
+        +record_failure(ip)
+        +record_success(ip)
+        +reset()
+        +hit(namespace, ip, limit, window)
+    }
+    Api ..> m_ratelimit
+    class m_auth["auth.py"] {
+        <<service · 账号与权限>>
+        +using_dev_secret()
+    }
+    Api ..> m_auth
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +current_user(authorization, session)
+        +require_login(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_notifier["notifier.py"] {
+        <<service · 互动与消息>>
+        +notify_external(user, title, content)
+    }
+    Api ..> m_notifier
+    class m_security["security.py"] {
+        <<service · 账号与权限>>
+        +hash_password(password)
+    }
+    Api ..> m_security
+    class LicenseReview["LicenseReview"] {
+        <<DTO>>
+        +bool approved
+        +str reason
+    }
+    Api ..> LicenseReview
+    class ConfigUpdate["ConfigUpdate"] {
+        <<DTO>>
+        +dict items
+    }
+    Api ..> ConfigUpdate
+    class HandoffReplyPayload["HandoffReplyPayload"] {
+        <<DTO>>
+        +str reply
+    }
+    Api ..> HandoffReplyPayload
+    class ReportHandle["ReportHandle"] {
+        <<DTO>>
+        +str status
+        +str conclusion
+    }
+    Api ..> ReportHandle
+    class UserUpdate["UserUpdate"] {
+        <<DTO>>
+        +str status
+        +str role
+    }
+    Api ..> UserUpdate
+    class OperationLog["OperationLog · 操作日志"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +str role
+        +… 另 7 列（见数据库设计书）
+        +to_dict()
+    }
+    class ContentFlag["ContentFlag · 内容复核队列"] {
+        <<entity>>
+        +int id «PK»
+        +int author_id «FK»
+        +str status
+        +… 另 10 列（见数据库设计书）
+        +to_dict()
+    }
+    class SystemConfig["SystemConfig · 系统配置"] {
+        <<entity>>
+        +int id «PK»
+        +str key «UK»
+        +… 另 7 列（见数据库设计书）
+        +to_dict()
+    }
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    User "0..1" -- "0..*" OperationLog : user_id
+    User "0..1" -- "0..*" ContentFlag : author_id
+    m_config_store ..> SystemConfig

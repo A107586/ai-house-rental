@@ -7,7 +7,7 @@
 --   生成：python scripts/gen_db_sql.py
 --   校验：python scripts/gen_db_sql.py --check（测试套件里也跑这一条）
 --
--- 共 36 张表、388 个字段。建表顺序是依赖拓扑序，被引用的表先建。
+-- 共 36 张表、389 个字段。建表顺序是依赖拓扑序，被引用的表先建。
 --
 -- 列默认值有意不写进 DDL：模型里的 default 是 Python 侧的，由 ORM 插入时填。
 -- 写进来就等于多一份由数据库执行的语义，两边不一致时谁说了算会说不清。
@@ -233,6 +233,7 @@ CREATE TABLE houses (
 	status VARCHAR(20) NOT NULL, 
 	view_count INTEGER NOT NULL, 
 	published_at DATETIME NOT NULL, 
+	approved_at DATETIME, 
 	PRIMARY KEY (id), 
 	UNIQUE (house_no), 
 	FOREIGN KEY(landlord_id) REFERENCES users (id)

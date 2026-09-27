@@ -17,7 +17,7 @@
 
 ## 这里跑的是什么
 
-四个生成脚本的 `--check`。它们各自重新生成一遍，和已提交的文件比对：
+六个生成脚本的 `--check`。它们各自重新生成一遍，和已提交的文件比对：
 
 | 脚本 | 盯着 |
 |---|---|
@@ -25,6 +25,8 @@
 | `gen_db_xlsx.py --check` | 交付用数据库设计书与模型一致 |
 | `gen_api_list.py --check` | 概要设计的接口清单与模块统计表最新，**且正文引用的接口真的存在** |
 | `gen_db_doc.py`（比对模式） | 《数据库设计说明书》第三章与模型一致 |
+| `gen_diagrams.py --check` | 系统结构图、各模块类图、E-R 图与代码一致，PNG 由当前的源渲染 |
+| `gen_outline_docx.py --check` | 交付用的 Word 版概要设计与 .md 源、与图一致 |
 
 改了模型或路由之后，这几条会红。**红的时候不要改测试，去重跑生成脚本。**
 
@@ -97,6 +99,30 @@ class TestGeneratedArtifactsAreFresh(unittest.TestCase):
         而正文里写了一条 404 的接口，是**在指着人往沟里走**。
         """
         code, output = run("gen_api_list.py", "--check")
+        self.assertEqual(code, 0, output)
+
+    def test_diagrams_match_the_code(self):
+        """类图、E-R 图、系统结构图必须和代码一致。
+
+        这一条是被一张手写的 ER 图逼出来的：它只画了 36 张表中的 22 张，
+        漏掉的 14 张在文档里躺了好几天——**图不会报错**。
+
+        `--check` 不渲染，只比 Mermaid 源与 PNG 的指纹，所以不需要
+        Node 与浏览器，任何一台机器都能跑。
+        """
+        code, output = run("gen_diagrams.py", "--check")
+        self.assertEqual(code, 0, output)
+
+    def test_outline_word_version_matches_the_source(self):
+        """交付的 Word 版概要设计必须和 .md 源一致。
+
+        原先没有这一条：.md 改了两轮，Word 版还停在旧的接口数与测试数上，
+        封面版本号也是写死在脚本里的 1.0.0。**交给评审的恰恰是 Word 版。**
+        """
+        if not (_have("docx") and _have("PIL")):
+            self.skipTest("没装 python-docx 或 Pillow，这条无法验证。"
+                          "补上：pip install -r scripts/requirements.txt")
+        code, output = run("gen_outline_docx.py", "--check")
         self.assertEqual(code, 0, output)
 
     def test_test_counts_in_the_manual_match_reality(self):

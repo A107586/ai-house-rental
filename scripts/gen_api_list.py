@@ -58,13 +58,26 @@ SUM_END = "<!-- MODULE-TABLE:END -->"
 #
 # 每条 (正则, 模板)，必须**恰好命中一处**：命中零处或多处说明文档结构
 # 变了，那时候宁可报错，也不要猜着改。
+#
+# 系统结构图原先是一张手画的 ASCII 图，图里的两个数也在这里盯着；
+# 现在那张图由 gen_diagrams.py 生成，数是它现数的，这里就不再管。
+# 取而代之的是 4.2 的字段数与第 3 章的工具数——后者曾在三处写着
+# 「客服下辖 12 个工具」，而实际早已是 14 个工具模块、40 个工具。
 INLINE = [
-    (r"│  [\d,]+ 个接口 · [\d,]+ 张表 · ",
-     "│  {server} 个接口 · {tables} 张表 · "),
-    (r"│  [\d,]+ 个接口 · [\d,]+ 个子智能体 ",
-     "│  {agent} 个接口 · {subagents} 个子智能体 "),
     (r"agent/app/main\.py ──────── HTTP 入口，[\d,]+ 个接口",
      "agent/app/main.py ──────── HTTP 入口，{agent} 个接口"),
+    (r"共 \*\*[\d,]+ 张表、[\d,]+ 个字段、[\d,]+ 个外键\*\*",
+     "共 **{tables} 张表、{columns} 个字段、{fks} 个外键**"),
+    (r"\*\*索引策略\*\*：共 [\d,]+ 个索引",
+     "**索引策略**：共 {indexes} 个索引"),
+    (r"智能客服 RAG，下辖 [\d,]+ 个工具模块",
+     "智能客服 RAG，下辖 {support_tools} 个工具模块"),
+    (r"客服的 [\d,]+ 个工具模块",
+     "客服的 {support_tools} 个工具模块"),
+    (r"工具目录 [\d,]+ 个工具，其中 [\d,]+ 个写操作",
+     "工具目录 {catalog} 个工具，其中 {writes} 个写操作"),
+    (r"（[\d,]+ 个工具，其中 [\d,]+ 个写操作）",
+     "（{catalog} 个工具，其中 {writes} 个写操作）"),
 ]
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -268,11 +281,20 @@ def main():
     subagents = [d for d in os.listdir(agents_dir)
                  if os.path.isdir(os.path.join(agents_dir, d))
                  and d not in ("__pycache__", "toolbox")]
+    from gen_diagrams import catalog_counts, tool_modules
+    metadata = load_metadata()
+    catalog_total, catalog_writes = catalog_counts()
     counts = {
         "server": str(len([r for r in server_rows if r[1] not in SKIP])),
         "agent": str(len([r for r in agent_rows if r[1] not in SKIP])),
-        "tables": str(len(load_metadata().tables)),
+        "tables": str(len(metadata.tables)),
+        "columns": str(sum(len(t.columns) for t in metadata.tables.values())),
+        "fks": str(sum(len(t.foreign_keys) for t in metadata.tables.values())),
+        "indexes": str(sum(len(t.indexes) for t in metadata.tables.values())),
         "subagents": str(len(subagents)),
+        "support_tools": str(len(tool_modules("support"))),
+        "catalog": str(catalog_total),
+        "writes": str(catalog_writes),
     }
     for pattern, template in INLINE:
         hits = re.findall(pattern, text)
