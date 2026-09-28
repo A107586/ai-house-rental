@@ -20,9 +20,10 @@ EnvironmentFile=/etc/rental/rental.env
 #
 # worker 只给 2：它主要在等大模型（IO 密集），给多了也没用，
 # 反而让每个进程各自持有一份熔断计数。
-# **刻意不加 `--proxy-headers`**，理由同业务后端那份单元文件。
+# **必须显式写 `--no-proxy-headers`**——uvicorn 默认是开的，
+# 理由见业务后端那份单元文件。
 ExecStart=/srv/rental/.venv/bin/uvicorn app.main:app \
-    --host 127.0.0.1 --port 8000 --workers 2
+    --host 127.0.0.1 --port 8000 --workers 2 --no-proxy-headers
 
 Restart=always
 RestartSec=3

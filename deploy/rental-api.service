@@ -20,12 +20,20 @@ EnvironmentFile=/etc/rental/rental.env
 #
 # worker 数：N-01 实测 4 个 worker 把房源列表从 1947ms 压到 305ms。
 # 按 CPU 核数给，1~2 核的小机器写 2。
-# **刻意不加 `--proxy-headers`。** 它会拿 X-Forwarded-For 的**第一段**
-# 去改写 request.client.host，而第一段是客户端自己填的。
-# 转发头由应用自己按 TRUSTED_PROXY_HOPS 处理（从右边数），
-# 两套一起上只会让「到底信哪个」说不清。
+# **必须显式写 `--no-proxy-headers`。**
+#
+# uvicorn 的 proxy_headers **默认就是开的**，并且默认信任 127.0.0.1：
+# 只要连接来自本机，它就拿 X-Forwarded-For 改写 request.client.host。
+# 这一段原先写的是「刻意不加 --proxy-headers」——**不加等于开着**，
+# 那句注释描述的是一个并不存在的状态。
+#
+# 是 2026-09-28 冒烟测出来的：单元测试全绿（TestClient 不经过 uvicorn
+# 的中间件），而对着真服务从本机连错 8 次之后，换一个 X-Forwarded-For
+# 又放行了。
+#
+# 转发头只让一层来管：应用按 TRUSTED_PROXY_HOPS 自己处理（从右边数）。
 ExecStart=/srv/rental/.venv/bin/uvicorn app.main:app \
-    --host 127.0.0.1 --port 8080 --workers 4
+    --host 127.0.0.1 --port 8080 --workers 4 --no-proxy-headers
 
 Restart=always
 RestartSec=3
