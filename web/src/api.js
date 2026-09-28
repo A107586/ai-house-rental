@@ -567,6 +567,8 @@ export const api = {
       // 上一轮没做完的代办：助手问了哪个槽、已经填了什么、
       // 或者已经摆出的确认卡片。服务端不存会话态，由前端带着走。
       pending,
+      // 随这句话发的照片，已传到本系统的地址（/static/uploads/...）
+      images: extra.images || [],
     }),
 
   chatHistory: (sessionId) =>

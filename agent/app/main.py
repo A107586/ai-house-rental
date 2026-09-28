@@ -30,6 +30,7 @@ from app.agents.support import agent as support
 from app.agents.support.tools import actions
 from app.agents.support.tools import greeting
 from app.agents.support.tools import house as house_tool
+from app.agents.support.tools import photo
 from app.agents.support.tools import pitch
 from app.agents.support.tools import router as support_router
 from app.agents.toolbox import catalog as tool_catalog
@@ -192,6 +193,9 @@ class ChatRequest(BaseModel):
     # 整份列表的下标后移一位——屏幕上标着 1 的那套，助手数出来是第 2 套。
     # 「这套」指哪一套和「第几套」是两个问题，用两个字段回答。
     house_no: str = ""
+    # 用户随这句话发的照片。只认本系统上传的地址（/static/...），
+    # 前端先传到业务后端换地址再发过来，见 `_with_photos`。
+    images: list[str] = []
 
 
 class SupportRequest(BaseModel):
@@ -594,8 +598,92 @@ def agent_support_knowledge():
     }
 
 
+# 对话里看一次照片最多等多久。开思考时一张图实测 5–10 秒
+PHOTO_BUDGET = 25.0
+
+# 路由办成了一件具体的事的标志：出了确认卡片、列了房源、查到了他的数据、
+# 讲解/对比了房源、在填表。有这些就不拿看图的回答去覆盖它。
+_ACTED_KEYS = ("action", "items", "account", "pitch", "compare", "form")
+
+
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
+    """统一入口。带照片的轮次先经 `_with_photos`，其余原样交给 `_agent_chat`。"""
+    urls = support_actions._image_urls(payload.images)
+    if not urls:
+        return _agent_chat(payload)
+    return _with_photos(payload, urls)
+
+
+def _with_photos(payload, urls):
+    """带照片的一轮。
+
+    **路由不看照片**：用户那句话原样交给 `_agent_chat`，报修、找房、客服
+    那几十条路径一行没改。照片在三个地方起作用：
+
+    1. 助手这一问要的就是照片（报修的「要拍张照片吗」）：照片就是答案。
+    2. 路由刚走到报修、问要不要拍照：照片已经在手上了，直接填进去——
+       不然用户会看到一个莫名其妙的追问，图明明刚发过。
+    3. 路由没有办成一件具体的事（见 `_ACTED_KEYS`）：看着照片作答，
+       路由原本的回答当参考交给模型。只发了图没说话的，直接看图作答。
+
+    这一轮的聊天记录由这里来写（原路由那几次调用不写）：否则存下来的是
+    被看图回答替换之前的那句话，下一轮追问的上下文就错了。
+    """
+    said = payload.text.strip()
+    quiet = payload.model_copy(update={"session_id": ""})
+
+    ask = (payload.pending or {}).get("ask") or {}
+    if ask.get("kind") == "upload":
+        result = _agent_chat(quiet.model_copy(update={"text": ",".join(urls)}))
+        return _log_photo_turn(payload, said, urls, result)
+
+    result = None
+    if said:
+        result = _agent_chat(quiet)
+        asked = ((result.get("pending") or {}).get("ask") or {})
+        if asked.get("kind") == "upload":
+            result = _agent_chat(quiet.model_copy(
+                update={"text": ",".join(urls), "pending": result["pending"]}))
+        if any(result.get(k) for k in _ACTED_KEYS) or (
+                result.get("pending") and result.get("pending") != payload.pending):
+            return _log_photo_turn(payload, said, urls, result)
+
+    seen = photo.answer(
+        repair_vision.safe_images(urls, settings.backend_base_url),
+        llm_budget.for_turn(provider, PHOTO_BUDGET), said=said,
+        reference=(result or {}).get("message", ""))
+    if result is None:
+        result = {"intent": "support", "items": [], "alternatives": [],
+                  "route": {"tool": "photo", "reason": "只发了照片"}, "route_source": "photo",
+                  "context_text": memory.describe(*memory.replay(user_turns(payload.history)))}
+        if payload.pending:
+            # 流程填到一半发了张图，待办不能就此丢了
+            result["pending"] = payload.pending
+    if seen:
+        result.update(message=seen, status="answered", ok=True, photo_answer=True)
+        result.setdefault("route", {})
+        if isinstance(result["route"], dict):
+            result["route"]["photo"] = "看图作答"
+    elif not result.get("message"):
+        result.update(message="这张照片我没能看清，能用文字说说想问什么吗？",
+                      status="answered_no_basis", ok=True)
+    return _log_photo_turn(payload, said, urls, result)
+
+
+def _log_photo_turn(payload, said, urls, result):
+    """带照片那一轮的聊天记录：用户的原话 + 附了几张图，和最终给出的回答。"""
+    if payload.session_id and payload.token:
+        intent = result.get("intent") or "support"
+        backend_client.log_chat(payload.session_id, "user",
+                                (said + "（附 %d 张照片）" % len(urls)).strip(),
+                                payload.token, intent=intent)
+        backend_client.log_chat(payload.session_id, "assistant",
+                                result.get("message", ""), payload.token, intent=intent)
+    return result
+
+
+def _agent_chat(payload: ChatRequest):
     """统一入口：先取上下文，再判意图，最后路由到对应子智能体。
 
     上下文的来源有两条，优先用后端存的（跨设备、可追溯），

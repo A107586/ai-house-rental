@@ -70,6 +70,9 @@ const OPENING = {
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
 
+// 一句话最多带几张图。和智能体那边读图的上限一致（support/tools/photo.py MAX_IMAGES）
+const MAX_ATTACH = 3
+
 // 状态码 -> 中文。卡片里直接显示 available / pending 等同于没显示。
 const STATUS_TEXT = {
   available: '在租中', rented: '已出租', offline: '已下架',
@@ -470,6 +473,11 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 跟固定的 QUICK 不是一回事，所以单独存一份。
   const [chips, setChips] = useState([])
   const bottomRef = useRef(null)
+  // 随下一句话一起发的照片。选中就先传到业务后端换成地址，这里只存地址——
+  // 智能体只认本系统上传的 /static/ 路径，不收二进制，也不收外链。
+  const [attachments, setAttachments] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef(null)
 
   // 开场白：先问一次「这个人现在有什么没办完」。
   //
@@ -618,16 +626,55 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     return ''
   }
 
+  /** 选图 / 粘贴进来的图：传到业务后端，拿回地址挂在输入框上方。 */
+  async function attach(files) {
+    const picked = [...(files || [])].filter((f) => f.type.startsWith('image/'))
+    if (!picked.length) return
+    // 上传接口要登录——匿名上传等于把服务器磁盘开放给全网（见后端 /api/upload）
+    if (!getToken()) {
+      setError('发图片要先登录。')
+      return
+    }
+    const room = MAX_ATTACH - attachments.length
+    if (room <= 0) {
+      setError(`一次最多带 ${MAX_ATTACH} 张图。`)
+      return
+    }
+    setUploading(true)
+    setError('')
+    try {
+      for (const file of picked.slice(0, room)) {
+        const data = await api.uploadImage(file)
+        if (data.url) setAttachments((prev) => [...prev, data.url])
+      }
+    } catch (err) {
+      setError(err.message || '图片上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function onPaste(event) {
+    const files = [...(event.clipboardData?.files || [])]
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      event.preventDefault()
+      attach(files)
+    }
+  }
+
   async function send(e, override) {
     if (e) e.preventDefault()
     const content = (override ?? text).trim()
-    if (!content || busy) return
+    // 快捷按钮、选项、上传步骤走 override，不带输入框上方挂着的图
+    const images = override === undefined ? attachments : []
+    if ((!content && !images.length) || busy || uploading) return
 
     const history = localHistory()
     const houseNos = lastHouseNos()
     const focus = focusHouse()
-    setMessages((prev) => [...prev, { role: 'user', content }])
+    setMessages((prev) => [...prev, { role: 'user', content, images }])
     setText('')
+    if (images.length) setAttachments([])
     setBusy(true)
     // H1：等待期间显示哪一份阶段清单。猜错只是短语不贴切，
     // 真正的路由在服务端
@@ -637,7 +684,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     try {
       const res = await api.agentChat(content, sessionId, history, houseNos,
                                      pending,
-                                     { seen: houseNos.length, houseNo: focus || houseNo })
+                                     { seen: houseNos.length, houseNo: focus || houseNo, images })
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -875,7 +922,16 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                 kind={message.role === 'user' ? 'me' : 'ai'}
                 name={message.role === 'user' ? (user?.real_name || user?.username || '我') : ''}
               />
-              <div className="bubble-text">{message.content}</div>
+              {message.images?.length > 0 && (
+                <div className="bubble-images">
+                  {message.images.map((url) => (
+                    <a href={url} target="_blank" rel="noreferrer" key={url}>
+                      <img src={url} alt="发送的照片" />
+                    </a>
+                  ))}
+                </div>
+              )}
+              {message.content && <div className="bubble-text">{message.content}</div>}
 
               {message.notes?.length > 0 && (
                 <div className="bubble-notes">
@@ -1087,13 +1143,52 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           ))}
         </div>
 
+        {(attachments.length > 0 || uploading) && (
+          <div className="chat-attachments">
+            {attachments.map((url) => (
+              <button
+                type="button"
+                key={url}
+                title="移除这张"
+                onClick={() => setAttachments((prev) => prev.filter((u) => u !== url))}
+              >
+                <img src={url} alt="待发送的照片" />
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+            {uploading && <span className="chat-attach-hint">上传中…</span>}
+          </div>
+        )}
+
         <form className="chat-input" onSubmit={send}>
           <input
-            placeholder="说点什么，比如「换成沙河口」"
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => { attach(e.target.files); e.target.value = '' }}
+          />
+          <button
+            className="btn ghost chat-attach"
+            type="button"
+            title={getToken() ? '发图片（也可以直接粘贴截图）' : '登录后可以发图片'}
+            disabled={busy || uploading || attachments.length >= MAX_ATTACH}
+            onClick={() => fileRef.current?.click()}
+          >
+            图片
+          </button>
+          <input
+            placeholder={attachments.length ? '说说这张图，或者直接发送' : '说点什么，比如「换成沙河口」'}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={onPaste}
           />
-          <button className="btn" type="submit" disabled={busy || !text.trim()}>
+          <button
+            className="btn"
+            type="submit"
+            disabled={busy || uploading || (!text.trim() && !attachments.length)}
+          >
             发送
           </button>
         </form>
