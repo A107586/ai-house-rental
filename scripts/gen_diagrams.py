@@ -947,6 +947,44 @@ def find_mmdc():
     return shutil.which("mmdc")
 
 
+# mermaid-cli 12（及其依赖 puppeteer-core）在 package.json 里写的是
+# `"node": ">=22.13.0"`。
+MIN_NODE = (22, 13)
+
+
+def node_problem():
+    """渲染前先看 PATH 上的 node 够不够新。够就返回空串。
+
+    **为什么要先查**：不查的话，Node 16 上的报错是
+
+        ReferenceError: ReadableStream is not defined
+            at .../puppeteer-core/lib/puppeteer/api/ScreenRecording.js
+
+    看不出和 Node 版本有关系。更糟的是它发生在**已经改写了 .mmd 源之后**——
+    工作区被留在「源改了、图没出、manifest 没动」的半截状态，
+    接着 `--check` 报一串过期，很容易被当成代码的问题去查。
+    2026-09-28 在一台只有 Node 16 的机器上正是这么绕了一圈。
+
+    `mmdc.cmd` 用的是 PATH 上的第一个 node，所以这里查的也是它。
+    """
+    node = shutil.which("node")
+    if not node:
+        return "找不到 node。渲染要 Node ≥ %d.%d。" % MIN_NODE
+    try:
+        out = subprocess.run([node, "--version"], capture_output=True,
+                             text=True, timeout=30).stdout.strip()
+        major, minor = (int(x) for x in out.lstrip("v").split(".")[:2])
+    except Exception:                                         # noqa: BLE001
+        return "问不出 node 的版本（%s）。" % node
+    if (major, minor) >= MIN_NODE:
+        return ""
+    return ("mermaid-cli 要 Node ≥ %d.%d，PATH 上的是 %s（%s）。\n"
+            "  不必替换系统里那份，装一个便携版放到 PATH 最前面再跑即可，例如：\n"
+            "    set PATH=C:\\Users\\<你>\\tools\\node-v24.21.0-win-x64;%%PATH%%\n"
+            "  只想更新文档里的 Mermaid 块、不出图，可以加 --no-render。"
+            % (MIN_NODE + (out, node)))
+
+
 def find_browser():
     env = os.environ.get("PUPPETEER_EXECUTABLE_PATH")
     if env:
@@ -1059,6 +1097,18 @@ def main():
             return 1
         print("%d 张图与代码一致。" % len(diagrams))
         return 0
+
+    # 要出图的话，先确认 Node 够新，再动任何文件——见 node_problem()
+    to_render = [name for name, source in diagrams.items()
+                 if manifest.get(name) != render_key(name, source)
+                 or not os.path.exists(os.path.join(FIG_DIR, name + ".png"))]
+    if to_render and not args.no_render:
+        problem = node_problem()
+        if problem:
+            print("有 %d 张图要重新渲染（%s），但渲染环境不满足：\n  %s"
+                  % (len(to_render), "、".join(to_render), problem))
+            print("\n**什么文件都没有改动**，工作区保持原样。")
+            return 2
 
     os.makedirs(FIG_DIR, exist_ok=True)
     rendered = []

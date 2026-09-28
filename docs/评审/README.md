@@ -34,7 +34,18 @@ Word 版要最后出（它读的 .md 会被前面几个脚本改写）。
 cd scripts && set PUPPETEER_SKIP_DOWNLOAD=1 && npm install
 ```
 
-浏览器用本机的 Edge 或 Chrome，不另下 Chromium。只改了文字、
+浏览器用本机的 Edge 或 Chrome，不另下 Chromium。
+
+**渲染要 Node ≥ 22.13**（mermaid-cli 12 与 puppeteer-core 的 `engines` 就是这么写的；
+Node 16 上的报错是 `ReadableStream is not defined`，看不出和版本有关）。
+不必替换系统里的 Node——装一个便携版，出图时放到 PATH 最前面即可：
+
+```bat
+set PATH=C:\Users\<你>\tools\node-v24.21.0-win-x64;%PATH%
+python scripts/gen_diagrams.py
+```
+
+Node 不够新时 `gen_diagrams.py` 会在**改动任何文件之前**停下来并说明原因。只改了文字、
 图的源没变时不会重新渲染；没装 mermaid-cli 也可以加 `--no-render`
 只更新文档里的 Mermaid 块。
 
