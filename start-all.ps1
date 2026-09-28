@@ -100,14 +100,14 @@ if ($npm -and -not (Test-Path (Join-Path $root "web\node_modules"))) {
 Write-Host "启动业务后端 http://localhost:8080 ..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "cd '$root\server'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080"
+    "cd '$root\server'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080 --no-proxy-headers"
 )
 Start-Sleep -Seconds 3
 
 Write-Host "启动智能体服务 http://localhost:8000 ..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "cd '$root\agent'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+    "cd '$root\agent'; $python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers"
 )
 Start-Sleep -Seconds 3
 

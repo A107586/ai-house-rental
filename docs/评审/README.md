@@ -34,14 +34,28 @@ Word 版要最后出（它读的 .md 会被前面几个脚本改写）。
 cd scripts && set PUPPETEER_SKIP_DOWNLOAD=1 && npm install
 ```
 
-浏览器用本机的 Edge 或 Chrome，不另下 Chromium。只改了文字、
+浏览器用本机的 Edge 或 Chrome，不另下 Chromium。
+
+**渲染要 Node ≥ 22.13**（mermaid-cli 12 与 puppeteer-core 的 `engines` 就是这么写的；
+Node 16 上的报错是 `ReadableStream is not defined`，看不出和版本有关）。
+不必替换系统里的 Node——装一个便携版，出图时放到 PATH 最前面即可：
+
+```bat
+set PATH=C:\Users\<你>\tools\node-v24.21.0-win-x64;%PATH%
+python scripts/gen_diagrams.py
+```
+
+系统结构图与十张模块结构图的源是 HTML，用同一个本机浏览器截图，**不需要 Node**；
+Node 只管 Mermaid 画的类图与 E-R 图。
+
+Node 不够新时 `gen_diagrams.py` 会在**改动任何文件之前**停下来并说明原因。只改了文字、
 图的源没变时不会重新渲染；没装 mermaid-cli 也可以加 `--no-render`
 只更新文档里的 Mermaid 块。
 
 ## 改了代码之后会怎样
 
 **不用记得重新生成，测试会提醒。** `server/tests/test_design_artifacts.py`
-把六个生成脚本的 `--check` 都跑一遍：模型加了字段、路由加了接口、
+把七个生成脚本的 `--check` 都跑一遍：模型加了字段、路由加了接口、
 服务函数改了名，而交付物或图没更新，测试直接红。
 
 `--check` 都**不需要渲染环境**：图比的是 Mermaid 源与 PNG 的指纹，
@@ -59,6 +73,7 @@ Word 版比的是段落、表格与图片内容，所以任何一台机器都能
 | 概要设计的正文 | `docs/概要设计说明书.md` |
 | 接口清单与模块统计表 | 两个 FastAPI 应用的路由表（生成时现问） |
 | 系统结构图 | 分层架构图（`docs/图/system.html` 截图）：各模块的接口数、表数与子智能体、工具数现数；模块里的业务取自第 3 章「功能定义」的归纳 |
+| 模块结构图 | 《概要设计说明书》第 3 章各模块的「功能定义」表（`docs/图/struct_*.html` 截图） |
 | 类图 | 模型类、路由表，以及**处理函数的语法树**（它实际调用了哪个服务函数、哪个 DTO） |
 | E-R 图 | 模型的外键 |
 

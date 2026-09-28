@@ -35,9 +35,9 @@
 （这一条也是实测撞出来的：第一次验证时两个日期返回同一个结果，
 差点得出「脚本没用」的结论。）
 
-## 这个脚本自己错了四次，逐条记下来
+## 这个脚本自己错了五次，逐条记下来
 
-**它是用来抓 bug 的，所以它自己先得不造 bug。** 四次的形状都不一样：
+**它是用来抓 bug 的，所以它自己先得不造 bug。** 五次的形状都不一样：
 
 **一、全局换掉两个类 → SQLAlchemy 不认自己算出来的日期。**
 拿 server 870 条一跑红了 15 条，差点当成真的发现：
@@ -57,6 +57,8 @@ SQLAlchemy 的 SQLite 方言在**调用时**才取 `datetime.datetime` 做
 
 它要拿 `date` 当基类去建校验器类。结论：**三方库有权假定
 `datetime.datetime` 就是那个类**，要拨钟就只在自己的代码里拨。
+（元类这条路后来在第五次又走回来了——**区别是时机**：那时是导入之前
+全局换，现在是 discover 之后只换项目模块，库不会再去继承它。）
 
 **三、脚本把自己也当成项目模块，于是谁都没换到。**
 它就放在仓库里，跑起来叫 `__main__`，模块字典里正好有
@@ -71,6 +73,20 @@ SQLAlchemy 的 SQLite 方言在**调用时**才取 `datetime.datetime` 做
 道理很直白：**发令牌和吊销令牌之间本来是有时间差的**，
 冻死之后两个时刻一模一样，「晚于签发时间」的判断就不成立了。
 这不是 bug，是我把时间焊住了。所以改成平移。
+
+**五、平移之后，项目代码里的 `isinstance(x, datetime.date)` 不认真 date。**
+2026-09-28 拉下一周的新代码后，对照跑（挪 0 天，本该毫无影响）红了四条：
+
+    agent/.../tools/dates.py 的 _parse() 把一个真的 date 判成
+    「认不出的值」→ 返回 None → until_text 崩在 `if days > 1`
+
+CPython 的日期运算一律返回基类（`x + timedelta`、`strptime(...).date()`
+都是），所以真 date 不算平移子类的实例。这次的解法是给两个平移类加元类
+重写 `__instancecheck__` / `__subclasscheck__`——**和第二次同一招，
+但这次安全**，因为换的时机在导入之后，没有库会拿它当基类。
+
+**这一条又是对照跑抓到的。** 第四次也是它抓的：一个「挪 0 天」的空操作
+居然让测试变红，这种事只能靠专门跑一次空操作才看得见。
 
 ## 为什么只扫 agent，不扫 server
 
@@ -139,23 +155,56 @@ DATES = [
 SUITE_DIR = "agent"      # 只扫智能体，理由见模块开头
 
 
+class _AnyDate(type):
+    """让「真的 date」也算平移 date 的实例。
+
+    **第五次踩坑，2026-09-28。** 平移之后，项目代码里的
+    `isinstance(x, datetime.date)` 拿到的是平移子类，而真 date 不算它的实例
+    （CPython 的日期运算一律返回基类，`strptime(...).date()` 也是）。
+    后果：
+
+        agent/app/agents/support/tools/dates.py 的 _parse() 把一个
+        真的 date 判成「认不出的值」→ 返回 None → until_text 崩在
+        `if days > 1`，四条本来全绿的用例变红。
+
+    对照跑（平移 0 天，本该毫无影响）就红了，**这一条正是对照跑存在的理由**。
+
+    元类只在 discover 之后、只加在项目模块上，所以不会重演当初
+    pydantic 拿 `date` 当基类建校验器时的 metaclass conflict——
+    那次是**导入之前**就全局换掉，库自己会去继承它。
+    """
+
+    def __instancecheck__(cls, obj):
+        return isinstance(obj, _REAL_DATE)
+
+    def __subclasscheck__(cls, other):
+        return issubclass(other, _REAL_DATE)
+
+
+class _AnyDateTime(type):
+
+    def __instancecheck__(cls, obj):
+        return isinstance(obj, _REAL_DATETIME)
+
+    def __subclasscheck__(cls, other):
+        return issubclass(other, _REAL_DATETIME)
+
+
 def _shifted_types(day):
     """造出「今天是 day」的 date / datetime，以及一份对应的 datetime 模块。
 
     **平移，不是冻结**：整条时间轴往后（或往前）挪一个固定的天数，
     时刻照常在走。冻死会让「发令牌 → 吊销令牌」这类前后关系塌掉。
-
-    只是子类，**不动元类**——元类会和 pydantic 打架，见模块开头。
     """
     offset = _datetime.timedelta(days=(day - _REAL_DATE.today()).days)
 
-    class ShiftedDate(_REAL_DATE):
+    class ShiftedDate(_REAL_DATE, metaclass=_AnyDate):
         @classmethod
         def today(cls):
             moved = _REAL_DATE.today() + offset
             return cls(moved.year, moved.month, moved.day)
 
-    class ShiftedDateTime(_REAL_DATETIME):
+    class ShiftedDateTime(_REAL_DATETIME, metaclass=_AnyDateTime):
         @classmethod
         def now(cls, tz=None):
             moved = _REAL_DATETIME.now(tz) + offset
@@ -212,6 +261,19 @@ def _move_project_modules(day):
             else:
                 continue
             swapped.append((module.__name__, name))
+
+    # `sys.modules` 里的那一份也换掉。
+    #
+    # **否则在函数体里 `import datetime` 的代码拿到的还是真的。**
+    # 这一条是 2026-09-28 实测撞出来的：`test_contracts_expiring_soon`
+    # 在函数里 import，算出的 `today + 20 天` 是真实的今天往后 20 天，
+    # 而被测代码看到的「今天」已经挪到五个月后——于是那份合同成了
+    # 132 天前到期，用例红了，而它本身写得没有任何问题。
+    #
+    # 换 `sys.modules` 之后，运行期才 import 的三方库也会拿到平移版。
+    # 上面那两个元类正是为此要放宽 `isinstance`：
+    # 库拿到平移类去判断真日期时，不能判成「不是日期」。
+    sys.modules["datetime"] = shifted_module
     return swapped
 
 
@@ -221,6 +283,11 @@ def _verify_clock(day, swapped):
     两头都查：换进去的东西问它「今天几号」要答得上那一天；
     并且项目模块里**再也找不到**真的 date / datetime / datetime 模块。
     """
+    # 先查 `sys.modules` 里那一份——函数体里 `import datetime` 拿的就是它
+    if sys.modules["datetime"].date.today() != day:
+        return "sys.modules 里的 datetime 还没挪：今天是 %s" % (
+            sys.modules["datetime"].date.today())
+
     checked = 0
     for module_name, name in swapped:
         obj = getattr(sys.modules[module_name], name)
