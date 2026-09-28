@@ -438,6 +438,8 @@ def list_houses(
     # 首页分栏：最近 N 天上架 / 均分不低于 N。都是筛选，不是排序。
     published_days: int | None = None,
     min_rating: float | None = None,
+    deposit_months: int | None = Query(None, ge=0, le=12),
+    pay_months: int | None = Query(None, ge=1, le=12),
     sort: str = "published_at",
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
@@ -476,6 +478,7 @@ def list_houses(
         "lease_term": lease_term, "available_days": available_days,
         "features": features,
         "published_days": published_days, "min_rating": min_rating,
+        "deposit_months": deposit_months, "pay_months": pay_months,
     })
 
     # 用 count(*) 而不是把匹配的行全捞出来再 len()。
@@ -852,6 +855,8 @@ def create_house(payload: HouseCreate, user: User = Depends(require_staff),
             or config_store.get_bool(session, "house_auto_approve")
         ) else "pending",
     )
+    if house.status == "available":
+        house.approved_at = datetime.now()
     # 放在 _facet_fields 之后：那一摊会把 payload 里的 deposit_months
     # 原样塞进来，而这里要的是校对过的那个值
     house.deposit_months = listing_months
@@ -883,9 +888,33 @@ def update_house_status(house_no: str, status: str,
     # 散着写就是这次改造要收拾的那种局面
     require_can_manage_house(session, user, house)
 
+    # **房东和中介只能上架、下架；其余状态由流程推进，不能手动改。**
+    #
+    # 原先四个状态随便设：待审核的直接改 available、被驳回的点一下上架，
+    # 审核形同虚设；「已出租」也能手动标，和合同对不上。
+    # 出租由签约生效推进，待审核由发布和编辑推进，只有管理员可以直接改。
+    message = ""
+    if user.role != "admin":
+        if status not in ("available", "offline"):
+            raise HTTPException(
+                status_code=403,
+                detail="房源只能上架或下架；出租状态随合同变化，待审核由编辑后自动进入")
+        if house.status == "rented":
+            raise HTTPException(status_code=409,
+                                detail="这套房源正在出租中，租约结束后才能上下架")
+        if status == "available" and house.status == "pending":
+            raise HTTPException(status_code=409, detail="这套房源还在审核中，通过后会自动上架")
+        if status == "available" and not house.approved_at:
+            # 被驳回的、或改过内容待重审的：上架等于提交审核
+            status = "pending"
+            message = "这套房源的当前内容还没通过审核，已提交审核，通过后会自动上架。"
+
     house.status = status
     session.commit()
-    return {"ok": True, "house": house.to_dict()}
+    out = {"ok": True, "house": house.to_dict()}
+    if message:
+        out["message"] = message
+    return out
 
 
 @app.get("/api/landlord/houses/{house_no}/candidates")
@@ -1040,8 +1069,12 @@ def update_house(house_no: str, payload: HouseUpdate,
         # 房源信息动过就刷新维护时间。列表卡片上那句「3天前维护」
         # 靠它，不刷新的话一套天天在改的房源看起来像是半年没人管（K-04）
         house.maintained_at = datetime.now()
-        if user.role != "admin" and house.status == "available":
-            house.status = "pending"
+        if user.role != "admin":
+            # 内容变了，之前那次审核就不再作数——哪怕现在是下架或出租中，
+            # 否则「下架、改成违规内容、再点上架」就绕开了这条规矩
+            house.approved_at = None
+            if house.status == "available":
+                house.status = "pending"
 
     session.commit()
     session.refresh(house)
@@ -1178,12 +1211,14 @@ def review_house(house_no: str, payload: HouseReview,
 
     if payload.approved:
         house.status = "available"
+        house.approved_at = datetime.now()
         title, content = "房源审核通过", "房源 %s 已通过审核并上架。" % house.house_no
         # 上架这一刻才是「上新」。发布时房源还是 pending，对外不可见，
         # 那时通知等于让用户去看一套他点不开的房（K-09）
         saved_search.notify_new_house(session, house)
     else:
         house.status = "offline"
+        house.approved_at = None
         title = "房源审核未通过"
         content = "房源 %s 未通过审核。%s" % (house.house_no, payload.reason or "")
 
@@ -2113,6 +2148,51 @@ def landlord_tenants(user: User = Depends(require_staff),
     return {"total": len(rows), "list": rows}
 
 
+# 同一位租客一天只催一次。房东在对话框里连说几遍「提醒一下」，
+# 租客收到的不该是一串一模一样的消息。
+REMIND_TITLE = "房东提醒你缴纳逾期账单"
+
+
+@app.post("/api/landlord/tenants/{tenant_id}/remind")
+def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
+                  session: Session = Depends(get_session)):
+    """给欠租的租客发一条站内催缴提醒。
+
+    原先平台没有这件事：房东问助手「帮我提醒一下欠租的那个人」，
+    助手只能背一句「账单会标记为逾期并持续提醒」——可逾期状态只是
+    一个标记，租客那边什么也收不到。
+
+    **只催名下合同里真正逾期的账单**：没有逾期的不发（那是骚扰），
+    别人合同上的不发（那是冒名）。消息走 `leasing.notify`，
+    账单类会同步推外部通道，与到期提醒同一条路。
+    """
+    stmt = select(Bill).join(Contract, Bill.contract_id == Contract.id).where(
+        Contract.tenant_id == tenant_id, Bill.status == "unpaid")
+    if user.role != "admin":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    late = sorted((b for b in session.scalars(stmt).all() if b.overdue),
+                  key=lambda b: b.due_date)
+    if not late:
+        raise HTTPException(status_code=400, detail="这位租客在你名下没有逾期账单")
+
+    since = datetime.now() - timedelta(hours=24)
+    already = session.scalar(select(Message).where(
+        Message.user_id == tenant_id, Message.title == REMIND_TITLE,
+        Message.created_at >= since))
+    if already:
+        raise HTTPException(status_code=429, detail="今天已经提醒过这位租客了，明天再催吧")
+
+    total = round(sum(float(b.amount) for b in late), 2)
+    first = late[0]
+    content = ("你有 %d 笔逾期账单，共 %s 元，最早一笔 %s 到期。请尽快在「我的租约 → 账单」里缴纳，"
+               "有困难可以先和房东沟通。" % (len(late), ("%g" % total),
+                                            first.due_date.strftime("%Y-%m-%d")))
+    leasing.notify(session, tenant_id, "bill", REMIND_TITLE, content,
+                   link_no=first.bill_no)
+    session.commit()
+    return {"ok": True, "count": len(late), "amount": total}
+
+
 @app.get("/api/admin/contracts")
 def admin_contracts(status: str = "", user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
@@ -2651,6 +2731,7 @@ def contract_detail(contract_no: str, user: User = Depends(require_login),
 
 @app.get("/api/bills/mine")
 def my_bills(status: str = "", contract_no: str = "",
+             side: Literal["", "tenant", "landlord"] = "",
              user: User = Depends(require_login),
              session: Session = Depends(get_session)):
     """我的账单。租客看自己要交的，房东看自己该收的。
@@ -2668,6 +2749,15 @@ def my_bills(status: str = "", contract_no: str = "",
                 or_(Contract.tenant_id == user.id,
                     Contract.landlord_id == user.id))).all()]
         stmt = select(Bill).where(Bill.contract_id.in_(contract_ids or [-1]))
+    # D3：同 contracts/mine。**我要交的和我该收的是两份清单。**
+    # 不分开的后果实测过：房东问「我现在该处理哪些事」，助手说
+    # 「你还有 13 笔待缴账单共 39650 元」——那是租客欠他的钱；
+    # 他要是接着说「帮我交房租」，确认卡片上就是替租客付那一笔。
+    if side:
+        column = Contract.tenant_id if side == "tenant" else Contract.landlord_id
+        mine = [row[0] for row in session.execute(
+            select(Contract.id).where(column == user.id)).all()]
+        stmt = stmt.where(Bill.contract_id.in_(mine or [-1]))
     if status:
         stmt = stmt.where(Bill.status == status)
     if contract_no:
@@ -3275,6 +3365,44 @@ def set_cover(house_no: str, image_id: int,
         other.is_cover = other.id == image.id
     session.commit()
     return {"ok": True}
+
+
+@app.post("/api/houses/{house_no}/images/{image_id}/caption")
+def set_image_caption(house_no: str, image_id: int,
+                      caption: str = Body(default="", embed=True),
+                      user: User = Depends(require_house_manager),
+                      session: Session = Depends(get_session)):
+    """改一张房源图片的说明文字。
+
+    这一列原先**324 条全是空的**：上传接口一直收 `caption`，
+    前端却永远传空串，没有任何入口能填它。少了它，相册的
+    `<img alt>` 也一直是空的——读屏软件念到那一段只有一串「图片」。
+
+    智能体那边可以看图写一句草稿（`POST /agent/image-caption`），
+    但**草稿必须由房东看过再落到这里**。图片说明是挂在房源上给
+    租客看的公开文案，和标题、描述一个性质。
+
+    所以这条接口和标题、描述走**同一道内容审核**——
+    不能因为它是「一句小字」就绕过去：私下联系方式塞在图片说明里，
+    和塞在描述里是一模一样的事。
+    """
+    house = _house_or_404(session, house_no)
+    _require_house_owner(session, user, house)
+    image = session.get(HouseImage, image_id)
+    if not image or image.house_id != house.id:
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    text = (caption or "").strip()[:100]
+    fields = {"图片说明": text}
+    # 先审再落库。命中拦截规则时 `moderate` 直接抛 400，
+    # 下面这两行根本不会执行——顺序不能反
+    verdict = moderate(fields, scene="house") if text else None
+    image.caption = text
+    if verdict is not None:
+        record_flag(session, verdict, fields, "house", user,
+                    house.id, house.house_no)
+    session.commit()
+    return {"ok": True, "caption": image.caption}
 
 
 @app.post("/api/repairs/{repair_id}/images")

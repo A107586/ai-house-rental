@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, getToken } from '../api'
+import {
+  readJSON, readText, remove, scopedKey, writeJSON, writeText,
+} from '../storage'
 import ChatAvatar from './ChatAvatar'
 import Thinking, { guessIntent } from './Thinking'
 
@@ -10,6 +13,8 @@ import Thinking, { guessIntent } from './Thinking'
  * 登录用户的对话存在后端，换设备也能续上；未登录用户由前端把自己
  * 说过的话带给智能体——换设备记不住，但当前这轮对话照样是多轮的。
  */
+// 这两个键都要按账号分开存，理由见 storage.js。
+// 同一台电脑换个人登录，恢复出来的不能是上一个人的对话。
 const SESSION_KEY = 'rental_chat_session'
 // 整段对话与未完成的代办也要存下来。
 //
@@ -23,41 +28,35 @@ const DRAFT_KEY = 'rental_chat_draft'
 // 只留最近这些轮。存太多既没意义，也可能撑爆 localStorage 的配额
 const DRAFT_LIMIT = 40
 
-function loadDraft() {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    if (!raw) return null
-    const draft = JSON.parse(raw)
-    if (!Array.isArray(draft.messages) || !draft.messages.length) return null
-    return draft
-  } catch {
-    // 存的内容坏了就当没有，重新开始，别让一段坏 JSON 把面板打不开
+function newSessionId() {
+  return 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+}
+
+function loadDraft(user) {
+  // 存的内容坏了就当没有，重新开始，别让一段坏 JSON 把面板打不开
+  const draft = readJSON(scopedKey(DRAFT_KEY, user))
+  if (!draft || !Array.isArray(draft.messages) || !draft.messages.length) {
     return null
   }
+  return draft
 }
 
-function saveDraft(messages, pending) {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({
-      messages: messages.slice(-DRAFT_LIMIT), pending,
-    }))
-  } catch {
-    // 隐私模式或配额满了都会抛。存不下不影响这一轮对话，忽略即可
-  }
+function saveDraft(user, messages, pending) {
+  // 存不下（隐私模式、配额满）不影响这一轮对话，writeJSON 里已经吞掉了
+  writeJSON(scopedKey(DRAFT_KEY, user), {
+    messages: messages.slice(-DRAFT_LIMIT), pending,
+  })
 }
 
-function loadSessionId() {
-  try {
-    let id = localStorage.getItem(SESSION_KEY)
-    if (!id) {
-      id = 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
-      localStorage.setItem(SESSION_KEY, id)
-    }
-    return id
-  } catch {
-    // 隐私模式下 localStorage 会直接抛异常，退回一次性会话
-    return 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
-  }
+function loadSessionId(user) {
+  const key = scopedKey(SESSION_KEY, user)
+  const saved = readText(key)
+  if (saved) return saved
+  const id = newSessionId()
+  // 隐私模式下写不进去，那就退化成一次性会话：这一轮照样是多轮的，
+  // 只是刷新之后接不上。比整个面板打不开好。
+  writeText(key, id)
+  return id
 }
 
 const OPENING = {
@@ -109,6 +108,10 @@ const houseRow = (item) => ({
 // 每一类查询结果怎么摆成几行。**这张表和智能体那边的工具清单是一一对应的**——
 // 后端 `tools/account.py` 里 HANDLERS 有几项，这里就该有几项，
 // 少一项就意味着那个工具查到了数据却只回一句话、什么都看不见。
+// 查库卡片里哪几类是「一列房源」。用户对着它们说「第一套」时，
+// 指的就是卡片上第一行——见 lastHouseNos()。
+const HOUSE_LIST_TOPICS = new Set(['favorite', 'history', 'house'])
+
 const ACCOUNT_ROWS = {
   bill: (data) => (data.unpaid || []).map((bill) => ({
     key: bill.bill_no,
@@ -445,17 +448,23 @@ function AccountCard({ topic, data, onOpenHouse }) {
   )
 }
 
+/**
+ * 注意：调用方给这个组件挂了 `key={identity}`（见 App.jsx）。
+ * 换账号时它**整个重挂**，下面这几个 `useState` 初始化函数会带着
+ * 新身份重新跑一遍——否则 React 会保留旧 state，
+ * 上一个人的对话就留在屏幕上了。
+ */
 export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) {
-  const [sessionId] = useState(loadSessionId)
+  const [sessionId] = useState(() => loadSessionId(user))
   // 优先恢复上次没聊完的，没有才从开场白开始
-  const [messages, setMessages] = useState(() => loadDraft()?.messages || [OPENING])
+  const [messages, setMessages] = useState(() => loadDraft(user)?.messages || [OPENING])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [thinkIntent, setThinkIntent] = useState('default')
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
-  const [pending, setPending] = useState(() => loadDraft()?.pending || null)
+  const [pending, setPending] = useState(() => loadDraft(user)?.pending || null)
   const [error, setError] = useState('')
   // 开场白给的快捷入口。它是「这个人现在有什么没办完」算出来的，
   // 跟固定的 QUICK 不是一回事，所以单独存一份。
@@ -475,7 +484,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     // 点了「问助手」，面板打开还是上一场对话，一个字都没提这套房，
     // 他自然会觉得「房源根本没发过去」。
     // 这种时候不是恢复现场，是**开一段关于这套房的新对话**。
-    const draft = loadDraft()
+    const draft = loadDraft(user)
     if (draft && !houseNo) return undefined
     let alive = true
     api
@@ -507,7 +516,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     let alive = true
     // 本地草稿比后端历史更完整——后端只存文字，没有确认卡片与待办状态。
     // 已经从草稿恢复过就别再覆盖，否则聊到一半的卡片会被纯文本冲掉。
-    if (loadDraft()) return undefined
+    if (loadDraft(user)) return undefined
     api
       .chatHistory(sessionId)
       .then((data) => {
@@ -540,12 +549,19 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 消息或待办一变就落盘。抽屉关掉、页面刷新、甚至换个标签页回来，
   // 都还在上次那个位置。
   useEffect(() => {
-    saveDraft(messages, pending)
-  }, [messages, pending])
+    saveDraft(user, messages, pending)
+  }, [user, messages, pending])
 
-  // 未登录时的上下文兜底：把用户自己说过的话再带回去
+  // 未登录时的上下文兜底：把对话再带回去。
+  //
+  // **带署名，双方的话都带。** 服务端 user_turns() 只挑 role=user 的去重放
+  // 找房条件，助手的话不会被当成条件解析；而「我上一条问了什么」「总结一下」
+  // 这类追问，答案在助手说过的话里——原来只传用户的话，它们无从回答。
   function localHistory() {
-    return messages.filter((m) => m.role === 'user').map((m) => m.content)
+    return messages
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+      .slice(-16)
+      .map((m) => ({ role: m.role, content: String(m.content).slice(0, 600) }))
   }
 
   // 上一轮结果的房源编号，用于消解「第二套」「那套」。
@@ -554,6 +570,19 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 指的显然是他正在看的那套，而不是上一轮搜索结果里的第一条。
   function lastHouseNos() {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
+      // **屏幕上最近一份房源列表，不管它是用哪种卡片摆出来的。**
+      //
+      // 原来只认 `items`（找房结果的样式）。可「我的浏览记录」「我的收藏」
+      // 是查库卡片，房源放在 account.data.list 里——于是用户刚看完浏览记录
+      // 问「第一套评价怎么样」，助手数的是**更早那一份**列表的第一套，
+      // 答了一套他根本没在屏幕上看见的房。
+      const acc = messages[i].account
+      const accNos = acc && HOUSE_LIST_TOPICS.has(acc.tool || acc.topic)
+        ? (acc.data?.list || []).map((h) => h.house_no).filter(Boolean)
+        : []
+      if (accNos.length && !messages[i].items?.length) {
+        return houseNo && !accNos.includes(houseNo) ? [...accNos, houseNo] : accNos
+      }
       if (messages[i].items?.length) {
         const nos = messages[i].items.map((h) => h.house_no)
         // **不能把当前房源插到队首。**
@@ -572,6 +601,23 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     return houseNo ? [houseNo] : []
   }
 
+  // 最近一轮**单讲一套房**的回答讲的是哪套。
+  //
+  // 实测：列出 10 套之后问「DL0103 怎么样」，助手介绍完 DL0103，
+  // 用户接着说「这套能约周六吗」——约成了列表第一套 DL0074。
+  // 「这套」原来只认页面上打开的房源，其次就是列表第一条，
+  // 刚刚才聊过的那一套反而不在候选里。往回找，碰到更晚的列表就停：
+  // 那之后屏幕上是一整列房，「这套」指哪条又回到了序号的问题。
+  function focusHouse() {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i]
+      if (m.items?.length) return ''
+      if (m.account && HOUSE_LIST_TOPICS.has(m.account.tool || m.account.topic)) return ''
+      if (m.focus) return m.focus
+    }
+    return ''
+  }
+
   async function send(e, override) {
     if (e) e.preventDefault()
     const content = (override ?? text).trim()
@@ -579,6 +625,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
     const history = localHistory()
     const houseNos = lastHouseNos()
+    const focus = focusHouse()
     setMessages((prev) => [...prev, { role: 'user', content }])
     setText('')
     setBusy(true)
@@ -589,7 +636,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
 
     try {
       const res = await api.agentChat(content, sessionId, history, houseNos,
-                                     pending, { seen: houseNos.length, houseNo })
+                                     pending,
+                                     { seen: houseNos.length, houseNo: focus || houseNo })
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -648,6 +696,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 助手挑出来的那一套，列表里给它一个标记——
         // 光在文字里说「我推荐第 6 套」，用户还得自己往下数
         recommended: res.recommended || null,
+        // 这一轮单讲的是哪套房，下一句「这套」先指它，见 focusHouse()
+        focus: (res.items || []).length ? '' : (res.house_no || ''),
         notes: res.notes || [],
         intent: res.intent,
         ok: res.ok,
@@ -717,7 +767,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     try {
       const res = await api.supportHandoff(
         message.handoff.question, message.handoff.reason,
-        localHistory().slice(-5).join('\n'))
+        localHistory().slice(-6)
+          .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content}`)
+          .join('\n'))
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: `已转给管理员，工单号 ${res.handoff.handoff_no}。`
@@ -772,11 +824,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setContext('')
     setError('')
     setPending(null)
-    try {
-      localStorage.removeItem(DRAFT_KEY)
-    } catch {
-      // 清不掉也不拦着用户重新开始
-    }
+    // 只清这个账号自己那份。`remove` 里已经吞掉了隐私模式下的异常，
+    // 清不掉也不拦着用户重新开始。
+    remove(scopedKey(DRAFT_KEY, user))
     if (getToken()) {
       try {
         await api.clearChat(sessionId)

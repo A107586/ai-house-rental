@@ -20,9 +20,31 @@
 """
 
 import json
+import os
 
 from app.agents.toolbox import catalog
 from app.llm.base import LLMUnavailable
+
+
+def _max_tokens():
+    """选择器这一次调用的输出额度。
+
+    **它是总额度，思考也算在里面。** 150 是给不思考的模型定的：
+    输出只有一小段 JSON，够用且省时（实测 400 压到 60，同一句话
+    从 4.6 秒降到 3.7 秒，答案一字没变）。
+
+    但接**会思考的模型**时 150 是致命的：思考先把额度吃光，
+    `content` 返回空串，`extract_json` 解析失败，于是每一次都走
+    `tool="none"` 退回规则——而 `/health` 仍然显示 healthy=true、
+    failures=0，从监控上完全看不出大模型没在工作。
+
+    所以做成可配：不思考的模型保持 150，开思考时要给到
+    「思考预算 + JSON」以上，否则等于没接。
+    """
+    try:
+        return max(32, int(os.environ.get("LLM_PLANNER_MAX_TOKENS", "150")))
+    except (TypeError, ValueError):
+        return 150
 
 _SYSTEM = "你是租房平台助手的工具选择器。只输出一个 JSON 对象，不要任何解释。"
 
@@ -52,14 +74,22 @@ _PROMPT = """用户对助手说了一句话。从下面的工具里挑**一个**
 """
 
 
-def _context_block(house_no, last_house_nos, context_text):
+def _context_block(house_no, last_house_nos, context_text, dialogue=None):
     """告诉模型「现在屏幕上有什么」。
 
     **只给编号和条数，不给整份房源明细。** 给明细的话模型会忍不住
     直接从里面编答案，而房源字段必须由代码从库里取——
     金额、评分错一个，整段话就从「懂行」变成「不可信」。
+
+    最近几句对话只给开头一截：够它判断「总结下呗」「那第二个呢」
+    是在接哪句话，不够它照抄数字。
     """
     lines = []
+    if dialogue:
+        said = ["%s：%s" % ("用户" if m.get("role") == "user" else "助手",
+                           (m.get("content") or "").replace("\n", " ")[:60])
+                for m in dialogue]
+        lines.append("最近的对话：" + " / ".join(said))
     if context_text:
         lines.append("已记住的检索条件：%s" % context_text)
     if last_house_nos:
@@ -85,6 +115,15 @@ def _coerce(value, kind):
         return None
     if kind == "string":
         return str(value).strip() or None
+    if kind == "boolean":
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("true", "1", "yes", "是"):
+            return True
+        if text in ("false", "0", "no", "否"):
+            return False
+        return None
     if kind == "number":
         try:
             num = float(value)
@@ -119,7 +158,7 @@ def _clean(tool, params):
 
 
 def plan(text, provider, logged_in=False, role="", house_no="",
-         last_house_nos=None, context_text=""):
+         last_house_nos=None, context_text="", dialogue=None):
     """挑一个工具。返回 ``{"tool", "params", "confidence", "why"}``。
 
     模型不可用、超时、输出不是 JSON、挑了一个不存在的工具——
@@ -133,14 +172,16 @@ def plan(text, provider, logged_in=False, role="", house_no="",
     tools = catalog.visible_tools(logged_in, role)
     prompt = _PROMPT.format(
         catalog=catalog.render_catalog(tools),
-        context=_context_block(house_no, last_house_nos or [], context_text),
+        context=_context_block(house_no, last_house_nos or [], context_text,
+                               dialogue),
         text=(text or "").strip()[:300])
 
     try:
         # 输出只有一小段 JSON，150 足够。给 400 的话，**推理型模型会
         # 拿这个额度去想**——实测 max_tokens 从 400 压到 60，
         # 同一句话从 4.6 秒降到 3.7 秒，答案一字没变
-        data = provider.complete_json(_SYSTEM, prompt, max_tokens=150)
+        data = provider.complete_json(_SYSTEM, prompt,
+                                      max_tokens=_max_tokens())
     except LLMUnavailable as exc:
         return dict(empty, why="大模型不可用：%s" % exc)
     except Exception as exc:                                 # noqa: BLE001

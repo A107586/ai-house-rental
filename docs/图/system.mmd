@@ -1,0 +1,22 @@
+flowchart TB
+    browser(["浏览器"])
+    subgraph web["前端站点 :5173（开发）"]
+        spa["React 18 + Vite 4<br/>原生 History API 路由<br/>构建产物由业务后端托管"]
+    end
+    subgraph server["业务后端 :8080 · FastAPI + SQLAlchemy 2.0"]
+        api["152 个接口 · 36 张表 · 9 个功能模块<br/>鉴权、权限、状态机、金额规则的唯一出口"]
+        mods["账号与权限、房源、看房预约、合同与账单、报修与维修、互动与消息、中介、平台治理、智能客服与知识"]
+        api --- mods
+    end
+    db[("SQLite（开发）/ MySQL 8（部署）<br/>36 张表 · 60 个外键")]
+    subgraph agent["智能体服务 :8000 · FastAPI"]
+        sup["Supervisor 总调度 · 19 个接口"]
+        subs["10 个子智能体<br/>客服 14 个工具模块 · 工具目录 40 个工具（写操作 13 个）"]
+        sup --> subs
+    end
+    llm[/"大模型服务（OpenAI 兼容协议）<br/>允许缺席：不可用时退回规则结论"/]
+    browser --> spa
+    spa -- "REST / JSON" --> api
+    api --> db
+    subs -- "HTTP（智能体没有数据库连接）" --> api
+    subs -. "HTTP，可缺席" .-> llm

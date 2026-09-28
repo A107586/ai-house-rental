@@ -153,6 +153,57 @@ class TestLandlordTenants(ManageCase):
         self.assertEqual(response.status_code, 403)
 
 
+class TestRemindTenant(ManageCase):
+    """催缴提醒：只催名下真正逾期的，一天一次。"""
+
+    def overdue_contract(self):
+        self.make_contract()
+        import app.db as db
+        from app.models import Bill
+        session = db.SessionLocal()
+        try:
+            bill = session.query(Bill).order_by(Bill.due_date).first()
+            bill.due_date = (datetime.now() - timedelta(days=5)).date()
+            session.commit()
+        finally:
+            session.close()
+
+    def tenant_id(self):
+        rows = self.client.get("/api/landlord/tenants",
+                               headers=self.landlord).json()["list"]
+        return rows[0]["id"]
+
+    def remind(self, headers, tenant_id=None):
+        return self.client.post("/api/landlord/tenants/%s/remind"
+                                % (tenant_id or self.tenant_id()), headers=headers)
+
+    def test_tenant_receives_the_reminder_once_a_day(self):
+        self.overdue_contract()
+        first = self.remind(self.landlord)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["count"], 1)
+        titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.tenant).json()["list"]]
+        self.assertIn("房东提醒你缴纳逾期账单", titles)
+        self.assertEqual(self.remind(self.landlord).status_code, 429,
+                         "同一天再催一次不该再发")
+
+    def test_nothing_overdue_is_not_sent(self):
+        self.make_contract()
+        self.assertEqual(self.remind(self.landlord).status_code, 400)
+
+    def test_other_landlord_cannot_remind(self):
+        self.overdue_contract()
+        tenant_id = self.tenant_id()
+        self.assertEqual(self.remind(self.other, tenant_id).status_code, 400,
+                         "别人合同上的账单不能拿来催")
+
+    def test_tenant_cannot_call_it(self):
+        self.overdue_contract()
+        tenant_id = self.tenant_id()
+        self.assertEqual(self.remind(self.tenant, tenant_id).status_code, 403)
+
+
 class TestAdminOverview(ManageCase):
 
     def test_contracts(self):

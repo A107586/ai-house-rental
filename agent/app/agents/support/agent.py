@@ -19,6 +19,7 @@
 的思考态，答辩时也要用它当场说清楚「为什么是这条、为什么拒答」。
 """
 
+import re
 import time
 
 from app.agents.booking.tools.parse_datetime import parse_datetime
@@ -275,8 +276,21 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     # ---- 用户在回应确认卡片 ----
     card = pending.get("card")
     if card:
-        if actions.is_deny(raw):
+        if _drops_this_card(name, raw):
+            return shaped("cancelled", "好，这条预约还没提交，那就不约了。")
+        if actions.is_deny(raw) or _soft_deny(raw):
             return shaped("cancelled", "好，那就不做了。")
+        # 「等等，改成周日上午吧」——对着预约卡改时间。原先这句既不肯定
+        # 也不否定，卡片被丢掉，用户拿到一句「你直接说改到周日上午就行」：
+        # 他刚刚就是这么说的。
+        if _retimes(name, raw):
+            context = {k: v for k, v in (card.get("params") or {}).items()
+                       if k not in ("viewing_time", "new_time")}
+            context.setdefault("house_no", house_no)
+            status, message, new_card, new_ask = actions.propose(
+                name, raw, token, backend, context=context)
+            return _action_result(name, status, message, new_card, new_ask,
+                                  context, shaped)
         if actions.is_affirm(raw):
             # 高风险操作不接受口头确认。「好的」两个字太容易脱口而出，
             # 而这一类是花钱或不可逆的——多点一下按钮不算麻烦。
@@ -303,7 +317,7 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     # 「取消预约」→「要取消哪一条？」→ 用户说「算了」，
     # 「算了」被当成了槽位值填进去，反而生成了一张取消预约的确认卡片——
     # 用户明明在喊停，系统却把事情往前推了一步。
-    if actions.is_deny(raw):
+    if actions.is_deny(raw) or _soft_deny(raw):
         # **填了一半的表单不能说丢就丢。**
         #
         # 否定词表里有「不要」「不用」，而表单答案里完全可能带这两个字
@@ -358,6 +372,23 @@ def _resume(raw, pending, token, backend, house_no, shaped):
     # 中文里带商量语气的回答本来就长得像问句（「周六行吗」「三千二可以吗」），
     # 按问句处理等于惩罚有礼貌的说法。
     if _is_question(raw) and not _answers_slot(name, ask, raw, pending):
+        return INTERRUPTED
+    if _PLEASANTRY.fullmatch(raw.strip("。.!！~ ")):
+        return INTERRUPTED
+
+    # 有选项、一个都没对上、也不像是直接报了个编号——那就不是在回答，
+    # 当成插了一句别的话处理：去答它，待办原样留着。
+    # 「能填进这一格」优先：追问时间时也会给几个时间按钮，用户直接说
+    # 「本周六上午九点」没点按钮，但它解析得出时间，就是在回答。
+    if (ask.get("options") and not actions.pick_option(raw, ask["options"])
+            and not _looks_like_value(raw)
+            and not _answers_slot(name, ask, raw, pending)):
+        return INTERRUPTED
+
+    # 问的是「哪一套」，这句话里却既没编号、也没序号和指代——那就不是答案。
+    # 实测：「要收藏哪一套？」之后说「我的收藏里有啥」，整句被收成房源编号，
+    # 确认卡上写着「把房源 我的收藏里有啥 加入收藏」。
+    if ask.get("slot") == "house_no" and not _names_a_house(raw, ask):
         return INTERRUPTED
 
     value = _fill_slot(ask, raw)
@@ -414,7 +445,9 @@ def _pending_where(pending):
         done, total = forms.progress(name, slots)
         return "已经填了 %d/%d 项" % (done, total)
     ask = (pending or {}).get("ask") or {}
-    question = (ask.get("question") or "").strip()
+    # 追问句自己带着句末标点，拼进「（…，还差一步：X。回一句…）」
+    # 会变成「备好工具。。」「要拍照吗？。」——剥掉再拼
+    question = (ask.get("question") or "").strip().rstrip("。.!！?？ ")
     return "还差一步：%s" % question if question else "还没做完"
 
 
@@ -423,14 +456,129 @@ def _pending_where(pending):
 # 宁可判成回答：判错成提问，用户的答案会被当成问题去检索，回一句
 # 「没查到」然后重问，他再说一遍就是；判错成回答，错值直接进了槽，
 # 而槽里的东西是要落库的。所以这里只认相当明确的疑问句式。
-_QUESTION_MARKS = ("吗", "呢", "?", "？")
+_QUESTION_MARKS = ("吗", "呢", "啥", "?", "？")
 _QUESTION_WORDS = ("怎么", "如何", "为什么", "什么时候", "多少钱一般",
                    "一般填", "一般是", "能不能", "可不可以", "是不是",
-                   "有没有", "什么意思", "哪些", "区别")
+                   "有没有", "什么意思", "哪些", "区别",
+                   # 真实用户测试补的：助手问「要拍张照片吗」，用户问
+                   # 「报修大概多久有人来」——句子里没有上面任何一个词、
+                   # 结尾也不是「吗」，于是被当成了对「拍照」的回答，
+                   # 直接生成了报修确认卡。表单的正经答案里不会出现这几个词。
+                   "多久", "多长时间", "几天", "谁出", "谁负责", "谁承担",
+                   "会怎样", "会怎么样", "啥时候", "咋")
+
+# 带选项的追问（「要处理哪一条？」后面跟着几个按钮），用户说的话一个选项都没对上时，
+# 只有长得像「一个值」的才收下——编号、数字、短词。原先是照单全收：
+# 房东被问「要处理哪条预约」之后说「这个月我收了多少租金」，
+# 这整句话被当成了预约编号，接下来两轮说什么都被塞进同一个空里。
+_VALUE_LIKE = re.compile(r"^\s*(?:DL|HT|ZD)?[A-Za-z0-9\-]{1,24}\s*$", re.I)
+
+
+def _looks_like_value(text):
+    raw = (text or "").strip()
+    return bool(raw) and (bool(_VALUE_LIKE.match(raw)) or len(raw) <= 4)
+
+
+# 确认卡片还挂着时，用户说「算了先不约了」——比 is_deny 要求的 8 个字长，
+# 于是卡片被丢掉、这句话被当成新请求：模型挑了 cancel_viewing，
+# 列出用户**已有的** 5 条预约问要取消哪一条。用户只是不想提交这张卡。
+_SOFT_DENY = ("算了", "先不", "不约了", "不交了", "不办了", "不弄了", "不用了",
+              "再想想", "考虑一下", "先别", "不去了")
+
+
+# 「不签了」「先不发了」「那就不改了」——不 + 这些动作动词，就是在喊停。
+# 原先只认列出来的几个（不约了、不交了……），发起签约问到一半说「不签了」，
+# 表单纹丝不动，还提醒他「说继续就接着来」。
+_STOP_DOING = re.compile(
+    r"^(先|还是|那就|那|就)?不(签|发|交|约|办|弄|租|修|改|要|用|去|看|退|续|报|催|评|收藏|下架|上架)了?"
+    r"(吧|啊|呢|哈)?[。.!！~ ]*$")
+
+
+def _soft_deny(text):
+    raw = (text or "").strip()
+    return (raw.startswith(_SOFT_DENY[:2]) or any(w in raw for w in _SOFT_DENY[2:])
+            or bool(_STOP_DOING.match(raw)))
+
+
+# 卡片上的时间可以直接改，不必让用户把整句话重说一遍。
+_RETIMABLE = ("book_viewing", "reschedule_viewing")
+# 带时间的问句里，只有这几种是在商量改时间；「明天天气怎么样」不是
+_RETIME_ASK = re.compile(r"可以吗|行吗|行不行|方便吗|可不可以|改|换|挪")
+
+
+def _drops_this_card(name, raw):
+    """「把刚才约的那个取消掉」——约看房的卡还没提交，他要取消的就是这张卡。
+    原先被当成一次新的「取消预约」，列出他**已有的** 5 条预约问取消哪条。"""
+    return (name in _RETIMABLE and any(w in raw for w in ("取消", "不约", "退掉"))
+            and any(w in raw for w in ("刚才", "刚刚", "这个", "那个", "这次")))
+
+
+def _retimes(name, raw):
+    """对着预约卡说了一个新时间：「等等，改成周日上午吧」「周日上午可以吗」。"""
+    if name not in _RETIMABLE or not (parse_datetime(raw) or {}).get("date"):
+        return False
+    return not _is_question(raw) or bool(_RETIME_ASK.search(raw))
+
+
+def claims_pending(text, pending):
+    """这句话是不是在回应手上这件待办（确认卡片或追问）。
+
+    **是**：交给 `_resume`，照原来的流程接着办。
+    **不是**：这一句是新话题，上层应当像平常一样处理它（包括让模型选工具），
+    而不是只走规则——待办挂着的时候跳过模型，是原先「后面说什么都被
+    塞进那个空里」的另一半原因。
+    """
+    pending = pending or {}
+    raw = (text or "").strip()
+    name = pending.get("action")
+    if not name or not raw:
+        return False
+
+    card = pending.get("card")
+    if card:
+        if (actions.is_affirm(raw) or actions.is_deny(raw) or _soft_deny(raw)
+                or _drops_this_card(name, raw)):
+            return True
+        return _retimes(name, raw)
+
+    ask = pending.get("ask")
+    if not ask:
+        return False
+    if _PLEASANTRY.fullmatch(raw.strip("。.!！~ ")):
+        return False
+    if actions.is_deny(raw) or _soft_deny(raw) or _wants_resume(raw):
+        return True
+    if _answers_slot(name, ask, raw, pending):
+        return True
+    if _is_question(raw):
+        return False
+    other = actions.detect(raw)
+    if other and other != name:
+        return False
+    if ask.get("slot") == "house_no":
+        return _names_a_house(raw, ask)
+    if ask.get("options"):
+        return _looks_like_value(raw)
+    return True
 
 
 _RESUME_WORDS = ("继续", "接着填", "接着办", "回到刚才", "继续填",
                  "刚才那个", "接着来", "往下")
+
+
+# 「谢谢」「你好」不是任何一格的答案。没有选项的槽原先什么都收：
+# 发布房源问到「小区叫什么」时说一句谢谢，小区名就成了「谢谢」。
+_PLEASANTRY = re.compile(r"(谢谢|多谢|感谢|谢了|辛苦了?|你好|您好|在吗|再见|拜拜)(你|您|啦|了|哈|呀)?")
+
+
+def _names_a_house(raw, ask):
+    """这句话是不是在指一套房：编号、第几套、这套那套，或点了给出的选项。"""
+    from app import memory
+    raw = raw or ""
+    if ask.get("options") and actions.pick_option(raw, ask["options"]):
+        return True
+    return bool(memory.house_no_in(raw) or memory.ordinal_indexes(raw)
+                or any(word in raw for word in memory.DEICTIC))
 
 
 def _wants_resume(text):
@@ -664,7 +812,14 @@ def run(text, token="", history=None, provider=None, backend=None,
     # 「讲解第一套的收费」这类问题，答案既不在 FAQ 里（每套房都不一样，
     # 也不该写进平台规则），也不是用户的个人数据。以前一路走到检索、
     # 被闸门拒掉，用户看到「这个我没查到相关规定」——可信息就在房源页上。
-    aspect = house_tool.asks_about_house(raw, house_no)
+    #
+    # 选工具的模型已经判定「这是平台规则问题」时不走这条：它要是觉得问的是
+    # 这套房，会直接挑 house_detail。实测房东刚看完 DL0023 的评价，
+    # 接着问「租客一直不交房租，我能直接换锁吗」——模型判对了（knowledge），
+    # 到这里却因为句子里有「房租」被当成问这套房的月租，答了「月租 2450 元」。
+    planned_rules = bool(routing and routing.get("source") == "toolbox"
+                         and routing.get("kind") == router.KIND_KNOWLEDGE)
+    aspect = "" if planned_rules else house_tool.asks_about_house(raw, house_no)
     if aspect and backend is not None:
         message, house = house_tool.describe(backend, house_no, aspect)
         if message:
@@ -702,6 +857,7 @@ def run(text, token="", history=None, provider=None, backend=None,
 
     # ④ 多轮指代消解
     query, carried = rewrite(raw, history or [])
+    query = corpus.add_topic_hints(query)
 
     # ⑤⑥ 检索 + 精排
     expanded = corpus.expand_query(query)

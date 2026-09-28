@@ -1,0 +1,153 @@
+classDiagram
+    direction LR
+    class Api["账号与权限 · HTTP 接口（13 个）"] {
+        <<router>>
+        +list_role_requests() GET /api/admin/role-requests
+        +review_role_request() POST /api/admin/role-requests/:request_id
+        +become_landlord() POST /api/auth/become-landlord
+        +forgot_password(ForgotRequest) POST /api/auth/forgot
+        +landlord_eligibility() GET /api/auth/landlord-eligibility
+        +login(LoginRequest) POST /api/auth/login
+        +logout_all() POST /api/auth/logout-all
+        +me() GET /api/auth/me
+        +change_password(PasswordChange) POST /api/auth/password
+        +update_profile(ProfileUpdate) PUT /api/auth/profile
+        +register(RegisterRequest) POST /api/auth/register
+        +reset_password(ResetRequest) POST /api/auth/reset
+        +revert_to_tenant() POST /api/auth/revert-to-tenant
+    }
+    class m_auth["auth.py"] {
+        <<service>>
+        +using_dev_secret()
+        +create_token(user)
+        +decode_token(token)
+    }
+    Api ..> m_auth
+    class m_deps["deps.py"] {
+        <<service>>
+        +current_user(authorization, session)
+        +require_login(user)
+        +require_staff(user)
+        +require_house_manager(user)
+    }
+    Api ..> m_deps
+    class m_idcard["idcard.py"] {
+        <<service>>
+        +is_valid(number)
+        +mask(number)
+        +fingerprint(number)
+        +prepare(number)
+    }
+    Api ..> m_idcard
+    class m_permissions["permissions.py"] {
+        <<service>>
+        +active_delegation(session, house_id, agent_id)
+        +can_manage_house(session, user, house)
+        +require_can_manage_house(session, user, house)
+        +responsible_user_id(session, house)
+        +contact_window_open(appointment, now)
+        +can_see_tenant_contact(session, user, appointment, house)
+    }
+    Api ..> m_permissions
+    class m_security["security.py"] {
+        <<service>>
+        +hash_password(password)
+        +verify_password(password, stored)
+    }
+    Api ..> m_security
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_netaddr["netaddr.py"] {
+        <<service · 平台治理>>
+        +client_ip(request, hops)
+    }
+    Api ..> m_netaddr
+    class m_notifier["notifier.py"] {
+        <<service · 互动与消息>>
+        +notify_external(user, title, content)
+    }
+    Api ..> m_notifier
+    class m_ratelimit["ratelimit.py"] {
+        <<service · 平台治理>>
+        +check(ip)
+        +record_failure(ip)
+        +record_success(ip)
+        +hit(namespace, ip, limit, window)
+    }
+    Api ..> m_ratelimit
+    class ForgotRequest["ForgotRequest"] {
+        <<DTO>>
+        +str username
+    }
+    Api ..> ForgotRequest
+    class LoginRequest["LoginRequest"] {
+        <<DTO>>
+        +str username
+        +str password
+    }
+    Api ..> LoginRequest
+    class PasswordChange["PasswordChange"] {
+        <<DTO>>
+        +str old_password
+        +str new_password
+    }
+    Api ..> PasswordChange
+    class ProfileUpdate["ProfileUpdate"] {
+        <<DTO>>
+        +str id_card
+        +str real_name
+        +str phone
+        +str email
+        +bool accept_contact
+    }
+    Api ..> ProfileUpdate
+    class RegisterRequest["RegisterRequest"] {
+        <<DTO>>
+        +str username
+        +str password
+        +str real_name
+        +str phone
+        +str role
+    }
+    Api ..> RegisterRequest
+    class ResetRequest["ResetRequest"] {
+        <<DTO>>
+        +str token
+        +str new_password
+    }
+    Api ..> ResetRequest
+    class User["User · 用户"] {
+        <<entity>>
+        +int id «PK»
+        +str username «UK»
+        +str role
+        +str status
+        +… 另 9 列（见数据库设计书）
+        +to_dict()
+    }
+    class RoleRequest["RoleRequest · 角色升级申请"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +str target_role
+        +str status
+        +int reviewer_id «FK»
+        +… 另 4 列（见数据库设计书）
+        +to_dict()
+    }
+    class PasswordReset["PasswordReset · 找回密码令牌"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +str token_hash «UK»
+        +… 另 4 列（见数据库设计书）
+        +is_usable(now)
+    }
+    User "1" -- "0..*" RoleRequest : user_id
+    User "0..1" -- "0..*" RoleRequest : reviewer_id
+    User "1" -- "0..*" PasswordReset : user_id
+    m_deps ..> User
+    m_leasing ..> User

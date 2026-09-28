@@ -87,6 +87,7 @@ ACTION_HINTS = {
     "handle_appointment": "房东要确认或拒绝一条看房预约",
     "update_repair": "房东要把工单标记为已完成",
     "toggle_house": "房东要把房源上架或下架",
+    "remind_tenant": "【房东】要提醒、催欠租的租客交房租",
     "publish_house": "【房东】要发布一套新房源",
     "sign_contract": "【房东】要给某套房源和某个租客发起签约",
     "edit_house": "【房东】要修改已有房源的某一项（租金、标题、地址等）",
@@ -313,6 +314,11 @@ def route(question, provider=None, history=None, pending=None):
             return {"kind": KIND_KNOWLEDGE, "name": "none", "source": "llm_guarded",
                     "rule": dict(rule),
                     "note": "大模型判为操作，但句子是疑问句，已改回知识型"}
+        # 「提醒我交房租」要的是欠多少、哪天到期，不是现在就付
+        if name == "pay_bill" and actions.reminds_me(question):
+            return {"kind": KIND_QUERY, "name": "bill", "source": "llm_guarded",
+                    "rule": dict(rule),
+                    "note": "大模型判为缴费，但用户是要提醒，改为查账单"}
         return {"kind": KIND_ACTION, "name": name, "source": "llm",
                 "rule": dict(rule)}
 
@@ -359,7 +365,14 @@ def _looks_like_question(text):
     raw = (text or "").strip()
     if not raw:
         return False
+    # 要一份文书（「帮我写一份退租申请书」）不是要去办这件事，
+    # 对护栏来说和提问是一回事：都不该变成确认卡。
+    if any(word in raw for word in actions._DOCUMENT):
+        return True
     if any(word in raw for word in actions._ASKING):
+        return True
+    if (any(word in raw for word in actions._SOFT_ASKING)
+            and not any(verb in raw for verb in actions._DO_VERBS)):
         return True
     # 疑问语气词结尾，且没有祈使词
     if raw.endswith(("吗", "呢", "吧", "?", "？")):

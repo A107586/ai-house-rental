@@ -1,0 +1,27 @@
+# 生成交付物用的依赖。**跑项目本身不需要装这些。**
+#
+# 这两个包只有 scripts/ 下的两个生成脚本会用到，
+# 它们产出的是答辩要交的文件，不是服务运行时的一部分。
+# 所以单独一份，不塞进 server/agent 的 requirements——
+# 否则每个只想把项目跑起来的人都要多装两个包。
+#
+# 原先这两个依赖**一处都没有声明**。后果是：
+#   * `test_design_artifacts` 里「数据库设计书与模型一致」那条，
+#     在任何一台干净机器上都必然红，而红的原因跟它要测的事无关；
+#   * `gen_outline_docx.py` 干脆跑不起来，且没有任何测试会发现。
+#
+#     pip install -r scripts/requirements.txt
+
+# scripts/gen_db_xlsx.py —— 交付用的《数据库设计说明书》xlsx（每表一页）
+openpyxl>=3.1,<4.0
+
+# scripts/gen_outline_docx.py —— 概要设计说明书的 docx 版
+python-docx>=1.1,<2.0
+
+# 上面两个脚本往 Word / Excel 里贴 docs/图/ 下的 PNG（类图、E-R 图）：
+# openpyxl 插图要它，docx 按图的宽高比选横向还是纵向页也要它
+Pillow>=10.0
+
+# 图本身由 scripts/gen_diagrams.py 用 mermaid-cli 渲染，那是 Node 的包，
+# 见 scripts/package.json。**只有重新出图时才需要**；
+# 只改文字、或只跑测试（--check 不渲染）都用不到。

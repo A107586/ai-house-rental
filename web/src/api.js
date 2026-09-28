@@ -120,6 +120,33 @@ export function setToken(token) {
   }
 }
 
+/**
+ * 本标签页的令牌失效了（401）。
+ *
+ * **只清自己那一份，外加 localStorage 里恰好是同一个令牌的那份。**
+ *
+ * 不能直接 `setToken('')`：那会把「下次开新标签页默认用谁」一并清掉，
+ * 而那一份可能是**另一个账号**的——一台电脑开两个窗口、后一个窗口
+ * 登录了别人，此时前一个窗口的令牌过期，不该把后一个人的登录状态
+ * 也一起抹掉。别的标签页自己的 `sessionStorage` 动不了，
+ * 但新开的标签页会莫名其妙变成未登录。
+ */
+function expireToken(dead) {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // 忽略
+  }
+  try {
+    // 同一个令牌才清。别人的那份还好好的，留着
+    if (localStorage.getItem(TOKEN_KEY) === dead) {
+      localStorage.removeItem(TOKEN_KEY)
+    }
+  } catch {
+    // 忽略
+  }
+}
+
 async function request(url, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
@@ -134,8 +161,9 @@ async function request(url, options = {}) {
   }
 
   if (response.status === 401 && url !== '/api/auth/login') {
-    // 令牌过期或无效，清掉本地状态，让用户重新登录
-    setToken('')
+    // 令牌过期或无效，清掉**本标签页**的状态，让用户重新登录。
+    // 别的标签页可能登着另一个账号，不能顺手把它也踢下去
+    expireToken(token)
     throw new Error('登录已失效，请重新登录')
   }
 
@@ -332,6 +360,12 @@ export const api = {
   },
 
   houseImages: (houseNo) => request(`/api/houses/${houseNo}/images`),
+  // 改一张房源图的说明文字。这一列原先 324 条全是空的——
+  // 上传接口一直收 caption，而这里永远传 ''，没有任何入口能填。
+  setHouseImageCaption: (houseNo, imageId, caption) =>
+    request(`/api/houses/${encodeURIComponent(houseNo)}/images/${imageId}/caption`,
+      { method: 'POST', body: JSON.stringify({ caption }) }),
+
   addHouseImage: (houseNo, url, caption = '') =>
     request(`/api/houses/${houseNo}/images`,
       { method: 'POST', body: JSON.stringify({ url, caption }) }),
@@ -468,15 +502,26 @@ export const api = {
       shouji: applicant.phone || '',
     }),
 
-  // AI-04 报修工单智能分派
-  agentRepair: (text, houseNo, applicant = {}, submit = true) =>
+  // AI-04 报修工单智能分派。
+  //
+  // `images` 是已经上传到本系统的照片地址（`/static/uploads/...`）。
+  // 智能体那边只认这种地址和 data URI，外链一律丢弃——识图是由模型
+  // 那一端去取图的，放任意地址进去等于让用户指定「服务器去访问哪里」。
+  agentRepair: (text, houseNo, applicant = {}, submit = true, images = []) =>
     post(agentUrl('/agent/repair'), {
       text,
       house_no: houseNo,
       xingming: applicant.name || '',
       shouji: applicant.phone || '',
       submit,
+      images,
     }),
+
+  // 看一张房源照片，写一句图片说明的**草稿**。
+  // 只出草稿不落库——图片说明是挂在房源上给租客看的公开文案，
+  // 得房东看过、点保存才走 setHouseImageCaption。
+  agentImageCaption: (imageUrl) =>
+    post(agentUrl('/agent/image-caption'), { images: [imageUrl] }),
 
   // AI-02 合同智能审阅
   agentContractReview: (text) =>

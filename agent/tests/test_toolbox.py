@@ -281,6 +281,47 @@ class TestAccountSummary(unittest.TestCase):
         self.assertIn("你约的看房", mine)
         self.assertIn("别人约你的房", theirs)
 
+    def test_commission_amounts_come_from_the_response(self):
+        """佣金金额取返回体算好的那两个数，不在这里自己求和。
+
+        自己遍历 list 再加一遍，等于把「作废的佣金算不算」这个口径
+        抄了第二份；后端哪天改了，中介看到的数和工作台就对不上。
+        这里故意让 list 里的金额加起来**不等于**返回体给的总额，
+        断言说出来的是返回体那个数。
+        """
+        text = runner._summarize(
+            "agent_commissions",
+            {"pending_amount": 3600, "settled_amount": 12000},
+            [{"amount": 1}, {"amount": 1}, {"amount": 1}], "佣金")
+        self.assertIn("3 笔", text)
+        self.assertIn("3600", text)
+        self.assertIn("12000", text)
+
+    def test_commission_money_is_not_printed_as_float(self):
+        """1250.0 元、1e+06 元这种写法不能出现在钱上。"""
+        text = runner._summarize(
+            "agent_commissions",
+            {"pending_amount": 1250.0, "settled_amount": 1000000.0},
+            [{}], "佣金")
+        self.assertIn("1250 元", text)
+        self.assertIn("1000000 元", text)
+        self.assertNotIn("1250.0", text)
+        self.assertNotIn("e+", text)
+
+    def test_delegations_count_active_ones(self):
+        rows = [{"status": "active"}, {"status": "active"}, {"status": "ended"}]
+        text = runner._summarize("agent_delegations", {}, rows, "委托")
+        self.assertIn("3 套", text)
+        self.assertIn("2 套", text)
+
+    def test_viewings_count_distinct_houses(self):
+        """带看 4 次可能只涉及 2 套房，两个数都要说。"""
+        rows = [{"house_no": "DL0001"}, {"house_no": "DL0001"},
+                {"house_no": "DL0002"}, {"house_no": "DL0002"}]
+        text = runner._summarize("agent_viewings", {}, rows, "带看")
+        self.assertIn("4 次", text)
+        self.assertIn("2 套", text)
+
 
 class TestAccountNeedsLogin(unittest.TestCase):
 
@@ -296,6 +337,309 @@ class TestAccountNeedsLogin(unittest.TestCase):
         backend.get.side_effect = RuntimeError("boom")
         got = runner._account("my_bills", {"token": "t", "backend": backend})
         self.assertIn("稍后", got["message"])
+
+
+class TestAccountCardShape(unittest.TestCase):
+    """查库结果要能被网页画出来。
+
+    网页只认 ``account = {tool: 主题, data: {...}}``（规则链路给的形状）。
+    这一层原来给的是 ``{tool: 工具名, rows: [...]}``——凡是模型选中的查库
+    都只剩一句话，卡片一张都画不出；收藏更糟，items 里只有编号，
+    画出来是空标题加「NaN 元」。
+    """
+
+    def run_tool(self, name, payload):
+        backend = mock.Mock()
+        backend.get.return_value = payload
+        return runner._account(name, {"token": "t", "backend": backend})
+
+    def test_bills_card_uses_frontend_topic_and_unpaid_list(self):
+        got = self.run_tool("my_bills", {
+            "list": [{"bill_no": "B1", "status": "unpaid", "amount": 100},
+                     {"bill_no": "B2", "status": "paid", "amount": 100}],
+            "unpaid_count": 1, "unpaid_amount": 100})
+        self.assertEqual(got["account"]["tool"], "bill")
+        self.assertEqual([b["bill_no"] for b in got["account"]["data"]["unpaid"]],
+                         ["B1"])
+
+    def test_contracts_card_lists_active_first(self):
+        """「在租的有哪些」——卡片只摆四行，生效中的要排在前面。"""
+        got = self.run_tool("my_contracts", {"list": [
+            {"contract_no": "old", "status": "ended"},
+            {"contract_no": "now", "status": "active"}]})
+        self.assertEqual(got["account"]["tool"], "contract")
+        self.assertEqual(got["account"]["data"]["list"][0]["contract_no"], "now")
+
+    def test_house_lists_carry_whole_rows_as_items(self):
+        house = {"house_no": "DL0060", "title": "椒金山 一室一厅", "rent_price": 1650}
+        for name in ("my_favorites", "my_history"):
+            got = self.run_tool(name, {"list": [house]})
+            self.assertEqual(got["items"][0]["rent_price"], 1650, name)
+            self.assertEqual(got["items"][0]["title"], "椒金山 一室一厅", name)
+
+
+class TestTodos(unittest.TestCase):
+
+    def test_summarizes_only_unfinished_things(self):
+        def get(path, params=None, token=None):
+            return {
+                "/api/bills/mine": {"list": [], "unpaid_count": 2,
+                                    "unpaid_amount": 3000, "overdue_count": 1},
+                "/api/contracts/mine": {"list": [
+                    {"house_no": "DL0007", "status": "pending"},
+                    {"house_no": "DL0005", "status": "active"}]},
+                "/api/repairs": {"list": [{"status": "done"}]},
+            }.get(path, {"list": []})
+
+        backend = mock.Mock()
+        backend.get.side_effect = get
+        got = runner._todos({"token": "t", "backend": backend})
+        self.assertIn("2 笔待缴账单共 3000 元", got["message"])
+        self.assertIn("1 笔已逾期", got["message"])
+        self.assertIn("DL0007", got["message"])
+        # 已完成的报修不算待办
+        self.assertNotIn("报修", got["message"])
+
+    def test_one_failing_lookup_does_not_sink_the_answer(self):
+        def get(path, params=None, token=None):
+            if path == "/api/repairs":
+                raise RuntimeError("boom")
+            return {"list": [], "unpaid_count": 1, "unpaid_amount": 500}
+
+        backend = mock.Mock()
+        backend.get.side_effect = get
+        got = runner._todos({"token": "t", "backend": backend})
+        self.assertIn("1 笔待缴账单", got["message"])
+        self.assertIn("报修暂时没查到", got["message"])
+
+
+class TestPlannerSeesDialogue(unittest.TestCase):
+
+    def test_recent_dialogue_is_in_the_prompt(self):
+        seen = {}
+
+        class Capture(_Fake):
+            def complete(self, system_prompt, user_prompt, max_tokens=None):
+                seen["prompt"] = user_prompt
+                return json.dumps({"tool": "none", "confidence": 0})
+
+        planner.plan("总结下呗", Capture(), logged_in=True, role="tenant",
+                     dialogue=[{"role": "user", "content": "第一套评价怎么样"},
+                               {"role": "assistant", "content": "共 1 条评价"}])
+        self.assertIn("第一套评价怎么样", seen["prompt"])
+        self.assertIn("共 1 条评价", seen["prompt"])
+
+
+class TestSearchAppliesThisTurn(unittest.TestCase):
+    """模型那一路找房原先绕过了 apply_turn：本轮的相对调整和取消全被跳过。"""
+
+    def run_search(self, text, params, slots):
+        seen = {}
+
+        class Finder:
+            def run(self, text, provider=None, filters=None, features=None,
+                    source=None, page=1, limit=10):
+                seen["filters"] = dict(filters)
+                return {"message": "ok", "items": [], "total": 0}
+
+        ctx = {"text": text, "slots": slots, "features": [], "provider": None,
+               "property_finder": Finder(), "seen": 0}
+        result = runner._search(params, ctx)
+        return seen.get("filters"), result
+
+    def test_cheaper_is_applied(self):
+        """实测「便宜点的呢」原样返回了同一批房。"""
+        filters, _ = self.run_search("便宜点的呢", {},
+                                     {"suozaidiqu": "沙河口区", "zujia_max": 3000})
+        self.assertLess(filters["zujia_max"], 3000)
+
+    def test_llm_layout_is_normalized(self):
+        """模型填「单间」一套也筛不出，库里写的是「一室」。"""
+        filters, _ = self.run_search("金州区有没有便宜的单间",
+                                     {"district": "金州区", "layout": "单间"}, {})
+        self.assertEqual(filters["fangwuhuxing"], "一室")
+
+    def test_unknown_district_is_explained_not_filtered(self):
+        filters, result = self.run_search(
+            "公司在高新园区，想租个房子，三千以内", {"district": "高新园区",
+                                            "rent_max": 3000}, {})
+        self.assertNotIn("suozaidiqu", filters)
+        self.assertIn("高新园区", result["message"])
+
+
+class TestAccountSubsets(unittest.TestCase):
+    """问一部分，就答那一部分。"""
+
+    def run_tool(self, name, payload, params):
+        backend = mock.Mock()
+        backend.get.return_value = payload
+        return runner._account(name, {"token": "t", "backend": backend}, params)
+
+    def test_overdue_only(self):
+        got = self.run_tool("my_bills", {"list": [
+            {"bill_no": "A", "status": "unpaid", "overdue": True, "amount": 750,
+             "due_date": "2026-09-01"},
+            {"bill_no": "B", "status": "unpaid", "overdue": False, "amount": 750,
+             "due_date": "2026-10-01"}]}, {"overdue_only": True})
+        self.assertIn("1 笔逾期", got["message"])
+        self.assertEqual([b["bill_no"] for b in got["account"]["data"]["unpaid"]], ["A"])
+
+    def test_vacant_houses_only(self):
+        got = self.run_tool("landlord_houses", {"list": [
+            {"house_no": "DL1", "status": "available"},
+            {"house_no": "DL2", "status": "rented"}]}, {"status": "available"})
+        self.assertEqual([h["house_no"] for h in got["items"]], ["DL1"])
+        self.assertIn("DL1", got["message"])
+
+    def test_planner_keeps_boolean_params(self):
+        self.assertIs(planner._coerce("true", "boolean"), True)
+        self.assertIs(planner._coerce(False, "boolean"), False)
+
+
+class TestLandlordTools(unittest.TestCase):
+
+    def test_owing_tenants_only(self):
+        """「有没有租客拖欠房租的」原先查成了房东自己的账单。"""
+        backend = mock.Mock()
+        backend.get.return_value = {"list": [
+            {"username": "tenant1", "overdue_count": 2, "unpaid_total": 6100},
+            {"username": "tenant9", "overdue_count": 0, "unpaid_total": 0}]}
+        got = runner._account("landlord_tenants", {"token": "t", "backend": backend},
+                              {"overdue_only": True})
+        self.assertIn("tenant1", got["message"])
+        self.assertNotIn("tenant9", got["message"])
+        self.assertIn("6100", got["message"])
+
+    def test_income_uses_the_dashboard_numbers(self):
+        backend = mock.Mock()
+        backend.get.return_value = {"house_total": 9, "house_rented": 1,
+                                    "occupancy_rate": 11, "month_income": 3050,
+                                    "income_pending": 6100}
+        got = runner.run_read("landlord_income", {}, {"token": "t", "backend": backend})
+        self.assertIn("3050", got["message"])
+        self.assertEqual(got["account"]["tool"], "income")
+
+    def test_landlord_side_repairs_and_contracts(self):
+        """「有租客给我报修吗」查的是名下房源的单，不是房东自己报的。"""
+        backend = mock.Mock()
+        backend.get.return_value = {"list": [
+            {"house_no": "DL1", "status": "pending", "content": "热水器不出热水"},
+            {"house_no": "DL2", "status": "done", "content": "门锁"}]}
+        got = runner._account("landlord_repairs", {"token": "t", "backend": backend})
+        self.assertEqual(backend.get.call_args.kwargs["params"], {"side": "landlord"})
+        self.assertIn("1 张还没受理", got["message"])
+        self.assertIn("热水器", got["message"])
+        self.assertEqual(got["account"]["tool"], "repair")
+
+    def test_pricing_reads_district_layout_area_from_the_sentence(self):
+        backend = mock.Mock()
+        backend.get.return_value = {"ok": True, "message": "建议定价 2500–2900 元。"}
+        got = runner.run_read("pricing_suggest", {}, {
+            "token": "t", "backend": backend, "text": "西岗区两室一厅70平一般租多少"})
+        self.assertEqual(backend.get.call_args.kwargs["params"],
+                         {"district": "西岗区", "layout": "两室一厅", "area": 70.0})
+        self.assertIn("2500–2900", got["message"])
+
+    def test_admin_todos_counts_each_queue(self):
+        import datetime
+        today = datetime.date.today().isoformat()
+
+        def get(path, params=None, token=None):
+            if path == "/api/admin/houses":
+                return {"total": 3, "list": [{}, {}, {}]}
+            if path == "/api/admin/handoffs":
+                return {"total": 2, "list": [{"created_at": today + " 09:00"},
+                                             {"created_at": "2026-01-01 09:00"}]}
+            if path == "/api/admin/reports":
+                raise RuntimeError("down")
+            return {"total": 0, "list": []}
+        backend = mock.Mock()
+        backend.get.side_effect = get
+        got = runner.run_read("admin_todos", {}, {"token": "t", "backend": backend})
+        self.assertIn("3 套房源待审核", got["message"])
+        self.assertIn("2 张转人工工单没回复", got["message"])
+        self.assertIn("今天新提交的转人工有 1 张", got["message"])
+        self.assertIn("1 项没查到", got["message"])
+        self.assertNotIn("admin_todos", [t["name"] for t in
+                                         catalog.visible_tools(True, "landlord")])
+
+    def test_who_is_the_landlord(self):
+        """原先答「房源信息里没写房东」，字段其实在；名字只给姓。"""
+        got = runner.pitch.answer_attribute({"landlord_name": "张伟"},
+                                            "第一套房东是谁，能联系吗")
+        self.assertIn("张**", got)
+        self.assertNotIn("张伟", got)
+        self.assertIn("预约看房被房东确认后", got)
+
+    def test_superlative_looks_at_the_whole_list(self):
+        """「刚才那几套里哪个最便宜」原先只比了前两套。"""
+        rows = {"DL1": {"house_no": "DL1", "title": "甲", "rent_price": 2000},
+                "DL2": {"house_no": "DL2", "title": "乙", "rent_price": 1800},
+                "DL3": {"house_no": "DL3", "title": "丙", "rent_price": 900}}
+        fetch = lambda nos: [rows[n] for n in nos if n in rows]   # noqa: E731
+        got = runner.direct_list_answer("刚才那几套里哪个最便宜", [],
+                                        ["DL1", "DL2", "DL3"], fetch)
+        self.assertIn("第 3 套", got["message"])
+        self.assertIn("900", got["message"])
+        self.assertEqual(got["house_no"], "DL3")
+        self.assertIsNone(runner.direct_list_answer("哪个更划算", [],
+                                                    ["DL1", "DL2"], fetch))
+
+    def test_light_question_answers_orientation(self):
+        rows = [{"house_no": "DL1", "title": "甲", "orientation": "南"},
+                {"house_no": "DL2", "title": "乙", "orientation": ""}]
+        got = runner.direct_list_answer("第一套和第二套哪个采光好", ["DL1", "DL2"],
+                                        ["DL1", "DL2"], lambda nos: rows)
+        self.assertIn("第 1 套 甲（DL1） 南", got["message"])
+        self.assertIn("没标朝向", got["message"])
+
+    def test_distance_question_says_there_is_no_distance_data(self):
+        """「哪个离我公司最近」挑中了对比，对比讲的却是价钱和面积。"""
+        rows = [{"house_no": "DL1", "tags": "近地铁"}, {"house_no": "DL2", "tags": ""}]
+        ctx = {"last_house_nos": ["DL1", "DL2"], "fetch_houses": lambda nos: rows,
+               "backend": None, "text": "这几套里哪个离我公司最近"}
+        with mock.patch.object(runner.pitch, "compare", return_value=("对比正文", {})):
+            got = runner._compare({}, ctx)
+            self.assertIn("没法按远近排", got["message"])
+            self.assertIn("DL1", got["message"])
+            ctx["text"] = "第一套和第二套哪个划算"
+            self.assertEqual(runner._compare({}, ctx)["message"], "对比正文")
+
+    def test_houses_ranked_by_rating(self):
+        backend = mock.Mock()
+        backend.get.return_value = {"list": [
+            {"house_no": "DL1", "rating": 4.7, "review_count": 3},
+            {"house_no": "DL2", "rating": 3.2, "review_count": 2},
+            {"house_no": "DL3", "rating": 0, "review_count": 0}]}
+        got = runner._account("landlord_houses", {"token": "t", "backend": backend},
+                              {"by_rating": "worst"})
+        self.assertIn("最差的是 DL2", got["message"])
+        self.assertIn("1 套还没有人评价", got["message"])
+        self.assertEqual([h["house_no"] for h in got["items"]], ["DL2", "DL1"])
+
+    def test_contracts_expiring_soon(self):
+        import datetime
+        today = datetime.date.today()
+        soon = (today + datetime.timedelta(days=20)).isoformat()
+        later = (today + datetime.timedelta(days=200)).isoformat()
+        backend = mock.Mock()
+        backend.get.return_value = {"list": [
+            {"house_no": "DL1", "status": "active", "end_date": soon},
+            {"house_no": "DL2", "status": "active", "end_date": later},
+            {"house_no": "DL3", "status": "ended", "end_date": soon}]}
+        got = runner._account("landlord_contracts", {"token": "t", "backend": backend},
+                              {"expiring_days": 31})
+        self.assertEqual(backend.get.call_args.kwargs["params"], {"side": "landlord"})
+        self.assertIn("1 份出租合同到期", got["message"])
+        self.assertIn("DL1", got["message"])
+        self.assertNotIn("DL2", got["message"])
+
+    def test_unknown_house_code_says_so(self):
+        """报了编号却查不到，就说查不到——别回「先说说你的条件」。"""
+        ctx = {"last_house_nos": [], "house_no": "", "fetch_houses": lambda nos: [],
+               "backend": None, "text": "DL9999 这套房怎么样"}
+        got = runner._one_house("house_detail", {"house_no": "DL9999"}, ctx)
+        self.assertIn("没有找到编号 DL9999", got["message"])
 
 
 if __name__ == "__main__":

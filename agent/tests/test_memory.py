@@ -36,10 +36,55 @@ class TestAccumulate(unittest.TestCase):
         self.assertEqual(slots["suozaidiqu"], "中山区")
 
     def test_only_recent_turns_are_replayed(self):
-        texts = ["沙河口区"] + ["随便看看"] * memory.MAX_TURNS + ["中山区"]
+        """说了 MAX_TURNS 次条件之后，最早那次就不算数了。
+
+        原先这个用例中间垫的是「随便看看」，而它根本不带条件；
+        末尾又说了「中山区」，覆盖语义本来就会让断言成立——
+        **无论窗口是几轮，这个用例都过**，等于什么也没盯住。
+        现在垫的是真的在改条件的轮次。
+        """
+        texts = ["沙河口区"] + ["两室一厅", "三室一厅"] * memory.MAX_TURNS
         slots, _ = memory.replay(texts)
-        # 沙河口区已经被挤出窗口
+        self.assertNotIn("suozaidiqu", slots)
+
+    def test_unrelated_turns_do_not_consume_the_window(self):
+        """查账单、看评价这些轮次不该把找房条件挤出去。
+
+        实测来源：一段 24 轮的会话，用户第 3 轮说了区域和预算，
+        中间问了十几轮合同、账单、评价，到第 22 轮说「还有更便宜的」时
+        条件已经全丢，系统答「建议把租价上限从 9 元提高一些」。
+        """
+        chat = ["我的合同什么时候到期", "这个月房租交了吗", "欠多少",
+                "怎么缴费", "评价怎么样", "房东靠谱吗", "谢谢",
+                "我约了哪几次看房", "我收藏了几套房", "报修处理了吗",
+                "还有别的吗", "嗯"]
+        slots, _ = memory.replay(["沙河口区两室一厅", "三千以内"] + chat)
+        self.assertEqual(slots["suozaidiqu"], "沙河口区")
+        self.assertEqual(slots["zujia_max"], 3000)
+        self.assertEqual(slots["fangwuhuxing"], "两室一厅")
+
+    def test_more_X_phrasings_are_recognised(self):
+        """「还有更便宜的吗」是最常见的说法之一，原表一条都不命中。
+
+        实测后果：24 轮那个剧本里预算纹丝不动，
+        系统把上一轮那套 2950 元的原样又端了回来。
+        """
+        slots, _ = memory.replay(["沙河口两室一厅三千以内", "还有更便宜的吗"])
+        self.assertLess(slots["zujia_max"], 3000)
+
+        slots, _ = memory.replay(["三千以内", "有没有更贵的"])
+        self.assertGreater(slots["zujia_max"], 3000)
+
+    def test_more_X_does_not_collide_with_the_opposite_direction(self):
+        """「更贵」不能同时撞上 cheaper 里的「太贵」「有点贵」「贵了」。"""
+        self.assertEqual(memory.relative_ops("有没有更贵的"), ["pricier"])
+        self.assertEqual(memory.relative_ops("还有更便宜的吗"), ["cheaper"])
+
+    def test_reset_still_counts_as_a_turn(self):
+        """「重新找」是条件性的轮次，不能因为它没带条件就被滤掉。"""
+        slots, _ = memory.replay(["沙河口区两室一厅", "重新找", "中山区"])
         self.assertEqual(slots["suozaidiqu"], "中山区")
+        self.assertNotIn("fangwuhuxing", slots)
 
 
 class TestOverrideAndClear(unittest.TestCase):
@@ -67,6 +112,31 @@ class TestOverrideAndClear(unittest.TestCase):
 
     def test_suffix_form_of_clear(self):
         self.assertIn("suozaidiqu", memory.clears("区域都行"))
+
+    def test_negated_value_clears_its_own_slot(self):
+        """「不用两室一厅」否定的是值，不是「户型」两个字。
+
+        这一条卡过真实会话：CLEAR_TARGETS 里没有「两室一厅」，一条都命中不了，
+        而 parse_query 照样从这句里解析出 fangwuhuxing=两室一厅——
+        **用户说不要，系统反而给设上了**，上下文里那行「两室一厅」怎么都去不掉。
+        """
+        self.assertIn("fangwuhuxing", memory.clears("不用两室一厅"))
+        slots, _ = memory.replay(["中山区两室一厅", "不用两室一厅"])
+        self.assertNotIn("fangwuhuxing", slots)
+        self.assertEqual(slots["suozaidiqu"], "中山区")
+
+    def test_other_area_means_drop_the_district(self):
+        """「找其他地区」是要换地方，不是一个叫「其他地区」的区。
+
+        parse_query 的通用兜底认「两到四个汉字 + 区」，这句正好是这个形状，
+        于是助手回过一句「区域改为 找其他地区。」，此后再也搜不到东西。
+        """
+        self.assertIn("suozaidiqu", memory.clears("那找其他地区3000以内的"))
+        slots, _ = memory.replay(["中山区两室一厅", "那找其他地区3000以内的"])
+        self.assertNotIn("suozaidiqu", slots)
+        # 同一句里的价格是真条件，不能跟着一起丢
+        self.assertEqual(slots["zujia_max"], 3000)
+        self.assertEqual(slots["fangwuhuxing"], "两室一厅")
 
     def test_reset_wipes_everything(self):
         slots, features = memory.replay(["中山区两室一厅带电梯", "重新找"])
@@ -234,3 +304,52 @@ class TestResolveHouse(unittest.TestCase):
 
     def test_no_previous_result(self):
         self.assertIsNone(memory.resolve_house("那第二套", []))
+
+
+
+class TestUnknownArea(unittest.TestCase):
+    """「公司在高新园区」——不是行政区，却被当成区域条件，
+    此后每轮从历史重放出来，整段对话都是 0 套。"""
+
+    def test_unknown_area_is_dropped_with_a_note(self):
+        slots, _, notes = memory.apply_turn({}, [], "公司在高新园区，预算三千左右")
+        self.assertNotIn("suozaidiqu", slots)
+        self.assertEqual(slots.get("zujia_max"), 3000)
+        self.assertTrue(any("高新园区" in n and "对应不到" in n for n in notes))
+
+    def test_unknown_area_does_not_stick_across_turns(self):
+        slots, _ = memory.replay(["公司在高新园区", "预算三千左右", "最好离地铁近点"])
+        self.assertNotIn("suozaidiqu", slots)
+
+    def test_negation_stops_at_the_comma(self):
+        """否定只管到下一个标点，也只去掉被否定的那个值。"""
+        base = {"suozaidiqu": "中山区", "fangwuhuxing": "两室一厅"}
+        slots, _, _ = memory.apply_turn(dict(base), [], "不要太贵的，三千以内")
+        self.assertEqual(slots.get("zujia_max"), 3000,
+                         "「太贵」只是在解释为什么给三千，不该再打折")
+        slots, _, _ = memory.apply_turn(dict(base), [], "不用两室一厅，三室的有吗")
+        self.assertEqual(slots.get("fangwuhuxing"), "三室")
+        slots, _, _ = memory.apply_turn(dict(base, yajin_yue=1, fukuan_yue=1), [],
+                                        "取消押一付一的限制，两千以内")
+        self.assertNotIn("yajin_yue", slots)
+        self.assertEqual(slots.get("zujia_max"), 2000)
+        # 明确要再调的照旧叠加
+        slots, _, _ = memory.apply_turn(dict(base), [], "三千以内，再便宜点")
+        self.assertEqual(slots.get("zujia_max"), 2400)
+
+    def test_payment_terms_become_conditions(self):
+        """「押一付一的有吗」原先解析不出任何条件，照旧列出上一批房。"""
+        slots, _, _ = memory.apply_turn({"zujia_max": 2000}, [], "押一付一的有吗")
+        self.assertEqual(slots, {"zujia_max": 2000, "yajin_yue": 1, "fukuan_yue": 1})
+        self.assertIn("押一付一", memory.describe(slots, []))
+        # 押零是有效值，不能被当成没说
+        slots, _, _ = memory.apply_turn({}, [], "押零付一的")
+        self.assertEqual(slots.get("yajin_yue"), 0)
+        from app.agents.property_finder.tools.search_properties import build_params
+        params = build_params(slots)
+        self.assertEqual((params["deposit_months"], params["pay_months"]), (0, 1))
+        self.assertEqual(memory.parse_query("押1付12")["filters"]["fukuan_yue"], 12)
+
+    def test_short_district_name_is_normalized(self):
+        slots, _, _ = memory.apply_turn({}, [], "x", filters={"suozaidiqu": "沙河口"})
+        self.assertEqual(slots["suozaidiqu"], "沙河口区")

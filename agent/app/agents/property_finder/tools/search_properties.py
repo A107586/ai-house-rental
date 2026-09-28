@@ -15,6 +15,12 @@ _RANGE_MAP = {
     "mianji_max": "area_max",
 }
 
+# 押几付几：等值，且 0 有意义
+_EXACT_MAP = {
+    "yajin_yue": "deposit_months",
+    "fukuan_yue": "pay_months",
+}
+
 # 等值 / 模糊匹配字段
 _PASS_THROUGH = {
     "suozaidiqu": "district",
@@ -45,6 +51,10 @@ def build_params(filters, page=1, limit=10, features=None):
         if filters.get(semantic):
             params[backend_key] = filters[semantic]
     for semantic, backend_key in _RANGE_MAP.items():
+        if filters.get(semantic) is not None:
+            params[backend_key] = filters[semantic]
+    # 押几付几按等值比，**0 是有效值**（押零付一），不能走上面的真值判断
+    for semantic, backend_key in _EXACT_MAP.items():
         if filters.get(semantic) is not None:
             params[backend_key] = filters[semantic]
     if features:

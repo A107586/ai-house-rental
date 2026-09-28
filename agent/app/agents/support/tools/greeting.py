@@ -44,9 +44,11 @@ def _rows(data):
     return data if isinstance(data, list) else []
 
 
-def _safe(backend, path, token):
+def _safe(backend, path, token, params=None):
     """取一类数据。**任何异常都当成「没有」**——开场白不值得为它报错。"""
     try:
+        if params:
+            return backend.get(path, params=params, token=token)
         return backend.get(path, token=token)
     except (BackendError, Exception):       # noqa: B014 - 就是要全吞
         return {}
@@ -63,7 +65,9 @@ def collect(backend, token):
     """
     items = []
 
-    unpaid = [b for b in _rows(_safe(backend, "/api/bills/mine", token))
+    # 只算我要交的，房东账号的应收不是「待缴」
+    unpaid = [b for b in _rows(_safe(backend, "/api/bills/mine", token,
+                                     {"side": "tenant"}))
               if b.get("status") == "unpaid"]
     if unpaid:
         total = sum(float(b.get("amount") or 0) for b in unpaid)

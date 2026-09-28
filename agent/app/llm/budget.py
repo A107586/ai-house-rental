@@ -103,6 +103,30 @@ class DeadlineProvider(LLMProvider):
         return self._call(self._inner.complete_json, system_prompt,
                           user_prompt, max_tokens)
 
+    # **这一层之前只转发了上面两个方法。** 没转发的会落到基类的默认实现：
+    # complete_vision 在基类里直接抛「当前大模型没有识图能力」——
+    # 所以聊天里带着照片报修时模型永远「看不见」照片，而单独打
+    # /agent/repair 却看得见（那条路不套这层壳）。表现是同一张图两处结果不一样。
+    def complete_vision(self, system_prompt, user_prompt, images,
+                        max_tokens=None, deadline=None):
+        self._check()
+        method = getattr(self._inner, "complete_vision")
+        if self._takes_deadline:
+            return method(system_prompt, user_prompt, images,
+                          max_tokens=max_tokens, deadline=self._deadline)
+        return method(system_prompt, user_prompt, images, max_tokens=max_tokens)
+
+    def chat(self, system_prompt, messages, max_tokens=None, deadline=None,
+             temperature=0.0):
+        self._check()
+        if self._takes_deadline:
+            return self._inner.chat(system_prompt, messages,
+                                    max_tokens=max_tokens,
+                                    deadline=self._deadline,
+                                    temperature=temperature)
+        return self._inner.chat(system_prompt, messages, max_tokens=max_tokens,
+                                temperature=temperature)
+
     def stats(self):
         return self._inner.stats()
 

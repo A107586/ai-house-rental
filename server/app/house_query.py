@@ -209,6 +209,15 @@ def apply_filters(stmt, params, today=None):
     if get("heating"):
         stmt = stmt.where(House.heating == get("heating"))
 
+    # 押几付几。租客问「押一付一的有吗」，这两列一直在库里（详情页的
+    # 「押一付三」就是拼它们出来的），列表却筛不了——助手只好当没听见。
+    # **0 是有效值**（押零付一），所以不能用真值判断。
+    for key, column in (("deposit_months", House.deposit_months),
+                        ("pay_months", House.pay_months)):
+        value = get(key)
+        if value not in (None, ""):
+            stmt = stmt.where(column == int(value))
+
     elevator = _as_bool(get("elevator")) if get("elevator") not in (None, "") else None
     if elevator is not None:
         stmt = stmt.where(House.elevator == elevator)

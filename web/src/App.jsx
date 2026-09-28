@@ -3,6 +3,7 @@ import { api, getToken, setToken } from './api'
 import useHashRoute from './useHashRoute'
 import useScrollLock from './useScrollLock'
 import useSearchHistory from './useSearchHistory'
+import { whoami } from './storage'
 
 // 代码分割：整包原先 303 KB，管理后台、房东工作台这些**租客永远用不到的
 // 面板**也一起下载，而租客占访问量的绝大多数。
@@ -161,9 +162,6 @@ export default function App() {
   // 1500以下」这种具体句子，就知道这个框吃什么。
   // 而且**不用先打字**，直接点找房就按当前这条搜。
   const [hintIdx, setHintIdx] = useState(0)
-  // 搜索记录。替掉了「保存这组条件」——那个按钮要求用户预判
-  // 自己以后还会不会用这组条件，人在搜的当下不会想这件事。
-  const history = useSearchHistory()
   const [showHistory, setShowHistory] = useState(false)
 
   // 房源抽屉底下压着的是哪一屏。
@@ -202,6 +200,19 @@ export default function App() {
   const [user, setUser] = useState(null)
   // 登录态查过了没有。首帧 user 一定是 null，但那不等于「未登录」
   const [authReady, setAuthReady] = useState(false)
+
+  // 本地存的对话与搜索记录都按账号分开，理由见 storage.js。
+  // `identity` 同时当作 ChatPanel 的 key——换个人登录，
+  // 那个组件整个重挂，上一个人的消息不会留在 React 的 state 里。
+  //
+  // **这两行必须排在 `user` 声明之后。** 原先跟搜索记录的其它状态
+  // 摆在一起（第 166 行），那里 `user` 还没声明，读它是暂时性死区：
+  // 构建照样通过，页面一打开就是「Cannot access 'C' before
+  // initialization」，整页被 ErrorBoundary 接住，什么都不显示。
+  const identity = whoami(user)
+  // 搜索记录。替掉了「保存这组条件」——那个按钮要求用户预判
+  // 自己以后还会不会用这组条件，人在搜的当下不会想这件事。
+  const history = useSearchHistory(user)
   const [showAuth, setShowAuth] = useState(false)
   const [showMine, setShowMine] = useState(false)
   // D1/D2：从哪一层打开的房源详情。
@@ -1189,6 +1200,7 @@ export default function App() {
       {showChat && (
         <Suspense fallback={null}>
           <ChatPanel
+          key={identity}
           user={user}
           houseNo={chatHouseNo}
           onOpenHouse={(house) => {

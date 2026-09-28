@@ -1,0 +1,210 @@
+classDiagram
+    direction LR
+    class Api["房源 · HTTP 接口（32 个）"] {
+        <<router>>
+        +list_districts() GET /api/districts
+        +list_houses() GET /api/houses
+        +create_house(HouseCreate) POST /api/houses
+        +map_houses() GET /api/houses/map
+        +get_house() GET /api/houses/:house_no
+        +update_house(HouseUpdate) PUT /api/houses/:house_no
+        +list_house_images() GET /api/houses/:house_no/images
+        +add_house_image() POST /api/houses/:house_no/images
+        +delete_house_image() DELETE /api/houses/:house_no/images/:image_id
+        +set_image_caption() POST /api/houses/:house_no/images/:image_id/caption
+        +set_cover() POST /api/houses/:house_no/images/:image_id/cover
+        +house_landlord() GET /api/houses/:house_no/landlord
+        +review_house(HouseReview) PATCH /api/houses/:house_no/review
+        +list_reviews() GET /api/houses/:house_no/reviews
+        +similar_houses() GET /api/houses/:house_no/similar
+        +update_house_status() PATCH /api/houses/:house_no/status
+        +decide_verify(HouseReview) PATCH /api/houses/:house_no/verify
+        +request_verify() POST /api/houses/:house_no/verify-request
+        +landlord_dashboard() GET /api/landlord/dashboard
+        +landlord_houses() GET /api/landlord/houses
+        +contract_candidates() GET /api/landlord/houses/:house_no/candidates
+        +landlord_tenants() GET /api/landlord/tenants
+        +remind_tenant() POST /api/landlord/tenants/:tenant_id/remind
+        +pricing_suggest() GET /api/pricing/suggest
+        +report_kinds() GET /api/report-kinds
+        +create_report(ReportCreate) POST /api/reports
+        +my_reports() GET /api/reports/mine
+        +list_saved_searches() GET /api/saved-searches
+        +create_saved_search(SavedSearchCreate) POST /api/saved-searches
+        +delete_saved_search() DELETE /api/saved-searches/:search_id
+        +update_saved_search(SavedSearchUpdate) PATCH /api/saved-searches/:search_id
+        +upload_image() POST /api/upload
+    }
+    class m_house_query["house_query.py"] {
+        <<service>>
+        +split_features(raw)
+        +feature_clause(feature)
+        +apply_filters(stmt, params, today)
+        +clean_conditions(raw)
+        +describe(conditions)
+    }
+    Api ..> m_house_query
+    class m_map_service["map_service.py"] {
+        <<service>>
+        +approximate_coordinates(district, community, identity)
+        +geocode_address(address, city, timeout)
+        +locate_house(house, prefer_geocode)
+    }
+    Api ..> m_map_service
+    class m_pricing["pricing.py"] {
+        <<service>>
+        +suggest(houses, district, layout, area)
+    }
+    Api ..> m_pricing
+    class m_uploads["uploads.py"] {
+        <<service>>
+        +sniff(data)
+        +validate(data)
+        +build_name(ext)
+        +save(static_dir, data, ext)
+        +is_managed(url)
+        +remove(static_dir, url)
+        +measure(data)
+    }
+    Api ..> m_uploads
+    class m_config_store["config_store.py"] {
+        <<service · 平台治理>>
+        +get_bool(session, key, default)
+    }
+    Api ..> m_config_store
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +current_user(authorization, session)
+        +require_login(user)
+        +require_staff(user)
+        +require_house_manager(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +add_months(moment, months)
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_moderation["moderation.py"] {
+        <<service · 平台治理>>
+        +check_all(fields, scene)
+    }
+    Api ..> m_moderation
+    class m_permissions["permissions.py"] {
+        <<service · 账号与权限>>
+        +require_can_manage_house(session, user, house)
+    }
+    Api ..> m_permissions
+    class HouseCreate["HouseCreate"] {
+        <<DTO>>
+        +str title
+        +str district
+        +str community
+        +str address
+        +float rent_price
+        +float deposit
+        +float area
+        +str layout
+        +str rent_type
+        +str floor
+        +… 另 5 项
+    }
+    Api ..> HouseCreate
+    class HouseUpdate["HouseUpdate"] {
+        <<DTO>>
+        +str title
+        +str community
+        +str address
+        +float rent_price
+        +float deposit
+        +float area
+        +str layout
+        +str rent_type
+        +str floor
+        +str building
+        +… 另 4 项
+    }
+    Api ..> HouseUpdate
+    class HouseReview["HouseReview"] {
+        <<DTO>>
+        +bool approved
+        +str reason
+    }
+    Api ..> HouseReview
+    class ReportCreate["ReportCreate"] {
+        <<DTO>>
+        +str house_no
+        +str kind
+        +str description
+        +list~str~ evidence
+    }
+    Api ..> ReportCreate
+    class SavedSearchCreate["SavedSearchCreate"] {
+        <<DTO>>
+        +str name
+        +dict conditions
+        +bool notify_on
+    }
+    Api ..> SavedSearchCreate
+    class SavedSearchUpdate["SavedSearchUpdate"] {
+        <<DTO>>
+        +str name
+        +bool notify_on
+    }
+    Api ..> SavedSearchUpdate
+    class House["House · 房源"] {
+        <<entity>>
+        +int id «PK»
+        +str house_no «UK»
+        +int landlord_id «FK»
+        +decimal rent_price
+        +str status
+        +… 另 40 列（见数据库设计书）
+        +to_dict()
+        +to_map_dict()
+        +to_card_dict()
+        +/address_full
+        +/floor_text
+        +/floor_level
+        +/fee_detail
+        +/pay_plan
+        +/avg_rating
+    }
+    class HouseImage["HouseImage · 房源相册"] {
+        <<entity>>
+        +int id «PK»
+        +int house_id «FK»
+        +bool is_cover
+        +… 另 8 列（见数据库设计书）
+        +to_dict()
+    }
+    class SavedSearch["SavedSearch · 保存的搜索"] {
+        <<entity>>
+        +int id «PK»
+        +int user_id «FK»
+        +… 另 6 列（见数据库设计书）
+        +condition_dict()
+        +notified()
+        +to_dict()
+    }
+    class HouseReport["HouseReport · 房源举报"] {
+        <<entity>>
+        +int id «PK»
+        +str report_no «UK»
+        +int reporter_id «FK»
+        +int house_id «FK»
+        +str status
+        +int handler_id «FK»
+        +… 另 6 列（见数据库设计书）
+        +to_dict()
+    }
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    User "1" -- "0..*" House : landlord_id
+    House "1" -- "0..*" HouseImage : house_id
+    User "1" -- "0..*" SavedSearch : user_id
+    User "1" -- "0..*" HouseReport : reporter_id
+    House "1" -- "0..*" HouseReport : house_id
+    User "0..1" -- "0..*" HouseReport : handler_id
+    m_house_query ..> House

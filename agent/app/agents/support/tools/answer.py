@@ -54,6 +54,9 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 # 句末标点，用于抽取首句
 _SENTENCE_END = re.compile(r"[。！？!?\n]")
 
+# 抽取式回答的首句不超过这么多字，就要连同标题和第二句一起给出，见 extract()
+SHORT_CONCLUSION = 8
+
 _ANSWER_SYSTEM = ("你是房屋租赁平台的客服。**只能依据给定资料回答**，"
                   "资料没写的一律不要说。输出 JSON，不要解释。")
 
@@ -96,7 +99,17 @@ def extract(index, candidates):
     chunk = index.get(candidates[0])
     if not chunk:
         return "", []
-    body = first_sentence(chunk.get("body", ""))
+    full = (chunk.get("body", "") or "").replace("**", "").strip()
+    body = first_sentence(full)
+    # **首句太短就不能单独拿出来。** FAQ 的写作约定是「首句即结论」，
+    # 于是不少条目的首句就是「安全。」「不能。」——脱离了它回答的那个问题，
+    # 这两个字对用户毫无意义。实测房东问「空着的那套租金降两百怎么操作」，
+    # 检索偏到了「让客服代办操作安全吗」，模型又没来得及组织回答，
+    # 助手就回了一句「安全。」。带上标题、补上第二句，至少看得出答的是哪个问题。
+    if len(body) <= SHORT_CONCLUSION:
+        rest = full[len(body):].strip()
+        second = first_sentence(rest)
+        body = "关于「%s」：%s%s" % (chunk.get("title", ""), body, second)
     return body, [chunk["id"]]
 
 

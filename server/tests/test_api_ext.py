@@ -3,7 +3,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header
+from tests.base import ApiTestCase, auth_header, make_admin
 
 
 class TestToken(ApiTestCase):
@@ -265,12 +265,38 @@ class TestHousePublish(ApiTestCase):
         self.assertNotIn("测试房源", [h["title"] for h in listed["list"]])
 
     def test_status_update_scoped_to_owner(self):
+        """房东能上下架自己的房源，别的房东不能；**待审核的不能自己点上架**。
+
+        原先这条直接把刚发布（pending）的房源改成 available 并断言 200——
+        那正是 `approved_at` 要堵的绕过审核的路。现在先由管理员审过，
+        再验证房东本人的上下架与越权。
+        """
         headers = auth_header(self.client, "landlord1", "test123")
         house_no = self.client.post("/api/houses", json=self.PAYLOAD,
                                     headers=headers).json()["house"]["house_no"]
-        ok = self.client.patch("/api/houses/%s/status" % house_no,
-                               params={"status": "available"}, headers=headers)
-        self.assertEqual(ok.status_code, 200)
+        url = "/api/houses/%s/status" % house_no
+
+        pending = self.client.patch(url, params={"status": "available"},
+                                    headers=headers)
+        self.assertEqual(pending.status_code, 409)
+
+        admin = make_admin(self.client)
+        self.client.patch("/api/houses/%s/review" % house_no, headers=admin,
+                          json={"approved": True})
+
+        down = self.client.patch(url, params={"status": "offline"}, headers=headers)
+        self.assertEqual(down.status_code, 200)
+        self.assertEqual(down.json()["house"]["status"], "offline")
+        # 审过的内容没变，重新上架不必再审
+        up = self.client.patch(url, params={"status": "available"}, headers=headers)
+        self.assertEqual(up.status_code, 200)
+        self.assertEqual(up.json()["house"]["status"], "available")
+
+        self.client.post("/api/auth/register", json={
+            "username": "landlord2", "password": "test123", "role": "landlord"})
+        other = auth_header(self.client, "landlord2", "test123")
+        stolen = self.client.patch(url, params={"status": "offline"}, headers=other)
+        self.assertEqual(stolen.status_code, 403)
 
     def test_invalid_price_rejected(self):
         payload = dict(self.PAYLOAD, rent_price=-100)

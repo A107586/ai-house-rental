@@ -1,0 +1,62 @@
+classDiagram
+    direction LR
+    class Api["看房预约 · HTTP 接口（4 个）"] {
+        <<router>>
+        +list_appointments() GET /api/appointments
+        +create_appointment(AppointmentCreate) POST /api/appointments
+        +my_appointments() GET /api/appointments/mine
+        +update_appointment(AppointmentUpdate) PATCH /api/appointments/:appointment_id
+    }
+    class m_config_store["config_store.py"] {
+        <<service · 平台治理>>
+        +get_int(session, key, default)
+    }
+    Api ..> m_config_store
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +require_login(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_permissions["permissions.py"] {
+        <<service · 账号与权限>>
+        +can_manage_house(session, user, house)
+        +responsible_user_id(session, house)
+        +can_see_tenant_contact(session, user, appointment, house)
+    }
+    Api ..> m_permissions
+    class AppointmentCreate["AppointmentCreate"] {
+        <<DTO>>
+        +str house_no
+        +datetime viewing_time
+        +str contact_name
+        +str contact_phone
+        +str remark
+    }
+    Api ..> AppointmentCreate
+    class AppointmentUpdate["AppointmentUpdate"] {
+        <<DTO>>
+        +str status
+        +str reply
+    }
+    Api ..> AppointmentUpdate
+    class Appointment["Appointment · 看房预约"] {
+        <<entity>>
+        +int id «PK»
+        +int house_id «FK»
+        +int tenant_id «FK»
+        +datetime viewing_time
+        +str status
+        +… 另 5 列（见数据库设计书）
+        +to_dict(show_contact)
+    }
+    class House["House · 房源（房源）"]
+    <<entity>> House
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    House "1" -- "0..*" Appointment : house_id
+    User "0..1" -- "0..*" Appointment : tenant_id

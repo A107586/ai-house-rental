@@ -1,0 +1,162 @@
+classDiagram
+    direction LR
+    class Api["报修与维修 · HTTP 接口（14 个）"] {
+        <<router>>
+        +list_items() GET /api/repair-items
+        +create_item(ItemCreate) POST /api/repair-items
+        +update_item(ItemUpdate) PATCH /api/repair-items/:item_id
+        +list_records() GET /api/repair-records
+        +repair_stats() GET /api/repair-stats
+        +list_workers() GET /api/repair-workers
+        +create_worker(WorkerCreate) POST /api/repair-workers
+        +update_worker(WorkerUpdate) PATCH /api/repair-workers/:worker_id
+        +list_repairs() GET /api/repairs
+        +create_repair(RepairCreate) POST /api/repairs
+        +update_repair(RepairUpdate) PATCH /api/repairs/:repair_id
+        +list_repair_images() GET /api/repairs/:repair_id/images
+        +add_repair_image() POST /api/repairs/:repair_id/images
+        +create_record(RecordCreate) POST /api/repairs/:repair_id/record
+    }
+    class m_config_store["config_store.py"] {
+        <<service · 平台治理>>
+        +get_int(session, key, default)
+    }
+    Api ..> m_config_store
+    class m_deps["deps.py"] {
+        <<service · 账号与权限>>
+        +current_user(authorization, session)
+        +require_login(user)
+        +require_staff(user)
+    }
+    Api ..> m_deps
+    class m_leasing["leasing.py"] {
+        <<service · 合同与账单>>
+        +notify(session, user_id, type_, title, content, link_no)
+    }
+    Api ..> m_leasing
+    class m_permissions["permissions.py"] {
+        <<service · 账号与权限>>
+        +can_manage_house(session, user, house)
+    }
+    Api ..> m_permissions
+    class m_uploads["uploads.py"] {
+        <<service · 房源>>
+        +is_managed(url)
+    }
+    Api ..> m_uploads
+    class ItemCreate["ItemCreate"] {
+        <<DTO>>
+        +str name
+        +str unit
+        +float unit_price
+        +int stock
+    }
+    Api ..> ItemCreate
+    class ItemUpdate["ItemUpdate"] {
+        <<DTO>>
+        +str name
+        +str unit
+        +float unit_price
+        +int stock
+    }
+    Api ..> ItemUpdate
+    class WorkerCreate["WorkerCreate"] {
+        <<DTO>>
+        +str name
+        +str phone
+        +str skill
+    }
+    Api ..> WorkerCreate
+    class WorkerUpdate["WorkerUpdate"] {
+        <<DTO>>
+        +str name
+        +str phone
+        +str skill
+        +str status
+    }
+    Api ..> WorkerUpdate
+    class RepairCreate["RepairCreate"] {
+        <<DTO>>
+        +str house_no
+        +str content
+        +str contact_name
+        +str contact_phone
+        +str category
+        +str urgency
+        +str assignee
+        +str analysis
+    }
+    Api ..> RepairCreate
+    class RepairUpdate["RepairUpdate"] {
+        <<DTO>>
+        +str status
+    }
+    Api ..> RepairUpdate
+    class RecordCreate["RecordCreate"] {
+        <<DTO>>
+        +int worker_id
+        +float hours
+        +float labor_cost
+        +str note
+        +list~UsageIn~ items
+    }
+    Api ..> RecordCreate
+    class Repair["Repair · 报修工单"] {
+        <<entity>>
+        +int id «PK»
+        +int house_id «FK»
+        +int tenant_id «FK»
+        +str category
+        +str urgency
+        +str status
+        +… 另 6 列（见数据库设计书）
+        +to_dict(with_contact)
+    }
+    class RepairImage["RepairImage · 报修照片"] {
+        <<entity>>
+        +int id «PK»
+        +int repair_id «FK»
+        +… 另 2 列（见数据库设计书）
+    }
+    class RepairWorker["RepairWorker · 维修人员"] {
+        <<entity>>
+        +int id «PK»
+        +str status
+        +… 另 4 列（见数据库设计书）
+        +to_dict()
+    }
+    class RepairItem["RepairItem · 维修物品"] {
+        <<entity>>
+        +int id «PK»
+        +… 另 5 列（见数据库设计书）
+        +to_dict()
+    }
+    class RepairRecord["RepairRecord · 维修记录"] {
+        <<entity>>
+        +int id «PK»
+        +int repair_id «FK,UK»
+        +int worker_id «FK»
+        +… 另 5 列（见数据库设计书）
+        +/total_cost
+        +to_dict()
+    }
+    class RepairItemUsage["RepairItemUsage · 物品领用明细"] {
+        <<entity>>
+        +int id «PK»
+        +int record_id «FK»
+        +int item_id «FK»
+        +… 另 3 列（见数据库设计书）
+        +/amount
+        +to_dict()
+    }
+    class House["House · 房源（房源）"]
+    <<entity>> House
+    class User["User · 用户（账号与权限）"]
+    <<entity>> User
+    House "1" -- "0..*" Repair : house_id
+    User "0..1" -- "0..*" Repair : tenant_id
+    Repair "1" -- "0..*" RepairImage : repair_id
+    Repair "1" -- "0..1" RepairRecord : repair_id
+    RepairWorker "0..1" -- "0..*" RepairRecord : worker_id
+    RepairRecord "1" -- "0..*" RepairItemUsage : record_id
+    RepairItem "1" -- "0..*" RepairItemUsage : item_id

@@ -17,7 +17,7 @@
 
 ## 这里跑的是什么
 
-四个生成脚本的 `--check`。它们各自重新生成一遍，和已提交的文件比对：
+六个生成脚本的 `--check`。它们各自重新生成一遍，和已提交的文件比对：
 
 | 脚本 | 盯着 |
 |---|---|
@@ -25,6 +25,8 @@
 | `gen_db_xlsx.py --check` | 交付用数据库设计书与模型一致 |
 | `gen_api_list.py --check` | 概要设计的接口清单与模块统计表最新，**且正文引用的接口真的存在** |
 | `gen_db_doc.py`（比对模式） | 《数据库设计说明书》第三章与模型一致 |
+| `gen_diagrams.py --check` | 系统结构图、各模块类图、E-R 图与代码一致，PNG 由当前的源渲染 |
+| `gen_outline_docx.py --check` | 交付用的 Word 版概要设计与 .md 源、与图一致 |
 
 改了模型或路由之后，这几条会红。**红的时候不要改测试，去重跑生成脚本。**
 
@@ -34,6 +36,7 @@
 放在这里，改完模型跑一次 `python -m unittest discover -s tests -t .` 就会被提醒。
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -57,6 +60,11 @@ def run(script, *args):
     return done.returncode, (done.stdout or "") + (done.stderr or "")
 
 
+def _have(module):
+    """这个包装了没有。只看装没装，不导入——导入 openpyxl 要一百多毫秒。"""
+    return importlib.util.find_spec(module) is not None
+
+
 class TestGeneratedArtifactsAreFresh(unittest.TestCase):
 
     def test_build_scripts_match_the_models(self):
@@ -69,6 +77,18 @@ class TestGeneratedArtifactsAreFresh(unittest.TestCase):
         self.assertEqual(code, 0, output)
 
     def test_database_design_workbook_matches_the_models(self):
+        """交付用的 xlsx 与模型一致。
+
+        **没装 openpyxl 时跳过，而不是红。** 这条测的是「设计书有没有
+        和模型分叉」，缺一个生成器依赖跟那件事毫无关系；让它红的唯一
+        效果，是每个新 clone 下来的人都看到一条与自己无关的失败，
+        久而久之就学会了忽略红色。
+
+        但**跳过必须说清楚怎么补**，否则就成了另一种「跑绿了 ≠ 跑全了」。
+        """
+        if not _have("openpyxl"):
+            self.skipTest("没装 openpyxl，这条无法验证。"
+                          "补上：pip install -r scripts/requirements.txt")
         code, output = run("gen_db_xlsx.py", "--check")
         self.assertEqual(code, 0, output)
 
@@ -79,6 +99,44 @@ class TestGeneratedArtifactsAreFresh(unittest.TestCase):
         而正文里写了一条 404 的接口，是**在指着人往沟里走**。
         """
         code, output = run("gen_api_list.py", "--check")
+        self.assertEqual(code, 0, output)
+
+    def test_diagrams_match_the_code(self):
+        """类图、E-R 图、系统结构图必须和代码一致。
+
+        这一条是被一张手写的 ER 图逼出来的：它只画了 36 张表中的 22 张，
+        漏掉的 14 张在文档里躺了好几天——**图不会报错**。
+
+        `--check` 不渲染，只比 Mermaid 源与 PNG 的指纹，所以不需要
+        Node 与浏览器，任何一台机器都能跑。
+        """
+        code, output = run("gen_diagrams.py", "--check")
+        self.assertEqual(code, 0, output)
+
+    def test_outline_word_version_matches_the_source(self):
+        """交付的 Word 版概要设计必须和 .md 源一致。
+
+        原先没有这一条：.md 改了两轮，Word 版还停在旧的接口数与测试数上，
+        封面版本号也是写死在脚本里的 1.0.0。**交给评审的恰恰是 Word 版。**
+        """
+        if not (_have("docx") and _have("PIL")):
+            self.skipTest("没装 python-docx 或 Pillow，这条无法验证。"
+                          "补上：pip install -r scripts/requirements.txt")
+        code, output = run("gen_outline_docx.py", "--check")
+        self.assertEqual(code, 0, output)
+
+    def test_test_counts_in_the_manual_match_reality(self):
+        """《测试说明》里的用例清单与总数必须和真实用例数一致。
+
+        这一条是被三份文档各说一个数逼出来的：测试说明写 1193、
+        技术架构说明写 1,445、概要设计写 1,580，**实际是 1662**。
+        更难看的是那张表本身——同样七行被复制粘贴了四遍，
+        一直没人发现，因为没有人会去数一张五十行的表。
+
+        现在那一段由 `gen_test_counts.py` 生成，说明取自每个测试模块
+        自己的 docstring；加了测试文件却忘了更新文档，这条就会红。
+        """
+        code, output = run("gen_test_counts.py", "--check")
         self.assertEqual(code, 0, output)
 
     def test_database_doc_chapter_matches_the_models(self):

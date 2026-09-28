@@ -120,6 +120,13 @@ _STATUS_QUERY = [
     "到哪一步", "进度", "怎么样了", "怎样了", "受理了吗", "看了吗",
 ]
 
+# 问转人工**有多少**的也不是要转人工：管理员问「今天有多少转人工」，
+# 原先当场给他自己建了一张工单。只认数量词紧挨着「转人工」的说法——
+# 「帮我转人工，押金退多少我搞不清」里的「多少」说的是押金，照样要转。
+_COUNTING_HANDOFFS = re.compile(
+    r"(多少|几[个条张次]?)[^，,。！!？?]{0,4}转人工"
+    r"|转人工[^，,。！!？?]{0,4}(多少|几[个条张次])|统计[^，,。]{0,6}转人工")
+
 
 def wants_handoff(text):
     """用户是不是**要求**转人工（而不是在问已有工单的进度）。
@@ -130,7 +137,7 @@ def wants_handoff(text):
     否则问进度的人会白白多出一张工单。
     """
     raw = text or ""
-    if any(word in raw for word in _STATUS_QUERY):
+    if any(word in raw for word in _STATUS_QUERY) or _COUNTING_HANDOFFS.search(raw):
         return False
     return any(word in raw for word in _HANDOFF)
 

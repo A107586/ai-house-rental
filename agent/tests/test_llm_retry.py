@@ -252,3 +252,74 @@ class TestErrorMessage(RetryCase):
             with self.assertRaises(LLMUnavailable) as caught:
                 self.provider.complete("s", "u")
         self.assertNotIn("k", str(caught.exception).replace("大模型", ""))
+
+
+def _sent(call):
+    """从打桩的 urlopen 里取出实际发出去的请求体。"""
+    import json
+    request = call.call_args[0][0]
+    return json.loads(request.data.decode("utf-8"))
+
+
+class TestThinkingHeadroom(unittest.TestCase):
+    """会思考的模型把思考也算进 max_tokens。
+
+    工具选择器给 150、思考 512，实测 10 句里 4 句 content 为空——
+    「输出不是 JSON 对象」，整轮退回规则。余量由 provider 统一补上。
+    """
+
+    def make(self, headroom, effort=""):
+        return providers.OpenAICompatibleProvider(
+            api_key="k", base_url="https://example.com/v1", model="test",
+            timeout=1, max_tokens=64, thinking_headroom=headroom,
+            vision_reasoning_effort=effort)
+
+    def test_headroom_is_added_to_the_requested_budget(self):
+        with mock.patch("urllib.request.urlopen",
+                        return_value=FakeResponse(OK_BODY)) as call:
+            self.make(512).complete("s", "u", max_tokens=150)
+        self.assertEqual(_sent(call)["max_tokens"], 662)
+
+    def test_zero_headroom_changes_nothing(self):
+        """不思考的端点（DeepSeek 等）保持原来的预算。"""
+        with mock.patch("urllib.request.urlopen",
+                        return_value=FakeResponse(OK_BODY)) as call:
+            self.make(0).complete("s", "u", max_tokens=150)
+        self.assertEqual(_sent(call)["max_tokens"], 150)
+
+    def test_vision_with_thinking_turned_off_gets_no_headroom(self):
+        with mock.patch("urllib.request.urlopen",
+                        return_value=FakeResponse(OK_BODY)) as call:
+            self.make(512, effort="none").complete_vision(
+                "s", "u", ["data:image/png;base64,AA=="], max_tokens=120)
+        body = _sent(call)
+        self.assertEqual(body["max_tokens"], 120)
+        self.assertEqual(body["reasoning_effort"], "none")
+
+    def test_chat_sends_the_whole_dialogue(self):
+        with mock.patch("urllib.request.urlopen",
+                        return_value=FakeResponse(OK_BODY)) as call:
+            self.make(0).chat("s", [{"role": "user", "content": "a"},
+                                    {"role": "assistant", "content": "b"},
+                                    {"role": "user", "content": "c"}])
+        roles = [m["role"] for m in _sent(call)["messages"]]
+        self.assertEqual(roles, ["system", "user", "assistant", "user"])
+
+
+class TestBudgetWrapperForwardsEverything(unittest.TestCase):
+    """每轮套的截止时间外壳，原来只转发 complete / complete_json。
+
+    complete_vision 没转发，落到基类默认实现直接抛「没有识图能力」——
+    聊天里带照片报修，模型永远看不见照片。
+    """
+
+    def test_vision_and_chat_reach_the_inner_provider(self):
+        from app.llm import budget
+        inner = mock.Mock()
+        inner.available = True
+        inner.complete = lambda s, u, max_tokens=None, deadline=None: "x"
+        wrapped = budget.for_turn(inner, 30)
+        wrapped.complete_vision("s", "u", ["img"], max_tokens=120)
+        wrapped.chat("s", [{"role": "user", "content": "hi"}])
+        inner.complete_vision.assert_called_once()
+        inner.chat.assert_called_once()

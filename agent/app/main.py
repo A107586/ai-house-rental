@@ -18,12 +18,14 @@ from app.retrieval.tokenize import WORD_LEVEL
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
 from app.agents.describe import agent as describe
+from app.agents.describe.tools import caption
 from app.agents.handoff import agent as handoff
 from app.agents.property_finder import agent as property_finder
 from app.agents.property_finder.tools.parse_query import parse_query
 from app.agents.recommend import agent as recommend
 from app.agents.report import agent as report
 from app.agents.repair import agent as repair
+from app.agents.repair.tools import vision as repair_vision
 from app.agents.support import agent as support
 from app.agents.support.tools import actions
 from app.agents.support.tools import greeting
@@ -34,6 +36,7 @@ from app.agents.toolbox import catalog as tool_catalog
 from app.agents.toolbox import planner as tool_planner
 from app.agents.toolbox import runner as tool_runner
 from app.llm import budget as llm_budget
+from app.llm.base import LLMUnavailable
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.agents.support.tools import forms as support_forms
@@ -90,16 +93,81 @@ provider = build_provider(settings)
 # 默认是全局 provider：没有设过的调用方（其他端点）行为一点不变。
 _turn_llm = contextvars.ContextVar("turn_llm", default=None)
 
+# 这一轮之前的对话，**双方的话都在**（role = user / assistant）。
+#
+# 其余上下文都只存「用户说过的话」，那是给槽位重放用的——助手的话混进去
+# 会被当成条件解析（见 user_turns 的文档）。可「我上一条问了什么」
+# 「总结一下」「你刚才说的第二点什么意思」这类话，答案恰恰在助手说过的话里。
+# 原来没有任何一条路径拿得到它们，于是这些最平常的追问一律答「没太理解」。
+_turn_dialogue = contextvars.ContextVar("turn_dialogue", default=())
+# 本轮检索拒答时挨得最近的几条 FAQ 问题。对话兜底拿它提示用户「可以看看这几条」，
+# 见 _converse。
+_turn_related = contextvars.ContextVar("turn_related", default=())
+
+# 交给对话兜底的最近几条。再往前与当下基本无关，还白占上下文。
+DIALOGUE_KEEP = 16
+
+# 对话兜底至少要有这么多秒可用，见 _converse。开思考时一次回话实测 8–15 秒。
+CONVERSE_RESERVE = 15.0
+
 
 def _llm():
     """这一刻该用哪个 provider。"""
     return _turn_llm.get() or provider
 
 
+def _dialogue_from(stored, history):
+    """把后端存的会话记录（登录用户）或前端带上来的历史（未登录）统一成消息列表。"""
+    out = []
+    if stored:
+        for m in stored:
+            role = m.get("role")
+            if role in ("user", "assistant") and m.get("content"):
+                out.append({"role": role, "content": str(m["content"])[:600]})
+    else:
+        for item in (history or []):
+            if isinstance(item, dict):
+                role = item.get("role") or "user"
+                content = item.get("content") or ""
+            else:
+                role, content = "user", item
+            if role in ("user", "assistant") and content:
+                out.append({"role": role, "content": str(content)[:600]})
+    return tuple(out[-DIALOGUE_KEEP:])
+
+
 class SearchRequest(BaseModel):
     text: str
     page: int = 1
     limit: int = 10
+
+
+def user_turns(history):
+    """把 `history` 归一成「用户自己说过的话」。
+
+    这个字段的约定一直是**只放用户的话**，前端也确实只回传
+    `role === 'user'` 的那些。但约定是口头的，端上谁都能调这个接口，
+    而把问答交替地全传上来时，后果既严重又完全看不出来：
+    助手自己的回答会被当成用户的条件去解析。
+
+    实测过一次——助手说了句「2026-09 加入平台」「61 平」「平均 4.4」，
+    重放出来的槽位就成了「租价 9–2026 元、面积 51–70 平」，
+    下一句「还有更便宜的吗」于是答「建议把租价上限从 9 元提高一些」。
+    没有报错，没有告警，只有一句看不懂的回复。
+
+    纯字符串列表没法反推哪句是谁说的，所以这里不猜；
+    改成**也接受** `{"role": ..., "content": ...}` 这种带署名的条目，
+    带了署名就按署名筛。老的纯字符串调用方一个字都不用改。
+    """
+    out = []
+    for item in (history or []):
+        if isinstance(item, dict):
+            if (item.get("role") or "user") != "user":
+                continue
+            item = item.get("content") or ""
+        if isinstance(item, str) and item:
+            out.append(item)
+    return out
 
 
 class ChatRequest(BaseModel):
@@ -110,7 +178,8 @@ class ChatRequest(BaseModel):
     # 未登录用户由前端把自己说过的话带上来，换设备记不住而已。
     session_id: str = ""
     token: str = ""
-    history: list[str] = []
+    # 纯字符串就是用户说过的话；也接受 {"role","content"}，见 `user_turns`
+    history: list[str | dict] = []
     # 上一轮结果的房源编号，用于消解「第二套」「那套」这类指代。
     # **顺序必须和用户屏幕上看到的一致**：序号是双方唯一的共同坐标
     last_house_nos: list[str] = []
@@ -144,6 +213,9 @@ class RepairRequest(BaseModel):
     xingming: str = ""
     shouji: str = ""
     submit: bool = True
+    # 报修照片。只收 data URI 或本系统 /static/ 下的路径，
+    # 交给模型之前由 `vision.safe_images` 过一遍，理由见那个函数。
+    images: list[str] = []
 
 
 class RecommendRequest(BaseModel):
@@ -257,7 +329,11 @@ def agent_booking(payload: BookingRequest):
 
 @app.post("/agent/repair")
 def agent_repair(payload: RepairRequest):
-    """AI-04 报修工单智能分派。"""
+    """AI-04 报修工单智能分派。
+
+    带照片时先让模型把图片说成一句话，再走原来那套分派规则——
+    识图只负责「看见了什么」，不负责「判成哪一类、急不急」。
+    """
     return repair.run(
         payload.text,
         house_no=payload.house_no or None,
@@ -265,6 +341,8 @@ def agent_repair(payload: RepairRequest):
         provider=_llm(),
         backend=backend_client,
         submit=payload.submit,
+        images=repair_vision.safe_images(payload.images,
+                                         settings.backend_base_url),
     )
 
 
@@ -339,6 +417,37 @@ def agent_viewing_summary(payload: ViewingSummaryRequest):
 def agent_describe(payload: DescribeRequest):
     """AI-08 房源描述自动生成。"""
     return describe.run(payload.model_dump(), provider=_llm())
+
+
+class ImageCaptionRequest(BaseModel):
+    """给一张房源照片写图片说明。
+
+    只收一张：这条是房东在相册里点某一张图触发的，
+    一次传一叠再让他挨个核对，和让他自己写没什么区别。
+    """
+
+    # 本系统上传出来的 `/static/...` 路径，或者 data URI。
+    # 收敛规则见 `app/images.py`，外链一律丢弃
+    images: list[str] = []
+
+
+@app.post("/agent/image-caption")
+def agent_image_caption(payload: ImageCaptionRequest):
+    """看一张房源照片，写一句图片说明的**草稿**。
+
+    **只出草稿，不落库。** 图片说明是挂在房源上给租客看的公开文案，
+    和标题、描述一个性质；模型写完直接存等于替房东对外发布一句
+    他没看过的话。落库走后端的
+    `POST /api/houses/{house_no}/images/{id}/caption`，
+    在那里过内容审核，也在那里要求房东已经看过。
+
+    写不出来就回空串，前端显示「这次没写出来，可以再试一次」——
+    这条链路整体是纯增强，任何一环出问题都不该影响相册本身。
+    """
+    text = caption.draft(
+        repair_vision.safe_images(payload.images, settings.backend_base_url),
+        _llm())
+    return {"caption": text, "ok": bool(text)}
 
 
 class ReportRequest(BaseModel):
@@ -508,7 +617,9 @@ def agent_chat(payload: ChatRequest):
     if stored:
         past = [m["content"] for m in stored if m.get("role") == "user"]
     else:
-        past = list(payload.history or [])
+        past = user_turns(payload.history)
+    _turn_dialogue.set(_dialogue_from(stored, payload.history))
+    _turn_related.set(())
 
     # 历史槽位一律用规则重放，不为了重建上下文再调一遍大模型
     slots, feats = memory.replay(past)
@@ -598,9 +709,66 @@ def agent_chat(payload: ChatRequest):
     # 「第二笔」），语义只在待办的上下文里成立，单独交给模型
     # 挑工具必然挑错。
     plan_note = {}
-    if not (payload.pending or {}).get("action") and not (
-            payload.pending or {}).get("ask"):
+    pending = payload.pending or {}
+    # 待办挂着的时候，**先问一句：这句话是在回应它吗？**
+    #
+    # 原先是「有待办就跳过模型」——于是房东被问「要处理哪条预约」之后，
+    # 说「这个月我收了多少租金」「帮我提醒欠租的人」，全部只走规则、
+    # 被塞进预约编号那一格。是回应就照原流程接着办；不是就当新话题，
+    # 像平常一样让模型挑工具，待办留着等他回来。
+    # 只带 ask 不带 action 的是别的子智能体自己的追问，保持原样。
+    if pending.get("action"):
+        engaged = support.claims_pending(payload.text, pending)
+    else:
+        engaged = bool(pending.get("ask"))
+
+    # 整句寒暄、问「你会什么」——答案固定，**别先花 5 秒让模型挑工具**。
+    # 实测「谢谢」13.7 秒、「在吗」10.6 秒，全耗在选择器上。
+    quick = None if engaged else _small_talk(payload.text)
+    if quick:
+        if payload.session_id and payload.token:
+            backend_client.log_chat(payload.session_id, "user", payload.text,
+                                    payload.token, intent="support")
+            backend_client.log_chat(payload.session_id, "assistant", quick,
+                                    payload.token, intent="support")
+        reply = {"intent": "support", "status": "answered", "ok": True,
+                 "route": dict(routed, tool="small_talk"), "message": quick,
+                 "items": [], "alternatives": [], "route_source": "rules",
+                 "context_text": memory.describe(slots, feats)}
+        # 表单填到一半说句「谢谢」，待办不能就此丢了——前端拿不到 pending
+        # 就当事情已经结束，前面填的几项白填
+        if pending.get("action"):
+            reply["pending"] = pending
+        return reply
+
+    # 「刚才那几套里哪个最便宜」「这几套哪个采光好」——屏幕上有列表、问的是
+    # 列表里哪一套，答案直接从字段里算，**不必等模型**。实测机器忙、选择器超时的
+    # 那一轮，这句话掉进规则链路，被检索答成了「退租后没到期的账单还要交吗」。
+    listed = [n for n in (payload.last_house_nos or []) if n]
+    if not engaged and len(listed) >= 2 and _ASKS_WHICH_OF_LIST.search(payload.text or ""):
+        direct = tool_runner.direct_list_answer(
+            payload.text, memory.resolve_houses(payload.text, listed), listed,
+            _fetch_houses)
+        if direct:
+            return dict(direct, intent="support", status="answered", ok=True,
+                        route=dict(routed, tool="compare_houses", reason="列表里直接比"),
+                        route_source="rules", alternatives=[],
+                        context_text=memory.describe(slots, feats))
+
+    if not engaged:
         picked = _try_toolbox(payload, routed, slots, feats, plan_note)
+        if picked is not None and pending.get("ask") and not picked.get("pending"):
+            picked["pending"] = pending
+            picked["message"] = _with_pending_reminder(picked.get("message", ""),
+                                                       pending)
+        # **确认卡片也留着。** 原先只留追问：卡片挂着时问一句「可以养宠物吗」，
+        # 答完卡片就从待办里消失了——他再说「好的」，助手已经不记得要确认什么。
+        # 另起了一件新事（picked 自带 pending 或 action）就不留旧卡，免得两张卡打架。
+        elif (picked is not None and pending.get("card")
+              and not picked.get("pending") and not picked.get("action")):
+            picked["pending"] = pending
+            picked["message"] = _with_card_reminder(picked.get("message", ""),
+                                                    pending)
         if picked is not None:
             picked.setdefault("context_text", memory.describe(slots, feats))
             if payload.session_id and payload.token:
@@ -614,6 +782,42 @@ def agent_chat(payload: ChatRequest):
             return picked
 
     result = _dispatch(payload, routed, intent, slots, feats)
+
+    # **任何一条路最后落到「拒答」，都先让模型拿着对话正常回一句。**
+    #
+    # 找房、客服、代办各有自己的拒答出口，原来只有「意图不明」那一个
+    # 接了对话兜底；实测「合同期内我能涨房租吗」「帮我写一份退租申请书」
+    # 走的是客服分支，照样拿到一句「暂时没有查到相关规定，这个我不敢乱说」。
+    # 这里告诉模型「知识库查过、没依据」，它只会说没写到并建议转人工，
+    # 不会把常识说成平台规定。待办还挂着的轮次不动，免得冲掉那句「刚才办到哪了」。
+    # 待办挂着的也一样兜：实测房东在「要处理哪条预约」挂着时问「合同期内我能涨房租吗」
+    # 「帮我提醒欠租的人」，拿到的都是「不敢乱说」。待办原样留着、提醒照旧给。
+    if result.get("status") == "refused":
+        keep = result.get("pending")
+        talked = _converse(payload, routed, "检索没有依据，按对话回应",
+                           no_basis=True, related=result.get("alternatives"))
+        if talked is not None:
+            result = _keep_escape_hatches(talked, result)
+            if keep and keep.get("card"):
+                # 卡片没有「继续」可说，要么确认要么算了
+                result["pending"] = keep
+                result["message"] = _with_card_reminder(result["message"], keep)
+            elif keep:
+                result["pending"] = keep
+                result["message"] = _with_pending_reminder(result["message"], keep)
+                result["options"] = [{"value": "继续", "label": "继续刚才那件事"}]
+
+    # **这一句不是在回应待办、也没开出新的事，待办就原样留着。**
+    #
+    # 工具那条路上早就这么做了，规则这条路漏了：约看房的确认卡挂着时问
+    # 「明天天气怎么样」，走的是规则链路，答完卡片就没了——他接着说「算了」，
+    # 助手已经不知道要算了什么，当成一次新的「取消预约」去处理。
+    if (not engaged and pending.get("action") and not result.get("pending")
+            and not result.get("action")
+            and result.get("status") not in ("cancelled", "done", "confirm")):
+        result["pending"] = pending
+        remind = _with_card_reminder if pending.get("card") else _with_pending_reminder
+        result["message"] = remind(result.get("message", ""), pending)
 
     # 模型挑过但没被采信时，把它的结论留在 route 里。
     # **答辩要能当场说清「它为什么走了规则」**，而不是只看到一个结果
@@ -660,9 +864,181 @@ _SMALL_TALK = (
 )
 
 
+_CONVERSE_SYSTEM = """你是一个租房平台的智能助手，正在和用户对话。上面是你们之前的对话，最后一条是用户刚说的话。
+
+你能做的：
+- 回答关于这段对话本身的问题：用户上一条问了什么、你刚才说的是什么意思、把刚才的内容总结一下、刚才列出的几套房有什么区别。
+- 用户在抱怨、追问、嫌你回答草率时，认真回应：把刚才对话里已有的信息讲得更完整、更有条理。
+- 用户的意思不清楚时，说出你的理解并问一句确认。
+- 用户在抱怨、着急、生气时，先回应情绪，再给出能做的下一步（比如点「转人工」让管理员处理）。
+- 用户要一段文字（给房东的留言、申请书、情况说明），可以帮他起草，并说明这只是草稿、没有替他提交。
+- 寒暄、道谢之类正常回话。
+
+你（这个助手）自己能做的事——用户问「怎么操作」时，直接告诉他可以对你说哪句话，
+不要说「平台资料里没写」。**只说当前这个用户的身份能用的那几项**（身份见最后一行）：
+- 所有人：找房——直接说条件就行，比如「西岗区一室，两千以内，有电梯」，还能介绍、对比、看评价；
+- 租客：交房租、约看房、改约、取消预约、报修、续租、退租、收藏房源；
+- 房东：上架或下架房源、修改房源（例如「把 DL0023 的租金改成 2300」）、发布新房源、
+  确认或拒绝看房预约、给租客发起签约、给欠租的租客发催缴提醒、查定价参考；
+- 中介：查佣金、查代理的房源和带看记录、帮客户找房。
+代办都要先出确认卡片，用户点确认才执行。
+你做不到的（替用户打电话、改别人的数据、不属于他身份的操作），就直说做不到。
+
+绝对不能做的：
+- 不能编造对话里没出现过的具体信息：房源、价格、面积、评分、评价内容、账单金额、合同日期、平台规则和政策。对话里没有的，就直说「这个我需要去查」，并给出一句用户可以直接对我说的话，例如「帮我查我的账单」「介绍下第一套」「押金怎么退」。
+- 不能假装已经替用户办完了事（交费、预约、报修、签约都需要用户在界面上确认）。
+
+用中文回答，自然口语，一般 2 到 5 句。不要用表格，不要用标题。"""
+
+
+_NO_BASIS_HINT = """
+补充说明：刚才已经在平台知识库里查过用户这句话，**没有找到依据**。
+所以如果用户问的是规则、费用、责任划分、能不能这样做，你不能给出结论——
+哪怕你知道一般的做法，也不能说成平台的规定。说「没查到能直接回答这一点的规定」，
+**不要说成平台对这件事什么都没写**——常常是相关的条目在，只是没提到用户问的那个细节
+（比如问「逾期要交滞纳金吗」，逾期的后果写了，滞纳金没写）。
+建议用户点「转人工」问管理员；能给的只有换个说法再问的建议。
+如果用户要的是一段文字（给房东的留言、申请书之类），可以帮他起草，
+但要说明这只是草稿，没有替他提交任何东西。"""
+
+
+# 实测「楼上漏水把我家天花板泡了，怎么办」：闸门判没有依据（资料里没写楼上漏水
+# 谁负责），对话兜底只会说「资料里没写，转人工」。可知识库里明明有
+# 「什么算紧急报修」——漏水正是紧急报修，助手也能直接代办报修。
+# 把挨得最近的几条问题标题告诉模型：**只给标题，不给正文**，
+# 它拿不到可以当结论说的内容，只能用来指路。
+_RELATED_HINT = """
+知识库里挨得最近的几条问题是：%s。它们不一定就是用户问的这件事，**不能拿来下结论**；
+但如果对得上，可以建议用户点下面「猜你想问」里的那条看看，或者提醒他你能直接代办
+（比如报修、约看房、查账单）。"""
+
+
+# 问的是**自己手上那份合同写了什么**——这类才需要合同正文
+_ABOUT_MY_CONTRACT = re.compile(
+    r"我(的|这份|那份)?(合同|租约)|这份合同|合同(里|上|条款)|条款|有没有坑|审阅|帮我看看合同")
+
+
+_ROLE_NAMES = {"tenant": "租客", "landlord": "房东", "agent": "中介", "admin": "管理员"}
+
+
+def _converse(payload, routed, reason, no_basis=False, related=None):
+    """对话兜底：把完整对话交给模型，正常说话。
+
+    **只在其他路都接不住时才走到这里**——工具、规则、知识库检索都没给出答案。
+    原来这一步直接回「这个我没查到相关规定，也没太理解你想做什么」，
+    于是「我上一条问了什么」「你这太草率了，总结下呗」这种最普通的话，
+    用户得到的是一句机器味十足的拒绝。
+
+    编造风险由提示词里的硬约束挡：对话里没出现过的数字与规则一律不说，
+    改为告诉用户该怎么问。模型不可用时返回 None，调用方照旧给原来那句兜底。
+    """
+    turn = _llm()
+    # **整轮预算快见底时，给这一步单独留一小段。**
+    #
+    # 它总是排在最后：工具、规则、检索都试过了才轮到它。前面几次带思考的
+    # 调用加起来常常就把 30 秒用光——实测注入测试那句跑满 30.4 秒，
+    # 最后只剩一句「没太理解你想做什么」。这是用户**唯一**能拿到的一句话，
+    # 为它多等十几秒，比给一句死路强。
+    left = getattr(turn, "left", None)
+    if left is not None and left < CONVERSE_RESERVE:
+        turn = llm_budget.for_turn(provider, CONVERSE_RESERVE)
+    if turn is None or not getattr(turn, "available", False):
+        return None
+    messages = list(_turn_dialogue.get()) + [
+        {"role": "user", "content": payload.text}]
+    related = [t.get("title") if isinstance(t, dict) else t
+               for t in (related or _turn_related.get())]
+    related = [t for t in related if t]
+    try:
+        system = _CONVERSE_SYSTEM + (_NO_BASIS_HINT if no_basis else "")
+        # 不告诉它是谁，它会把房东的功能许给中介（实测：「带看完客户想签」
+        # 答「我可以帮你发起签约」，而中介账号发起不了）
+        system += "\n\n当前用户身份：%s。" % _ROLE_NAMES.get(
+            _whoami(payload.token)["role"], "未登录的访客")
+        if no_basis and related:
+            system += _RELATED_HINT % "、".join("「%s」" % t for t in related)
+        text = turn.chat(system, messages, max_tokens=400, temperature=0.3)
+    except LLMUnavailable:
+        return None
+    except Exception:                                        # noqa: BLE001
+        return None
+    text = (text or "").strip()
+    if not text:
+        return None
+    out = {"intent": "support", "status": "answered", "ok": True,
+           "message": text, "items": [], "alternatives": [],
+           "route": dict(routed or {}, tool="converse", reason=reason),
+           "route_source": "converse"}
+    if no_basis:
+        # 模型会说「可以点转人工」——那个按钮得真的在。
+        # 网页看 handoff 字段决定画不画，这里补上，和客服层拒答时一个形状。
+        out["status"] = "answered_no_basis"
+        out["handoff"] = {"question": payload.text, "reason": "知识库没有依据"}
+        if related:
+            out["alternatives"] = related
+    elif _COMPLAINT.search(payload.text or ""):
+        # 生气、投诉的人最需要的是能找到真人。
+        out["handoff"] = {"question": payload.text, "reason": "用户在投诉或抱怨"}
+    return out
+
+
+_COMPLAINT = re.compile(r"生气|投诉|不满|管不管|太差|气死|骗子|被骗|举报|不回我|没人管")
+
+
+def _with_card_reminder(message, pending):
+    """卡片还挂着时补一句。和追问不同，这里没有「继续」可说——
+    卡片本身就在上面，要么确认要么算了。"""
+    card = pending.get("card") or {}
+    return "%s\n\n（刚才那张「%s」确认卡还在：%s。要办就说「好的」或点卡片上的确认，不办就说「算了」。）" % (
+        message or "", card.get("label") or support._pending_label(pending),
+        (card.get("summary") or "").rstrip("。"))
+
+
+def _with_pending_reminder(message, pending):
+    """在回答后面补一句「刚才那件事还没办完」。
+
+    追问句本身常以问号结尾，直接接「。」会出现「要拍张照片吗？。」——
+    先把末尾标点剥掉再拼。
+    """
+    where = support._pending_where(pending).rstrip("。.!！?？ ")
+    return "%s\n\n（刚才的「%s」还没办完，%s。说「继续」就接着来。）" % (
+        message or "", support._pending_label(pending), where)
+
+
+def _keep_escape_hatches(talked, refused):
+    """对话兜底替掉了拒答的那句话，但拒答附带的出路要留着：
+    「猜你想问」和转人工按钮。用户正是答不上来的时候最需要它们。"""
+    for key in ("alternatives", "handoff", "log_id"):
+        if refused.get(key):
+            talked[key] = refused[key]
+    talked["status"] = "answered_no_basis"
+    return talked
+
+
+# 「你能帮我干什么」。知识库里有一条「智能客服能帮我做哪些事」，
+# 但实测这句话检索不中，回了一句「暂时没有查到相关规定」——
+# 用户第一次问助手会什么，助手说没查到。这件事答案是固定的，不必检索。
+_CAPABILITY = re.compile(
+    r"(你|您)?(都|还)?(能|可以|会)(帮我|帮忙|为我)?(做|干|办)(些|点)?(什么|啥|哪些)(事|事情)?(呀|啊|呢|吗)?|"
+    r"(你|您)(有|都有)(什么|哪些)(功能|本事|能力)|(你|您)是干(什么|啥)的")
+
+_CAPABILITY_REPLY = (
+    "我能帮你做这几类事：\n"
+    "· 找房：一句一句补条件就行（「中山区两室一厅」「三千以内」「近地铁」），"
+    "还能介绍某一套、看评价、对比两套；\n"
+    "· 查你自己的：账单、租约、看房预约、报修进度、收藏、浏览记录，"
+    "或者直接问「我还有什么没处理的」；\n"
+    "· 代你办：交房租、约看房、改约或取消、报修、续租、退租、收藏——"
+    "我会先把要办的事列成一张卡片，你点确认才执行；\n"
+    "· 房东还能查名下房源、谁约了看房、租客和收入，处理预约、上下架；\n"
+    "· 平台规则（押金、退租、水电、报修时限）按知识库回答，查不到会直说。")
+
+
 def _small_talk(text):
     """整句寒暄就回一句寒暄，返回 None 表示这不是寒暄。"""
     stripped = (text or "").strip().strip("。.!！~、,，?？ ")
+    if stripped and len(stripped) <= 14 and _CAPABILITY.fullmatch(stripped):
+        return _CAPABILITY_REPLY
     if not stripped or len(stripped) > 8:
         return None
     for pattern, reply in _SMALL_TALK:
@@ -689,10 +1065,30 @@ def _is_question(text):
     return bool(_ASKING.search(text or ""))
 
 
+# 问钱、问责任、问要多久——这类问题里常带着业务名词（维修、退租、押金），
+# 但要的是规矩，不是去办。
+#
+# 时长只认「多久/几天 + 能修好/来人」这种**问法**：光一个「几天」会把
+# 「空调坏了好几天了」这种正经报故障也拦成提问，报修单再也开不出来。
+_COST_OR_LIABILITY = re.compile(
+    r"谁出|谁付|谁负责|谁承担|谁来付|算谁的|多少钱|收费|要钱|扣多少|赔多少|费用(多少|怎么)"
+    r"|(多久|几天|多长时间)(才|能|会|可以)?(修|来|到|处理|上门|好|有人)")
+
+
 # 指向「住处」的名词。意图词表认不出的说法太多，但只要句子里出现
 # 这些词，再配上任意一个解析出来的找房条件，就不会是别的意思。
 # 「房租」「房东」不在内——它们含「房」字，说的却不是住处本身。
 _HOUSE_NOUN = re.compile(r"房子|房源|房屋|有什么房|有房|住处|住的地方|公寓|单间")
+
+# 只在**某一套房的范围内**才讲得通的问题。
+#
+# 「周边有什么」「几楼」「朝向」——这些问的是一套具体的房子。
+# 没有任何房源在场时它们答不了，而**答不了要说答不了**：
+# 实测路由器把「周边有什么」当成了要推荐（它认「有什么」这个词），
+# 于是推了六套房，用户会以为那是他问的那套房的周边配套。
+_HOUSE_SCOPED = re.compile(
+    r"周边|附近|几楼|楼层|朝向|采光|电梯|阳台|家具|宠物|做饭|开火|"
+    r"押金多少|租金多少|多少钱一个月|这套|那套")
 
 # 「找一个 / 想租 / 有没有」这类**要东西的说法**。和上面的名词是一对：
 # 「我想找个两室」里没有「房」字，可它和「中山区的房子」一样确定。
@@ -717,8 +1113,27 @@ _WANT_RECOMMEND = ("推荐", "有什么合适", "有合适的", "帮我挑", "�
                    "给我挑", "有没有好的", "有啥好", "介绍几套", "看看有什么")
 
 
+# 「推荐」后面跟的**明显不是房子**的东西。
+#
+# `_WANT_RECOMMEND` 只认「推荐」两个字，而这个兜底挂在「客服检索
+# 答不上来」之后——于是任何它答不上、又恰好带「推荐」的句子都会
+# 拿到六套房。实测「帮我推荐几只股票」就是这么变成房源推荐的：
+# 规则判 unknown 0.0、模型明写「与租房平台业务无关」，两边都对，
+# 却被这一行兜底推翻。
+#
+# **答非所问比说「不知道」更糟**——用户问股票拿到房子，会以为
+# 这个助手连中文都没读懂。这条兜底的本意是接住「帮我挑一套」，
+# 不是接住所有带「推荐」的话。
+_NOT_HOUSE = ("股票", "基金", "理财", "彩票", "电影", "电视剧", "音乐",
+              "歌", "书", "餐厅", "饭店", "菜", "外卖", "旅游", "景点",
+              "酒店", "手机", "电脑", "车", "医生", "医院挂号", "学校报名")
+
+
 def _wants_recommendation(text):
-    return any(word in (text or "") for word in _WANT_RECOMMEND)
+    body = text or ""
+    if any(word in body for word in _NOT_HOUSE):
+        return False
+    return any(word in body for word in _WANT_RECOMMEND)
 
 
 def _recommend(payload, routed, slots, feats):
@@ -751,6 +1166,25 @@ def _serve(decision, payload, routed):
         }
 
     if name == "recommend_house":
+        # **「周边有什么」这类问的是某一套房，不是要推荐。**
+        #
+        # 路由器把「有什么」当成了要推荐的信号（它的描述里写着
+        # 「问有什么合适的」），于是用户指着一套房问周边配套，
+        # 拿到的是六套别的房子。实测：列表为空时问「周边有什么」，
+        # 系统推了 6 套房，用户以为自己问的那套房周边有这六样东西。
+        #
+        # 这类问题该落在 house_detail 上；落不到（没有任何房源在场）
+        # 时正确的回答是问他指哪一套，而不是拿推荐去填这个空。
+        if (_HOUSE_SCOPED.search(payload.text or "")
+                and not (getattr(payload, "house_no", "")
+                         or payload.last_house_nos)):
+            return {
+                "intent": "support", "status": "answered", "ok": True,
+                "route": routed, "route_source": decision["source"],
+                "alternatives": [],
+                "message": "你想问哪一套的情况？先告诉我条件我帮你找几套，"
+                           "或者直接说房源编号（比如 DL0007）。",
+            }
         # AI-07。推荐读的是「这个人」的足迹与收藏，没令牌就没画像，
         # 此时 recommend.run 自己会返回 fallback 文案，不用在这里判。
         result = recommend.run(token=payload.token, limit=6,
@@ -839,14 +1273,25 @@ def _no_reference(routed, decision, what):
 
 def _out_of_range(routed, decision, count):
     """用户说了个不存在的序号。**要说清楚有几套**——
-    回一句「没听懂」会让人以为是自己表达有问题，其实是数字超了。"""
+    回一句「没听懂」会让人以为是自己表达有问题，其实是数字超了。
+
+    `count == 0` 要单独说。套用同一句模板会生成「说个 1 到 0 之间的
+    序号」——**这比「没听懂」更让人困惑**，因为它听起来像个正经指令，
+    用户会真的去想 1 到 0 之间是什么。这一支恰恰不是「序号超了」，
+    是**还没有列表**，该给的引导也完全不同。
+    """
+    if count <= 0:
+        message = ("我还没给你列过房源，所以没有「第几套」可以指。"
+                   "先说说你想要什么样的房子，比如「中山区两室一厅三千以内」。")
+    else:
+        message = ("这一组我只列了 %d 套，没有你说的那一套。"
+                   "说个 1 到 %d 之间的序号，或者说「再多看几套」。"
+                   % (count, count))
     return {
         "intent": "support", "status": "answered", "ok": True,
         "route": routed, "route_source": decision["source"],
         "alternatives": [],
-        "message": ("这一组我只列了 %d 套，没有你说的那一套。"
-                    "说个 1 到 %d 之间的序号，或者说「再多看几套」。"
-                    % (count, count)),
+        "message": message,
     }
 
 
@@ -862,7 +1307,20 @@ def _describe_house(payload, routed, decision):
     if not rows:
         return _no_reference(routed, decision, "介绍")
 
-    message, data = pitch.describe(backend_client, rows[0])
+    # 先看这句话是不是在问某个**具体条件**（能养宠物吗、有电梯吗、
+    # 周边有什么）。是的话就回答那一条——`pitch.describe()` 只看房源、
+    # 不看问题，所以这类是非题会统统拿到同一段推销词，用户看不出
+    # 自己的问题有没有被回答，只能再问一遍。
+    direct = pitch.answer_attribute(rows[0], payload.text)
+    if direct:
+        # 答「没有标注」时顺手给条出路：整站有别的房子符合，
+        # 不然用户只知道这套不行，不知道下一步该干什么。
+        tail = ""
+        if "没有标注" in direct:
+            tail = " 想看有这个条件的房子，直接跟我说，我帮你筛。"
+        message, data = direct + tail, {"house": rows[0]}
+    else:
+        message, data = pitch.describe(backend_client, rows[0])
     return {
         "intent": "support", "status": "answered", "ok": True,
         "route": routed, "route_source": decision["source"],
@@ -914,6 +1372,10 @@ def _compare_houses(payload, routed, decision):
     """对比两套。序号解析不出第二套时，默认拿列表前两条。"""
     nos = [n for n in (payload.last_house_nos or []) if n]
     picked = memory.resolve_houses(payload.text, nos)
+    direct = tool_runner.direct_list_answer(payload.text, picked, nos, _fetch_houses)
+    if direct:
+        return dict(direct, intent="support", status="answered", ok=True,
+                    route=routed, route_source=decision["source"], alternatives=[])
     if len(picked) < 2:
         picked = nos[:2]
     rows = _fetch_houses(picked[:3])
@@ -921,6 +1383,7 @@ def _compare_houses(payload, routed, decision):
         return _no_reference(routed, decision, "对比")
 
     message, data = pitch.compare(backend_client, rows)
+    message = tool_runner.distance_note(payload.text, rows) + message
     return {
         "intent": "support", "status": "answered", "ok": True,
         "route": routed, "route_source": decision["source"],
@@ -982,6 +1445,13 @@ def _whoami(token):
 MIN_CONFIDENCE = 0.6
 
 
+# 问的是**列表里哪一套**：「这几套哪个最便宜」「第一套和第二套哪个采光好」
+_ASKS_WHICH_OF_LIST = re.compile(r"哪(个|套|一套|间)|这几套|那几套|刚才那几|第.{1,3}套和")
+
+# 问的是「这个词什么意思 / 规则怎样」，不是在加筛选条件
+_ASKS_MEANING = re.compile(r"什么意思|是什么|啥意思|怎么|为什么|如何|区别|能不能|可以吗|合法|规定")
+
+
 def _try_toolbox(payload, routed, slots, feats, decision_cache):
     """G1：先让大模型挑工具。挑不出或不采信时返回 None，退回规则链路。
 
@@ -1005,20 +1475,63 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
         logged_in=who["logged_in"], role=who["role"],
         house_no=payload.house_no,
         last_house_nos=list(payload.last_house_nos or []),
-        context_text=memory.describe(slots, feats))
+        context_text=memory.describe(slots, feats),
+        dialogue=list(_turn_dialogue.get())[-4:])
     decision_cache["plan"] = plan
 
     name = plan["tool"]
     if name == "none" or plan["confidence"] < MIN_CONFIDENCE:
         return None
 
+    # 「押一付三的呢」——正在找房，这句话里又解析得出一个找房条件，就是在改条件。
+    # 实测选择器挑了 converse，回了一句「你确认一下，我按这个条件再帮你搜？」；
+    # 他要的就是搜。条件是规则解析出来的，确定性的，不必再问模型一遍。
+    # 挑成 knowledge 也一样（「押一付三」恰好是知识库里的词）；
+    # 但「押一付三是什么意思」是真在问规则，不能改。
+    if (name in ("converse", "knowledge") and slots
+            and not _ASKS_MEANING.search(payload.text or "")
+            and memory.parse_query(memory.strip_negated(payload.text))["filters"]):
+        plan = dict(plan, tool="search_houses", params={},
+                    why="选中了%s，但句子里有找房条件且正在找房，改为找房" % name)
+        name = "search_houses"
+        decision_cache["plan"] = plan
+
+    if name == "converse":
+        # 接不住（模型不可用、没说出话）就退回规则，和其他工具同一个约定
+        return _converse(payload, routed, tool_planner.describe(plan))
+
     tool = tool_catalog.BY_NAME.get(name) or {}
+
+    # 「提醒我交房租」——选择器常挑 pay_bill。他要的是欠多少、哪天到期，
+    # 不是现在就付；按查账单处理（规则那一路由 actions.detect 同样放过）。
+    if name == "pay_bill" and support_actions.reminds_me(payload.text):
+        name, tool = "my_bills", tool_catalog.BY_NAME["my_bills"]
+        plan = dict(plan, tool=name, params={},
+                    why="选中了缴费，但用户是要提醒，改为查账单")
+        decision_cache["plan"] = plan
 
     # 写操作**一步都不执行**，转成已有的两阶段确认卡片。
     # 这一层只负责说「他想做的是 book_viewing」，卡片长什么样、
     # 缺哪个槽位要追问、参数能不能过白名单、最后谁去调后端，
     # 全在原来那条路径上，一行没动。
     if tool.get("kind") == "write":
+        # **疑问句护栏，与 support_router 里那一道同一个理由。**
+        #
+        # 那道护栏只装在老路由上，模型选择器这条新路没有——实测
+        # 房东问「租客说热水器坏了，维修费谁出」，选择器挑了 submit_repair，
+        # 直接弹出一张报修卡。提问被当成指令的代价是不对称的：
+        # 多一张确认卡是惊吓，手滑点了是真的去办。
+        if (not support_actions.detect(payload.text)
+                and support_actions.asks_rather_than_requests(payload.text)):
+            plan = dict(plan, why="选中了%s，但句子是提问，改为知识型" % name)
+            decision_cache["plan"] = plan
+            answered = _knowledge(payload, routed, plan)
+            if answered is not None:
+                return answered
+            # 知识库没依据就直接对话兜底。**别退回规则**——规则链路会把
+            # 检索和闸门整套再跑一遍，实测「帮我写一份退租申请书」两轮检索
+            # 耗满 30 秒预算，轮到对话兜底时已经没时间了。
+            return _converse(payload, routed, plan["why"], no_basis=True)
         routed = dict(routed, intent="support", tool=name,
                       reason=tool_planner.describe(plan))
         return _support_action(payload, routed, tool["action"], plan)
@@ -1032,6 +1545,13 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
         answered = _knowledge(payload, routed, plan)
         if answered is not None:
             return answered
+        # 选择器有把握说这是规则问题、知识库又答不上时，直接对话兜底。
+        # 退回规则链路的话，规则会按关键词再判一次——实测房东问
+        # 「租客说热水器坏了，维修费谁出」，选择器判对了（knowledge，0.95），
+        # 退回去之后被规则的「坏了」判成报修，开了一张报修单。
+        if plan.get("confidence", 0) >= 0.85:
+            return _converse(payload, routed, tool_planner.describe(plan),
+                             no_basis=True)
         return None
 
     ctx = {
@@ -1074,7 +1594,7 @@ def _knowledge(payload, routed, plan):
     """走知识检索。路由结论由工具选择器给，不再单独问一次模型。"""
     result = support.run(
         payload.text, token=payload.token,
-        history=list(payload.history or []),
+        history=user_turns(payload.history),
         provider=_llm(), backend=backend_client,
         settings=settings, house_no=payload.house_no or None,
         house_nos=payload.last_house_nos,
@@ -1088,6 +1608,7 @@ def _knowledge(payload, routed, plan):
     # **闸门拒答时不要硬吞。** 退回去让规则链路再试一次：
     # 它的检索通道和这里是同一套，但意图分流不同，偶尔能捞回来
     if result.get("status") not in ("answered", "account"):
+        _turn_related.set(tuple(result.get("alternatives") or ()))
         return None
     result["route"] = dict(routed, intent="support", tool="knowledge",
                            reason=tool_planner.describe(plan))
@@ -1111,7 +1632,7 @@ def _support_action(payload, routed, action, plan):
 
     result = support.run(
         payload.text, token=payload.token,
-        history=list(payload.history or []),
+        history=user_turns(payload.history),
         provider=_llm(), backend=backend_client,
         settings=settings, house_no=house_no or payload.house_no or None,
         house_nos=payload.last_house_nos,
@@ -1148,7 +1669,7 @@ def _dispatch(payload, routed, intent, slots, feats):
     if resolved_house is memory.OUT_OF_RANGE:
         resolved_house = None
     decision = support_router.route(text, provider=_llm(),
-                                    history=list(payload.history or []),
+                                    history=user_turns(payload.history),
                                     pending=payload.pending)
 
     # 上一轮的代办还没做完时，这一句多半是在回答助手的追问（「都可以」
@@ -1210,7 +1731,7 @@ def _dispatch(payload, routed, intent, slots, feats):
             (decision["kind"] in (support_router.KIND_ACTION,
                                   support_router.KIND_QUERY) or pending_action)):
         result = support.run(text, token=payload.token,
-                             history=list(payload.history or []),
+                             history=user_turns(payload.history),
                              provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              house_nos=payload.last_house_nos,
@@ -1249,8 +1770,11 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 前端显示成「智能体暂时联系不上」。
         # 单元测试没能发现，是因为它们直接测 `understand()` 与 `run()`，
         # 没有任何一条走过 `_dispatch`。补的回归测试见 test_dispatch.py。
+        # 解析的是**去掉否定那几截之后**的话：「不用两室一厅，三室的有吗」
+        # 整句去解析，户型取到的是被否定的两室一厅
         cur_filters, cur_features, source, divergence = \
-            property_finder.understand(text, provider=_llm())
+            property_finder.understand(memory.strip_negated(text) or text,
+                                       provider=_llm())
         merged, features, notes = memory.apply_turn(
             slots, feats, text, filters=cur_filters, feats=cur_features)
 
@@ -1301,7 +1825,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # **真的在找房、只是没说清条件的人不受影响**。
         if result.get("status") == "unparsed" and _is_question(text):
             asked = support.run(text, token=payload.token,
-                                history=list(payload.history or []),
+                                history=user_turns(payload.history),
                                 provider=_llm(), backend=backend_client,
                                 settings=settings, house_no=resolved_house)
             if asked.get("status") == "answered":
@@ -1312,6 +1836,11 @@ def _dispatch(payload, routed, intent, slots, feats):
         result["context"] = merged
         result["context_text"] = memory.describe(merged, features)
         result["notes"] = notes
+        # 认不出区名要说在正文里——实测「公司在高新园区」只得到一句
+        # 「没有找到符合条件的房源」，看不出是卡在了区名上
+        unknown = [n for n in notes if memory.speaks_up(n)]
+        if unknown:
+            result["message"] = " ".join(unknown) + " " + (result.get("message") or "")
         result["page"] = page
         if page > 1 or run_out:
             # 追加而不是另起一列。**序号必须接着数下去**——
@@ -1353,7 +1882,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 的用户会被莫名其妙地支去点审阅按钮。先让检索试一次，
         # 答得上来就答，答不上来才是真的需要正文。
         result = support.run(text, token=payload.token,
-                             history=list(payload.history or []),
+                             history=user_turns(payload.history),
                              provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              pending=payload.pending)
@@ -1364,6 +1893,14 @@ def _dispatch(payload, routed, intent, slots, feats):
                                     "need_slot", "need_login"):
             result["route"] = routed
             return result
+        # 「去合同页点智能审阅」只回给**问自己那份合同条款**的人。
+        # 实测「最短能租几个月」「带看完客户想签，怎么操作」都被支去点审阅，
+        # 他们手上根本没有要审的合同。
+        if not _ABOUT_MY_CONTRACT.search(text):
+            talked = _converse(payload, routed, "合同类问题检索无依据",
+                               no_basis=True, related=result.get("alternatives"))
+            if talked is not None:
+                return _keep_escape_hatches(talked, result)
         return {
             "intent": "contract", "status": "need_content", "ok": False,
             "route": routed, "alternatives": result.get("alternatives", []),
@@ -1396,12 +1933,30 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 类别。这时让检索先试一次；检索答不上来，照旧走报修流程，
         # 所以**「洗衣机坏了」这类归不了类的真故障也不会被吞掉**。
         probe = repair.run(text, provider=None, submit=False)
-        if (probe.get("category") or "其他") == "其他" and _is_question(text):
+        # **故障归得进类，也可能是在问钱和责任。**
+        #
+        # 实测房东问「租客说热水器坏了，维修费谁出」：「热水器坏了」归得进
+        # 电器类，于是上面那条「归不了类才先问知识库」放过了它，直接开了
+        # 一张报修单，还追问要不要拍照。问的是谁掏钱，不是要报修。
+        # 「水管漏水了怎么办」这种真在报故障的不受影响——它问的是怎么办，
+        # 不是钱、责任、时长。
+        asks_terms = bool(_COST_OR_LIABILITY.search(text)) and \
+            not support_actions.detect(text)
+        if ((probe.get("category") or "其他") == "其他" and _is_question(text)) \
+                or asks_terms:
             asked = support.run(text, token=payload.token,
-                                history=list(payload.history or []),
+                                history=user_turns(payload.history),
                                 provider=_llm(), backend=backend_client,
                                 settings=settings, house_no=resolved_house)
             if asked.get("status") == "answered":
+                asked["route"] = routed
+                return asked
+            if asks_terms:
+                talked = _converse(payload, routed, "问的是费用或责任，不开报修单",
+                                   no_basis=True, related=asked.get("alternatives"))
+                if talked is not None:
+                    return _keep_escape_hatches(talked, asked)
+                # 模型也用不上时，给知识库那句拒答（带转人工），**仍然不开报修单**
                 asked["route"] = routed
                 return asked
 
@@ -1422,7 +1977,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # AI-03。统一入口同样要把令牌带下去——用户在对话里问
         # 「我还欠多少房租」，走的是同一个入口。
         result = support.run(text, token=payload.token,
-                             history=list(payload.history or []),
+                             history=user_turns(payload.history),
                              provider=_llm(), backend=backend_client,
                              settings=settings)
         result["route"] = routed
@@ -1456,7 +2011,7 @@ def _dispatch(payload, routed, intent, slots, feats):
                 and not (result.get("parsed") or {}).get("matched")
                 and _is_question(text)):
             asked = support.run(text, token=payload.token,
-                                history=list(payload.history or []),
+                                history=user_turns(payload.history),
                                 provider=_llm(), backend=backend_client,
                                 settings=settings, house_no=resolved_house)
             if asked.get("status") == "answered":
@@ -1486,7 +2041,7 @@ def _dispatch(payload, routed, intent, slots, feats):
         # 这一步把客服变成了整个对话入口的兜底通道：**能答的答上，
         # 答不上的给「猜你想问」和转人工**，而不是把用户丢在原地。
         result = support.run(text, token=payload.token,
-                             history=list(payload.history or []),
+                             history=user_turns(payload.history),
                              provider=_llm(), backend=backend_client,
                              settings=settings, house_no=resolved_house,
                              pending=payload.pending)
@@ -1498,7 +2053,14 @@ def _dispatch(payload, routed, intent, slots, feats):
                 picked = _recommend(payload, routed, slots, feats)
                 if picked is not None:
                     return picked
-            # 连检索都没依据，这才是真的没听懂。此时把找房与预约的
+            # 工具、规则、检索都接不住。这一步之前直接回「没太理解」，
+            # 现在先让模型拿着完整对话正常说话——它答得出的是对话层面的事
+            # （回顾、总结、澄清），答不出的也会告诉用户怎么问。
+            talked = _converse(payload, routed, "规则与检索都未命中，按对话回应",
+                               no_basis=True, related=result.get("alternatives"))
+            if talked is not None:
+                return _keep_escape_hatches(talked, result)
+            # 连模型也用不上，这才是真的没听懂。此时把找房与预约的
             # 例句一并给出——用户多半是想用这两个功能但没说对话。
             result["message"] = (
                 "这个我没查到相关规定，也没太理解你想做什么。"

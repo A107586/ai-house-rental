@@ -675,9 +675,23 @@ def main():
         _seed_support_logs(session, tenants, random)
 
         available = sum(1 for h in houses if h.status == "available")
+
+        # 汇总里的数**从库里数**，不在这里手算。原先有几项是写死的或只数了一半：
+        # 用户数漏了中介、「已结束租约 2 份」而库里有 106 份（评价演示铺的历史租约）、
+        # 「房源图片 14 张，每套 3 张」数的是图片文件而不是相册记录——
+        # 《数据库设计说明书》的演示数据一节照着这段输出抄，跟着一起错了。
+        def count(model, *where):
+            stmt = select(model)
+            for cond in where:
+                stmt = stmt.where(cond)
+            return len(session.scalars(stmt).all())
+
+        roles = {role: count(User, User.role == role)
+                 for role in ("admin", "landlord", "tenant", "agent")}
         print("\n完成：")
-        print("  用户 %d 个（管理员 1、房东 %d、租客 %d）"
-              % (1 + len(landlords) + len(tenants), len(landlords), len(tenants)))
+        print("  用户 %d 个（管理员 %d、房东 %d、租客 %d、中介 %d）"
+              % (sum(roles.values()), roles["admin"], roles["landlord"],
+                 roles["tenant"], roles["agent"]))
         print("  房源 %d 套，其中可租 %d 套" % (len(houses), available))
         print("  客服知识条目 %d 条（AI-03 检索语料）" % faq_count)
         print("  看房预约 %d 条，报修工单 %d 条（已结案 %d 条）"
@@ -686,8 +700,10 @@ def main():
         print("  维修人员 %d 人，维修物品 %d 种" % (len(workers), len(items)))
         print("  待复核内容 1 条")
         print("  浏览足迹 7 条、收藏 2 条（供推荐功能演示）")
-        print("  已结束租约 2 份，其中 1 份已评价、1 份待评价")
-        print("  房源图片 %d 张，每套 3 张" % len(photos))
+        print("  已结束租约 %d 份（其中大部分是给评价演示铺的历史租约）"
+              % count(Contract, Contract.status == "ended"))
+        print("  房源相册 %d 条（%d 张图片文件轮换，每套 3 张）"
+              % (count(HouseImage), len(photos)))
         print("\n  管理员账号 admin / admin123")
         print("  房东账号   landlord1 / test123")
         print("  租客账号   tenant1 / test123")

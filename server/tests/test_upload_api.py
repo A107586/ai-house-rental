@@ -294,7 +294,10 @@ class TestManagedUrlRejectsTraversal(ApiTestCase):
         for url in ("/static/uploads/../../../etc/passwd",
                     "/static/uploads/202609/../../seed.py",
                     "/static/uploads/%2e%2e/%2e%2e/seed.py",
-                    "/static/uploads/..\..\seed.py",
+                    # 反斜杠那条要写成 raw：`"\."` `"\s"` 都不是合法转义，
+                    # 现在只是告警、照旧当字面量，但**将来的 Python 会直接
+                    # 报 SyntaxError**，整个文件都加载不了
+                    r"/static/uploads/..\..\seed.py",
                     "/static/uploads/202609/a.png\x00.txt",
                     "/static/uploads/202609/a\npng"):
             self.assertFalse(uploads.is_managed(url), url)

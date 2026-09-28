@@ -53,6 +53,7 @@ ACTION_RULES = (
     ("POST", r"^/api/contracts/[^/]+/renew$", "办理续租"),
 
     ("POST", r"^/api/bills/[^/]+/pay$", "缴纳账单"),
+    ("POST", r"^/api/landlord/tenants/\d+/remind$", "催缴提醒租客"),
 
     ("POST", r"^/api/repairs$", "提交报修"),
     ("PATCH", r"^/api/repairs/", "处理报修工单"),

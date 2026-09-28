@@ -34,19 +34,41 @@ CLEAR_TARGETS = {
     "区域": ("suozaidiqu",),
     "地区": ("suozaidiqu",),
     "类型": ("fangyuanleixing",),
+    "付款": ("yajin_yue", "fukuan_yue"),
+    "押几付几": ("yajin_yue", "fukuan_yue"),
 }
-CLEAR_PREFIX = ("不限", "不管")
+# 「取消区域限制」「去掉租金」也是整字段取消。原先只认「不限 / 不管」，
+# 这句话什么都没清，后面几轮一直带着中山区，怎么找都是 0 套。
+CLEAR_PREFIX = ("不限", "不管", "取消", "去掉", "删掉")
 CLEAR_SUFFIX = ("不限", "都行", "无所谓", "随便")
+
+# 「不用两室一厅」这类：否定的是**具体的值**，不是「户型」两个字，
+# 所以 CLEAR_TARGETS 那张表一条都命中不了。更糟的是 parse_query 照样
+# 从这句里解析出 fangwuhuxing=两室一厅——**用户说不要，系统反而给设上了**。
+NEGATE_WORDS = ("不用", "不要", "不想要", "不考虑", "去掉", "取消", "别找")
+
+# 「找其他地区」「换个地区」「别的区域」不是地名，是「把区域这个条件去掉」。
+# 而 parse_query 的通用兜底是「两到四个汉字 + 区/县/市」，会把它们整段
+# 当成区名吃进去，于是回一句「区域改为 找其他地区。」
+_OTHER_AREA = re.compile(
+    r"(?:其他|其它|别的|另外|另一个|换个|换一个|换)\s*(?:地区|区域|区|城区)")
 
 # 相对调整的触发词
 RELATIVE_RULES = (
     # 「有点贵」不能漏：口语里嫌贵，说「有点贵」的比说「太贵」的更多。
     # 注意它不会误撞 pricier 的「贵点」——那是「贵」在前、「点」在后。
-    ("cheaper", ("再便宜", "便宜点", "便宜一点", "便宜些", "低一点", "低点",
-                 "少一点", "降一点", "预算紧", "太贵", "有点贵", "贵了")),
-    ("pricier", ("贵一点", "贵点", "高一点", "好一点的", "档次高", "太便宜")),
-    ("bigger", ("大一点", "大点", "大些", "宽敞", "再大", "太小")),
-    ("smaller", ("小一点", "小点", "紧凑", "再小", "太大")),
+    #
+    # 「更X」这一组是长对话测试补的：24 轮那个剧本里用户说
+    # 「还有更便宜的吗」，表里一条都没命中——`zujia_max` 纹丝不动，
+    # 系统把上一轮那套 2950 元的又端了回来。**「更便宜」不含
+    # 「再便宜」也不含「便宜点」**，字面上确实一个都对不上。
+    ("cheaper", ("再便宜", "更便宜", "便宜点", "便宜一点", "便宜些",
+                 "低一点", "低点", "少一点", "降一点", "预算紧",
+                 "太贵", "有点贵", "贵了")),
+    ("pricier", ("贵一点", "贵点", "更贵", "高一点", "好一点的",
+                 "档次高", "太便宜")),
+    ("bigger", ("大一点", "大点", "更大", "大些", "宽敞", "再大", "太小")),
+    ("smaller", ("小一点", "小点", "更小", "紧凑", "再小", "太大")),
 )
 
 # 每次相对调整的幅度。等比而非固定值：预算 2000 和 20000 的用户，
@@ -78,11 +100,78 @@ def clears(text):
             continue
         index = text.index(word)
         before = text[max(0, index - 2):index]
-        after = text[index + len(word):index + len(word) + 3]
+        # 「付款方式不限」「区域条件无所谓」：字段名和「不限」之间常夹一个虚的名词
+        after = re.sub(r"^(方式|条件|要求|限制|方面|的)+", "",
+                       text[index + len(word):])[:3]
         if any(before.endswith(p) for p in CLEAR_PREFIX) \
                 or any(after.startswith(s) for s in CLEAR_SUFFIX):
             hit.update(fields)
+
+    # 「找其他地区」= 把区域条件去掉，不是一个叫「其他地区」的区。
+    if _OTHER_AREA.search(text):
+        hit.update(CLEAR_TARGETS["区域"])
+
+    # 「不用两室一厅」：否定词后面那截**本身就是一个值**，见 negated_values
+    hit.update(negated_values(text).keys())
     return hit
+
+
+# 否定只管到下一个标点。「不要太贵的，三千以内」里被否定的是「太贵的」，
+# 不是「三千以内」——原先一路解析到句尾，把用户刚设的租金上限一起清掉了。
+_SEGMENT_END = re.compile(r"[，,。；;！!？?、\s]")
+
+
+def _negated_spans(text):
+    """每个否定词管辖的那一截：(否定词起点, 那截的起点, 终点)。"""
+    text = text or ""
+    spans = []
+    for word in NEGATE_WORDS:
+        start = text.find(word)
+        while start >= 0:
+            begin = start + len(word)
+            stop = _SEGMENT_END.search(text, begin)
+            end = stop.start() if stop else len(text)
+            if end > begin:
+                spans.append((start, begin, end))
+            start = text.find(word, begin)
+    return spans
+
+
+def negated_values(text):
+    """被否定的具体值，``{字段: 值}``。交给 parse_query 去认——
+    户型、类型、区域、押几付几将来加了新写法，这里自动跟着走。"""
+    out = {}
+    for _, begin, end in _negated_spans(text):
+        out.update(parse_query(text[begin:end]).get("filters", {}))
+    return out
+
+
+def strip_negated(text):
+    """去掉「不要两室一厅」这几截之后的句子，给解析器看的是用户**要**的部分。"""
+    text = text or ""
+    spans = sorted(_negated_spans(text))
+    if not spans:
+        return text
+    kept, cursor = [], 0
+    for start, _, end in spans:
+        if start >= cursor:
+            kept.append(text[cursor:start])
+            cursor = end
+    kept.append(text[cursor:])
+    return "".join(kept)
+
+
+# 只是在抱怨、没有「再 / 更 / 点」这种明确要调的说法
+_COMPLAINTS = {"cheaper": ("太贵", "有点贵", "贵了"), "pricier": ("太便宜",),
+               "bigger": ("太小",), "smaller": ("太大",)}
+_OP_FIELDS = {"cheaper": {"zujia_max", "zujia_min"}, "pricier": {"zujia_max", "zujia_min"},
+              "bigger": {"mianji_min", "mianji_max"}, "smaller": {"mianji_min", "mianji_max"}}
+
+
+def _complaint_only(op, text):
+    words = dict(RELATIVE_RULES).get(op, ())
+    hits = [w for w in words if w in (text or "")]
+    return bool(hits) and all(w in _COMPLAINTS.get(op, ()) for w in hits)
 
 
 def relative_ops(text):
@@ -152,11 +241,54 @@ LABELS = {
     "zujia_max": "租金上限",
     "mianji_min": "面积下限",
     "mianji_max": "面积上限",
+    "yajin_yue": "押金月数",
+    "fukuan_yue": "付款周期",
 }
 
 
 def _label(field):
     return LABELS.get(field, field)
+
+
+UNKNOWN_AREA_NOTE = ("「%s」对应不到平台上的某个区，先不按区域筛。"
+                     "房源是按行政区找的（中山区、西岗区、沙河口区、甘井子区、"
+                     "旅顺口区、金州区等），告诉我想住哪个区会更准。")
+
+def speaks_up(note):
+    """这条说明要不要写进回答正文。
+
+    多数说明（「租金改为 3000」）只是回显，放在卡片旁边就够了；
+    这几条说的是**用户提的条件没被执行**，不说在正文里，
+    他看到的这批房就是一个解释不了的结果。
+    """
+    return "对应不到" in note
+
+
+# 「在高新园区」「去沙河口」——规则解析器的通用兜底会把前面的介词一起吞进来
+_AREA_LEADING = ("我公司在", "公司在", "单位在", "上班在", "住在", "我在", "在",
+                 "去", "到", "离", "靠近", "近")
+
+
+def _strip_area(value):
+    raw = str(value or "").strip()
+    for lead in _AREA_LEADING:
+        if raw.startswith(lead) and len(raw) > len(lead):
+            return raw[len(lead):]
+    return raw
+
+
+def known_district(value):
+    """把一个区名规范成平台认识的写法；认不出返回空串。
+
+    交给规则解析器去认，而不是在这里再维护一张别名表——
+    「甘井子」「沙河口」这类省略写法，它已经会了。
+    """
+    from app.agents.property_finder.tools.parse_query import DALIAN_DISTRICTS
+    raw = _strip_area(value)
+    if raw in DALIAN_DISTRICTS:
+        return raw
+    guessed = parse_query(raw)["filters"].get("suozaidiqu")
+    return guessed if guessed in DALIAN_DISTRICTS else ""
 
 
 def apply_turn(slots, features, text, filters=None, feats=None):
@@ -172,13 +304,40 @@ def apply_turn(slots, features, text, filters=None, feats=None):
     if is_reset(text):
         return {}, [], ["已清空之前的条件，重新开始。"]
 
-    for field in clears(text):
+    cleared = clears(text)
+    for field in cleared:
         if slots.pop(field, None) is not None:
             notes.append("已取消对%s的限制。" % _label(field))
 
     if filters is None:
-        parsed = parse_query(text)
+        parsed = parse_query(strip_negated(text))
         filters, feats = parsed["filters"], parsed["features"]
+
+    # **被否定的那个值，不许本轮的解析结果再把它写回来。**
+    # 「不用两室一厅」里那个「两室一厅」是被否定的对象，不是新条件；
+    # 上游（模型、或没去掉否定的解析）可能照样给出 fangwuhuxing=两室一厅。
+    # 只拦**那个值**，不拦整个字段：「不用两室一厅，三室的有吗」的三室要留下。
+    # 「不限租金」这类整字段取消的，本轮也不该再设这个字段。
+    negated = negated_values(text)
+    whole = cleared - set(negated)
+    filters = {k: v for k, v in (filters or {}).items()
+               if k not in whole and not (k in negated and negated[k] == v)}
+
+    # **不认识的区名不能当筛选条件。**
+    #
+    # 「公司在高新园区」——模型填 district=高新园区，规则更糟，读成「在高新园区」。
+    # 平台的房源按行政区划分，这两个值一套房都筛不出来；更麻烦的是每轮都会
+    # 从历史重放条件，这个区名于是**永远卡在上下文里**，之后怎么问都是 0 套，
+    # 用户看到的是一连串「没有找到符合条件的房源」，不知道卡在哪。
+    # 能规范成已知区名的（「甘井子」→甘井子区）就规范，规范不了的丢掉并说一声。
+    area = filters.get("suozaidiqu")
+    if area:
+        known = known_district(area)
+        if known:
+            filters["suozaidiqu"] = known
+        else:
+            filters.pop("suozaidiqu")
+            notes.append(UNKNOWN_AREA_NOTE % _strip_area(area))
 
     # 同一字段后说的覆盖先说的：「换成沙河口」要替换掉中山区
     for key, value in (filters or {}).items():
@@ -190,8 +349,13 @@ def apply_turn(slots, features, text, filters=None, feats=None):
         if feature not in features:
             features.append(feature)
 
-    # 相对调整放在最后：「三千以内，再便宜点」应当基于本轮说的三千来算
+    # 相对调整放在最后：「三千以内，再便宜点」应当基于本轮说的三千来算。
+    # 但**抱怨式的说法不叠加在本轮刚说的数上**：「不要太贵的，三千以内」
+    # 里「太贵」只是在解释为什么给三千，原先照样再打八折成了 2400。
+    said = set(filters or {})
     for op in relative_ops(text):
+        if _complaint_only(op, text) and said & _OP_FIELDS.get(op, set()):
+            continue
         _, note = apply_relative(slots, op)
         if note:
             notes.append(note)
@@ -220,11 +384,29 @@ def continues_search(text):
 def replay(texts):
     """重放历史轮次，得到进入本轮之前的槽位。
 
-    只取最近 MAX_TURNS 轮，且一律用规则解析——历史轮次已经答复过了，
-    没必要为了重建上下文再去调一遍大模型。
+    一律用规则解析——历史轮次已经答复过了，没必要为了重建上下文
+    再去调一遍大模型。
+
+    **窗口只数「说了条件」的那些轮次。**
+
+    原先是无差别取最近 MAX_TURNS 句，在 24 轮的长会话测试里出了事：
+    用户第 3 轮说了「沙河口 / 三千以内 / 两室一厅」，中间问了十几轮
+    合同、账单、评价，等到第 22 轮说「还有更便宜的吗」，那三个条件
+    早被无关的闲聊挤出了窗口——重放出来的槽位是空的，
+    系统只能当他从没说过预算，于是给了一句莫名其妙的
+    「建议把租价上限从 9 元提高一些」。
+
+    窗口本来要限的是「一个条件说出来之后还算数多久」。这个「多久」
+    该按**他又提了几次条件**来数，而不是按他一共说了几句话——
+    问账单、看评价这些轮次既不改需求，也就不该消耗需求的寿命。
+
+    被滤掉的轮次本来就是空操作：没有重置、没有清除、解析不出条件，
+    `apply_turn` 对它们什么也不做。所以这里只改变了「谁能留在窗口里」，
+    没有改变任何一轮自身的语义，重放依然是纯函数、依然可重现。
     """
+    turns = [t for t in (texts or []) if is_reset(t) or continues_search(t)]
     slots, features = {}, []
-    for text in (texts or [])[-MAX_TURNS:]:
+    for text in turns[-MAX_TURNS:]:
         slots, features, _ = apply_turn(slots, features, text)
     return slots, features
 
@@ -256,6 +438,13 @@ def describe(slots, features):
         parts.append("面积 %d 平以上" % amin)
     elif amax:
         parts.append("面积 %d 平以内" % amax)
+
+    deposit, pay = slots.get("yajin_yue"), slots.get("fukuan_yue")
+    if deposit is not None or pay is not None:
+        digits = "零一二三四五六七八九"
+        say = lambda n: digits[n] if 0 <= n < 10 else str(n)   # noqa: E731
+        parts.append("%s%s" % ("押%s" % say(deposit) if deposit is not None else "",
+                               "付%s" % say(pay) if pay is not None else ""))
 
     if features:
         parts.append("偏好" + "、".join(features[:3]))
@@ -388,6 +577,33 @@ def resolve_house(text, last_house_nos, current=None):
     if any(word in text for word in DEICTIC):
         return current or (last_house_nos[0] if last_house_nos else None)
     return None
+
+
+def is_weak_reference(text, last_house_nos, current=None):
+    """这次「这套」是不是**猜**出来的。
+
+    `resolve_house` 有四条路径，只有最后一条是猜：
+
+        打出编号    DL0007        —— 明确
+        说了序号    第二套         —— 明确
+        有打开的房   current       —— 屏幕上就是它
+        **都没有**  列表第一条      —— 猜
+
+    最后这条的问题不是猜得对不对，是**猜完不说**。用户刚看完一段
+    讲解，接着问「周边有什么」，拿到的是另一套房的周边——他没有
+    任何线索能发现指代跑偏了，只会觉得这个助手前言不搭后语。
+    实测里连续三轮「这套」指向了三套不同的房子。
+
+    返回 True 时，调用方该在回答前面点一句「（你说的是 DL00xx）」。
+    **猜可以，不告诉不行。**
+    """
+    if not last_house_nos:
+        return False
+    if house_no_in(text or "") or ordinal_indexes(text or ""):
+        return False
+    if current:
+        return False
+    return any(word in (text or "") for word in DEICTIC)
 
 
 def resolve_houses(text, last_house_nos):

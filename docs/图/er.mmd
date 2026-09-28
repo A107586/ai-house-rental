@@ -1,0 +1,242 @@
+erDiagram
+    direction LR
+    users["users 用户"] {
+        int id PK
+        str username UK
+    }
+    houses["houses 房源"] {
+        int id PK
+        str house_no UK
+        int landlord_id FK
+    }
+    house_images["house_images 房源相册"] {
+        int id PK
+        int house_id FK
+    }
+    appointments["appointments 看房预约"] {
+        int id PK
+        int house_id FK
+        int tenant_id FK
+    }
+    contracts["contracts 租赁合同"] {
+        int id PK
+        str contract_no UK
+        int house_id FK
+        int tenant_id FK
+        int landlord_id FK
+        int agent_id FK
+    }
+    bills["bills 账单"] {
+        int id PK
+        str bill_no UK
+        int contract_id FK
+    }
+    payments["payments 缴费流水"] {
+        int id PK
+        str trade_no UK
+        int bill_id FK, UK
+        int user_id FK
+        str idempotency_key UK
+    }
+    favorites["favorites 收藏"] {
+        int id PK
+        int user_id FK
+        int house_id FK
+    }
+    browsing_history["browsing_history 浏览足迹"] {
+        int id PK
+        int user_id FK
+        int house_id FK
+    }
+    reviews["reviews 租后评价"] {
+        int id PK
+        int contract_id FK, UK
+        int house_id FK
+        int tenant_id FK
+        int agent_id FK
+    }
+    repairs["repairs 报修工单"] {
+        int id PK
+        int house_id FK
+        int tenant_id FK
+    }
+    repair_images["repair_images 报修照片"] {
+        int id PK
+        int repair_id FK
+    }
+    repair_workers["repair_workers 维修人员"] {
+        int id PK
+    }
+    repair_items["repair_items 维修物品"] {
+        int id PK
+    }
+    repair_records["repair_records 维修记录"] {
+        int id PK
+        int repair_id FK, UK
+        int worker_id FK
+    }
+    repair_item_usages["repair_item_usages 物品领用明细"] {
+        int id PK
+        int record_id FK
+        int item_id FK
+    }
+    messages["messages 站内消息"] {
+        int id PK
+        int user_id FK
+    }
+    notices["notices 平台公告"] {
+        int id PK
+        int publisher_id FK
+    }
+    chat_messages["chat_messages 对话记录"] {
+        int id PK
+        int user_id FK
+    }
+    operation_logs["operation_logs 操作日志"] {
+        int id PK
+        int user_id FK
+    }
+    content_flags["content_flags 内容复核队列"] {
+        int id PK
+        int author_id FK
+    }
+    system_configs["system_configs 系统配置"] {
+        int id PK
+        str key UK
+    }
+    role_requests["role_requests 角色升级申请"] {
+        int id PK
+        int user_id FK
+        int reviewer_id FK
+    }
+    faqs["faqs 客服知识条目"] {
+        int id PK
+        str code UK
+    }
+    support_logs["support_logs 客服问答日志"] {
+        int id PK
+        int user_id FK
+    }
+    support_handoffs["support_handoffs 转人工工单"] {
+        int id PK
+        str handoff_no UK
+        int user_id FK
+        int handler_id FK
+    }
+    agent_profiles["agent_profiles 中介档案"] {
+        int id PK
+        int user_id FK, UK
+        int reviewed_by FK
+    }
+    house_delegations["house_delegations 房源委托"] {
+        int id PK
+        int house_id FK
+        int landlord_id FK
+        int agent_id FK
+    }
+    viewing_records["viewing_records 带看记录"] {
+        int id PK
+        int appointment_id FK
+        int house_id FK
+        int tenant_id FK
+        int agent_id FK
+    }
+    agent_commissions["agent_commissions 佣金"] {
+        int id PK
+        int contract_id FK
+        int delegation_id FK
+        int agent_id FK
+    }
+    refunds["refunds 押金退款流水"] {
+        int id PK
+        str refund_no UK
+        int contract_id FK
+        int payment_id FK
+    }
+    conversations["conversations 咨询会话"] {
+        int id PK
+        int house_id FK
+        int tenant_id FK
+        int landlord_id FK
+    }
+    chat_lines["chat_lines 会话消息"] {
+        int id PK
+        int conversation_id FK
+        int sender_id FK
+    }
+    saved_searches["saved_searches 保存的搜索"] {
+        int id PK
+        int user_id FK
+    }
+    house_reports["house_reports 房源举报"] {
+        int id PK
+        str report_no UK
+        int reporter_id FK
+        int house_id FK
+        int handler_id FK
+    }
+    password_resets["password_resets 找回密码令牌"] {
+        int id PK
+        int user_id FK
+        str token_hash UK
+    }
+    users ||--o{ houses : "landlord_id"
+    houses ||--o{ house_images : "house_id"
+    houses ||--o{ appointments : "house_id"
+    users |o--o{ appointments : "tenant_id"
+    houses ||--o{ contracts : "house_id"
+    users ||--o{ contracts : "tenant_id"
+    users ||--o{ contracts : "landlord_id"
+    users |o--o{ contracts : "agent_id"
+    contracts ||--o{ bills : "contract_id"
+    bills ||--o| payments : "bill_id"
+    users |o--o{ payments : "user_id"
+    users ||--o{ favorites : "user_id"
+    houses ||--o{ favorites : "house_id"
+    users ||--o{ browsing_history : "user_id"
+    houses ||--o{ browsing_history : "house_id"
+    contracts ||--o| reviews : "contract_id"
+    houses ||--o{ reviews : "house_id"
+    users ||--o{ reviews : "tenant_id"
+    users |o--o{ reviews : "agent_id"
+    houses ||--o{ repairs : "house_id"
+    users |o--o{ repairs : "tenant_id"
+    repairs ||--o{ repair_images : "repair_id"
+    repairs ||--o| repair_records : "repair_id"
+    repair_workers |o--o{ repair_records : "worker_id"
+    repair_records ||--o{ repair_item_usages : "record_id"
+    repair_items ||--o{ repair_item_usages : "item_id"
+    users ||--o{ messages : "user_id"
+    users |o--o{ notices : "publisher_id"
+    users |o--o{ chat_messages : "user_id"
+    users |o--o{ operation_logs : "user_id"
+    users |o--o{ content_flags : "author_id"
+    users ||--o{ role_requests : "user_id"
+    users |o--o{ role_requests : "reviewer_id"
+    users |o--o{ support_logs : "user_id"
+    users ||--o{ support_handoffs : "user_id"
+    users |o--o{ support_handoffs : "handler_id"
+    users ||--o| agent_profiles : "user_id"
+    users |o--o{ agent_profiles : "reviewed_by"
+    houses ||--o{ house_delegations : "house_id"
+    users ||--o{ house_delegations : "landlord_id"
+    users ||--o{ house_delegations : "agent_id"
+    appointments |o--o{ viewing_records : "appointment_id"
+    houses ||--o{ viewing_records : "house_id"
+    users ||--o{ viewing_records : "tenant_id"
+    users ||--o{ viewing_records : "agent_id"
+    contracts ||--o{ agent_commissions : "contract_id"
+    house_delegations |o--o{ agent_commissions : "delegation_id"
+    users ||--o{ agent_commissions : "agent_id"
+    contracts ||--o{ refunds : "contract_id"
+    payments |o--o{ refunds : "payment_id"
+    houses ||--o{ conversations : "house_id"
+    users ||--o{ conversations : "tenant_id"
+    users ||--o{ conversations : "landlord_id"
+    conversations ||--o{ chat_lines : "conversation_id"
+    users ||--o{ chat_lines : "sender_id"
+    users ||--o{ saved_searches : "user_id"
+    users ||--o{ house_reports : "reporter_id"
+    houses ||--o{ house_reports : "house_id"
+    users |o--o{ house_reports : "handler_id"
+    users ||--o{ password_resets : "user_id"

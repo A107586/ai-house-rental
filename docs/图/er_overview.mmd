@@ -1,0 +1,98 @@
+erDiagram
+    direction LR
+    users["users 用户"]
+    houses["houses 房源"]
+    house_images["house_images 房源相册"]
+    appointments["appointments 看房预约"]
+    contracts["contracts 租赁合同"]
+    bills["bills 账单"]
+    payments["payments 缴费流水"]
+    favorites["favorites 收藏"]
+    browsing_history["browsing_history 浏览足迹"]
+    reviews["reviews 租后评价"]
+    repairs["repairs 报修工单"]
+    repair_images["repair_images 报修照片"]
+    repair_workers["repair_workers 维修人员"]
+    repair_items["repair_items 维修物品"]
+    repair_records["repair_records 维修记录"]
+    repair_item_usages["repair_item_usages 物品领用明细"]
+    messages["messages 站内消息"]
+    notices["notices 平台公告"]
+    chat_messages["chat_messages 对话记录"]
+    operation_logs["operation_logs 操作日志"]
+    content_flags["content_flags 内容复核队列"]
+    system_configs["system_configs 系统配置"]
+    role_requests["role_requests 角色升级申请"]
+    faqs["faqs 客服知识条目"]
+    support_logs["support_logs 客服问答日志"]
+    support_handoffs["support_handoffs 转人工工单"]
+    agent_profiles["agent_profiles 中介档案"]
+    house_delegations["house_delegations 房源委托"]
+    viewing_records["viewing_records 带看记录"]
+    agent_commissions["agent_commissions 佣金"]
+    refunds["refunds 押金退款流水"]
+    conversations["conversations 咨询会话"]
+    chat_lines["chat_lines 会话消息"]
+    saved_searches["saved_searches 保存的搜索"]
+    house_reports["house_reports 房源举报"]
+    password_resets["password_resets 找回密码令牌"]
+    users ||--o{ houses : "landlord_id"
+    houses ||--o{ house_images : "house_id"
+    houses ||--o{ appointments : "house_id"
+    users |o--o{ appointments : "tenant_id"
+    houses ||--o{ contracts : "house_id"
+    users ||--o{ contracts : "tenant_id"
+    users ||--o{ contracts : "landlord_id"
+    users |o--o{ contracts : "agent_id"
+    contracts ||--o{ bills : "contract_id"
+    bills ||--o| payments : "bill_id"
+    users |o--o{ payments : "user_id"
+    users ||--o{ favorites : "user_id"
+    houses ||--o{ favorites : "house_id"
+    users ||--o{ browsing_history : "user_id"
+    houses ||--o{ browsing_history : "house_id"
+    contracts ||--o| reviews : "contract_id"
+    houses ||--o{ reviews : "house_id"
+    users ||--o{ reviews : "tenant_id"
+    users |o--o{ reviews : "agent_id"
+    houses ||--o{ repairs : "house_id"
+    users |o--o{ repairs : "tenant_id"
+    repairs ||--o{ repair_images : "repair_id"
+    repairs ||--o| repair_records : "repair_id"
+    repair_workers |o--o{ repair_records : "worker_id"
+    repair_records ||--o{ repair_item_usages : "record_id"
+    repair_items ||--o{ repair_item_usages : "item_id"
+    users ||--o{ messages : "user_id"
+    users |o--o{ notices : "publisher_id"
+    users |o--o{ chat_messages : "user_id"
+    users |o--o{ operation_logs : "user_id"
+    users |o--o{ content_flags : "author_id"
+    users ||--o{ role_requests : "user_id"
+    users |o--o{ role_requests : "reviewer_id"
+    users |o--o{ support_logs : "user_id"
+    users ||--o{ support_handoffs : "user_id"
+    users |o--o{ support_handoffs : "handler_id"
+    users ||--o| agent_profiles : "user_id"
+    users |o--o{ agent_profiles : "reviewed_by"
+    houses ||--o{ house_delegations : "house_id"
+    users ||--o{ house_delegations : "landlord_id"
+    users ||--o{ house_delegations : "agent_id"
+    appointments |o--o{ viewing_records : "appointment_id"
+    houses ||--o{ viewing_records : "house_id"
+    users ||--o{ viewing_records : "tenant_id"
+    users ||--o{ viewing_records : "agent_id"
+    contracts ||--o{ agent_commissions : "contract_id"
+    house_delegations |o--o{ agent_commissions : "delegation_id"
+    users ||--o{ agent_commissions : "agent_id"
+    contracts ||--o{ refunds : "contract_id"
+    payments |o--o{ refunds : "payment_id"
+    houses ||--o{ conversations : "house_id"
+    users ||--o{ conversations : "tenant_id"
+    users ||--o{ conversations : "landlord_id"
+    conversations ||--o{ chat_lines : "conversation_id"
+    users ||--o{ chat_lines : "sender_id"
+    users ||--o{ saved_searches : "user_id"
+    users ||--o{ house_reports : "reporter_id"
+    houses ||--o{ house_reports : "house_id"
+    users |o--o{ house_reports : "handler_id"
+    users ||--o{ password_resets : "user_id"

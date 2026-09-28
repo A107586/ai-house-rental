@@ -41,15 +41,15 @@ class FilterCase(ApiTestCase):
             today = date.today()
             make(session, "F001", landlord, elevator=True, orientation="南",
                  decoration="精装", heating="集中供暖", floor_no=2,
-                 floor_total=18, min_months=1,
+                 floor_total=18, min_months=1, deposit_months=1, pay_months=1,
                  available_from=today)
             make(session, "F002", landlord, elevator=False, orientation="北",
                  decoration="简装", heating="自采暖", floor_no=5,
-                 floor_total=6, min_months=12,
+                 floor_total=6, min_months=12, deposit_months=1, pay_months=3,
                  available_from=today + timedelta(days=60))
             make(session, "F003", landlord, elevator=True, orientation="南北",
                  decoration="毛坯", heating="集中供暖", floor_no=9,
-                 floor_total=18, min_months=6,
+                 floor_total=18, min_months=6, deposit_months=0, pay_months=1,
                  available_from=today + timedelta(days=20))
             make(session, "F004", landlord, elevator=True, orientation="南",
                  decoration="精装", heating="集中供暖", floor_no=17,
@@ -67,6 +67,20 @@ class FilterCase(ApiTestCase):
     def rows(self, **params):
         params.setdefault("limit", 100)
         return self.client.get("/api/houses", params=params).json()["list"]
+
+
+class TestPayPlan(FilterCase):
+    """押几付几。两列一直在库里，列表却筛不了。"""
+
+    def test_deposit_one_pay_one(self):
+        self.assertEqual(self.nos(deposit_months=1, pay_months=1), ["F001"])
+
+    def test_pay_quarterly(self):
+        self.assertEqual(self.nos(pay_months=3), ["F002"])
+
+    def test_zero_deposit_is_a_real_value(self):
+        """押零付一：0 不能被当成「没传」。"""
+        self.assertEqual(self.nos(deposit_months=0), ["F003"])
 
 
 class TestElevator(FilterCase):
