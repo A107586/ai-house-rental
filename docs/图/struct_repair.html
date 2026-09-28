@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>报修与维修模块</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>报修与维修模块</b><span>14 个接口 · 6 张表</span><span>7 个功能点</span><span>需求 <i style="font-style:normal;white-space:nowrap">AI-04</i> <i style="font-style:normal;white-space:nowrap">F-08</i> <i style="font-style:normal;white-space:nowrap">F-09</i> <i style="font-style:normal;white-space:nowrap">K-12</i> <i style="font-style:normal;white-space:nowrap">R-05</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>提交报修</b><span>文字 + 照片；AI-04 自动判分类、紧急度、建议承接人</span></div></div><div class="br"><div class="leaf"><b>紧急度护栏</b><span>漏水、断电、煤气必须判为紧急；模型判低会被改回，并记一条分歧</span></div></div><div class="br"><div class="leaf"><b>工单处理</b><span>指派、进度更新、结案；进度变化通过站内消息通知</span></div></div><div class="br"><div class="leaf"><b>结案登记</b><span>人、物、工时、费用；一张工单只能结案一次（唯一约束）</span></div></div><div class="br"><div class="leaf"><b>物料与人员</b><span>维修物品与人员档案，领用时记录当时的单价快照</span></div></div><div class="br"><div class="leaf"><b>维修统计</b><span>由明细实时聚合，不设人工汇总表（R-05）</span></div></div><div class="br"><div class="leaf"><b>超时判定</b><span>按可配置的 SLA 小时数标记超时，只标记不自动升级优先级</span></div></div></div>
+</div></div></body></html>

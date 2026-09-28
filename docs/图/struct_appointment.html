@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>看房预约模块</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>看房预约模块</b><span>4 个接口 · 1 张表</span><span>5 个功能点</span><span>需求 <i style="font-style:normal;white-space:nowrap">AI-06</i> <i style="font-style:normal;white-space:nowrap">F-04</i> <i style="font-style:normal;white-space:nowrap">J-05</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>提交预约</b><span>选房源与时段；时段是 datetime 不是 date，否则「下午两点」表达不了</span></div></div><div class="br"><div class="leaf"><b>冲突检测</b><span>以配置的时间窗口（默认 60 分钟）为半径，落在窗口内视为冲突</span></div></div><div class="br"><div class="leaf"><b>处理与通知</b><span>房东或受托中介确认/拒绝，结果通过站内消息送达</span></div></div><div class="br"><div class="leaf"><b>自然语言预约</b><span>AI-06：「这周六下午两点看房」解析成具体时刻，已经过去的时点指下一次</span></div></div><div class="br"><div class="leaf"><b>预约路由</b><span>委托生效期间，预约转给受托中介处理（J-05）</span></div></div></div>
+</div></div></body></html>

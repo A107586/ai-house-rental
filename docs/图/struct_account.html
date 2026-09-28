@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>账号与权限模块</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>账号与权限模块</b><span>13 个接口 · 3 张表</span><span>6 个功能点</span><span>需求 <i style="font-style:normal;white-space:nowrap">F-02</i> <i style="font-style:normal;white-space:nowrap">F-03</i> <i style="font-style:normal;white-space:nowrap">F-11</i> <i style="font-style:normal;white-space:nowrap">K-11</i> <i style="font-style:normal;white-space:nowrap">K-13</i> <i style="font-style:normal;white-space:nowrap">N-03</i> <i style="font-style:normal;white-space:nowrap">N-04</i> <i style="font-style:normal;white-space:nowrap">R-01</i> <i style="font-style:normal;white-space:nowrap">R-02</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>注册与登录</b><span>用户名 + 密码；密码 BCrypt 哈希存储，环境无 bcrypt 时退回 PBKDF2-HMAC-SHA256（N-03）</span></div></div><div class="br"><div class="leaf"><b>无状态令牌</b><span>HMAC 签名令牌，默认 7 天有效；token_valid_after 用于整体吊销</span></div></div><div class="br"><div class="leaf"><b>角色与身份</b><span>一个账号两种身份（K-13）：房东同时也是租客，升级后原有收藏、足迹、租约一条不得少</span></div></div><div class="br"><div class="leaf"><b>角色升级申请</b><span>「成为房东 / 经纪人」须管理员审核；获批前仍以租客身份正常使用</span></div></div><div class="br"><div class="leaf"><b>实名与脱敏</b><span>身份证只存哈希与掩码，手机号、姓名对外一律脱敏（R-02 / N-04）</span></div></div><div class="br"><div class="leaf"><b>找回密码</b><span>令牌只存哈希；不得透露账号是否存在；重置成功即吊销全部旧令牌</span></div></div></div>
+</div></div></body></html>

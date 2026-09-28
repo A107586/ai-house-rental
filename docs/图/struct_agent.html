@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>智能体服务</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>智能体服务</b><span>19 个接口 · 无数据库连接</span><span>10 个子智能体</span><span>需求 <i style="font-style:normal;white-space:nowrap">AI-01～AI-09</i> <i style="font-style:normal;white-space:nowrap">N-06～N-08</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>自然语言找房</b><span>property_finder · AI-01</span></div></div><div class="br"><div class="leaf"><b>合同条款抽取与风险提示</b><span>contract · AI-02</span></div></div><div class="br"><div class="leaf"><b>智能客服 RAG，下辖 14 个工具模块</b><span>support · AI-03</span></div></div><div class="br"><div class="leaf"><b>报修分类与紧急度</b><span>repair · AI-04</span></div></div><div class="br"><div class="leaf"><b>经营分析报告</b><span>report · AI-05</span></div></div><div class="br"><div class="leaf"><b>时间解析与预约</b><span>booking · AI-06</span></div></div><div class="br"><div class="leaf"><b>房源推荐</b><span>recommend · AI-07</span></div></div><div class="br"><div class="leaf"><b>房源描述生成</b><span>describe · AI-08</span></div></div><div class="br"><div class="leaf"><b>带看小结</b><span>viewing · J-05</span></div></div><div class="br"><div class="leaf"><b>转人工</b><span>handoff · AI-03</span></div></div></div>
+</div></div></body></html>

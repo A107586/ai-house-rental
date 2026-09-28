@@ -2,35 +2,35 @@ classDiagram
     direction LR
     class Api["平台治理 · HTTP 接口（29 个）"] {
         <<router>>
-        +license_queue() GET /api/admin/agent-queue
-        +platform_agent_stats() GET /api/admin/agent-stats
-        +admin_agents() GET /api/admin/agents
-        +create_agent() POST /api/admin/agents
-        +review_license(LicenseReview) PATCH /api/admin/agents/:user_id
-        +admin_appointments() GET /api/admin/appointments
-        +list_config() GET /api/admin/config
-        +update_config(ConfigUpdate) PATCH /api/admin/config
-        +admin_contracts() GET /api/admin/contracts
-        +admin_faqs() GET /api/admin/faqs
-        +list_flags() GET /api/admin/flags
-        +handle_flag() PATCH /api/admin/flags/:flag_id
-        +admin_handoffs() GET /api/admin/handoffs
-        +reply_handoff(HandoffReplyPayload) POST /api/admin/handoffs/:handoff_no/reply
-        +admin_houses() GET /api/admin/houses
-        +admin_landlords() GET /api/admin/landlords
-        +list_logs() GET /api/admin/logs
-        +log_actions() GET /api/admin/logs/actions
-        +admin_notices() GET /api/admin/notices
-        +list_reports() GET /api/admin/reports
-        +handle_report(ReportHandle) PATCH /api/admin/reports/:report_no
-        +support_analytics() GET /api/admin/support/analytics
-        +admin_users() GET /api/admin/users
-        +admin_update_user(UserUpdate) PATCH /api/admin/users/:user_id
-        +issue_reset_code() POST /api/admin/users/:user_id/reset-code
-        +verify_queue() GET /api/admin/verify-queue
-        +public_config() GET /api/config
-        +stats() GET /api/stats
-        +health() GET /health
+        +license_queue() GET
+        +platform_agent_stats() GET
+        +admin_agents() GET
+        +create_agent() POST
+        +review_license(LicenseReview) PATCH
+        +admin_appointments() GET
+        +list_config() GET
+        +update_config(ConfigUpdate) PATCH
+        +admin_contracts() GET
+        +admin_faqs() GET
+        +list_flags() GET
+        +handle_flag() PATCH
+        +admin_handoffs() GET
+        +reply_handoff(HandoffReplyPayload) POST
+        +admin_houses() GET
+        +admin_landlords() GET
+        +list_logs() GET
+        +log_actions() GET
+        +admin_notices() GET
+        +list_reports() GET
+        +handle_report(ReportHandle) PATCH
+        +support_analytics() GET
+        +admin_users() GET
+        +admin_update_user(UserUpdate) PATCH
+        +issue_reset_code() POST
+        +verify_queue() GET
+        +public_config() GET
+        +stats() GET
+        +health() GET
     }
     class m_config_store["config_store.py"] {
         <<service>>
@@ -73,60 +73,16 @@ classDiagram
         +hit(namespace, ip, limit, window)
     }
     Api ..> m_ratelimit
-    class m_auth["auth.py"] {
-        <<service · 账号与权限>>
-        +using_dev_secret()
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +auth.using_dev_secret()
+        +deps.current_user()
+        +deps.require_login()
+        +leasing.notify()
+        +notifier.notify_external()
+        +security.hash_password()
     }
-    Api ..> m_auth
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +current_user(authorization, session)
-        +require_login(user)
-    }
-    Api ..> m_deps
-    class m_leasing["leasing.py"] {
-        <<service · 合同与账单>>
-        +notify(session, user_id, type_, title, content, link_no)
-    }
-    Api ..> m_leasing
-    class m_notifier["notifier.py"] {
-        <<service · 互动与消息>>
-        +notify_external(user, title, content)
-    }
-    Api ..> m_notifier
-    class m_security["security.py"] {
-        <<service · 账号与权限>>
-        +hash_password(password)
-    }
-    Api ..> m_security
-    class LicenseReview["LicenseReview"] {
-        <<DTO>>
-        +bool approved
-        +str reason
-    }
-    Api ..> LicenseReview
-    class ConfigUpdate["ConfigUpdate"] {
-        <<DTO>>
-        +dict items
-    }
-    Api ..> ConfigUpdate
-    class HandoffReplyPayload["HandoffReplyPayload"] {
-        <<DTO>>
-        +str reply
-    }
-    Api ..> HandoffReplyPayload
-    class ReportHandle["ReportHandle"] {
-        <<DTO>>
-        +str status
-        +str conclusion
-    }
-    Api ..> ReportHandle
-    class UserUpdate["UserUpdate"] {
-        <<DTO>>
-        +str status
-        +str role
-    }
-    Api ..> UserUpdate
+    Api ..> m_shared
     class OperationLog["OperationLog · 操作日志"] {
         <<entity>>
         +int id «PK»

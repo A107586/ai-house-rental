@@ -2,22 +2,22 @@ classDiagram
     direction LR
     class Api["合同与账单 · HTTP 接口（16 个）"] {
         <<router>>
-        +my_bills() GET /api/bills/mine
-        +pay_bill(PayRequest) POST /api/bills/:bill_no/pay
-        +create_contract(ContractCreate) POST /api/contracts
-        +my_contracts() GET /api/contracts/mine
-        +get_contract() GET /api/contracts/:contract_no
-        +update_contract(ContractUpdate) PATCH /api/contracts/:contract_no
-        +activate_contract() POST /api/contracts/:contract_no/activate
-        +contract_detail() GET /api/contracts/:contract_no/detail
-        +end_contract(ContractEnd) POST /api/contracts/:contract_no/end
-        +renew_contract(ContractRenew) POST /api/contracts/:contract_no/renew
-        +save_review_result(ReviewResultIn) POST /api/contracts/:contract_no/review-result
-        +payment_notify() POST /api/payments/notify
-        +payment_receipt() GET /api/payments/:trade_no
-        +mock_pay() POST /api/payments/:trade_no/mock-pay
-        +payment_status() GET /api/payments/:trade_no/status
-        +my_refunds() GET /api/refunds/mine
+        +my_bills() GET
+        +pay_bill(PayRequest) POST
+        +create_contract(ContractCreate) POST
+        +my_contracts() GET
+        +get_contract() GET
+        +update_contract(ContractUpdate) PATCH
+        +activate_contract() POST
+        +contract_detail() GET
+        +end_contract(ContractEnd) POST
+        +renew_contract(ContractRenew) POST
+        +save_review_result(ReviewResultIn) POST
+        +payment_notify() POST
+        +payment_receipt() GET
+        +mock_pay() POST
+        +payment_status() GET
+        +my_refunds() GET
     }
     class m_gateway["gateway.py"] {
         <<service>>
@@ -48,17 +48,13 @@ classDiagram
         +notify(session, user_id, type_, title, content, link_no)
     }
     Api ..> m_leasing
-    class m_config_store["config_store.py"] {
-        <<service · 平台治理>>
-        +get_int(session, key, default)
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +config_store.get_int()
+        +deps.require_login()
+        +deps.require_staff()
     }
-    Api ..> m_config_store
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +require_login(user)
-        +require_staff(user)
-    }
-    Api ..> m_deps
+    Api ..> m_shared
     class MockGateway["MockGateway（gateway.py）"] {
         +__init__()
         +create(trade_no, amount, subject)
@@ -72,49 +68,6 @@ classDiagram
     }
     PaymentGateway <|-- MockGateway
     m_gateway ..> PaymentGateway
-    class PayRequest["PayRequest"] {
-        <<DTO>>
-        +str method
-        +str idempotency_key
-    }
-    Api ..> PayRequest
-    class ContractCreate["ContractCreate"] {
-        <<DTO>>
-        +str house_no
-        +str tenant_username
-        +datetime start_date
-        +int months
-        +int deposit_months
-        +int pay_months
-    }
-    Api ..> ContractCreate
-    class ContractUpdate["ContractUpdate"] {
-        <<DTO>>
-        +datetime start_date
-        +int months
-        +int deposit_months
-        +int pay_months
-    }
-    Api ..> ContractUpdate
-    class ContractEnd["ContractEnd"] {
-        <<DTO>>
-        +str reason
-        +float deduct
-    }
-    Api ..> ContractEnd
-    class ContractRenew["ContractRenew"] {
-        <<DTO>>
-        +int months
-    }
-    Api ..> ContractRenew
-    class ReviewResultIn["ReviewResultIn"] {
-        <<DTO>>
-        +int score
-        +str summary
-        +int risk_count
-        +str source
-    }
-    Api ..> ReviewResultIn
     class Contract["Contract · 租赁合同"] {
         <<entity>>
         +int id «PK»

@@ -2,38 +2,38 @@ classDiagram
     direction LR
     class Api["房源 · HTTP 接口（32 个）"] {
         <<router>>
-        +list_districts() GET /api/districts
-        +list_houses() GET /api/houses
-        +create_house(HouseCreate) POST /api/houses
-        +map_houses() GET /api/houses/map
-        +get_house() GET /api/houses/:house_no
-        +update_house(HouseUpdate) PUT /api/houses/:house_no
-        +list_house_images() GET /api/houses/:house_no/images
-        +add_house_image() POST /api/houses/:house_no/images
-        +delete_house_image() DELETE /api/houses/:house_no/images/:image_id
-        +set_image_caption() POST /api/houses/:house_no/images/:image_id/caption
-        +set_cover() POST /api/houses/:house_no/images/:image_id/cover
-        +house_landlord() GET /api/houses/:house_no/landlord
-        +review_house(HouseReview) PATCH /api/houses/:house_no/review
-        +list_reviews() GET /api/houses/:house_no/reviews
-        +similar_houses() GET /api/houses/:house_no/similar
-        +update_house_status() PATCH /api/houses/:house_no/status
-        +decide_verify(HouseReview) PATCH /api/houses/:house_no/verify
-        +request_verify() POST /api/houses/:house_no/verify-request
-        +landlord_dashboard() GET /api/landlord/dashboard
-        +landlord_houses() GET /api/landlord/houses
-        +contract_candidates() GET /api/landlord/houses/:house_no/candidates
-        +landlord_tenants() GET /api/landlord/tenants
-        +remind_tenant() POST /api/landlord/tenants/:tenant_id/remind
-        +pricing_suggest() GET /api/pricing/suggest
-        +report_kinds() GET /api/report-kinds
-        +create_report(ReportCreate) POST /api/reports
-        +my_reports() GET /api/reports/mine
-        +list_saved_searches() GET /api/saved-searches
-        +create_saved_search(SavedSearchCreate) POST /api/saved-searches
-        +delete_saved_search() DELETE /api/saved-searches/:search_id
-        +update_saved_search(SavedSearchUpdate) PATCH /api/saved-searches/:search_id
-        +upload_image() POST /api/upload
+        +list_districts() GET
+        +list_houses() GET
+        +create_house(HouseCreate) POST
+        +map_houses() GET
+        +get_house() GET
+        +update_house(HouseUpdate) PUT
+        +list_house_images() GET
+        +add_house_image() POST
+        +delete_house_image() DELETE
+        +set_image_caption() POST
+        +set_cover() POST
+        +house_landlord() GET
+        +review_house(HouseReview) PATCH
+        +list_reviews() GET
+        +similar_houses() GET
+        +update_house_status() PATCH
+        +decide_verify(HouseReview) PATCH
+        +request_verify() POST
+        +landlord_dashboard() GET
+        +landlord_houses() GET
+        +contract_candidates() GET
+        +landlord_tenants() GET
+        +remind_tenant() POST
+        +pricing_suggest() GET
+        +report_kinds() GET
+        +create_report(ReportCreate) POST
+        +my_reports() GET
+        +list_saved_searches() GET
+        +create_saved_search(SavedSearchCreate) POST
+        +delete_saved_search() DELETE
+        +update_saved_search(SavedSearchUpdate) PATCH
+        +upload_image() POST
     }
     class m_house_query["house_query.py"] {
         <<service>>
@@ -67,92 +67,19 @@ classDiagram
         +measure(data)
     }
     Api ..> m_uploads
-    class m_config_store["config_store.py"] {
-        <<service · 平台治理>>
-        +get_bool(session, key, default)
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +config_store.get_bool()
+        +deps.current_user()
+        +deps.require_login()
+        +deps.require_staff()
+        +deps.require_house_manager()
+        +leasing.add_months()
+        +leasing.notify()
+        +moderation.check_all()
+        +permissions.require_can_manage_house()
     }
-    Api ..> m_config_store
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +current_user(authorization, session)
-        +require_login(user)
-        +require_staff(user)
-        +require_house_manager(user)
-    }
-    Api ..> m_deps
-    class m_leasing["leasing.py"] {
-        <<service · 合同与账单>>
-        +add_months(moment, months)
-        +notify(session, user_id, type_, title, content, link_no)
-    }
-    Api ..> m_leasing
-    class m_moderation["moderation.py"] {
-        <<service · 平台治理>>
-        +check_all(fields, scene)
-    }
-    Api ..> m_moderation
-    class m_permissions["permissions.py"] {
-        <<service · 账号与权限>>
-        +require_can_manage_house(session, user, house)
-    }
-    Api ..> m_permissions
-    class HouseCreate["HouseCreate"] {
-        <<DTO>>
-        +str title
-        +str district
-        +str community
-        +str address
-        +float rent_price
-        +float deposit
-        +float area
-        +str layout
-        +str rent_type
-        +str floor
-        +… 另 5 项
-    }
-    Api ..> HouseCreate
-    class HouseUpdate["HouseUpdate"] {
-        <<DTO>>
-        +str title
-        +str community
-        +str address
-        +float rent_price
-        +float deposit
-        +float area
-        +str layout
-        +str rent_type
-        +str floor
-        +str building
-        +… 另 4 项
-    }
-    Api ..> HouseUpdate
-    class HouseReview["HouseReview"] {
-        <<DTO>>
-        +bool approved
-        +str reason
-    }
-    Api ..> HouseReview
-    class ReportCreate["ReportCreate"] {
-        <<DTO>>
-        +str house_no
-        +str kind
-        +str description
-        +list~str~ evidence
-    }
-    Api ..> ReportCreate
-    class SavedSearchCreate["SavedSearchCreate"] {
-        <<DTO>>
-        +str name
-        +dict conditions
-        +bool notify_on
-    }
-    Api ..> SavedSearchCreate
-    class SavedSearchUpdate["SavedSearchUpdate"] {
-        <<DTO>>
-        +str name
-        +bool notify_on
-    }
-    Api ..> SavedSearchUpdate
+    Api ..> m_shared
     class House["House · 房源"] {
         <<entity>>
         +int id «PK»

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>互动与消息模块</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>互动与消息模块</b><span>18 个接口 · 7 张表</span><span>6 个功能点</span><span>需求 <i style="font-style:normal;white-space:nowrap">AI-03</i> <i style="font-style:normal;white-space:nowrap">AI-07</i> <i style="font-style:normal;white-space:nowrap">F-01</i> <i style="font-style:normal;white-space:nowrap">F-04</i> <i style="font-style:normal;white-space:nowrap">F-05</i> <i style="font-style:normal;white-space:nowrap">F-08</i> <i style="font-style:normal;white-space:nowrap">F-10</i> <i style="font-style:normal;white-space:nowrap">J-03</i> <i style="font-style:normal;white-space:nowrap">J-07</i> <i style="font-style:normal;white-space:nowrap">J-08</i> <i style="font-style:normal;white-space:nowrap">K-09</i> <i style="font-style:normal;white-space:nowrap">K-13</i> <i style="font-style:normal;white-space:nowrap">M-08</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>收藏与足迹</b><span>收藏是显式意图，足迹是隐式行为，两者都是 AI-07 推荐的输入</span></div></div><div class="br"><div class="leaf"><b>租后评价</b><span>一份合同只评一次；对房源、房东、中介分别打分；姓名对外只露姓氏</span></div></div><div class="br"><div class="leaf"><b>站内消息</b><span>预约结果、账单到期、工单进度、上新提醒共用同一条通道，不另造通知机制</span></div></div><div class="br"><div class="leaf"><b>平台公告</b><span>发布与浏览；同时作为 AI-03 的知识语料之一</span></div></div><div class="br"><div class="leaf"><b>咨询会话</b><span>租客与房源负责人一对一；委托期间「对方」是受托中介，会话不因换人而断（J-03）</span></div></div><div class="br"><div class="leaf"><b>隐私</b><span>号码默认不直给，按 accept_contact 与免打扰设置决定（J-07）</span></div></div></div>
+</div></div></body></html>

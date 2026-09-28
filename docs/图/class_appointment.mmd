@@ -2,48 +2,21 @@ classDiagram
     direction LR
     class Api["看房预约 · HTTP 接口（4 个）"] {
         <<router>>
-        +list_appointments() GET /api/appointments
-        +create_appointment(AppointmentCreate) POST /api/appointments
-        +my_appointments() GET /api/appointments/mine
-        +update_appointment(AppointmentUpdate) PATCH /api/appointments/:appointment_id
+        +list_appointments() GET
+        +create_appointment(AppointmentCreate) POST
+        +my_appointments() GET
+        +update_appointment(AppointmentUpdate) PATCH
     }
-    class m_config_store["config_store.py"] {
-        <<service · 平台治理>>
-        +get_int(session, key, default)
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +config_store.get_int()
+        +deps.require_login()
+        +leasing.notify()
+        +permissions.can_manage_house()
+        +permissions.responsible_user_id()
+        +permissions.can_see_tenant_contact()
     }
-    Api ..> m_config_store
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +require_login(user)
-    }
-    Api ..> m_deps
-    class m_leasing["leasing.py"] {
-        <<service · 合同与账单>>
-        +notify(session, user_id, type_, title, content, link_no)
-    }
-    Api ..> m_leasing
-    class m_permissions["permissions.py"] {
-        <<service · 账号与权限>>
-        +can_manage_house(session, user, house)
-        +responsible_user_id(session, house)
-        +can_see_tenant_contact(session, user, appointment, house)
-    }
-    Api ..> m_permissions
-    class AppointmentCreate["AppointmentCreate"] {
-        <<DTO>>
-        +str house_no
-        +datetime viewing_time
-        +str contact_name
-        +str contact_phone
-        +str remark
-    }
-    Api ..> AppointmentCreate
-    class AppointmentUpdate["AppointmentUpdate"] {
-        <<DTO>>
-        +str status
-        +str reply
-    }
-    Api ..> AppointmentUpdate
+    Api ..> m_shared
     class Appointment["Appointment · 看房预约"] {
         <<entity>>
         +int id «PK»

@@ -205,13 +205,17 @@ def _outline_numbers():
     这两个数的权威。这里再数一遍只会多出第二套口径——
     真出分歧时谁也说不清该信哪个。
     """
+    # 两句都是生成的、都有 --check 盯着：附录 A 的开头（gen_api_list 的标记段）
+    # 与 4.2 的「共 N 张表」（gen_api_list 的 INLINE）。原先读的是系统结构图里
+    # 的「N 个接口 · M 张表」，那张图改成图片之后这句话就不在正文里了。
     text = io.open(os.path.join(DOCS, "概要设计说明书.md"),
                    encoding="utf-8").read()
-    hit = re.search(r"(\d+) 个接口 · (\d+) 张表", text)
-    if not hit:
-        raise SystemExit("《概要设计说明书》里找不到「N 个接口 · M 张表」，"
+    endpoints = re.search(r"业务后端 \*\*(\d+)\*\* 个接口，智能体服务", text)
+    tables = re.search(r"共 \*\*(\d+) 张表、", text)
+    if not (endpoints and tables):
+        raise SystemExit("《概要设计说明书》里找不到附录 A 的接口数或 4.2 的表数，"
                          "先跑 python scripts/gen_api_list.py")
-    return {"endpoints": hit.group(1), "tables": hit.group(2)}
+    return {"endpoints": endpoints.group(1), "tables": tables.group(1)}
 
 
 def _code_stats():
