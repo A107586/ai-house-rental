@@ -124,6 +124,13 @@ class Settings:
         # 8 秒 = 一次正常调用（中位 3.4 秒）的两倍多。超了就走规则，
         # 那条路本来就答得出来。
         self.llm_plan_budget = _get_float("LLM_PLAN_BUDGET", 8.0)
+        # **统一对话入口走哪一套。** agent（默认）：模型用工具循环自己决定查什么、
+        # 办什么、怎么说，见 app/agents/assistant/。legacy：原来的「关键词规则先分流 →
+        # 模型挑一个工具 → 模板拼话术」，留着做新旧对比评测和紧急回退。
+        self.assistant_mode = (_get("ASSISTANT_MODE", "agent") or "agent").strip().lower()
+        # agent 一轮的总时长（秒）。一轮通常 2–3 次模型调用、每次还要思考，
+        # 按 legacy 的 LLM_TURN_BUDGET 给会被截在半路；到点就照实说没来得及查完
+        self.agent_turn_budget = _get_float("AGENT_TURN_BUDGET", 150.0)
         # 单次请求上下文上限，避免 Token 消耗失控（非功能需求 N-08）
         self.llm_max_tokens = _get_int("LLM_MAX_TOKENS", 1024)
         # **只给识图/图片说明这两条小预算调用用的「关掉思考」开关。**
@@ -223,6 +230,7 @@ class Settings:
             "llm_model": self.llm_model or "(未配置)",
             "llm_enabled": self.llm_enabled,
             "mode": "大模型 + 规则" if self.llm_enabled else "纯规则（降级模式）",
+            "assistant_mode": self.assistant_mode,
             "rule_confidence_threshold": self.rule_confidence_threshold,
             "fusion_enabled": self.fusion_enabled,
             "fusion_skip_when_confident": self.fusion_skip_when_confident,

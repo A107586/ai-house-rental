@@ -5,15 +5,19 @@
 """
 
 import contextvars
+import json
 import sys
 import re
 import time
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import fusion, memory, supervisor
+from app.agents.assistant import loop as assistant_loop
+from app.agents.assistant.toolkit import Toolkit
 from app.retrieval.tokenize import WORD_LEVEL
 from app.agents.booking import agent as booking
 from app.agents.contract import agent as contract
@@ -608,11 +612,218 @@ _ACTED_KEYS = ("action", "items", "account", "pitch", "compare", "form")
 
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest):
-    """统一入口。带照片的轮次先经 `_with_photos`，其余原样交给 `_agent_chat`。"""
+    """统一入口。
+
+    默认走 agent（`_agent_turn`）：模型用工具循环自己决定查什么、办什么、怎么说。
+    `ASSISTANT_MODE=legacy` 时走原来的规则分流链路（带照片的轮次先经 `_with_photos`）。
+    """
+    if settings.assistant_mode != "legacy":
+        return _agent_turn(payload)
     urls = support_actions._image_urls(payload.images)
     if not urls:
         return _agent_chat(payload)
     return _with_photos(payload, urls)
+
+
+# ============================================================================ agent
+
+_AGENT_UNAVAILABLE = ("助手这会儿连不上大模型，没法帮你查和办事。稍后再试一次；"
+                      "急的话可以点「转人工」。")
+
+
+def _agent_turn(payload):
+    """agent 版的一轮对话。
+
+    理解、选工具、多步查询、组织话术全归模型（`app/agents/assistant/loop.py`）。
+    代码只接管两件**协议**上的事，它们不是「理解这句话」，而是界面约定：
+
+    1. 对着一张确认卡片说「好的 / 算了 / 换个时间」——执行前的最后一道关，
+       走原来那条确定性的两阶段流程（高风险的仍然要点按钮）；
+    2. 助手正在要照片（报修「要拍张照片吗」），发来的是照片或「跳过」——
+       照片就是答案，直接填进去。
+
+    模型不可用时照实告诉用户，**不再退回关键词链路**。
+    """
+    urls = support_actions._image_urls(payload.images)
+    pending = payload.pending or {}
+    ask = pending.get("ask") or {}
+    stored = backend_client.list_chat(payload.session_id, payload.token)
+    past = ([m["content"] for m in stored if m.get("role") == "user"] if stored
+            else user_turns(payload.history))
+    dialogue = _dialogue_from(stored, payload.history)
+    slots, feats = memory.replay(past)
+
+    protocol_text = None
+    if pending.get("card") and support.claims_pending(payload.text, pending):
+        protocol_text = payload.text
+    elif ask.get("kind") == "upload" and (
+            urls or support.claims_pending(payload.text, pending)):
+        protocol_text = ",".join(urls) if urls else payload.text
+    if protocol_text is not None:
+        result = support.run(protocol_text, token=payload.token, history=past,
+                             provider=_llm(), backend=backend_client, settings=settings,
+                             house_no=payload.house_no or None,
+                             house_nos=payload.last_house_nos, pending=pending) or {}
+        result.setdefault("items", [])
+        result["route"] = {"source": "protocol", "tool": "pending_" + (
+            "card" if pending.get("card") else "upload")}
+        result["route_source"] = "protocol"
+        result["context_text"] = memory.describe(slots, feats)
+        return _log_agent_turn(payload, urls, result)
+
+    if provider is None or not getattr(provider, "available", False):
+        return _log_agent_turn(payload, urls, _agent_reply(
+            _AGENT_UNAVAILABLE, {}, [], slots, feats, status="unavailable", ok=False))
+
+    turn = llm_budget.for_turn(provider, settings.agent_turn_budget)
+    _turn_llm.set(turn)
+    who = _whoami(payload.token)
+    runner_ctx = {
+        "text": payload.text, "token": payload.token, "provider": turn,
+        "backend": backend_client, "property_finder": property_finder,
+        "fetch_houses": _fetch_houses,
+        "last_house_nos": list(payload.last_house_nos or []),
+        "house_no": payload.house_no, "slots": slots, "features": feats,
+        "seen": payload.seen,
+    }
+    deps = SimpleNamespace(
+        logged_in=who["logged_in"], role=who["role"], runner_ctx=runner_ctx,
+        run_read=tool_runner.run_read,
+        knowledge=lambda question: _agent_knowledge(payload, past, question),
+        recommend=lambda: recommend.run(token=payload.token, limit=6, backend=backend_client),
+        propose=lambda action, params, text, images: _agent_propose(
+            payload, action, params, text, urls))
+    images = repair_vision.safe_images(urls, settings.backend_base_url) if urls else []
+    try:
+        out = assistant_loop.run(
+            payload.text, images, turn, Toolkit(deps),
+            context_lines=_agent_context(payload, who, slots, feats, pending),
+            dialogue=dialogue)
+    except LLMUnavailable:
+        return _log_agent_turn(payload, urls, _agent_reply(
+            _AGENT_UNAVAILABLE, {}, [], slots, feats, status="unavailable", ok=False))
+
+    result = _agent_reply(out["message"], out["artifacts"], out["trace"], slots, feats)
+    # 用户在流程里插了句别的：答完把待办原样交回去，下一句还能接着填
+    if pending and not result.get("pending") and not out["stopped_by"]:
+        result["pending"] = pending
+    return _log_agent_turn(payload, urls, result)
+
+
+def _agent_reply(message, artifacts, trace, slots, feats, status="answered", ok=True):
+    """agent 的结果 → 前端认得的那一种返回形状（和 legacy 一致，前端不用改）。"""
+    result = {
+        "intent": "search" if artifacts.get("items") else "support",
+        "status": "confirm" if artifacts.get("action") else status,
+        "ok": ok, "message": message,
+        "items": [], "alternatives": [], "citations": [], "notes": [],
+        "context_text": memory.describe(slots, feats),
+        "route": {"source": "agent", "tools": [s.get("tool") for s in trace], "trace": trace},
+        "route_source": "agent",
+    }
+    result.update({k: v for k, v in artifacts.items() if v not in (None, "", [], {})})
+    if result.get("pending", {}).get("ask"):
+        result["status"] = "need_slot"
+    return result
+
+
+def _agent_context(payload, who, slots, feats, pending):
+    """「当前情况」那一段：身份、屏幕上有什么、记住了什么、有没有办到一半的事。"""
+    lines = ["用户身份：%s。" % ({"tenant": "租客", "landlord": "房东", "agent": "中介",
+                                 "admin": "管理员"}.get(who["role"], "已登录用户")
+                                if who["logged_in"] else "未登录（查个人数据、办事都要先登录）")]
+    if payload.house_no:
+        lines.append("用户正打开着房源 %s 的详情页，「这套」指它。" % payload.house_no)
+    listed = [n for n in (payload.last_house_nos or []) if n]
+    if listed:
+        rows = {h.get("house_no"): h for h in _fetch_houses(listed[:10])}
+        shown = []
+        for i, no in enumerate(listed[:10]):
+            h = rows.get(no) or {}
+            bits = [str(h.get(k)) for k in ("title", "rent_type") if h.get(k)]
+            if h.get("rent_price"):
+                bits.append("%g元/月" % float(h["rent_price"]))
+            shown.append("%d. %s %s" % (i + 1, no, " ".join(bits)))
+        lines.append("屏幕上的房源列表（用户说「第几套」按这个序号）：\n" + "\n".join(shown))
+    remembered = memory.describe(slots, feats)
+    if remembered:
+        lines.append("之前对话里记住的找房条件：%s" % remembered)
+    if pending.get("action"):
+        ask = pending.get("ask") or {}
+        filled = {k: v for k, v in (pending.get("slots") or {}).items() if v not in (None, "")}
+        if pending.get("card"):
+            lines.append("待办：已经给用户出了一张「%s」的确认卡片，等他点确认。"
+                         % pending["card"].get("summary", pending["action"]))
+        elif ask:
+            lines.append("待办：上一轮你在帮用户办 %s，问了他「%s」（要填的是 %s）；已填：%s。"
+                         % (pending["action"], ask.get("question", ""), ask.get("slot", ""),
+                            json.dumps(filled, ensure_ascii=False) if filled else "无"))
+    return lines
+
+
+def _agent_knowledge(payload, past, question):
+    """知识库问答：检索 + 可答性闸门 + 受约束生成，没依据就拒答。"""
+    return support.run(
+        question, token=payload.token, history=past, provider=_llm(),
+        backend=backend_client, settings=settings,
+        house_no=payload.house_no or None, house_nos=payload.last_house_nos,
+        routing={"kind": support_router.KIND_KNOWLEDGE, "name": "none", "source": "agent",
+                 "rule": {"kind": support_router.KIND_KNOWLEDGE, "name": "none"}})
+
+
+# 这几件事办的是**用户自己租的那套房**，房源只能从他的合同/账单里来。
+# 实测「厨房水龙头一直滴水，找人来修」时，模型把页面上正打开的 DL0001 填成了
+# 报修对象——那是他在逛的房子，不是他住的。这里一律不收模型和页面给的编号，
+# 交给提议器按他名下生效中的租约去找。
+_OWN_RENTAL_ACTIONS = {"submit_repair", "pay_bill", "renew_contract", "end_contract"}
+
+
+def _agent_propose(payload, action, params, text, urls):
+    """写工具：模型给的参数 + 待办里已填的 → 提议器 → 确认卡片或追问。只读后端。"""
+    pending = payload.pending or {}
+    context = {}
+    if pending.get("action") == action:
+        context.update(pending.get("slots") or {})
+    context.update({k: v for k, v in params.items() if k not in ("request", "ordinal", "house_no")})
+    if action in _OWN_RENTAL_ACTIONS:
+        params = {k: v for k, v in params.items() if k not in ("house_no", "ordinal")}
+        payload = payload.model_copy(update={"house_no": "", "last_house_nos": []})
+
+    listed = list(payload.last_house_nos or [])
+    house_no = params.get("house_no") if params.get("house_no") in listed + [payload.house_no] else None
+    if not house_no and params.get("ordinal"):
+        index = int(params["ordinal"]) - 1
+        if not 0 <= index < len(listed):
+            return {"status": "not_applicable",
+                    "message": "屏幕上只有 %d 套，没有第 %d 套。" % (len(listed), index + 1)}
+        house_no = listed[index]
+    if not house_no:
+        resolved = memory.resolve_house(params.get("request") or text, listed, payload.house_no)
+        if resolved is not memory.OUT_OF_RANGE:
+            house_no = resolved
+    if house_no:
+        context["house_no"] = house_no
+    if urls and action == "submit_repair":
+        context["images"] = ",".join(urls)
+
+    request = params.get("request") or text
+    status, message, card, ask = support_actions.propose(
+        action, request, payload.token, backend_client, context)
+    shaped = lambda st, msg, **extra: support._shape(st, msg, question=request, **extra)  # noqa: E731
+    return support._action_result(action, status, message, card, ask, context, shaped) or {
+        "status": "not_applicable", "message": message or "这件事我这边办不了。"}
+
+
+def _log_agent_turn(payload, urls, result):
+    if payload.session_id and payload.token:
+        said = (payload.text or "").strip()
+        if urls:
+            said += "（附 %d 张照片）" % len(urls)
+        intent = result.get("intent") or "support"
+        backend_client.log_chat(payload.session_id, "user", said, payload.token, intent=intent)
+        backend_client.log_chat(payload.session_id, "assistant", result.get("message", ""),
+                                payload.token, intent=intent)
+    return result
 
 
 def _with_photos(payload, urls):

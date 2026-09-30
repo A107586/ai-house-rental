@@ -19,6 +19,19 @@ from app.agents.support import agent as support  # noqa: E402
 from app.agents.support.tools import photo  # noqa: E402
 from app.main import ChatRequest, agent_chat  # noqa: E402
 
+# 这个文件测的是 legacy 链路里的 `_with_photos`（ASSISTANT_MODE=legacy）。
+# agent 链路里照片直接交给模型看，见 test_assistant_agent。
+_legacy = mock.patch.object(main.settings, "assistant_mode", "legacy")
+
+
+def setUpModule():
+    _legacy.start()
+
+
+def tearDownModule():
+    _legacy.stop()
+
+
 URL = "/static/uploads/202609/a.jpg"
 UPLOAD_ASK = {"action": "submit_repair", "slots": {},
               "ask": {"slot": "images", "question": "要拍张照片吗？",

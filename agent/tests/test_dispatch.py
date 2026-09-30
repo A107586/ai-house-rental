@@ -56,6 +56,19 @@ class _FakeRouterProvider(LLMProvider):
         raise LLMUnavailable("这条测试只放行路由")
 
 
+# 这个文件测的是 legacy 那条规则分流链路（ASSISTANT_MODE=legacy）。
+# 默认的 agent 链路见 test_assistant_agent。
+_legacy = mock.patch.object(main.settings, "assistant_mode", "legacy")
+
+
+def setUpModule():
+    _legacy.start()
+
+
+def tearDownModule():
+    _legacy.stop()
+
+
 def patched_provider(payload):
     """把 main 里的全局 provider 临时换成假的。"""
     return mock.patch("app.main.provider", _FakeRouterProvider(payload))
