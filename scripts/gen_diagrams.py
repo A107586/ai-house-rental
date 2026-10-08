@@ -573,7 +573,32 @@ SUBAGENT_REQ = {
     "report": "AI-05 经营报告", "booking": "AI-06 预约",
     "recommend": "AI-07 推荐", "describe": "AI-08 房源描述",
     "viewing": "J-05 带看小结", "handoff": "AI-03 转人工",
+    "assistant": "AI-09 统一对话入口",
 }
+
+# 子智能体的入口文件。多数是 agent.py；assistant 是一个工具循环，入口在 loop.py
+ENTRY_FILES = ("agent.py", "loop.py")
+
+
+def agent_entry(agent):
+    folder = os.path.join(AGENT_APP, "agents", agent)
+    for name in ENTRY_FILES:
+        if os.path.exists(os.path.join(folder, name)):
+            return os.path.join(folder, name)
+    raise SystemExit("子智能体 %s 找不到入口文件（%s 之一）" % (agent, "、".join(ENTRY_FILES)))
+
+
+def helper_modules(agent):
+    """入口以外的代码：有 tools/ 目录的列 tools/ 下的模块，没有的列同目录的其他模块。
+    返回 (显示用的标签, [(模块名, 路径)])。"""
+    if tool_modules(agent):
+        folder = os.path.join(AGENT_APP, "agents", agent, "tools")
+        return "tools", [(m, os.path.join(folder, m + ".py")) for m in tool_modules(agent)]
+    folder = os.path.join(AGENT_APP, "agents", agent)
+    entry = os.path.basename(agent_entry(agent))
+    names = sorted(f[:-3] for f in os.listdir(folder)
+                   if f.endswith(".py") and f not in ("__init__.py", entry))
+    return "modules", [(m, os.path.join(folder, m + ".py")) for m in names]
 
 
 def subagents():
@@ -680,7 +705,7 @@ def agent_dispatch_diagram():
 
     agent_trees = {}
     for agent in subagents():
-        path = os.path.join(AGENT_APP, "agents", agent, "agent.py")
+        path = agent_entry(agent)
         tree = parse(path)
         agent_trees[agent] = (tree, path)
         cid = "ag_" + agent
@@ -692,12 +717,12 @@ def agent_dispatch_diagram():
         for public in (c for c in tree.body if isinstance(c, ast.ClassDef)
                        and not c.name.startswith("_")):
             lines.append("        +%s «class»" % public.name)
-        tools = tool_modules(agent)
-        if tools:
-            lines.append("        +tools %s" % ", ".join(tools))
+        label, helpers = helper_modules(agent)
+        if helpers:
+            lines.append("        +%s %s" % (label, ", ".join(m for m, _ in helpers)))
         lines.append("    }")
         boxes["agents.%s" % agent] = cid
-        boxes["agents.%s.agent" % agent] = cid
+        boxes["agents.%s.%s" % (agent, os.path.basename(path)[:-3])] = cid
 
     def targets(imports):
         hit = set()
@@ -713,9 +738,8 @@ def agent_dispatch_diagram():
     edges |= {("supervisor", c) for c in targets(app_imports(sup_tree, sup))}
     for agent, (tree, path) in agent_trees.items():
         imports = set(app_imports(tree, path))
-        for tool in tool_modules(agent):
-            tpath = os.path.join(AGENT_APP, "agents", agent, "tools", tool + ".py")
-            imports |= app_imports(parse(tpath), tpath)
+        for _name, hpath in helper_modules(agent)[1]:
+            imports |= app_imports(parse(hpath), hpath)
         edges |= {("ag_" + agent, c) for c in targets(imports)}
     for mod in ("catalog", "planner", "runner"):
         path = os.path.join(AGENT_APP, "agents", "toolbox", mod + ".py")
@@ -885,7 +909,7 @@ SUBAGENT_SHORT = {
     "property_finder": "找房", "contract": "合同审阅", "support": "智能客服",
     "repair": "报修分析", "report": "经营报告", "booking": "预约",
     "recommend": "推荐", "describe": "房源描述", "viewing": "带看小结",
-    "handoff": "转人工",
+    "handoff": "转人工", "assistant": "对话助手",
 }
 
 SYSTEM_CSS = """
@@ -1131,7 +1155,10 @@ def function_tables():
             rows.append([c.strip() for c in line.strip("|").split("|")])
         header, data = rows[0], rows[2:]
         if header[1] == "子智能体":
-            points = [(_plain(r[2]), "%s · %s" % (_plain(r[1]), _plain(r[3]))) for r in data]
+            # 标题栏窄，放短名（找房、对话助手）；职责写进说明栏，带上代码名与需求号
+            points = [(SUBAGENT_SHORT.get(_plain(r[1]), _plain(r[1])),
+                       "%s（%s · %s）" % (_plain(r[2]), _plain(r[1]), _plain(r[3])))
+                      for r in data]
         else:
             points = [(_plain(r[1]), _plain(r[2])) for r in data]
         sections[number] = (head.group(2).strip(), points)

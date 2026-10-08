@@ -72,6 +72,12 @@ classDiagram
         +direct_list_answer(text, picked, listed, fetch)
         +distance_note(text, rows)
     }
+    class ag_assistant["assistant · AI-09 统一对话入口"] {
+        <<agent>>
+        +run(text, images, llm, toolkit, context_lines, dialogue, deadline, today)
+        +Outcome «class»
+        +modules toolkit
+    }
     class ag_booking["booking · AI-06 预约"] {
         <<agent>>
         +run(text, house_no, applicant, now, backend, taken, token)
@@ -116,13 +122,14 @@ classDiagram
         <<agent>>
         +run(text, token, history, provider, backend, settings, house_no, house_nos, pending, routing)
         +KnowledgeBase «class»
-        +tools account, actions, answer, classify_ask, dates, forms, gate, greeting, house, money, pitch, progress, router, toolcall
+        +tools account, actions, answer, classify_ask, dates, forms, gate, greeting, house, money, photo, pitch, progress, router, toolcall
     }
     class ag_viewing["viewing · J-05 带看小结"] {
         <<agent>>
         +run(text, provider)
         +tools extract
     }
+    AgentApi ..> ag_assistant
     AgentApi ..> ag_booking
     AgentApi ..> ag_contract
     AgentApi ..> ag_describe
@@ -139,6 +146,7 @@ classDiagram
     AgentApi ..> tb_catalog
     AgentApi ..> tb_planner
     AgentApi ..> tb_runner
+    ag_assistant ..> tb_catalog
     ag_handoff ..> ag_property_finder
     ag_handoff ..> fusion
     ag_property_finder ..> fusion
@@ -151,6 +159,7 @@ classDiagram
     tb_runner ..> ag_support
     tb_runner ..> memory
     class LLMProvider["LLMProvider（见基础设施图）"]
+    ag_assistant ..> LLMProvider
     ag_contract ..> LLMProvider
     ag_describe ..> LLMProvider
     ag_handoff ..> LLMProvider
