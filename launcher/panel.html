@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地服务面板</title>
+<style>
+  :root { --bg:#f6f6f3; --panel:#fff; --text:#1c1c1a; --muted:#6c6c66; --line:#e2e1db; --accent:#2f6f4f;
+          --ok:#2f7d4f; --warn:#b7791f; --bad:#b83a3a; --idle:#8a8a84; --bar:#e8e7e1; --mono:ui-monospace,Consolas,monospace; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151514; --panel:#1f1f1d; --text:#ecebe6; --muted:#9a9a93; --line:#33332f;
+          --accent:#6fbf8f; --ok:#6fbf8f; --warn:#e0b252; --bad:#e57373; --idle:#77776f; --bar:#2a2a27; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:16px; }
+  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; margin-bottom:14px; }
+  h1 { font-size:18px; margin:0; }
+  .gpu { flex:1; min-width:220px; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; }
+  .gpu .track { flex:1; height:8px; background:var(--bar); border-radius:4px; overflow:hidden; }
+  .gpu .fill { height:100%; background:var(--accent); width:0; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .controls { margin-bottom:12px; justify-content:space-between; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; background:transparent; color:var(--text); }
+  .seg button.on { background:var(--accent); color:#fff; }
+  label.chk { display:inline-flex; gap:6px; align-items:center; margin-left:10px; cursor:pointer; }
+  button { font:inherit; padding:5px 12px; border-radius:7px; border:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:10px; margin-bottom:12px; }
+  .svc h2 { font-size:15px; margin:0 0 4px; display:flex; justify-content:space-between; align-items:center; }
+  .badge { font-size:12px; font-weight:normal; padding:1px 8px; border-radius:10px; color:#fff; background:var(--idle); }
+  .badge.running { background:var(--ok); } .badge.external { background:var(--warn); }
+  .badge.starting { background:var(--warn); } .badge.exited { background:var(--bad); }
+  .meta { color:var(--muted); font-size:12.5px; min-height:38px; margin-bottom:8px; word-break:break-all; }
+  .meta a { color:var(--accent); }
+  .logs .tabs button { font-size:13px; padding:3px 10px; }
+  .logs .tabs button.on { border-color:var(--accent); color:var(--accent); }
+  pre { margin:8px 0 0; height:320px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+        padding:8px 10px; font:12px/1.45 var(--mono); white-space:pre-wrap; word-break:break-all; }
+  .note { color:var(--muted); font-size:12.5px; margin:10px 2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>本地服务面板</h1>
+    <div class="gpu" title="独显显存"><span id="gpuText">显存 —</span><div class="track"><div class="fill" id="gpuFill"></div></div></div>
+    <div class="row">
+      <button class="primary" id="startAll">全部启动</button>
+      <button id="stopAll">全部停止</button>
+      <button id="quit" title="停掉全部服务并关闭面板">退出</button>
+    </div>
+  </header>
+
+  <div class="card row controls">
+    <div class="row">
+      <span>模型档位</span>
+      <div class="seg" id="profile">
+        <button data-v="fast" title="DFlash2：代码/结构化 ~200 t/s，带思考 ~160 t/s">极速</button>
+        <button data-v="long" title="MTP：上下文大一倍多">长文档</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="vision"> 识图</label>
+      <label class="chk"><input type="checkbox" id="thinking"> 思考</label>
+    </div>
+    <span class="note" id="modelLine" style="margin:0"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="card logs">
+    <div class="row tabs" id="tabs"></div>
+    <pre id="log">选一个服务看日志</pre>
+  </div>
+  <p class="note">服务都在后台运行，没有黑窗口；关掉这个网页服务照常运行，重新双击 start-everything.bat 会回到这里。
+    改档位 / 识图 / 思考会自动重启模型（约 10 秒）。</p>
+</main>
+<script>
+const LINKS = { web: ['http://localhost:5173', '打开网站'], chat: ['http://127.0.0.1:8090', '打开对话页'],
+                backend: ['http://localhost:8080/docs', '接口文档'], agent: ['http://localhost:8000/docs', '接口文档'],
+                model: ['http://127.0.0.1:18241/v1/models', '模型列表'] };
+const STATE = { running: '运行中', external: '外部进程', starting: '启动中', exited: '已退出', stopped: '已停止' };
+let logName = 'model', last = null;
+
+const post = body => fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  .then(() => setTimeout(refresh, 300));
+document.getElementById('startAll').onclick = () => post({ action: 'start_all' });
+document.getElementById('stopAll').onclick = () => post({ action: 'stop_all' });
+document.getElementById('quit').onclick = () => { if (confirm('停掉全部服务并关闭面板？')) post({ action: 'quit' }).then(() => document.body.innerHTML = '<main><p>面板已关闭。</p></main>'); };
+document.querySelectorAll('#profile button').forEach(b => b.onclick = () => post({ action: 'settings', profile: b.dataset.v }));
+document.getElementById('vision').onchange = e => post({ action: 'settings', vision: e.target.checked });
+document.getElementById('thinking').onchange = e => post({ action: 'settings', thinking: e.target.checked });
+
+function detail(s, st) {
+  if (s.name === 'model') {
+    const m = st.model, bits = [];
+    if (m.context) bits.push(`上下文 ${m.context}`);
+    return bits.join(' · ');
+  }
+  if (s.name === 'agent' && st.agent_llm) {
+    // provider.stats(): calls / failures / last_error / healthy (agent/app/llm/base.py)
+    const l = st.agent_llm;
+    let text = `模型调用 ${l.calls ?? 0} 次，失败 ${l.failures ?? 0}`;
+    if (l.healthy === false) text += ' · <b style="color:var(--bad)">最近一次失败</b>';
+    if (l.last_error) text += `<br>${String(l.last_error).slice(0, 120).replace(/</g, '&lt;')}`;
+    return text;
+  }
+  return '';
+}
+
+function render(st) {
+  const g = st.gpu;
+  if (g) {
+    document.getElementById('gpuText').textContent = `显存 ${(g.used / 1024).toFixed(1)} / ${(g.total / 1024).toFixed(1)} GB` + (g.display === 'Disabled' ? ' · 桌面在核显' : ' · 独显带桌面');
+    document.getElementById('gpuFill').style.width = (100 * g.used / g.total).toFixed(1) + '%';
+  }
+  document.querySelectorAll('#profile button').forEach(b => b.classList.toggle('on', b.dataset.v === st.settings.profile));
+  document.getElementById('vision').checked = st.settings.vision;
+  document.getElementById('thinking').checked = st.settings.thinking;
+  document.getElementById('modelLine').textContent = st.model.profile_line || '';
+
+  const grid = document.getElementById('grid');
+  grid.replaceChildren(...st.services.map(s => {
+    const d = document.createElement('div'); d.className = 'card svc';
+    const up = s.state === 'running' || s.state === 'external';
+    const [href, text] = LINKS[s.name];
+    d.innerHTML = `<h2>${s.title}${s.optional ? '<small style="color:var(--muted);font-weight:normal"> 可选</small>' : ''}
+        <span class="badge ${s.state}">${STATE[s.state]}</span></h2>
+      <div class="meta">端口 ${s.port}${up ? ` · <a href="${href}" target="_blank">${text}</a>` : ''}
+        ${s.state === 'external' ? '<br>不是本面板起的（可能是旧的黑窗口）；可以停掉后由面板重起' : ''}
+        ${s.state === 'exited' ? `<br>进程退出（代码 ${s.exit}），看下面的日志` : ''}
+        <br>${detail(s, st)}</div>
+      <div class="row"></div>`;
+    const row = d.querySelector('.row');
+    for (const [act, label] of [['start', '启动'], ['restart', '重启'], ['stop', '停止']]) {
+      const b = document.createElement('button'); b.textContent = label;
+      b.disabled = (act === 'start' && (up || s.state === 'starting')) || (act !== 'start' && s.state === 'stopped');
+      b.onclick = () => post({ action: act, name: s.name });
+      row.appendChild(b);
+    }
+    const lb = document.createElement('button'); lb.textContent = '日志';
+    lb.onclick = () => { logName = s.name; refreshLog(); renderTabs(st); };
+    row.appendChild(lb);
+    return d;
+  }));
+  renderTabs(st);
+}
+
+function renderTabs(st) {
+  document.getElementById('tabs').replaceChildren(...st.services.map(s => {
+    const b = document.createElement('button'); b.textContent = s.title; b.classList.toggle('on', s.name === logName);
+    b.onclick = () => { logName = s.name; refreshLog(); renderTabs(st); };
+    return b;
+  }));
+}
+
+async function refresh() {
+  try { last = await (await fetch('/api/status')).json(); render(last); } catch (e) { }
+}
+async function refreshLog() {
+  const pre = document.getElementById('log');
+  const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+  try { pre.textContent = await (await fetch('/api/log?name=' + logName)).text() || '（还没有日志）'; } catch (e) { }
+  if (stick) pre.scrollTop = pre.scrollHeight;
+}
+refresh(); refreshLog();
+setInterval(refresh, 2500); setInterval(refreshLog, 2000);
+</script>
+</body>
+</html>

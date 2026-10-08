@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 生成，不要手改 -->
+<title>系统结构图</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1880px; padding: 20px 24px 24px; }
+.row { display: grid; grid-template-columns: 64px 1fr; gap: 12px; }
+.tag { background: #1f4e79; color: #fff; border-radius: 6px; font-weight: 700;
+       font-size: 19px; letter-spacing: 8px; writing-mode: vertical-rl;
+       display: flex; align-items: center; justify-content: center; }
+.band { border: 2px solid #a9bfd6; border-radius: 8px; background: #f3f7fb; padding: 10px 12px 12px; }
+.title { font-weight: 700; font-size: 17px; color: #1f4e79; margin: 0 0 8px; }
+.title small { font-weight: 400; color: #5a6b7d; font-size: 14px; margin-left: 8px; }
+.grid { display: grid; gap: 10px; }
+.card { background: #fff; border: 1.5px solid #86a3c3; border-radius: 6px; padding: 8px 10px; }
+.card h4 { margin: 0 0 4px; font-size: 16px; }
+.card h4 .meta { font-weight: 400; color: #5a6b7d; font-size: 13px; margin-left: 6px; }
+.card .route { color: #7a8a9b; font-size: 12.5px; font-style: italic; margin-bottom: 3px; }
+.card ul { margin: 0; padding-left: 17px; font-size: 14px; line-height: 1.5; }
+.chain { display: grid; grid-template-columns: 1fr 26px 1fr 26px 1fr 26px 1fr; align-items: stretch; }
+.chain .to { display: flex; align-items: center; justify-content: center;
+             color: #1f4e79; font-size: 24px; font-weight: 700; }
+.chain .card { border-color: #1f4e79; border-width: 2px; }
+.sub { font-weight: 700; font-size: 14.5px; color: #34506e; margin: 10px 0 6px; }
+.chip { background: #fff; border: 1.5px solid #9fb3c8; border-radius: 5px; padding: 6px 8px;
+        font-size: 14px; text-align: center; }
+.chip i { display: block; color: #6b7c8e; font-size: 12px; font-style: normal; margin-top: 1px; }
+.chip b { display: block; font-size: 15px; margin-bottom: 2px; }
+.arrows > div:last-child { justify-content: center; white-space: nowrap; }
+.mid { display: grid; grid-template-columns: 1fr 56px 440px; }
+.hlink { display: flex; flex-direction: column; align-items: center; justify-content: center;
+         color: #1f4e79; font-size: 13px; text-align: center; line-height: 1.35; }
+.hlink b { font-size: 26px; line-height: 1; }
+.arrows { display: grid; grid-template-columns: 64px 1fr 56px 440px; gap: 0 12px; margin: 4px 0; }
+.arrows > div { display: flex; align-items: center; justify-content: center; gap: 8px;
+                color: #1f4e79; font-size: 14px; height: 36px; }
+.arrows b { font-size: 22px; }
+.dash { border: 2px dashed #9aa9b8; background: #fafbfc; }
+.agent .card, .agent .chip { border-color: #7d9a7a; }
+.agent.band { background: #f3f8f2; border-color: #a9c4a6; }
+.agent .title { color: #2f5d2b; }
+.note { color: #6b7c8e; font-size: 12.5px; margin-top: 6px; }
+</style></head>
+<body><div class="wrap">
+
+<div class="row"><div class="tag">用户层</div><div class="band">
+  <div class="title">四种角色<small>同一个账号可兼租客与房东；中介接单须资质过审</small></div>
+  <div class="grid" style="grid-template-columns: repeat(4, 1fr)"><div class="card "><h4>租客</h4><ul><li>找房 · 约看房</li><li>签约 · 缴费</li><li>报修 · 评价</li><li>问智能助手</li></ul></div><div class="card "><h4>房东</h4><ul><li>发布与管理房源</li><li>处理预约 · 签约收租</li><li>维修派单 · 催缴</li><li>委托中介</li></ul></div><div class="card "><h4>中介</h4><ul><li>资质认证</li><li>受托房源带看</li><li>跟进租客 · 会话</li><li>佣金结算</li></ul></div><div class="card "><h4>管理员</h4><ul><li>房源与资质审核</li><li>内容治理 · 操作日志</li><li>系统配置</li><li>客服知识 · 转人工</li></ul></div></div>
+</div></div>
+
+<div class="arrows"><div></div><div><b>▼</b>浏览器访问</div><div></div><div></div></div>
+
+<div class="row"><div class="tag">表示层</div><div class="band">
+  <div class="title">前端站点 :5173<small>React 18 + Vite 4 · 哈希路由 · 构建产物由业务后端托管</small></div>
+  <div class="grid" style="grid-template-columns: repeat(5, 1fr)"><div class="card "><h4>首页 / 找房列表</h4><div class="route">#/ · #/list</div><ul><li>条件筛选</li><li>地图找房</li><li>猜你喜欢</li></ul></div><div class="card "><h4>房源详情</h4><div class="route">#/house</div><ul><li>相册 · 费用明细</li><li>评价 · 房东信息</li><li>约看 · 咨询</li></ul></div><div class="card "><h4>工作台（按角色）</h4><div class="route">#/work</div><ul><li>个人中心</li><li>房东 / 中介工作台</li><li>管理后台</li></ul></div><div class="card "><h4>智能助手浮窗</h4><div class="route">各页通用</div><ul><li>多轮对话</li><li>确认卡片</li><li>拍照报修</li></ul></div><div class="card "><h4>登录注册</h4><div class="route">#/auth</div><ul><li>注册 · 登录</li><li>找回密码</li></ul></div></div>
+</div></div>
+
+<div class="arrows"><div></div>
+  <div><b>▼</b>REST /api：页面上的全部业务请求</div><div></div>
+  <div><b>▼</b>/agent：对话与 AI 功能</div></div>
+
+<div class="row"><div class="tag">服务层</div><div class="mid">
+  <div class="band">
+    <div class="title">业务后端 :8080<small>FastAPI + SQLAlchemy 2.0 · 152 个接口 · 9 个业务模块 · 鉴权、状态机、金额规则的唯一出口</small></div>
+    <div class="sub">核心交易链</div>
+    <div class="chain"><div class="card "><h4>房源<span class="meta">32 接口 · 4 表</span></h4><ul><li>发布与审核上架</li><li>多条件检索 · 地图找房</li><li>房源核验 · 费用透明</li><li>相册与图片说明</li><li>保存搜索 · 上新提醒</li><li>举报处理 · 租金建议</li></ul></div><div class="to">→</div><div class="card "><h4>看房预约<span class="meta">4 接口 · 1 表</span></h4><ul><li>提交预约 · 时段冲突检测</li><li>确认 / 拒绝 / 取消</li><li>委托期间转受托中介</li><li>结果站内通知</li></ul></div><div class="to">→</div><div class="card "><h4>合同与账单<span class="meta">16 接口 · 4 表</span></h4><ul><li>签约 · AI 合同审阅</li><li>整期账单排期</li><li>缴费 · 支付回调（幂等）</li><li>退租与押金结算</li><li>续租 · 催缴提醒</li></ul></div><div class="to">→</div><div class="card "><h4>报修与维修<span class="meta">14 接口 · 6 表</span></h4><ul><li>报修（AI 判分类与紧急度）</li><li>指派与进度通知</li><li>结案登记：人 · 物 · 工时</li><li>维修人员与物料档案</li><li>维修统计 · 超时判定</li></ul></div></div>
+    <div class="sub">支撑业务</div>
+    <div class="grid" style="grid-template-columns: repeat(5, 1fr)"><div class="card "><h4>账号与权限<span class="meta">13 接口 · 3 表</span></h4><ul><li>注册登录 · 令牌吊销</li><li>一号多身份</li><li>升级房东 / 中介审核</li><li>实名与脱敏</li><li>找回密码</li></ul></div><div class="card "><h4>互动与消息<span class="meta">18 接口 · 7 表</span></h4><ul><li>收藏 · 浏览足迹</li><li>租后评价（三个对象）</li><li>站内消息 · 邮件提醒</li><li>平台公告</li><li>租客与房东 / 中介会话</li></ul></div><div class="card "><h4>中介<span class="meta">14 接口 · 4 表</span></h4><ul><li>经纪人资质审核</li><li>房源委托（双向确认）</li><li>带看记录与异议</li><li>成交计佣</li><li>中介工作台 · 目录</li></ul></div><div class="card "><h4>智能客服与知识<span class="meta">12 接口 · 4 表</span></h4><ul><li>FAQ 知识库维护</li><li>问答日志与反馈</li><li>转人工工单</li><li>多轮对话记录</li></ul></div><div class="card "><h4>平台治理<span class="meta">29 接口 · 3 表</span></h4><ul><li>管理后台 · 经营统计</li><li>操作日志</li><li>内容审核复核队列</li><li>系统配置</li></ul></div></div>
+    <div class="sub">公共服务（各模块共用）</div>
+    <div class="grid" style="grid-template-columns: repeat(8, 1fr)"><div class="chip">鉴权与权限<i>auth · deps · permissions</i></div><div class="chip">内容审核<i>moderation</i></div><div class="chip">操作日志 · 限流<i>oplog · ratelimit</i></div><div class="chip">消息通知<i>leasing.notify · notifier</i></div><div class="chip">系统配置<i>config_store</i></div><div class="chip">文件上传<i>uploads</i></div><div class="chip">支付网关（模拟）<i>gateway</i></div><div class="chip">地理编码<i>map_service</i></div></div>
+  </div>
+  <div class="hlink"><b>◀</b>HTTP<br/>取数<br/>执行已<br/>确认的<br/>写操作</div>
+  <div class="band agent">
+    <div class="title">智能体服务 :8000<small>19 个接口 · 无数据库连接</small></div>
+    <div class="card "><h4>Supervisor 总调度</h4><ul><li>判意图、转交子智能体</li><li>规则与大模型融合 · 护栏</li></ul></div>
+    <div class="sub">11 个子智能体</div>
+    <div class="grid" style="grid-template-columns: repeat(3, 1fr)"><div class="chip">找房<i>AI-01</i></div><div class="chip">合同审阅<i>AI-02</i></div><div class="chip">转人工<i>AI-03</i></div><div class="chip">智能客服<i>AI-03</i></div><div class="chip">报修分析<i>AI-04</i></div><div class="chip">经营报告<i>AI-05</i></div><div class="chip">预约<i>AI-06</i></div><div class="chip">推荐<i>AI-07</i></div><div class="chip">房源描述<i>AI-08</i></div><div class="chip">对话助手<i>AI-09</i></div><div class="chip">带看小结<i>J-05</i></div></div>
+    <div class="sub">共用底座</div>
+    <div class="grid" style="grid-template-columns: repeat(3, 1fr)"><div class="chip"><b>工具箱</b><i>40 个工具</i><i>写操作 13 个</i><i>先确认后执行</i></div><div class="chip"><b>知识检索</b><i>BM25 + 向量融合</i><i>可答性闸门</i></div><div class="chip"><b>大模型接入层</b><i>单轮时限 · 熔断</i><i>不可用时降级为规则</i></div></div>
+  </div>
+</div></div>
+
+<div class="arrows"><div></div>
+  <div><b>▼</b>读写（SQLAlchemy） · 地理编码与邮件（可缺席）</div><div></div>
+  <div><b>▼</b>OpenAI 兼容协议（可缺席）</div></div>
+
+<div class="row" style="min-height: 150px"><div class="tag" style="letter-spacing: 1px; font-size: 17px">数据与外部</div><div class="mid">
+  <div class="grid" style="grid-template-columns: 1.3fr 1fr 1fr 1fr">
+    <div class="card "><h4>关系数据库</h4><ul><li>SQLite（开发）/ MySQL 8（部署）</li><li>36 张表 · 60 个外键</li></ul></div><div class="card "><h4>文件存储 static/</h4><ul><li>房源相册</li><li>报修照片</li></ul></div><div class="card dash"><h4>高德地图（外部）</h4><ul><li>地理编码</li><li>不可达时退回离线示意图</li></ul></div><div class="card dash"><h4>邮件 SMTP（外部）</h4><ul><li>账单 · 合同 · 工单提醒</li><li>未配置时跳过</li></ul></div>
+  </div>
+  <div></div>
+  <div class="card dash"><h4>大模型服务（外部）</h4><ul><li>OpenAI 兼容协议</li><li>允许缺席：全部测试在无模型下跑</li></ul></div>
+</div></div>
+
+</div></body></html>

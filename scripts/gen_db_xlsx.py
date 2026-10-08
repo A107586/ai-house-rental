@@ -367,7 +367,27 @@ def build(metadata):
     write_matrix(book, ordered)
     for name in ordered:
         write_table_sheet(book, tables[name], today)
+    apply_song_font(book)
     return book
+
+
+def apply_song_font(book):
+    """全部单元格用宋体 12 号，与参考工作簿 `shengyadb.xls` 一致；
+    主题里的日文字体条目去掉。
+
+    openpyxl 默认是 Calibri 11，中文落到主题的东亚字体上；而它自带的主题
+    里写着日文字体「ＭＳ Ｐゴシック」，在 WPS 里就可能显示成日文字体。
+    所以每个格子显式写宋体，主题里的日文条目也一并删掉。"""
+    from openpyxl.writer.theme import theme_xml
+    for sheet in book.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                old = cell.font
+                size = old.sz if old.sz and float(old.sz) != 11 else 12
+                cell.font = Font(name="宋体", size=size, bold=old.b,
+                                 italic=old.i, color=old.color)
+    theme = re.sub(r'<a:font script="Jpan"[^>]*/>', "", theme_xml)
+    book.loaded_theme = re.sub(r'<a:ea typeface="[^"]*"/>', '<a:ea typeface="宋体"/>', theme)
 
 
 def fingerprint(metadata):

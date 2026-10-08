@@ -617,6 +617,18 @@ def _answers_slot(name, ask, raw, pending):
     if options and actions.pick_option(raw, options):
         return True
 
+    # 这一项要照片（报修的「要拍张照片吗」），发来的就是本系统的图片地址。
+    #
+    # 助手里的「选照片」按钮把上传后的地址当答案发回来。原先没有这一条：
+    # 一串 `/static/uploads/…` 既对不上「跳过」那个选项、也不像一个值，
+    # 于是被当成插了一句别的话，掉进检索回「英文问句检索不到」，
+    # 报修卡在要照片那一步出不来。**每个地址都得是本系统的**才算，
+    # 混着别的东西就不认，交给后面照常判断。
+    if (ask or {}).get("kind") == "upload":
+        items = [u.strip() for u in (raw or "").split(",") if u.strip()]
+        if items and len(actions._image_urls(raw)) == len(items):
+            return True
+
     if "time" in slot or "date" in slot:
         # **`parse_datetime` 永远返回一个 dict**，没解析出来时里面全是
         # None。写成 `if parse_datetime(raw)` 会恒为真，于是「押金怎么退」

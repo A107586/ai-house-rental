@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<!-- 本文件由 scripts/gen_diagrams.py 从《概要设计说明书》的功能定义表生成，不要手改 -->
+<title>智能客服与知识模块</title><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1d2733;
+       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.wrap { width: 1180px; padding: 16px; }
+.tree { display: flex; align-items: center; }
+.root { width: 230px; flex: none; background: #1f4e79; color: #fff; border-radius: 8px;
+        padding: 16px 14px; text-align: center; }
+.root b { display: block; font-size: 21px; letter-spacing: 1px; }
+.root span { display: block; font-size: 14px; color: #d6e3f0; margin-top: 6px; line-height: 1.45; }
+.link { width: 30px; flex: none; border-top: 2.5px solid #1f4e79; }
+.branches { flex: 1; display: flex; flex-direction: column; padding-left: 30px; }
+.br { position: relative; padding: 5px 0; }
+.br::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px;
+              border-top: 2.5px solid #1f4e79; }
+.br::after { content: ""; position: absolute; left: -30px; top: 0; bottom: 0;
+             border-left: 2.5px solid #1f4e79; }
+.br:first-child::after { top: 50%; }
+.br:last-child::after { bottom: 50%; }
+.leaf { display: flex; background: #f3f7fb; border: 1.5px solid #86a3c3; border-radius: 6px; }
+.leaf b { flex: none; width: 190px; padding: 9px 12px; font-size: 17px; color: #1f4e79;
+          border-right: 1.5px solid #c3d3e4; display: flex; align-items: center; }
+.leaf span { padding: 9px 12px; font-size: 15.5px; line-height: 1.5; }
+</style></head>
+<body><div class="wrap"><div class="tree">
+  <div class="root"><b>智能客服与知识模块</b><span>12 个接口 · 4 张表</span><span>5 个功能点</span><span>需求 <i style="font-style:normal;white-space:nowrap">AI-03</i> <i style="font-style:normal;white-space:nowrap">AI-09</i> <i style="font-style:normal;white-space:nowrap">M-07</i> <i style="font-style:normal;white-space:nowrap">N-08</i></span></div>
+  <div class="link"></div>
+  <div class="branches"><div class="br"><div class="leaf"><b>知识条目</b><span>FAQ 的增删改查与上下架；编写源是 agent/knowledge/faq.md，由 seed 导入，导入后数据库是运行时权威源</span></div></div><div class="br"><div class="leaf"><b>问答日志</b><span>记录状态、命中片、闸门判据、回答来源；答不上来的问题才是补语料的依据</span></div></div><div class="br"><div class="leaf"><b>反馈</b><span>有用 / 没用；「没用」比「有用」值钱，它指出哪条写得不对</span></div></div><div class="br"><div class="leaf"><b>转人工</b><span>拒答之后的出口；建单后通知全体管理员，回复复用站内消息送达</span></div></div><div class="br"><div class="leaf"><b>多轮记忆</b><span>AI-09：只存原文不存槽位，查询必须 user_id + session_id 一起过滤</span></div></div></div>
+</div></div></body></html>

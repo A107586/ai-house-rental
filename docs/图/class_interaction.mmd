@@ -2,24 +2,24 @@ classDiagram
     direction LR
     class Api["互动与消息 · HTTP 接口（18 个）"] {
         <<router>>
-        +list_conversations() GET /api/conversations
-        +start_conversation(ConversationStart) POST /api/conversations
-        +list_lines() GET /api/conversations/:conversation_id/lines
-        +send_line(LineCreate) POST /api/conversations/:conversation_id/lines
-        +mark_conversation_read() POST /api/conversations/:conversation_id/read
-        +list_favorites() GET /api/favorites
-        +remove_favorite() DELETE /api/favorites/:house_no
-        +add_favorite() POST /api/favorites/:house_no
-        +clear_history() DELETE /api/history
-        +browsing_history() GET /api/history
-        +list_messages() GET /api/messages
-        +read_all_messages() POST /api/messages/read-all
-        +read_message() PATCH /api/messages/:message_id/read
-        +list_notices() GET /api/notices
-        +create_notice(NoticeCreate) POST /api/notices
-        +toggle_notice() PATCH /api/notices/:notice_id
-        +create_review(ReviewCreate) POST /api/reviews
-        +pending_reviews() GET /api/reviews/pending
+        +list_conversations() GET
+        +start_conversation(ConversationStart) POST
+        +list_lines() GET
+        +send_line(LineCreate) POST
+        +mark_conversation_read() POST
+        +list_favorites() GET
+        +remove_favorite() DELETE
+        +add_favorite() POST
+        +clear_history() DELETE
+        +browsing_history() GET
+        +list_messages() GET
+        +read_all_messages() POST
+        +read_message() PATCH
+        +list_notices() GET
+        +create_notice(NoticeCreate) POST
+        +toggle_notice() PATCH
+        +create_review(ReviewCreate) POST
+        +pending_reviews() GET
     }
     class m_notifier["notifier.py"] {
         <<service>>
@@ -27,38 +27,18 @@ classDiagram
         +notify_external(user, title, content)
     }
     Api ..> m_notifier
-    class m_config_store["config_store.py"] {
-        <<service · 平台治理>>
-        +get_int(session, key, default)
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +config_store.get_int()
+        +deps.require_login()
+        +leasing.notify()
+        +moderation.check()
+        +moderation.check_all()
+        +permissions.can_manage_house()
+        +permissions.responsible_user_id()
+        +uploads.is_managed()
     }
-    Api ..> m_config_store
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +require_login(user)
-    }
-    Api ..> m_deps
-    class m_leasing["leasing.py"] {
-        <<service · 合同与账单>>
-        +notify(session, user_id, type_, title, content, link_no)
-    }
-    Api ..> m_leasing
-    class m_moderation["moderation.py"] {
-        <<service · 平台治理>>
-        +check(text, scene)
-        +check_all(fields, scene)
-    }
-    Api ..> m_moderation
-    class m_permissions["permissions.py"] {
-        <<service · 账号与权限>>
-        +can_manage_house(session, user, house)
-        +responsible_user_id(session, house)
-    }
-    Api ..> m_permissions
-    class m_uploads["uploads.py"] {
-        <<service · 房源>>
-        +is_managed(url)
-    }
-    Api ..> m_uploads
+    Api ..> m_shared
     class EmailNotifier["EmailNotifier（notifier.py）"] {
         +available()
         +send(user, title, content)
@@ -69,39 +49,6 @@ classDiagram
     }
     Notifier <|-- EmailNotifier
     m_notifier ..> Notifier
-    class ConversationStart["ConversationStart"] {
-        <<DTO>>
-        +str house_no
-        +str tenant_username
-        +str demand_summary
-    }
-    Api ..> ConversationStart
-    class LineCreate["LineCreate"] {
-        <<DTO>>
-        +str content
-    }
-    Api ..> LineCreate
-    class NoticeCreate["NoticeCreate"] {
-        <<DTO>>
-        +str title
-        +str content
-        +str summary
-        +str category
-    }
-    Api ..> NoticeCreate
-    class ReviewCreate["ReviewCreate"] {
-        <<DTO>>
-        +str contract_no
-        +int rating
-        +int rating_house
-        +int rating_landlord
-        +int rating_agent
-        +str content_landlord
-        +str content_agent
-        +str content
-        +list~str~ images
-    }
-    Api ..> ReviewCreate
     class Favorite["Favorite · 收藏"] {
         <<entity>>
         +int id «PK»
@@ -183,4 +130,3 @@ classDiagram
     User "1" -- "0..*" Conversation : landlord_id
     Conversation "1" -- "0..*" ChatLine : conversation_id
     User "1" -- "0..*" ChatLine : sender_id
-    m_leasing ..> Message

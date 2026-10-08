@@ -2,75 +2,30 @@ classDiagram
     direction LR
     class Api["中介 · HTTP 接口（14 个）"] {
         <<router>>
-        +my_commissions() GET /api/agent/commissions
-        +dashboard() GET /api/agent/dashboard
-        +submit_license(LicenseSubmit) POST /api/agent/license
-        +open_houses() GET /api/agent/open-houses
-        +my_profile() GET /api/agent/profile
-        +update_profile(ProfileUpdate) PUT /api/agent/profile
-        +agent_directory() GET /api/agents/directory
-        +list_delegations() GET /api/delegations
-        +create_delegation(DelegationCreate) POST /api/delegations
-        +suggest_agents() GET /api/delegations/suggest
-        +respond_delegation() PATCH /api/delegations/:delegation_id
-        +end_delegation() POST /api/delegations/:delegation_id/end
-        +list_viewings() GET /api/viewings
-        +create_viewing(ViewingCreate) POST /api/viewings
+        +my_commissions() GET
+        +dashboard() GET
+        +submit_license(LicenseSubmit) POST
+        +open_houses() GET
+        +my_profile() GET
+        +update_profile(ProfileUpdate) PUT
+        +agent_directory() GET
+        +list_delegations() GET
+        +create_delegation(DelegationCreate) POST
+        +suggest_agents() GET
+        +respond_delegation() PATCH
+        +end_delegation() POST
+        +list_viewings() GET
+        +create_viewing(ViewingCreate) POST
     }
-    class m_deps["deps.py"] {
-        <<service · 账号与权限>>
-        +require_login(user)
+    class m_shared["借用其他模块的服务"] {
+        <<service>>
+        +deps.require_login()
+        +leasing.notify()
+        +moderation.check()
+        +permissions.active_delegation()
+        +permissions.can_see_tenant_contact()
     }
-    Api ..> m_deps
-    class m_leasing["leasing.py"] {
-        <<service · 合同与账单>>
-        +notify(session, user_id, type_, title, content, link_no)
-    }
-    Api ..> m_leasing
-    class m_moderation["moderation.py"] {
-        <<service · 平台治理>>
-        +check(text, scene)
-    }
-    Api ..> m_moderation
-    class m_permissions["permissions.py"] {
-        <<service · 账号与权限>>
-        +active_delegation(session, house_id, agent_id)
-        +can_see_tenant_contact(session, user, appointment, house)
-    }
-    Api ..> m_permissions
-    class LicenseSubmit["LicenseSubmit"] {
-        <<DTO>>
-        +str license_no
-        +list~str~ license_images
-    }
-    Api ..> LicenseSubmit
-    class ProfileUpdate["ProfileUpdate"] {
-        <<DTO>>
-        +list~str~ service_districts
-        +str intro
-        +int years
-        +bool accepting
-    }
-    Api ..> ProfileUpdate
-    class DelegationCreate["DelegationCreate"] {
-        <<DTO>>
-        +str house_no
-        +str agent_username
-        +float commission_rate
-    }
-    Api ..> DelegationCreate
-    class ViewingCreate["ViewingCreate"] {
-        <<DTO>>
-        +str house_no
-        +str tenant_username
-        +int appointment_id
-        +bool showed_up
-        +int duration_minutes
-        +str feedback
-        +list~str~ concerns
-        +str intention
-    }
-    Api ..> ViewingCreate
+    Api ..> m_shared
     class AgentProfile["AgentProfile · 中介档案"] {
         <<entity>>
         +int id «PK»
@@ -133,4 +88,3 @@ classDiagram
     Contract "1" -- "0..*" AgentCommission : contract_id
     HouseDelegation "0..1" -- "0..*" AgentCommission : delegation_id
     User "1" -- "0..*" AgentCommission : agent_id
-    m_permissions ..> HouseDelegation
