@@ -32,9 +32,21 @@ engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
 db.engine = engine
 db.SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
 
+from app import security  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base, House, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
+
+# **测试里把密码哈希调轻。**
+#
+# 26 万轮 PBKDF2 是给线上防撞库的，一次哈希、一次校验各 0.09 秒。
+# 而每个用例 setUp 要哈希两个种子账号，用例里还要登录、注册，
+# 九百多个用例算下来全花在这上面：调轻前整套 410 秒，调轻后 55 秒，
+# 跑一次测试要等的几乎全是它。
+#
+# 只改轮数，算法与存储格式不变：轮数写在哈希串里，校验按串里的轮数算，
+# 所以「哈希—校验」这条链路在测试里走的仍是线上那一套代码。
+security._PBKDF2_ROUNDS = 1000
 
 
 def seed(session):

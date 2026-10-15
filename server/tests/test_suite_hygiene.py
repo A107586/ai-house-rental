@@ -25,7 +25,8 @@ class TestMainBlockIsLast(unittest.TestCase):
             if not name.startswith("test_") or not name.endswith(".py"):
                 continue
             path = os.path.join(HERE, name)
-            lines = io.open(path, encoding="utf-8").read().split("\n")
+            with io.open(path, encoding="utf-8") as handle:
+                lines = handle.read().split("\n")
             for i, line in enumerate(lines):
                 if not line.startswith("if __name__"):
                     continue

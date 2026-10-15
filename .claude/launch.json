@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "rental-server",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "../.venv/Scripts/python.exe",
       "runtimeArgs": [
         "-m",
         "uvicorn",
@@ -19,7 +19,7 @@
     },
     {
       "name": "rental-agent",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "../.venv/Scripts/python.exe",
       "runtimeArgs": [
         "-m",
         "uvicorn",

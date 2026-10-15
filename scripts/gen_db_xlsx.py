@@ -34,14 +34,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from db_meta import (COLUMN_NOTES, MODULES, REQUIREMENTS, ROOT,  # noqa: E402
+from db_meta import (COLUMN_NOTES, REQUIREMENTS, ROOT,  # noqa: E402
                      TABLE_INFO, check_coverage, load_metadata, module_of,
                      ordered_tables)
 
 import sqlalchemy as sa  # noqa: E402
 from openpyxl import Workbook, load_workbook  # noqa: E402
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: E402
-from openpyxl.utils import get_column_letter  # noqa: E402
 
 OUT = os.path.join(ROOT, "docs", "评审",
                    "第6小组_基于AI智能体的房屋租赁系统_数据库设计.xlsx")
