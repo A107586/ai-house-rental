@@ -31,7 +31,6 @@ from app.agents.report import agent as report
 from app.agents.repair import agent as repair
 from app.agents.repair.tools import vision as repair_vision
 from app.agents.support import agent as support
-from app.agents.support.tools import actions
 from app.agents.support.tools import greeting
 from app.agents.support.tools import house as house_tool
 from app.agents.support.tools import photo

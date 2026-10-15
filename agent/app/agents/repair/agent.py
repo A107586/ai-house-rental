@@ -11,7 +11,6 @@ from app.agents.repair.tools.classify import (URGENCY_LEVELS, classify_repair,
                                               describe)
 from app import fusion
 from app.config import settings
-from app.llm.base import LLMUnavailable
 
 _SYSTEM = "你是房屋租赁平台的报修工单分派员，只输出 JSON，不要任何解释。"
 

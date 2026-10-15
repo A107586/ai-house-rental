@@ -6,7 +6,6 @@
 
 from app import fusion, trace as tracing
 from app.config import settings
-from app.llm.base import LLMUnavailable
 from app.agents.property_finder.tools.parse_query import (
     DALIAN_DISTRICTS, FEATURES, _DISTRICT_SHORT, parse_query)
 from app.agents.property_finder.tools.search_properties import (

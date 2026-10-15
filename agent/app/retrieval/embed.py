@@ -99,6 +99,7 @@ class OpenAICompatibleEmbedding(EmbeddingProvider):
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            exc.close()
             raise EmbeddingUnavailable("嵌入服务返回 HTTP %s" % exc.code)
         except Exception as exc:
             raise EmbeddingUnavailable(
