@@ -244,6 +244,10 @@ class House(Base):
                 self.images, key=lambda x: (not x.is_cover, x.sort_order))],
             "status": self.status,
             "view_count": self.view_count,
+            # 上架日期。房东问「哪几套挂了很久没租出去」，助手原先答
+            # 「查不到上架时间，没法判断」——库里一直有，只是没给出去
+            "published_at": (self.published_at.strftime("%Y-%m-%d")
+                             if self.published_at else ""),
             "landlord_name": self.landlord.real_name if self.landlord else "",
             "rating": self.avg_rating,
             "review_count": len([r for r in self.reviews

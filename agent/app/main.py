@@ -44,7 +44,7 @@ from app.llm.base import LLMUnavailable
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.agents.support.tools import forms as support_forms
-from app.backend import client as backend_client
+from app.backend import BackendError, client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
 
@@ -684,12 +684,15 @@ def _agent_turn(payload):
         "last_house_nos": list(payload.last_house_nos or []),
         "house_no": payload.house_no, "slots": slots, "features": feats,
         "seen": payload.seen,
+        # 讲单套房时把资料整份交回 agent，不在工具里再问一次模型（见 runner._one_house）
+        "agent": True,
     }
     deps = SimpleNamespace(
         logged_in=who["logged_in"], role=who["role"], runner_ctx=runner_ctx,
         run_read=tool_runner.run_read,
         knowledge=lambda question: _agent_knowledge(payload, past, question),
         recommend=lambda: recommend.run(token=payload.token, limit=6, backend=backend_client),
+        review=lambda text: contract.run(text, provider=turn),
         propose=lambda action, params, text, images: _agent_propose(
             payload, action, params, text, urls))
     images = repair_vision.safe_images(urls, settings.backend_base_url) if urls else []
@@ -735,13 +738,23 @@ def _agent_context(payload, who, slots, feats, pending):
         lines.append("用户正打开着房源 %s 的详情页，「这套」指它。" % payload.house_no)
     listed = [n for n in (payload.last_house_nos or []) if n]
     if listed:
-        rows = {h.get("house_no"): h for h in _fetch_houses(listed[:10])}
+        rows = {h.get("house_no"): h for h in _fetch_houses(listed[:20])}
         shown = []
-        for i, no in enumerate(listed[:10]):
+        for i, no in enumerate(listed[:20]):
             h = rows.get(no) or {}
             bits = [str(h.get(k)) for k in ("title", "rent_type") if h.get(k)]
             if h.get("rent_price"):
                 bits.append("%g元/月" % float(h["rent_price"]))
+            # 楼层、电梯、配套也带上。上一轮工具结果不会留到这一轮——
+            # 只给标题和价钱时，「按房租排一下，说说哪套适合老人」这一句，
+            # 模型得把 9 套挨个再查一遍电梯（实测 4 次调用、36 秒）
+            if h.get("floor"):
+                bits.append(str(h["floor"]))
+            if "elevator" in h:
+                bits.append("有电梯" if h.get("elevator") else "无电梯")
+            tags = [t for t in (h.get("tags") or []) if t][:5]
+            if tags:
+                bits.append("、".join(tags))
             shown.append("%d. %s %s" % (i + 1, no, " ".join(bits)))
         lines.append("屏幕上的房源列表（用户说「第几套」按这个序号）：\n" + "\n".join(shown))
     remembered = memory.describe(slots, feats)
@@ -777,6 +790,19 @@ def _agent_knowledge(payload, past, question):
 _OWN_RENTAL_ACTIONS = {"submit_repair", "pay_bill", "renew_contract", "end_contract"}
 
 
+def _own_rentals(token):
+    """他作为租客、生效中的租约对应的房源编号。查不到就当没有。"""
+    if not token:
+        return set()
+    try:
+        data = backend_client.get("/api/contracts/mine", params={"side": "tenant"},
+                                  token=token) or {}
+    except BackendError:
+        return set()
+    return {c.get("house_no") for c in data.get("list") or []
+            if c.get("status") == "active" and c.get("house_no")}
+
+
 def _agent_propose(payload, action, params, text, urls):
     """写工具：模型给的参数 + 待办里已填的 → 提议器 → 确认卡片或追问。只读后端。"""
     pending = payload.pending or {}
@@ -785,8 +811,13 @@ def _agent_propose(payload, action, params, text, urls):
         context.update(pending.get("slots") or {})
     context.update({k: v for k, v in params.items() if k not in ("request", "ordinal", "house_no")})
     if action in _OWN_RENTAL_ACTIONS:
+        claimed = params.get("house_no")
         params = {k: v for k, v in params.items() if k not in ("house_no", "ordinal")}
         payload = payload.model_copy(update={"house_no": "", "last_house_nos": []})
+        # 模型给的编号**是他在租的那套**就留着。一律丢掉的话，「那套续一年」
+        # （模型知道是 DL0007）又被追问「你有 3 份租约，要续哪一份」
+        if claimed and claimed in _own_rentals(payload.token):
+            context["house_no"] = claimed
 
     listed = list(payload.last_house_nos or [])
     house_no = params.get("house_no") if params.get("house_no") in listed + [payload.house_no] else None

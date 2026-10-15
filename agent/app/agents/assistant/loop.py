@@ -24,6 +24,7 @@
 """
 
 import json
+import re
 from datetime import date
 
 from app.llm.base import LLMUnavailable, extract_json
@@ -46,6 +47,11 @@ _SYSTEM = """你是「大连智租」租房平台的智能助手。你用工具�
 每一步只输出一个 JSON 对象，不要输出任何别的文字：
 - 调用工具：{"thought": "一句话说明为什么调它", "tool": "工具名", "params": {参数}}
 - 回答用户：{"thought": "……", "answer": "给用户的话"}
+- 调写工具时，用户这句话里如果**还问了别的**（「这个要紧吗」「对身体有影响吗」「需要报修吗」），
+  在同一个 JSON 里加 "say": "先回答他的那几句"——卡片或追问会接在后面显示。
+  写工具一调这一轮就结束了，不写在 say 里，他的问题就没人答了。
+  **say 里只答他问的，不要说「已经帮你提交了 / 办好了」**：这时候卡片还没确认，
+  可能还在问他是哪一套。
 调用工具之后你会收到结果，再决定下一步。能直接回答就不要调工具；
 一件事需要几样数据，就依次调几次。
 
@@ -56,21 +62,44 @@ _SYSTEM = """你是「大连智租」租房平台的智能助手。你用工具�
    **不要自己猜房源编号**；编号只能抄工具结果或「当前情况」里给出的。
 3. 平台规则类问题（押金、退租、水电、合同条款、发票、平台怎么收费……）先调 knowledge，
    只能按它返回的依据回答；它说没有依据，就告诉用户没查到，可以转人工，**别凭常识补**。
+   **knowledge 一次只问一件事**：用户一句话问了两条规则（「要提前多久说？押金能全退吗」），
+   就分两次查——两个问题拼成一句，检索容易两头都不沾，整句被判成没依据。
 4. 办事（预约看房、取消或改约、缴费、报修、收藏、续约、退租、处理预约申请、上下架、
    改房源、提醒租客……）**直接调对应的写工具，不要先调查询工具去确认**：
    写工具自己会查是哪一场预约、哪一笔账单、哪一份合同，用户没说清还会自己追问。
    写工具只会生成一张确认卡片，要用户点确认才执行——**绝不能说「已经帮你办好了」**。
+   **卡片本身就是征求同意**：用户描述了家里东西坏了、漏水，哪怕是在抱怨，也直接调
+   submit_repair 出卡片，别先用文字问「要不要帮你报修」——那样要多绕一轮，
+   话题一岔开这件事就落下了。
    写工具的 request 参数要用一句话复述要办的事，带上所有细节
    （哪套房、哪天几点、哪笔账单、故障现象、改成多少……）。
    只是在问（「退租要提前多久说」「能不能改约」）而不是要办，就不是写操作。
 5. 用户发了照片：先看照片，照片里的内容可以直接用来回答；看出损坏、用户又想修，
-   就调 submit_repair，把故障现象写进 request。
+   就调 submit_repair，把故障现象写进 request。照片里是合同条款、问合不合理，
+   先调 review_contract（条款逐字抄进 text），再对照 knowledge 的平台规则回答；
+   是别的平台的房源，就按照片里的区域、户型、价格、出租方式调 search_houses 找相近的。
+   照片看不清就照实说，别猜。
 6. 「当前情况」里有待办（上一轮你在帮用户办某件事、问了他一个问题）：如果这句话是在回答它，
    就带上已填的参数和新得到的值，再调一次同一个写工具；如果他换了话题，就正常处理新话题。
 7. 找房时，「离地铁近」「采光好」「安静」这类是**偏好**，不要当成 search_houses 的筛选条件；
-   先按硬条件（区域、预算、户型）查，再结合结果回答偏好。查到 0 套时，放宽最次要的一个条件
-   （户型写法、预算上浮一点）再查一次，回答时说清楚放宽了什么。
-8. 回答用中文，简洁、直接回应他的问题，不要用 Markdown 标题；列举不超过 5 条。
+   先按硬条件（区域、预算、户型）查，再看结果里每套的「配套」「电梯」「楼层」，
+   **点名说出哪几套满足他的偏好**，不要只说「建议优先看有电梯的」。查到 0 套时，放宽最次要
+   的一个条件（户型写法、预算上浮一点）再查一次，回答时说清楚放宽了什么。
+8. **房源序号以屏幕为准。** 工具结果里的房源按「序号」原样显示成卡片，用户说「第几套」
+   就是这个序号。回答里提到房源，用这个序号或小区名；要按价格等重新排序，写成
+   「第 3 套（友谊街道，1150 元）」带上原序号，**不要另起 1、2、3 的编号**——
+   否则用户照着你的编号说「第二套」，指的就是屏幕上另一套房了。
+9. **记住用户说过的情况并用上**：公司在哪、预算、家里有谁、养不养宠物、想不想合租……
+   问到远近、通勤，就拿房源的地址、商圈和他说过的地点对比着答。
+10. 整租和合租不能直接比价钱、比面积（合租的面积是整套的，租金是一间的）。找「差不多但更大 /
+   更便宜」或对比两套时，默认和原来那套同一种出租方式；不同的要点明。
+11. 平台规则查到的答案，能套到他自己身上就算出来：例如违约金是一个月租金，而他那套月租 3050 元，
+   就直接说「大约 3050 元」；需要他的数据就先查。
+12. 你是「大连智租」网站的租房助手。被问是什么模型、哪家公司，就说是大连智租的智能助手，
+   不要自称某个模型或厂商。不要编造平台没有的入口（App、客服电话……）。未登录的用户要预约看房、
+   收藏、缴费、报修，告诉他平台能办、先登录（页面右上角「登录 / 注册」）就行，别说做不了。
+13. 回答用中文，简洁、直接回应他的问题；**纯文本**，不要用 Markdown（**加粗**、# 标题、
+   表格在页面上都会原样显示成符号）；列举不超过 5 条。
 
 ## 可用工具
 %(catalog)s
@@ -154,7 +183,10 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
     """
     tools = toolkit.tools()
     allowed = {t["name"] for t in tools}
-    context = list(context_lines) + ["今天是 %s。" % (today or date.today()).isoformat()]
+    day = today or date.today()
+    # 带上星期：「这周六」「下周一上午」是看房最常见的说法，只给日期模型得自己推算
+    context = list(context_lines) + ["今天是 %s（星期%s）。" % (day.isoformat(),
+                                                            "一二三四五六日"[day.weekday()])]
     system = _SYSTEM % {"catalog": _catalog(tools), "context": "\n".join(context)}
 
     messages = [dict(m) for m in dialogue] + [_user_message(text, images)]
@@ -189,8 +221,9 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
         messages.append({"role": "assistant",
                          "content": json.dumps(decision, ensure_ascii=False)})
         if name not in allowed:
-            messages.append({"role": "user", "content":
-                             "没有叫「%s」的工具。只能用「可用工具」里列出的名字。" % name})
+            explain = getattr(toolkit, "why_unavailable", None)
+            messages.append({"role": "user", "content": (explain(name) if explain else None)
+                             or "没有叫「%s」的工具。只能用「可用工具」里列出的名字。" % name})
             trace.append({"tool": name, "params": params, "error": "unknown_tool"})
             continue
 
@@ -206,7 +239,13 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
                       "thought": str(decision.get("thought") or "")[:120]})
         _merge(artifacts, outcome.artifacts)
         if outcome.stop:
-            return _done(outcome.message, artifacts, trace, stopped_by=name)
+            # 写工具出卡片或追问就结束这一轮。用户这句话里另问的事（「要紧吗」
+            # 「对身体有影响吗」）由模型写在 say 里，放在卡片话术前面——
+            # 实测原先只剩一句「你在租的有 3 套，是哪一套」，问题没人答
+            said = decision.get("say")
+            said = _drop_done_claims(said.strip()) if isinstance(said, str) else ""
+            message = "%s\n\n%s" % (said, outcome.message) if said else outcome.message
+            return _done(message, artifacts, trace, stopped_by=name)
         messages.append({"role": "user", "content": _observation_text(name, outcome.observation)})
 
     return _done(_fallback_answer(artifacts), artifacts, trace)
@@ -238,6 +277,26 @@ def _fallback_answer(artifacts):
     return "这个问题我没能理清楚，能换个说法再问一次吗？"
 
 
+# 「已经帮你提交了」「办好了」「你点确认就行」一类的话。
+_DONE_CLAIM = re.compile(r"(已经|已)(帮你|给你|为你)?(提交|办好|办理|预约|约好|缴|交了|报修|报上)"
+                         r"|帮你(提交|报|约|交|缴)了|(办|弄|搞)好了|提交了报修")
+
+
+def _drop_done_claims(text):
+    """say 里去掉「已经帮你办了」的句子。
+
+    写工具这时候只出了卡片、甚至还在问是哪一套，什么都没办。提示词里写了
+    不许这么说，实测模型照样在 say 里写「我帮你提交了报修，你点确认就行」——
+    紧接着下一句是「你在租的有 3 套，是哪一套？」。这是安全边界，交给代码。
+    """
+    parts = re.split(r"(?<=[。！!；;])", text or "")
+    kept = [p for p in parts if p.strip() and not _DONE_CLAIM.search(p)]
+    return "".join(kept).strip()
+
+
 def _done(message, artifacts, trace, stopped_by=None):
+    # 聊天框是纯文本：提示词里说了不要 Markdown，模型偶尔还是会加粗，
+    # 页面上就是一对对星号
+    message = (message or "").replace("**", "")
     return {"message": message, "artifacts": artifacts, "trace": trace,
             "stopped_by": stopped_by}

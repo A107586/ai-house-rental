@@ -86,6 +86,7 @@ _FILTER_KEYS = {
     "rent_max": "zujia_max",
     "area_min": "mianji_min",
     "area_max": "mianji_max",
+    "rent_type": "fangyuanleixing",
 }
 
 
@@ -373,6 +374,21 @@ def _one_house(name, params, ctx):
     # 自己的问题有没有被回答，只能再问一遍：实测「这套能养宠物吗」
     # 连点三次，三次都是同一段户型介绍。
     direct = pitch.answer_attribute(house, ctx.get("text"))
+    if ctx.get("agent"):
+        # **agent 调用时把房源资料整份交回去，不在这里再问一次模型。**
+        #
+        # answer_by_llm 只拿得到这一句话。实测用户先说「公司在星海广场附近」，
+        # 再问「第二套离公司远吗」——那套就在星海广场巷，内层模型却答
+        # 「没写明离你公司的距离」，因为它根本不知道公司在哪。agent 自己带着
+        # 整段对话，把字段给它，它就能把两头对上；还省掉一次模型往返。
+        result = {"house_no": house["house_no"], "house": house,
+                  "options": ["介绍下这套", "帮我约看房", "看看类似的"]}
+        if direct:
+            result["message"] = hint + direct
+        else:
+            message, data = pitch.describe(backend, house)
+            result.update(message=hint + message, pitch=data)
+        return result
     if not direct:
         # 关键词表列不全。没命中的交给模型按字段回答——
         # 它拿不到字段以外的东西，答不上来会说「没写明」。
@@ -538,11 +554,13 @@ def _account(name, ctx, params=None):
         owing = [r for r in rows if (r.get("overdue_count") or 0) > 0]
         if not owing:
             return {"message": "你的租客都没有逾期账单。"}
-        total = sum(float(r.get("unpaid_total") or 0) for r in owing)
-        return {"message": "有 %d 位租客有逾期账单：%s，一共还欠 %s 元。" % (
+        # **逾期金额用 overdue_total。** 原先拿 unpaid_total 说「一共还欠」——
+        # 那里头大半是合同排好、还没到期的账单，实测把逾期 2 笔说成了欠 39650 元
+        total = sum(float(r.get("overdue_total") or 0) for r in owing)
+        return {"message": "有 %d 位租客有逾期账单：%s，逾期未缴合计 %s 元。" % (
                     len(owing),
                     "、".join("%s（逾期 %d 笔）" % (
-                        r.get("username") or r.get("name") or "",
+                        r.get("real_name") or r.get("username") or r.get("name") or "",
                         r.get("overdue_count") or 0) for r in owing[:5]),
                     money_text(total)),
                 "account": {"tool": "tenant",
@@ -659,13 +677,33 @@ _CARD_TOPIC = {
 }
 
 
+def bill_split(unpaid):
+    """待缴账单按「已逾期 / 还没到期」分开算好——**按全部账单算**。
+
+    卡片只摆前 5 条（按到期日排，正好是逾期的那几笔）。agent 原先拿这 5 条
+    去算，用户问「是不是把没到期的也算进去了」，它答「未到期 0 笔」——
+    实际 36 笔里有 31 笔还没到期。这句话只能由手里有全部账单的这一层来算。
+    """
+    late = [r for r in unpaid if r.get("overdue")]
+    later = [r for r in unpaid if not r.get("overdue")]
+    total = lambda part: round(sum(float(r.get("amount") or 0) for r in part), 2)  # noqa: E731
+    out = {"已逾期": {"笔数": len(late), "合计": total(late)},
+           "还没到期": {"笔数": len(later), "合计": total(later)}}
+    dues = sorted(str(r.get("due_date")) for r in later if r.get("due_date"))
+    if dues:
+        out["还没到期"]["最近一笔到期日"] = dues[0]
+        out["还没到期"]["最晚一笔到期日"] = dues[-1]
+    return out
+
+
 def _card(name, rows):
     topic = _CARD_TOPIC.get(name)
     if not topic:
         return None
     if topic == "bill":
         unpaid = [r for r in rows if r.get("status") == "unpaid"]
-        return {"tool": topic, "data": {"unpaid": unpaid[:5], "total": len(rows)}}
+        return {"tool": topic, "data": {"unpaid": unpaid[:5], "total": len(rows),
+                                        "待缴拆分": bill_split(unpaid)}}
     if topic == "contract":
         # 生效中的排前面：卡片只摆四行，「我租了哪些房」的用户要先看见在租的
         order = {"active": 0, "pending": 1}

@@ -2114,6 +2114,7 @@ def landlord_tenants(user: User = Depends(require_staff),
     for contract in contracts:
         entry = profiles.setdefault(contract.tenant_id, {
             "contracts": [], "paid": 0.0, "unpaid": 0.0, "overdue": 0,
+            "overdue_amount": 0.0,
         })
         entry["contracts"].append(contract)
         for bill in contract.bills:
@@ -2123,6 +2124,7 @@ def landlord_tenants(user: User = Depends(require_staff),
                 entry["unpaid"] += float(bill.amount)
                 if bill.overdue:
                     entry["overdue"] += 1
+                    entry["overdue_amount"] += float(bill.amount)
 
     rows = []
     for tenant_id, entry in profiles.items():
@@ -2136,8 +2138,11 @@ def landlord_tenants(user: User = Depends(require_staff),
             "active_count": len(active),
             "houses": [c.house.house_no for c in active if c.house],
             "paid_total": round(entry["paid"], 2),
+            # unpaid_total 含合同里排好、还没到期的账单；真正拖欠的是 overdue_total。
+            # 只给前者时，助手把「待收 39650」说成了「欠了 39650」——实际逾期 2 笔
             "unpaid_total": round(entry["unpaid"], 2),
             "overdue_count": entry["overdue"],
+            "overdue_total": round(entry["overdue_amount"], 2),
         })
     # 有逾期的排前面，房东最需要先看到这些人
     rows.sort(key=lambda r: (-r["overdue_count"], -r["unpaid_total"]))
