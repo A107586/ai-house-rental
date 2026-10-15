@@ -32,6 +32,7 @@ import HeroBanner from './components/HeroBanner'
 import AuthPage from './components/AuthPage'
 import HomeSections from './components/HomeSections'
 import ActiveFilters from './components/ActiveFilters'
+import RelaxHints from './components/RelaxHints'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
 import HouseCard from './components/HouseCard'
@@ -1037,8 +1038,18 @@ export default function App() {
             {error
               ? '房源加载失败，请确认后端服务已启动。'
               : hasFilters
-                ? '没有符合条件的房源。可以在「已生效条件」里删掉几条再试。'
+                ? '没有符合条件的房源。'
                 : '暂时还没有房源'}
+            {!error && hasFilters && (
+              <RelaxHints
+                filters={filters}
+                onPick={(next) => {
+                  setFilters(next)
+                  setSaveState('')
+                  loadPage(1, true, next)
+                }}
+              />
+            )}
           </div>
         ) : (
           <>

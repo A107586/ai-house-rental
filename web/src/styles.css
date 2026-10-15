@@ -396,6 +396,31 @@ textarea {
   border-radius: var(--radius);
 }
 
+/* 空结果下的放宽建议：一行说明 + 几个可点的条件 */
+.relax-hints {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+/* theme.css 把 .chip-btn 整体做成了透明底——在示例行里是对的，
+   在这里就成了一行看不出能点的灰字。用和已生效条件同一种蓝底 */
+.relax-hints .chip-btn {
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand);
+  padding: 6px 12px;
+}
+
+.relax-hints .chip-btn:hover {
+  background: var(--brand);
+  color: #fff;
+}
+
 /* ---------------- 详情抽屉 ---------------- */
 
 .drawer-mask {

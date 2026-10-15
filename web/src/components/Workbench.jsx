@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { appendLines, lastLineId } from '../chatLines'
 import ChatAvatar from './ChatAvatar'
 
 const MapFinder = lazy(() => import('./MapFinder'))
@@ -155,8 +156,8 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
         const d = await api.conversationLines(activeId, lastIdRef.current)
         const rows = d.list || []
         if (!alive || !rows.length) return
-        setLines((prev) => [...prev, ...rows])
-        lastIdRef.current = rows[rows.length - 1].id
+        setLines((prev) => appendLines(prev, rows))
+        lastIdRef.current = lastLineId(lastIdRef.current, rows)
         api.readConversation(activeId).then(loadConvs).catch(() => {})
       } catch {
         // 轮询失败不弹错。**网络抖一下就在屏幕上留一条红字**，
@@ -182,8 +183,8 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
       const d = await api.sendLine(activeId, content)
       setDraft('')
       if (d?.line) {
-        setLines((prev) => [...prev, d.line])
-        lastIdRef.current = d.line.id
+        setLines((prev) => appendLines(prev, [d.line]))
+        lastIdRef.current = lastLineId(lastIdRef.current, [d.line])
       }
       loadConvs()
     } catch (err) {

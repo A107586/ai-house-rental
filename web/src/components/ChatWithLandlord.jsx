@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { appendLines, lastLineId } from '../chatLines'
 import ChatAvatar from './ChatAvatar'
 
 /**
@@ -60,21 +61,24 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
 
-  // 轮询增量。面板关掉时 effect 清理会把定时器停掉
+  // 轮询增量。面板关掉时 effect 清理会把定时器停掉。
+  // `alive` 挡的是切会话那一刻还在路上的请求：不挡，它回来时会把
+  // 上一个会话的消息拼进新会话里
   useEffect(() => {
     if (!activeId) return undefined
+    let alive = true
     const timer = setInterval(async () => {
       try {
         const data = await api.conversationLines(activeId, lastIdRef.current)
-        if (!data.list?.length) return
-        setLines((prev) => [...prev, ...data.list])
-        lastIdRef.current = data.list[data.list.length - 1].id
+        if (!alive || !data.list?.length) return
+        setLines((prev) => appendLines(prev, data.list))
+        lastIdRef.current = lastLineId(lastIdRef.current, data.list)
         api.readConversation(activeId).then(loadList).catch(() => {})
       } catch {
         // 轮询失败不打扰用户——下一轮自然会重试
       }
     }, POLL_MS)
-    return () => clearInterval(timer)
+    return () => { alive = false; clearInterval(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
 
@@ -96,8 +100,8 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
     setError('')
     try {
       const data = await api.sendLine(activeId, content)
-      setLines((prev) => [...prev, data.line])
-      lastIdRef.current = data.line.id
+      setLines((prev) => appendLines(prev, [data.line]))
+      lastIdRef.current = lastLineId(lastIdRef.current, [data.line])
       setText('')
       loadList()
     } catch (err) {
