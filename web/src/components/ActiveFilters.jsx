@@ -66,7 +66,14 @@ const ORDER = ['keyword', 'district', 'rent_price_min', 'rent_price_max',
   'floor_level', 'elevator', 'decoration', 'heating', 'lease_term',
   'available_days']
 
-export default function ActiveFilters({ value = {}, onChange }) {
+/**
+ * 每个已生效条件一项：`label` 是怎么显示，`next` 是**删掉它之后**的那份条件。
+ *
+ * 这排 chip 的删除和空结果时的「放宽建议」（RelaxHints）共用这一份——
+ * 「去掉哪一条」只能有一种算法，否则建议里说「去掉租价还有 8 套」，
+ * 点完却因为成对的 min/max 只清了一半而查出别的结果。
+ */
+export function filterChips(value = {}) {
   const chips = []
 
   ORDER.forEach((key) => {
@@ -74,32 +81,31 @@ export default function ActiveFilters({ value = {}, onChange }) {
     if (raw === '' || raw === null || raw === undefined) return
     const spec = LABELS[key]
     if (!spec) return
-    chips.push({ key, label: spec.text(raw), clear: spec.clear })
+    const next = { ...value }
+    spec.clear.forEach((k) => { next[k] = '' })
+    chips.push({ key, label: spec.text(raw), next })
   })
 
   // 设施偏好是一串，每个单独成 chip、单独可删
   const features = String(value.features || '').split(',').filter(Boolean)
   features.forEach((feature) => {
+    const rest = features.filter((f) => f !== feature)
     chips.push({
       key: 'features:' + feature,
       label: feature,
-      remove: () => {
-        const rest = features.filter((f) => f !== feature)
-        return { features: rest.join(',') }
-      },
+      next: { ...value, features: rest.join(',') },
     })
   })
 
+  return chips
+}
+
+export default function ActiveFilters({ value = {}, onChange }) {
+  const chips = filterChips(value)
   if (chips.length === 0) return null
 
   function drop(chip) {
-    if (chip.remove) {
-      onChange({ ...value, ...chip.remove() })
-      return
-    }
-    const next = { ...value }
-    chip.clear.forEach((k) => { next[k] = '' })
-    onChange(next)
+    onChange(chip.next)
   }
 
   // C4：不再自成一块。

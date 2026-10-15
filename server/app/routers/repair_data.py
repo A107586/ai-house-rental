@@ -6,14 +6,12 @@
 搬到公共文件反而要在两个文件之间来回跳。跨模块共享的才值得集中。
 """
 
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import config_store
 from app.db import get_session
 from app.deps import require_login, require_staff
 from app.models import (Repair, RepairItem, RepairItemUsage, RepairRecord,

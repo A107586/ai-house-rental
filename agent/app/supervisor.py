@@ -14,7 +14,6 @@ from app import fusion
 import re
 
 from app.config import settings
-from app.llm.base import LLMUnavailable
 
 # 意图 -> (强特征词, 弱特征词)。顺序即优先级：越靠前的意图越具体。
 #

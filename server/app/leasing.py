@@ -18,7 +18,7 @@
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select

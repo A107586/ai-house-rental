@@ -165,6 +165,8 @@ class OpenAICompatibleProvider(LLMProvider):
                     self._circuit_until = 0.0
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
+                # HTTPError 本身攥着这次的连接，限流重试时不关就一路攒着
+                exc.close()
                 # 不要把响应体原样抛出，其中可能回显密钥
                 last = "大模型接口返回 HTTP %s" % exc.code
                 if exc.code not in self.RETRYABLE_STATUS:

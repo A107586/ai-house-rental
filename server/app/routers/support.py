@@ -174,7 +174,6 @@ def delete_faq(faq_id: int, user: User = Depends(require_login),
     row = session.get(Faq, faq_id)
     if not row:
         raise HTTPException(status_code=404, detail="知识条目不存在")
-    code = row.code
     session.delete(row)
     session.commit()
     return {"ok": True}

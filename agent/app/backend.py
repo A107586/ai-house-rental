@@ -83,6 +83,11 @@ class BackendClient(object):
                 detail = json.loads(exc.read().decode("utf-8")).get("detail", "")
             except Exception:
                 pass
+            finally:
+                exc.close()
+            # 422 的 detail 是校验错误列表，原样塞进去用户会看到一串 Python 字面量
+            if not isinstance(detail, str):
+                detail = ""
             raise BackendError(detail or ("后端返回 HTTP %s" % exc.code))
         except Exception as exc:
             raise BackendError("无法连接业务后端（%s）：%s"
