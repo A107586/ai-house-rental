@@ -112,15 +112,22 @@ class TestShortCircuit(unittest.TestCase):
 class TestFinderRespectsTheSwitch(unittest.TestCase):
     """找房链路上的开关接线。"""
 
-    def test_switch_on_by_default(self):
-        """**默认开启**（团队定的）。
+    def test_switch_off_by_default(self):
+        """**默认关闭**：规则和大模型同时参与（2026-10-20 用户验收时的要求）。
 
         这条用例守的是一个产品决策，不是一段逻辑：默认值改动时它会红，
         逼着改的人重新读一遍 config.py 里那段取舍说明——
         置信度高只说明规则认得出，不等于它认得对。
         """
         from app.config import settings
-        self.assertTrue(settings.fusion_skip_when_confident)
+        self.assertFalse(settings.fusion_skip_when_confident)
+
+    def test_default_asks_the_model_even_for_a_confident_query(self):
+        from app.agents.property_finder import agent
+
+        provider = CountingProvider({"filters": {"suozaidiqu": "中山区"}})
+        agent.understand("中山区两室一厅，租金三千以内", provider=provider)
+        self.assertEqual(provider.calls, 1)
 
     def test_switch_on_skips_for_a_confident_query(self):
         from app.agents.property_finder import agent

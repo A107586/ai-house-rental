@@ -557,6 +557,9 @@ export const api = {
 
   // AI-07 房源智能推荐。令牌要显式传给智能体：
   // 智能体是独立进程，不持有身份，只能靠前端把令牌转发过去。
+  // 推荐理由：大模型写的一句话，列表先出、它后到
+  agentRecommendExplain: (limit = 6) =>
+    post(agentUrl('/agent/recommend/explain'), { token: getToken(), limit }),
   agentRecommend: (limit = 6) =>
     post(agentUrl('/agent/recommend'), { token: getToken(), limit }),
 

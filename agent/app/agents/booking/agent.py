@@ -11,9 +11,10 @@
 * ``conflict``     时段被占或不在营业时间，附替代时段
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.agents.booking.tools.parse_datetime import default_slots, parse_datetime
+from app.llm.base import LLMUnavailable
 from app.agents.booking.tools.slots import (
     check_slot, format_slot, slots_in_range, suggest_alternatives)
 
@@ -22,8 +23,53 @@ def _format_list(slots):
     return "、".join(format_slot(s) for s in slots)
 
 
+_LLM_SYSTEM = "你把用户说的看房时间换算成具体日期和时刻，只输出 JSON，不要解释。"
+_LLM_PROMPT = """今天是 {today}（星期{weekday}）。用户说：「{text}」
+把用户想看房的时间换算出来，输出 {{"date": "YYYY-MM-DD", "time": "HH:MM"}}。
+用户没说日期就 date 写空串，没说具体几点就 time 写空串，不要自己编一个。"""
+
+
+def _llm_fill(text, parsed, now, provider):
+    """规则没读出日期或时刻时，让大模型换算一次。
+
+    规则认得「这周六下午两点」「明天上午」，换个说法（「下礼拜头一天傍晚」
+    「后儿个五点多」）就读不出来，只能回一句「没听清」。大模型只补**规则留空**
+    的那一项，读出来的日期要落在今天到 90 天内，时刻要是合法的 HH:MM。
+    """
+    if provider is None or not getattr(provider, "available", False):
+        return parsed
+    if parsed["date"] and parsed["time"]:
+        return parsed
+    try:
+        data = provider.complete_json(_LLM_SYSTEM, _LLM_PROMPT.format(
+            today=now.date().isoformat(), weekday="一二三四五六日"[now.weekday()],
+            text=text[:200]))
+    except LLMUnavailable:
+        return parsed
+    if not isinstance(data, dict):
+        return parsed
+    filled = dict(parsed)
+    try:
+        day = datetime.strptime(str(data.get("date") or ""), "%Y-%m-%d").date()
+    except ValueError:
+        day = None
+    if day and not (now.date() <= day <= now.date() + timedelta(days=90)):
+        day = None
+    try:
+        moment = datetime.strptime(str(data.get("time") or ""), "%H:%M").time()
+    except ValueError:
+        moment = None
+    if not filled["date"] and day and not filled["date_range"]:
+        filled["date"] = day
+    if filled["date"] and not filled["time"] and moment:
+        filled["time"] = moment
+    if filled != parsed:
+        filled["matched"] = list(parsed.get("matched") or []) + ["大模型换算"]
+    return filled
+
+
 def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None,
-        token=None):
+        token=None, provider=None):
     """预约看房智能体入口。
 
     :param taken: 该房源已有的预约时刻列表；传入 ``None`` 时向后端查询。
@@ -35,7 +81,7 @@ def run(text, house_no=None, applicant=None, now=None, backend=None, taken=None,
         if taken is None:
             return _fail("预约服务暂时不可用，请稍后再试。")
 
-    parsed = parse_datetime(text, now=now)
+    parsed = _llm_fill(text, parse_datetime(text, now=now), now, provider)
 
     # ---- 情况一：日期时刻都清楚 ----
     if parsed["date"] and parsed["time"]:

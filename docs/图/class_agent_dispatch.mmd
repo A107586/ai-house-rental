@@ -1,6 +1,6 @@
 classDiagram
     direction LR
-    class AgentApi["智能体服务 · HTTP 接口（20 个）"] {
+    class AgentApi["智能体服务 · HTTP 接口（21 个）"] {
         <<router>>
         +agent_booking(BookingRequest) POST /agent/booking
         +agent_chat(ChatRequest) POST /agent/chat
@@ -11,6 +11,7 @@ classDiagram
         +agent_image_caption(ImageCaptionRequest) POST /agent/image-caption
         +agent_parse(SearchRequest) POST /agent/parse
         +agent_recommend(RecommendRequest) POST /agent/recommend
+        +agent_recommend_explain(RecommendRequest) POST /agent/recommend/explain
         +agent_repair(RepairRequest) POST /agent/repair
         +agent_report(ReportRequest) POST /agent/report
         +agent_route(ChatRequest) POST /agent/route
@@ -83,7 +84,7 @@ classDiagram
     }
     class ag_booking["booking · AI-06 预约"] {
         <<agent>>
-        +run(text, house_no, applicant, now, backend, taken, token)
+        +run(text, house_no, applicant, now, backend, taken, token, provider)
         +tools parse_datetime, slots
     }
     class ag_contract["contract · AI-02 合同审阅"] {
@@ -163,10 +164,12 @@ classDiagram
     tb_runner ..> memory
     class LLMProvider["LLMProvider（见基础设施图）"]
     ag_assistant ..> LLMProvider
+    ag_booking ..> LLMProvider
     ag_contract ..> LLMProvider
     ag_describe ..> LLMProvider
     ag_handoff ..> LLMProvider
     ag_property_finder ..> LLMProvider
+    ag_recommend ..> LLMProvider
     ag_repair ..> LLMProvider
     ag_report ..> LLMProvider
     ag_support ..> LLMProvider

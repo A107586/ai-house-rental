@@ -158,11 +158,10 @@ def understand(text, provider=None, trace=None):
     final, source, divergence = fusion.fuse(
         rule_payload, provider, _PARSE_SYSTEM,
         _PARSE_PROMPT.format(text=text, reference=reference),
-        sanitize, guards=(_keep_rule_district,),
+        sanitize, guards=(_keep_rule_district, _keep_rule_filters),
         enabled=settings.fusion_enabled, trace=trace,
-        # 规则已经很确定时可以不等大模型（K-10）。默认不开——
-        # 它推翻的是 fusion.py 开头那段刻意的设计决定，见
-        # settings.fusion_skip_when_confident 的注释
+        # 规则已经很确定时可以不等大模型（K-10）。默认关闭：规则和大模型
+        # 同时参与，见 settings.fusion_skip_when_confident 的注释
         confidence=(rule_result.get("confidence")
                     if settings.fusion_skip_when_confident else None),
         confidence_threshold=settings.rule_confidence_threshold)
@@ -196,6 +195,24 @@ def _keep_rule_district(rule_payload, fused):
         fused["filters"]["suozaidiqu"] = rule_district
         return fused, "区域保留规则结果「%s」（大模型给的是「%s」）" % (
             rule_district, got or "空")
+    return fused, None
+
+
+def _keep_rule_filters(rule_payload, fused):
+    """护栏：规则认出的条件，大模型可以改，但**不写不等于删**。
+
+    融合原先整份采用大模型的输出。规则融合常开以后（2026-10-20），实测模型
+    只回了设施、没回预算，「3000 以内」就这么从条件里消失了——用户明明说了。
+    模型改了值的照它的；漏掉的按规则补回来。
+    """
+    rule_filters = rule_payload.get("filters") or {}
+    got = fused.setdefault("filters", {})
+    restored = [k for k, v in rule_filters.items() if v not in (None, "") and k not in got]
+    for key in restored:
+        got[key] = rule_filters[key]
+    if restored:
+        return fused, "大模型漏掉的条件按规则补回：%s" % "、".join(
+            _FIELD_LABELS.get(k, k) for k in restored)
     return fused, None
 
 

@@ -23,6 +23,8 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
   // **刻意不重新请求**：推荐的依据是浏览足迹，两次点击之间足迹没变，
   // 再请求一次拿回来的还是同一批，白等一趟网络往返。
   const [group, setGroup] = useState(0)
+  // 大模型写的推荐理由。列表是规则算的、先出；这句话后到，到了就换上
+  const [aiReason, setAiReason] = useState('')
 
   useEffect(() => {
     if (!user) {
@@ -33,7 +35,16 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
     setBusy(true)
     api
       .agentRecommend(12)
-      .then((res) => { if (alive) setData(res) })
+      .then((res) => {
+        if (!alive) return
+        setData(res)
+        setAiReason('')
+        if (res?.ok) {
+          api.agentRecommendExplain(12)
+            .then((r) => { if (alive && r?.text) setAiReason(r.text) })
+            .catch(() => {})
+        }
+      })
       // 推荐是锦上添花，拿不到就安静地不显示，不能打断主流程
       .catch(() => { if (alive) setData(null) })
       .finally(() => { if (alive) setBusy(false) })
@@ -79,7 +90,9 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
             为你推荐
             <span className="rec-badge">AI</span>
           </h2>
-          <p className="home-sec-desc">{data.reason}</p>
+          <p className="home-sec-desc">
+            {aiReason || data.reason}
+          </p>
         </div>
         <div className="rec-actions">
           <button className="home-sec-more ghosty" onClick={() => setWhy(!why)}>

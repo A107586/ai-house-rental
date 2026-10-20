@@ -263,6 +263,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
                         : r.level === 'medium' ? '需注意' : '提示'}
                     </span>
                     <strong>{r.title}</strong>
+                    {r.source === 'llm' && <span className="pill ai-tag">AI 补充</span>}
                   </div>
                   <div className="risk-quote">「{r.quote}」</div>
                   <div className="record-body">{r.why}</div>

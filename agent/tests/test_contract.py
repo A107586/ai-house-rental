@@ -165,11 +165,17 @@ class TestRisk(unittest.TestCase):
 
 class TestAgent(unittest.TestCase):
 
-    def test_template_skips_llm(self):
+    def test_template_still_asks_llm_but_rules_win(self):
+        """规则抽全了也要问大模型（用户要求：不要只靠规则），冲突时规则的值优先。"""
         provider = FakeProvider(payload='{"租金": 1}')
         result = agent.run(GOOD, provider=provider)
+        self.assertEqual(provider.calls, 2)              # 抽条款一次 + 补查风险一次
+        self.assertEqual(result["source"], "llm")
+        self.assertEqual(result["clauses"]["租金"], 2900)
+
+    def test_template_without_llm_is_rules(self):
+        result = agent.run(GOOD, provider=None)
         self.assertEqual(result["source"], "rules")
-        self.assertEqual(provider.calls, 0, "模板合同不该调用大模型")
 
     def test_low_coverage_calls_llm(self):
         provider = FakeProvider(
@@ -177,7 +183,7 @@ class TestAgent(unittest.TestCase):
                     '"付款方式":"月付","违约责任":"按约定","维修责任":"甲方负责"}')
         result = agent.run("这是一份格式很怪的协议，双方约定如下。",
                            provider=provider)
-        self.assertEqual(provider.calls, 1)
+        self.assertEqual(provider.calls, 2)
         self.assertEqual(result["source"], "llm")
         self.assertEqual(result["clauses"]["租金"], 2000)
 
@@ -190,6 +196,23 @@ class TestAgent(unittest.TestCase):
         provider = FakeProvider(payload='{"房价": "很贵"}')
         result = agent.run("格式很怪的协议", provider=provider)
         self.assertEqual(result["source"], "rules_fallback")
+
+    def test_llm_risk_needs_a_real_quote(self):
+        """大模型补查的风险必须摘抄合同原文；原文对不上的丢掉，重复规则已有的也丢掉。"""
+        text = GOOD + "\n第十二条 乙方不得在房屋内做饭，违者罚款五百元。"
+        provider = FakeProvider(payload=(
+            '{"risks": ['
+            '{"title": "禁止做饭并罚款", "quote": "乙方不得在房屋内做饭，违者罚款五百元",'
+            ' "why": "限制正常居住", "advice": "删掉或改成只禁明火"},'
+            '{"title": "编出来的条款", "quote": "第九十九条 房东可随时收回房屋",'
+            ' "why": "x", "advice": "y"}]}'))
+        extra = agent.llm_risks(text, [], provider)
+        self.assertEqual([r["title"] for r in extra], ["禁止做饭并罚款"])
+        self.assertEqual(extra[0]["source"], "llm")
+        self.assertEqual(agent.llm_risks(text, extra, provider), [])     # 已有的不重复
+
+    def test_llm_risk_failure_is_silent(self):
+        self.assertEqual(agent.llm_risks(GOOD, [], FakeProvider(fail=True)), [])
 
     def test_rules_win_over_llm_on_conflict(self):
         """规则抽到的值更可靠，不能被大模型覆盖。"""

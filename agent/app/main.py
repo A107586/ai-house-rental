@@ -341,6 +341,7 @@ def agent_booking(payload: BookingRequest):
                    "shouji": payload.shouji},
         token=payload.token,
         backend=backend_client,
+        provider=_llm(),
     )
 
 
@@ -378,6 +379,18 @@ def agent_recommend(payload: RecommendRequest):
     """
     return recommend.run(token=payload.token, limit=payload.limit,
                          backend=backend_client)
+
+
+@app.post("/agent/recommend/explain")
+def agent_recommend_explain(payload: RecommendRequest):
+    """给「为你推荐」写一句推荐理由（大模型）。
+
+    和推荐列表分开请求：列表是规则算的、立刻就有；这句话要等模型，
+    前端先摆出卡片，话到了再换上去，首页不用等它。
+    """
+    result = recommend.run(token=payload.token, limit=payload.limit, backend=backend_client)
+    text = recommend.explain(result, _llm())
+    return {"ok": bool(text), "text": text, "source": "llm" if text else "rules"}
 
 
 class DescribeRequest(BaseModel):
