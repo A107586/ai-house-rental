@@ -689,7 +689,10 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
       let res
       try {
         // 流式：「在查你的账单」这类真实进度先出来，回答一个字一个字显示在等待气泡里；
-        // 收到最终结果后照原样处理，等待气泡换成正式的那条消息
+        // 收到最终结果后照原样处理，等待气泡换成正式的那条消息。
+        // 一开始就给一句真实的话：不给的话 Thinking 会轮播固定清单，跑到「组织回答」
+        // 时真实的「在查平台规则」「在看查到的结果」才到，看着像先答后查
+        setStreamStep('在理解你的问题')
         res = await api.agentChatStream(content, sessionId, history, houseNos, pending, extra,
           (event) => {
             if (event.type === 'step') setStreamStep(event.label || '')
@@ -699,6 +702,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
       } catch (err) {
         // 只有「流式接口用不了」才退回普通接口；模型答错、服务报错照常往外抛
         if (!err.streamUnsupported) throw err
+        setStreamStep('')
         res = await api.agentChat(content, sessionId, history, houseNos, pending, extra)
       } finally {
         setStreamText('')
@@ -1080,7 +1084,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                     转人工
                   </button>
                   <span className="muted small">
-                    我答不上来的，可以交给管理员
+                    交给管理员处理，回复会发到站内消息
                   </span>
                 </div>
               )}

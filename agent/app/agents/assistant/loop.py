@@ -62,7 +62,9 @@ _SYSTEM = """你是「大连智租」租房平台的智能助手。你用工具�
 2. 用户说「第三套」「这套」「刚才那套」时，工具参数填 ordinal（第几套）或留空，
    **不要自己猜房源编号**；编号只能抄工具结果或「当前情况」里给出的。
 3. 平台规则类问题（押金、退租、水电、合同条款、发票、平台怎么收费……）先调 knowledge，
-   只能按它返回的依据回答；它说没有依据，就告诉用户没查到，可以转人工，**别凭常识补**。
+   只能按它返回的依据回答；它说没有依据，就告诉用户没查到，**别凭常识补**，并调 handoff 给他转人工的按钮。
+   它给了「相近条目原文」时，先判断原文是不是在回答用户问的事：是就照原文答，不是就当没查到。
+   问的是**某一套房**的情况（谁带看、押几付几、能不能养宠物），先调 house_detail 看这套房的资料。
    **knowledge 一次只问一件事**：用户一句话问了两条规则（「要提前多久说？押金能全退吗」），
    就分两次查——两个问题拼成一句，检索容易两头都不沾，整句被判成没依据。
 4. 办事（预约看房、取消或改约、缴费、报修、收藏、续约、退租、处理预约申请、上下架、
@@ -97,7 +99,8 @@ _SYSTEM = """你是「大连智租」租房平台的智能助手。你用工具�
 11. 平台规则查到的答案，能套到他自己身上就算出来：例如违约金是一个月租金，而他那套月租 3050 元，
    就直接说「大约 3050 元」；需要他的数据就先查。
 12. 你是「大连智租」网站的租房助手。被问是什么模型、哪家公司，就说是大连智租的智能助手，
-   不要自称某个模型或厂商。不要编造平台没有的入口（App、客服电话……）。未登录的用户要预约看房、
+   不要自称某个模型或厂商。不要编造平台没有的入口（App、客服电话……）。
+   用户要转人工、找真人客服，直接调 handoff，不要说没有这个功能。未登录的用户要预约看房、
    收藏、缴费、报修，告诉他平台能办、先登录（页面右上角「登录 / 注册」）就行，别说做不了。
 13. 回答用中文，简洁、直接回应他的问题；**纯文本**，不要用 Markdown（**加粗**、# 标题、
    表格在页面上都会原样显示成符号）；列举不超过 5 条。
@@ -119,13 +122,15 @@ class Outcome:
     - `artifacts`：给前端渲染的结构化结果（房源列表、查库卡片、确认卡片、引用来源……）
     - `stop`：这一步之后不再问模型，直接用 `message` 作为回复——
       写操作出了确认卡片或需要追问时就是这样，话术由代码定，不让模型改写卡片上的事实
+    - `lead`：停下来时模型没写 say，就用它垫在 `message` 前面
     """
 
-    def __init__(self, observation, artifacts=None, stop=False, message=""):
+    def __init__(self, observation, artifacts=None, stop=False, message="", lead=""):
         self.observation = observation
         self.artifacts = artifacts or {}
         self.stop = stop
         self.message = message
+        self.lead = lead
 
 
 def _catalog(tools):
@@ -180,6 +185,7 @@ STEP_LABELS = {
     "knowledge": "在查平台规则", "my_bills": "在查你的账单", "my_contracts": "在查你的合同",
     "my_appointments": "在查你的预约", "my_repairs": "在查你的报修", "my_favorites": "在查你的收藏",
     "my_history": "在查浏览记录", "my_todos": "在查待办事项",
+    "review_contract": "在看合同条款", "handoff": "在准备转人工",
 }
 
 
@@ -322,6 +328,10 @@ def _run(text, images, llm, toolkit, context_lines, dialogue, deadline, today,
     messages = [dict(m) for m in dialogue] + [_user_message(text, images)]
     artifacts, trace, seen = {}, [], set()
     bad_json = 0
+    if on_event is not None:
+        # 第一次问模型就要好几秒（开思考更久）。这段时间前端原先轮播一份固定清单，
+        # 跑到「组织回答」时真实的「在查平台规则」才到，顺序看着是反的
+        on_event({"type": "step", "tool": "", "label": "在理解你的问题"})
 
     for step in range(MAX_STEPS + 1):
         if step == MAX_STEPS:
@@ -385,6 +395,7 @@ def _run(text, images, llm, toolkit, context_lines, dialogue, deadline, today,
             # 实测原先只剩一句「你在租的有 3 套，是哪一套」，问题没人答
             said = decision.get("say")
             said = _drop_done_claims(said.strip()) if isinstance(said, str) else ""
+            said = said or outcome.lead
             message = "%s\n\n%s" % (said, outcome.message) if said else outcome.message
             return _done(message, artifacts, trace, stopped_by=name)
         messages.append({"role": "user", "content": _observation_text(name, outcome.observation)})

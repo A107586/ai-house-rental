@@ -68,6 +68,19 @@ _REVIEW_TOOL = {
     "params": {"text": ("string", "合同条款原文：照片里的条款**逐字抄下来**，不要概括、不要改写")},
 }
 
+# 转人工。原先工具表里没有它：用户说「转人工」，模型只能答「我这边没有转人工的工具，
+# 你看看页面上有没有人工入口」——可回复下面明明就摆着一个「转人工」按钮。
+# 和写工具一样**只出按钮不建工单**：用户点了，前端才把问题和最近几句对话交给管理员
+_HANDOFF_TOOL = {
+    "name": "handoff", "kind": "stop",
+    "desc": "转人工：用户要找人工客服 / 真人，或者你查不到依据、答不上来、用户不满意时用。"
+            "会在回复下面放一个「转人工」按钮，用户点了才把问题交给管理员，回复发到他的站内消息。"
+            "不是用户主动要的（是你查不到）时，同一个 JSON 里加 say：先说清楚哪件事没查到、"
+            "查到的部分是什么，按钮接在后面。",
+    "params": {"question": ("string", "交给管理员的问题，用户口吻一句话写清楚；他只说了「转人工」"
+                                      "就根据前面的对话概括他想问什么")},
+}
+
 # 观察里每条记录最多带几个字段、每个字段最长多少
 _ROW_FIELDS = 12
 _FIELD_CHARS = 80
@@ -91,6 +104,9 @@ class Toolkit:
         # 这一轮已经摆上屏幕的房源（多次找房时合并），以及它们的总数
         self._screen = []
         self._screen_total = 0
+        # 这一轮查过平台规则却没查到。转人工时模型没写 say，就由代码补一句「没查到」——
+        # 实测「电梯多久维保一次」回复只有一句「需要的话点下面的转人工」，没说为什么
+        self._missed = False
 
     # ------------------------------------------------------------------ 工具表
     def tools(self):
@@ -106,6 +122,7 @@ class Toolkit:
             out.append(tool)
         if getattr(self.deps, "review", None):
             out.append(_REVIEW_TOOL)
+        out.append(_HANDOFF_TOOL)
         if self.deps.logged_in:
             for tool in _EXTRA_WRITES:
                 roles = tool.get("roles")
@@ -151,6 +168,8 @@ class Toolkit:
             return self._knowledge(params.get("question") or text)
         if name == "review_contract":
             return self._review(params.get("text") or text)
+        if name == "handoff":
+            return self._handoff(params.get("question") or text)
         if name == "recommend_houses":
             return self._read_result(self.deps.recommend())
         result = self.deps.run_read(name, params, self.deps.runner_ctx)
@@ -206,15 +225,39 @@ class Toolkit:
             "出处": [s for s in sources if s][:3],
         }
         if not grounded:
-            observation["说明"] = "知识库里没有这个问题的依据，不要凭常识回答，可以建议转人工。"
-            related = [a.get("question") if isinstance(a, dict) else a
-                       for a in (result.get("alternatives") or [])][:3]
-            if related:
-                observation["相近的问题"] = related
+            self._missed = True
+            near = result.get("related") or []
+            if near:
+                # 检索闸门没把握，但有沾边的条目。原文给模型，由它判断对不对得上——
+                # 实测「这套有中介带看房吗」被拒，「看房是谁带看？」就在相近条目里
+                observation["相近条目原文"] = [{"标题": r.get("title"), "原文": r.get("body")}
+                                         for r in near if isinstance(r, dict)]
+                observation["说明"] = ("检索没能确定命中。先看「相近条目原文」：确实回答了用户问的事，"
+                                     "就按原文回答，并说明依据是平台的「某某」说明；对不上就照实说没查到，"
+                                     "不要凭常识补，可以调 handoff 让用户转人工。")
+            else:
+                observation["说明"] = "知识库里没有这个问题的依据，不要凭常识回答，可以调 handoff 让用户转人工。"
+            titles = [a.get("question") if isinstance(a, dict) else a
+                      for a in (result.get("alternatives") or [])][:3]
+            if titles:
+                observation["相近的问题"] = titles
         artifacts = {"citations": result.get("citations") or [] if grounded else [],
                      "alternatives": result.get("alternatives") or [],
                      "handoff": None if grounded else result.get("handoff")}
         return Outcome(observation, artifacts)
+
+    def _handoff(self, question):
+        if not self.deps.logged_in:
+            # 工单要回给某个人，没登录就没有「谁」。按钮摆出来点了也只会报错，不如直说
+            return Outcome({"status": "need_login"}, stop=True,
+                           message="转人工要先登录，管理员才知道回复给谁。点页面右上角「登录 / 注册」，"
+                                   "登录后再说一声「转人工」就行。")
+        return Outcome({"status": "button_shown"},
+                       {"handoff": {"question": question, "reason": "用户要求转人工"}},
+                       stop=True,
+                       lead="这个问题平台规则里没有查到明确说明，我不敢乱说。" if self._missed else "",
+                       message="需要的话点下面的「转人工」，我把这个问题和刚才的对话一起交给管理员，"
+                               "回复会发到你的站内消息。")
 
     def _review(self, text):
         result = self.deps.review(text) or {}
@@ -397,8 +440,11 @@ _HOUSE_DETAIL_FIELDS = (
     ("business_area", "商圈"), ("description", "描述"), ("pay_plan", "付款方式"),
     ("min_months", "最短租期（月）"), ("available_from", "可入住"),
     ("heating", "供暖"), ("fee_detail", "费用说明"), ("landlord_name", "房东"),
-    ("verify_status", "核验"),
+    ("verify_status", "核验"), ("viewing_by", "带看"),
 )
+
+# 带看是谁：后端给的是 agent / landlord，换成模型能直接说给用户的话
+_VIEWING_BY = {"agent": "委托中介带看", "landlord": "房东自己带看"}
 
 
 _UNITS = {"rent_price": "%g 元/月", "area": "%g 平", "deposit": "%g 元"}
@@ -432,6 +478,10 @@ def _house_row(house, full=False):
             continue
         elif key == "status":
             value = _HOUSE_STATUS.get(value, value)
+        elif key == "viewing_by":
+            value = _VIEWING_BY.get(value, value)
+            if house.get("viewing_agent") and house.get("viewing_by") == "agent":
+                value += "（中介 %s）" % house["viewing_agent"]
         elif isinstance(value, list):
             value = "、".join(str(v) for v in value)
         elif isinstance(value, dict):

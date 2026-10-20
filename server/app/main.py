@@ -633,7 +633,14 @@ def get_house(house_no: str, user: User = Depends(current_user),
             session.add(BrowsingHistory(user_id=user.id, house_id=house.id))
 
     session.commit()
-    return house.to_dict()
+    data = house.to_dict()
+    # 谁带看：有生效中的委托就是中介，否则房东自己带。租客常问「这套有中介带看吗」，
+    # 助手原先只能去翻平台规则，答「没查到」——这是这套房自己的事实，直接给出来。
+    delegation = session.scalar(select(HouseDelegation).where(
+        HouseDelegation.house_id == house.id, HouseDelegation.status == "active"))
+    data["viewing_by"] = "agent" if delegation else "landlord"
+    data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
+    return data
 
 
 @app.get("/api/houses/{house_no}/landlord")

@@ -80,8 +80,9 @@ class TestLoopEvents(unittest.TestCase):
                            {"thought": "算一下", "answer": "最贵的是 3 月房租，3050 元。"})
         out, events = run_with_events(llm, "哪笔最贵")
         kinds = [e["type"] for e in events]
-        self.assertEqual(kinds[0], "step")
-        self.assertEqual(events[0]["label"], "在查你的账单")
+        # 第一条是「在理解你的问题」（第一次问模型之前就推），第二条才是真实的工具
+        self.assertEqual([e["label"] for e in events if e["type"] == "step"][:2],
+                         ["在理解你的问题", "在查你的账单"])
         streamed = "".join(e["text"] for e in events if e["type"] == "delta")
         self.assertEqual(streamed, "最贵的是 3 月房租，3050 元。")
         self.assertEqual(out["message"], streamed)
@@ -94,7 +95,10 @@ class TestLoopEvents(unittest.TestCase):
         out, events = run_with_events(llm)
         kinds = [e["type"] for e in events]
         self.assertIn("reset", kinds)
-        self.assertLess(kinds.index("reset"), kinds.index("step"))
+        # 作废推过的字，要在「在查你的账单」之前（开头那句「在理解你的问题」不算）
+        tool_step = next(i for i, e in enumerate(events)
+                         if e["type"] == "step" and e["tool"] == "my_bills")
+        self.assertLess(kinds.index("reset"), tool_step)
         self.assertEqual(out["message"], "查好了")
 
     def test_falls_back_to_chat_when_stream_fails_before_any_text(self):
@@ -105,7 +109,7 @@ class TestLoopEvents(unittest.TestCase):
 
         out, events = run_with_events(FlakyStream({"answer": "你好"}))
         self.assertEqual(out["message"], "你好")
-        self.assertEqual(events, [])
+        self.assertEqual([e["type"] for e in events], ["step"])     # 只有开头那句，没有半截字
 
     def test_stream_breaking_midway_is_reported(self):
         class Breaks(ScriptedLLM):
@@ -115,6 +119,22 @@ class TestLoopEvents(unittest.TestCase):
 
         with self.assertRaises(LLMUnavailable):
             run_with_events(Breaks())
+
+    def test_first_event_comes_before_the_first_model_call(self):
+        # 回归：前端原先在等第一条事件时轮播「理解你的问题 → 查证据 → 组织回答」，
+        # 跑到「组织回答」时真实的「在看查到的结果」才到，顺序看着是反的
+        seen = []
+
+        class Watch(StreamingLLM):
+            def chat_stream(self, *a, **k):
+                seen.append(len(events))
+                return super().chat_stream(*a, **k)
+
+        events = []
+        loop.run("押金多少", [], Watch({"answer": "押一付三"}), Toolkit(deps()),
+                 on_event=events.append)
+        self.assertEqual(seen[0], 1)
+        self.assertEqual(events[0], {"type": "step", "tool": "", "label": "在理解你的问题"})
 
     def test_no_listener_means_no_streaming(self):
         llm = StreamingLLM({"answer": "你好"})
