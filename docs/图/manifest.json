@@ -4,7 +4,7 @@
   "class_agent_infra": "cdd62f59d79ca1b1cb027af1f0bf11d05a00e58d0361a52b7ce107bec7a5e227",
   "class_appointment": "15f60b46309d1a955b7e4cc1eb770cbff1fbc05278c8ba8b7b5108d915a7ebe5",
   "class_broker": "98a791ef5ee7751d357d1a276d537880adec94caf01282cb0c85b97059aadfc5",
-  "class_contract": "e055e46a20ad7c15b544fb51a8329e3cb80d535e98862b4e5587df140b83e947",
+  "class_contract": "3294f20742ee6a94dd0ed5282724d33055ee0523c58e5c14b98e8e1a09c35bf1",
   "class_governance": "34c9ecfc3155c4cc85192a32cc3433ab1a9fb21425aad1c953d5e1a859120300",
   "class_house": "987b3dafe1e67839577b0e41245c6b76fea7e701c240378e7bb30b4763b4182a",
   "class_interaction": "d25a41a5a85ba05a51d343a5ad0e6c71ded9ff14f29d77b9251d816d06293230",
@@ -16,11 +16,11 @@
   "struct_agent": "68ad26670e40c00a8a7601cad27dafd94d5119af14ccf13f8b04583ab1db424f",
   "struct_appointment": "a9037024cae975853caa784940a59861ec55fbe6ae9bcce9b09cdd1d333ae49e",
   "struct_broker": "ecfbef1b7fd60f56329f20a22dafcb09b43bb253bffed4e68c96db0cb9409050",
-  "struct_contract": "3a1e3af99beccfcc5141874ed707c913849247f2797002d41bb4338ed9a90f6c",
+  "struct_contract": "094d5ee29b49a64c8e5c799c43acf8061885a0d028ec78d0ca6754f1584dcf56",
   "struct_governance": "7a8d4bcc34e7f50355f35b89fdcea75d62d18156f9d4c4f295cc8081230c2a1b",
   "struct_house": "4b49243cb6848af6ed4dbd79833a6e4749629093f8f39a915d005951e2b420f9",
   "struct_interaction": "b2221759eb60e8f13ffa697794dc07cee187c4f4dae361625260fa3bb7c5a6f5",
   "struct_repair": "de082d009e02d58a06373ebf94b8053df8fab4dc4670100dc73a2ad1afeafa28",
   "struct_support": "38bd87df81d95cbb748618e07ebd1d229b97f96cadba9817f535911ddf1dc3f9",
-  "system": "41b896ad32060537b456765c78e8f595db4388ef65414aa4b7166bbaf40ea2db"
+  "system": "9a8c40ddace8bda8db87e24474dc2c6a745ce140913aea98e1302fd302af645f"
 }

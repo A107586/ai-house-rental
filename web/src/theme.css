@@ -3848,3 +3848,36 @@
   color: #fff;
   border: none;
 }
+
+/* ============================================================
+   退租 / 续租申请条：一方提、另一方确认
+   要对方处理的那一条用强调色——它是待办，不是一条普通状态
+   ============================================================ */
+.lease-request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--bg-soft, #f5f7fa);
+  font-size: 13px;
+}
+
+.lease-request.todo {
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 500;
+}
+
+.lease-request em {
+  margin-left: 8px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.lease-request-actions { display: flex; gap: 6px; }

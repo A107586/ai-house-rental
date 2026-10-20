@@ -1201,7 +1201,7 @@ def _propose_renew_contract(text, token, backend, context):
         {"contract_no": target.get("contract_no"), "months": months},
         detail={"contract_no": target.get("contract_no"), "months": months,
                 "end_date": target.get("end_date")},
-        warning="续租会生成新的合同与账单，租金以房东确认为准。")
+        warning="续租要房东确认。确认后租期在原合同上延长，按原租金排好新增的账单。")
 
 
 def _propose_end_contract(text, token, backend, context):
@@ -1215,11 +1215,11 @@ def _propose_end_contract(text, token, backend, context):
         return asking
     return CONFIRM, "", _card(
         "end_contract", "退租",
-        "发起租约 %s 的退租" % target.get("contract_no", ""), RISK_HIGH,
+        "申请租约 %s 退租" % target.get("contract_no", ""), RISK_HIGH,
         {"contract_no": target.get("contract_no"), "reason": "租客通过智能客服发起"},
         detail=target,
-        warning="退租不可撤销。提前解约需提前 30 日通知并支付一个月租金的"
-                "违约金，未到期账单会作废，押金在结清后 7 个工作日内退还。")
+        warning="退租要房东确认，确认前合同照常有效。提前解约需提前 30 日通知并支付"
+                "一个月租金的违约金；确认后未到期账单作废，押金在结清后 7 个工作日内退还。")
 
 
 def _house_options(rows, limit=5, label=None):
@@ -1822,13 +1822,19 @@ def _exec_submit_repair(params, token, backend):
 def _exec_renew_contract(params, token, backend):
     data = backend.post("/api/contracts/%s/renew" % params["contract_no"],
                         {"months": params["months"]}, token=token)
-    return "续租已发起。", data
+    # 对方已经提过续租，这一下就是确认；否则是我方的申请，要等对方点
+    if isinstance(data, dict) and data.get("renewed"):
+        end = (data.get("contract") or {}).get("end_date", "")
+        return "已续租，租期延长到 %s。" % end if end else "已续租。", data
+    return "续租申请已提交，等对方确认后生效。", data
 
 
 def _exec_end_contract(params, token, backend):
     data = backend.post("/api/contracts/%s/end" % params["contract_no"],
                         {"reason": params.get("reason", "")}, token=token)
-    return "退租已发起，接下来请结清账单并与房东验房。", data
+    if isinstance(data, dict) and data.get("requested"):
+        return "退租申请已提交，等房东确认。确认前合同照常有效，可以先约房东验房。", data
+    return "已退租。", data
 
 
 def _exec_favorite(params, token, backend):

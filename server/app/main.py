@@ -2599,15 +2599,36 @@ def activate_contract(contract_no: str, user: User = Depends(require_login),
     return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
 
 
+def _contract_side(contract, user):
+    """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
+    if user.id == contract.tenant_id and user.role != "admin":
+        return "tenant"
+    return "landlord"
+
+
 @app.post("/api/contracts/{contract_no}/end")
 def end_contract(contract_no: str, payload: ContractEnd,
                  user: User = Depends(require_login),
                  session: Session = Depends(get_session)):
-    """退租或到期结束。押金扣款只有房东与管理员能填。"""
+    """退租。**租客点是提申请，房东点才是真的退。**
+
+    原先租客一点就退：押金全额退、房源重新上架，房东事后才收到一条消息，
+    想扣点损坏赔偿都没地方填。现在租客提出、房东确认时结算押金；
+    房东 / 管理员自己发起的退租照旧直接办（也就是确认租客申请的那一步）。
+    """
     contract = _visible_contract(session, contract_no, user)
-    is_staff = user.role == "admin" or user.id == contract.landlord_id
-    if payload.deduct and not is_staff:
-        raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+    side = _contract_side(contract, user)
+    if side == "tenant":
+        if payload.deduct:
+            raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+        try:
+            leasing.request_change(session, contract, "end", "tenant",
+                                   reason=payload.reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        session.commit()
+        session.refresh(contract)
+        return {"ok": True, "requested": True, "contract": contract.to_dict()}
 
     try:
         result = leasing.end_contract(session, contract,
@@ -2624,17 +2645,39 @@ def end_contract(contract_no: str, payload: ContractEnd,
 def renew_contract(contract_no: str, payload: ContractRenew,
                    user: User = Depends(require_login),
                    session: Session = Depends(get_session)):
-    """续租：结束当前合同，生成一份新的待确认合同。"""
+    """续租。一方提出，**另一方**再点一次就是确认，租期在本合同上延长。
+
+    对方已经提了续租，这一下就是同意，按对方申请的月数办；
+    否则记成我方的申请，等对方确认。
+    """
     contract = _visible_contract(session, contract_no, user)
+    side = _contract_side(contract, user)
     try:
-        new_contract = leasing.renew_contract(session, contract,
-                                              months=payload.months)
+        if contract.request_type == "renew" and contract.request_by != side:
+            leasing.renew_contract(session, contract, months=contract.request_months)
+            session.commit()
+            session.refresh(contract)
+            return {"ok": True, "renewed": True, "contract": contract.to_dict()}
+        leasing.request_change(session, contract, "renew", side, months=payload.months)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-
     session.commit()
-    session.refresh(new_contract)
-    return {"ok": True, "contract": new_contract.to_dict()}
+    session.refresh(contract)
+    return {"ok": True, "requested": True, "contract": contract.to_dict()}
+
+
+@app.delete("/api/contracts/{contract_no}/request")
+def withdraw_contract_request(contract_no: str, user: User = Depends(require_login),
+                              session: Session = Depends(get_session)):
+    """撤回自己提的退租 / 续租申请，或拒绝对方提的。"""
+    contract = _visible_contract(session, contract_no, user)
+    try:
+        leasing.withdraw_request(session, contract, _contract_side(contract, user))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
 
 
 class ReviewResultIn(BaseModel):

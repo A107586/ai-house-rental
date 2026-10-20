@@ -687,6 +687,16 @@ class Contract(Base):
     # 都能重新算出来，存下来只会在规则升级后变成一份过期的旧结论。
     review_result: Mapped[str] = mapped_column(Text, default="")
 
+    # 退租 / 续租申请。**一方提，另一方点确认才算数**——原先租客点「续租一年」，
+    # 新合同反倒等他自己确认；点「退租」当场就退、押金全额退，房东全程不知情。
+    # end 退租 / renew 续租；空串表示没有待处理的申请
+    request_type: Mapped[str] = mapped_column(String(10), default="")
+    # 谁提的：tenant / landlord。确认按钮只给另一方
+    request_by: Mapped[str] = mapped_column(String(10), default="")
+    request_months: Mapped[int] = mapped_column(Integer, default=0)
+    request_reason: Mapped[str] = mapped_column(String(100), default="")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
     signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     end_reason: Mapped[str] = mapped_column(String(100), default="")
@@ -742,6 +752,11 @@ class Contract(Base):
                                if self.deposit_refund is not None else None),
             "signed_at": self.signed_at.strftime("%Y-%m-%d %H:%M") if self.signed_at else "",
             "review_result": self.review_summary,
+            "request": ({"type": self.request_type, "by": self.request_by,
+                         "months": self.request_months, "reason": self.request_reason,
+                         "at": self.requested_at.strftime("%Y-%m-%d %H:%M")
+                         if self.requested_at else ""}
+                        if self.request_type else None),
             # 这份合同有没有中介参与。评价表单靠它决定要不要显示
             # 「中介」那一栏——没中介却摆一排星星，用户会以为漏填了什么
             "agent_id": self.agent_id,

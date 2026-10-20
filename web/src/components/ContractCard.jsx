@@ -57,6 +57,14 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
   // 剩余不足 30 天就提醒，这是租约到期提醒的触发线
   const expiring = contract.status === 'active' && contract.days_left <= 30
 
+  // 待处理的退租 / 续租申请。mine：是我这一方提的（我只能撤回，确认按钮在对方那边）
+  const request = contract.request || null
+  const mySide = isTenant ? 'tenant' : 'landlord'
+  const mine = request && request.by === mySide
+  const byLabel = request?.by === 'tenant' ? '租客' : '房东'
+  const otherLabel = isTenant ? '房东' : '租客'
+  const requestWhat = request?.type === 'renew' ? `续租 ${request.months} 个月` : '退租'
+
   async function act(fn) {
     if (busy) return
     setBusy(true)
@@ -165,22 +173,61 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
           <span className="own">等待租客确认</span>
         )}
 
-        {contract.status === 'active' && (
+        {/* 退租 / 续租：一方提，另一方确认。没有待处理的申请时两边都能发起 */}
+        {contract.status === 'active' && !request && (
           <>
             <button className="btn ghost small" disabled={busy}
                     onClick={() => setEnding(true)}>
-              退租
+              {isTenant ? '申请退租' : '退租'}
             </button>
             <button
               className="btn ghost small"
               disabled={busy}
               onClick={() => act(() => api.renewContract(contract.contract_no, 12))}
             >
-              续租一年
+              申请续租一年
             </button>
           </>
         )}
       </div>
+
+      {contract.status === 'active' && request && (
+        <div className={`lease-request ${mine ? '' : 'todo'}`}>
+          <span>
+            {mine
+              ? `你已申请${requestWhat}，等${otherLabel}确认`
+              : `${byLabel}申请${requestWhat}`}
+            {request.reason && request.type === 'end' && `（${request.reason}）`}
+            <em>{request.at}</em>
+          </span>
+          <span className="lease-request-actions">
+            {mine ? (
+              <button className="btn ghost small" disabled={busy}
+                      onClick={() => act(() => api.withdrawContractRequest(contract.contract_no))}>
+                撤回申请
+              </button>
+            ) : (
+              <>
+                {request.type === 'end' ? (
+                  // 房东确认退租时在弹窗里结算押金
+                  <button className="btn small" disabled={busy} onClick={() => setEnding(true)}>
+                    确认退租
+                  </button>
+                ) : (
+                  <button className="btn small" disabled={busy}
+                          onClick={() => act(() => api.renewContract(contract.contract_no))}>
+                    同意续租
+                  </button>
+                )}
+                <button className="btn ghost small" disabled={busy}
+                        onClick={() => act(() => api.withdrawContractRequest(contract.contract_no))}>
+                  不同意
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {review && (
         <div className="review-panel">

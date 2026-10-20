@@ -283,6 +283,9 @@ export const api = {
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>
     post(`/api/contracts/${no}/renew`, { months }),
+  // 撤回自己提的退租 / 续租申请，或拒绝对方提的
+  withdrawContractRequest: (no) =>
+    request(`/api/contracts/${no}/request`, { method: 'DELETE' }),
 
   // ---------------- 账单 ----------------
   myBills: (status = '') => request(`/api/bills/mine?${toQuery({ status })}`),

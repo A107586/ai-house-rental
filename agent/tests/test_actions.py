@@ -247,7 +247,8 @@ class TestCardContents(unittest.TestCase):
     def test_end_contract_warns_about_penalty(self):
         backend = RecordingBackend(ACTIVE_CONTRACT)
         _, _, card, _ = actions.propose("end_contract", "我要退租", "tok", backend)
-        self.assertIn("不可撤销", card["warning"])
+        # 租客点确认只是提申请，房东确认才生效——卡片不能说成「不可撤销」
+        self.assertIn("要房东确认", card["warning"])
         self.assertIn("违约金", card["warning"])
 
     def test_several_active_leases_ask_which_one(self):

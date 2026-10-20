@@ -28,7 +28,8 @@ import { useEffect, useState } from 'react'
  *   还得重头再来一遍。
  */
 export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }) {
-  const [reason, setReason] = useState('退租')
+  // 房东确认租客的退租申请时，带上租客填的原因
+  const [reason, setReason] = useState(contract.request?.reason || '退租')
   const [deduct, setDeduct] = useState('0')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -86,13 +87,16 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
            aria-labelledby="end-lease-title">
         <button className="drawer-close" onClick={onClose} aria-label="关闭"
                 disabled={busy}>×</button>
-        <h3 id="end-lease-title">确认退租</h3>
+        <h3 id="end-lease-title">{isStaff ? '确认退租' : '申请退租'}</h3>
 
+        {/* 租客这一步只是提申请：房东确认时才结算押金、作废账单 */}
         <div className="assist warn">
           <div className="assist-body">
-            退租<b>不可撤销</b>。
+            {isStaff ? <>退租<b>不可撤销</b>。</> : '提交后等房东确认，确认前合同照常有效。'}
             <div className="assist-hint">
-              未到期的租金账单会作废，房源重新上架，押金按下面金额结算。
+              {isStaff
+                ? '未到期的租金账单会作废，房源重新上架，押金按下面金额结算。'
+                : '房东确认时结算押金；提前退租可能需要按合同支付违约金。'}
             </div>
           </div>
         </div>
@@ -141,7 +145,7 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
               取消
             </button>
             <button type="submit" className="btn block danger" disabled={busy}>
-              {busy ? '处理中…' : '确认退租'}
+              {busy ? '处理中…' : isStaff ? '确认退租' : '提交申请'}
             </button>
           </div>
         </form>
