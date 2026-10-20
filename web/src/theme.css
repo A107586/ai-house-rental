@@ -4245,3 +4245,117 @@
 @media (max-width: 420px) {
   .demo-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 紧凑一档的记录列表：抽屉里的合同、报修这类次要列表用 */
+.record-list.compact > li { padding: 10px 12px; }
+.record-list.compact .record-head strong,
+.record-list.compact .record-head .link-title { font-size: 14px; }
+
+/* ============================================================
+   管理后台 · 智能客服
+   原来是浏览器默认样式的表格 + 原生按钮 + 一排蓝色下划线链接
+   ============================================================ */
+.sp-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sp-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--card, #fff);
+  border: 1px solid var(--line);
+}
+
+.sp-stats b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.sp-stats span { font-size: 12.5px; color: var(--muted); }
+.sp-stats .warn { border-color: #f0b35a; background: #fff8ec; }
+.sp-stats .warn b { color: #c77612; }
+.sp-stats.small b { font-size: 18px; }
+
+.sp-toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+
+.sp-toolbar input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--card, #fff);
+}
+
+.sp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.sp-chips button,
+.sp-chips.static span {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--card, #fff);
+  font-size: 13px;
+  color: var(--text, #1f2937);
+}
+
+.sp-chips button { cursor: pointer; }
+.sp-chips button em { font-style: normal; color: var(--muted); margin-left: 2px; }
+.sp-chips button.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.sp-chips button.on em { color: var(--brand); }
+
+.sp-editor {
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--brand);
+  border-radius: 12px;
+  background: var(--card, #fff);
+}
+
+.sp-editor textarea { resize: vertical; }
+.sp-check { flex-direction: row !important; align-items: center; gap: 8px; align-self: end; }
+
+.sp-meta { display: inline-flex; gap: 6px; flex: none; }
+
+.sp-answer {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text, #374151);
+}
+
+.sp-hits { margin-right: auto; font-size: 12.5px; color: var(--muted); align-self: center; }
+.btn.danger-text { color: var(--danger, #d14343); }
+.record-list > li.muted-row { opacity: 0.6; }
+
+.sp-rank { margin: 0 0 8px; padding-left: 22px; }
+.sp-rank li { padding: 5px 0; font-size: 14px; }
+.sp-rank li span { margin-right: 8px; }
+.sp-rank li em { font-style: normal; color: var(--muted); font-size: 12.5px; }
+
+.sp-reply textarea {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+@media (max-width: 720px) {
+  .sp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

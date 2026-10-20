@@ -30,6 +30,7 @@ export default function SupportPanel() {
   const [faqs, setFaqs] = useState([])
   const [keyword, setKeyword] = useState('')
   const [editing, setEditing] = useState(null)
+  const [category, setCategory] = useState('')
 
   const [stats, setStats] = useState(null)
   const [handoffs, setHandoffs] = useState([])
@@ -66,6 +67,11 @@ export default function SupportPanel() {
     const data = await run(() => api.adminHandoffs())
     if (data) setHandoffs(data.list || [])
   }
+
+  // 顶部的数字卡三个页签都要看，进来先拉一次
+  useEffect(() => {
+    api.supportAnalytics(30).then(setStats).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (tab === 'knowledge') loadFaqs()
@@ -121,10 +127,24 @@ export default function SupportPanel() {
     setTab('knowledge')
   }
 
+  const shown = category ? faqs.filter((f) => f.category === category) : faqs
+  const usedCategories = CATEGORIES.filter((c) => faqs.some((f) => f.category === c))
+
   return (
     <div className="support-panel">
+      {/* 顶部四个数：库里有多少、最近被问多少、答出了多少、有几个人在等人工 */}
+      <div className="sp-stats">
+        <div><b>{faqs.length || '—'}</b><span>知识条目</span></div>
+        <div><b>{stats ? stats.total : '—'}</b><span>近 30 天提问</span></div>
+        <div><b>{stats ? `${(stats.answer_rate * 100).toFixed(0)}%` : '—'}</b><span>答出率</span></div>
+        <div className={stats?.pending_handoffs ? 'warn' : ''}>
+          <b>{stats ? stats.pending_handoffs : '—'}</b><span>待回复的转人工</span>
+        </div>
+      </div>
+
       <div className="tabs">
-        {[['knowledge', '知识库'], ['quality', '质量分析'], ['handoff', '转人工']]
+        {[['knowledge', '知识库'], ['quality', '质量分析'],
+          ['handoff', `转人工${stats?.pending_handoffs ? `（${stats.pending_handoffs}）` : ''}`]]
           .map(([key, label]) => (
             <button
               key={key}
@@ -136,36 +156,46 @@ export default function SupportPanel() {
           ))}
       </div>
 
-      {error && <p className="error">{error}</p>}
-      {ok && <p className="ok">{ok}</p>}
-      {busy && <p className="muted">处理中…</p>}
+      {error && <div className="reply failed">{error}</div>}
+      {ok && <div className="reply created">{ok}</div>}
 
       {tab === 'knowledge' && (
         <div>
-          <div className="toolbar">
+          <div className="sp-toolbar">
             <input
               placeholder="搜索问题、答案或别名"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') loadFaqs() }}
             />
-            <button onClick={loadFaqs}>搜索</button>
-            <button onClick={() => setEditing({ ...EMPTY_FAQ })}>新增条目</button>
-            <span className="muted">共 {faqs.length} 条</span>
+            <button className="btn ghost small" onClick={loadFaqs} disabled={busy}>搜索</button>
+            <button className="btn small" onClick={() => setEditing({ ...EMPTY_FAQ })}>新增条目</button>
+          </div>
+
+          <div className="sp-chips">
+            <button className={!category ? 'on' : ''} onClick={() => setCategory('')}>
+              全部 <em>{faqs.length}</em>
+            </button>
+            {usedCategories.map((c) => (
+              <button key={c} className={category === c ? 'on' : ''} onClick={() => setCategory(c)}>
+                {c} <em>{faqs.filter((f) => f.category === c).length}</em>
+              </button>
+            ))}
           </div>
 
           {editing && (
-            <div className="faq-editor">
-              <label>
-                问题
+            <div className="sp-editor house-form">
+              <div className="section-title">{editing.id ? '编辑条目' : '新增条目'}</div>
+              <label className="fld">
+                <span>问题</span>
                 <input
                   value={editing.question}
                   onChange={(e) => setEditing({ ...editing, question: e.target.value })}
                   placeholder="押金什么时候退？"
                 />
               </label>
-              <label>
-                答案
+              <label className="fld">
+                <span>答案</span>
                 <textarea
                   rows={5}
                   value={editing.answer}
@@ -173,20 +203,20 @@ export default function SupportPanel() {
                   placeholder="第一句话先写结论，再补充细节"
                 />
               </label>
-              <label>
-                同义问法（用 / 分隔）
+              <label className="fld">
+                <span>其他问法（用 / 分隔）</span>
                 <input
                   value={editing.aliases}
                   onChange={(e) => setEditing({ ...editing, aliases: e.target.value })}
                   placeholder="保证金什么时候退 / 押金能退吗"
                 />
+                <span className="fld-hint">
+                  用户可能换种说法问，比如把「押金」说成「保证金」，想到几种就写几种。
+                </span>
               </label>
-              <p className="hint">
-                用户可能换种说法问，比如把「押金」说成「保证金」，想到几种就写几种。
-              </p>
-              <div className="row">
-                <label>
-                  分类
+              <div className="fld-row">
+                <label className="fld">
+                  <span>分类</span>
                   <select
                     value={editing.category}
                     onChange={(e) => setEditing({ ...editing, category: e.target.value })}
@@ -194,121 +224,110 @@ export default function SupportPanel() {
                     {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </label>
-                <label className="inline">
+                <label className="fld sp-check">
                   <input
                     type="checkbox"
                     checked={editing.is_published}
                     onChange={(e) => setEditing({ ...editing, is_published: e.target.checked })}
                   />
-                  已发布
+                  <span>发布（助手可以用它回答）</span>
                 </label>
               </div>
-              <div className="row">
-                <button onClick={saveFaq}>保存</button>
-                <button className="ghost" onClick={() => setEditing(null)}>取消</button>
+              <div className="record-actions">
+                <button className="btn small" onClick={saveFaq} disabled={busy}>保存</button>
+                <button className="btn ghost small" onClick={() => setEditing(null)}>取消</button>
               </div>
             </div>
           )}
 
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>问题</th><th>分类</th><th>引用次数</th><th>状态</th><th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {faqs.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    {row.question}
-                    {row.aliases && <div className="muted small">别名：{row.aliases}</div>}
-                  </td>
-                  <td>{row.category}</td>
-                  <td>{row.hit_count}</td>
-                  <td>{row.is_published ? '已发布' : '已下架'}</td>
-                  <td>
-                    <button className="link" onClick={() => setEditing(row)}>编辑</button>
-                    <button className="link" onClick={() => toggle(row)}>
+          {shown.length === 0 ? (
+            <p className="desc">{faqs.length ? '这个分类下没有条目' : '还没有知识条目'}</p>
+          ) : (
+            <ul className="record-list sp-faqs">
+              {shown.map((row) => (
+                <li key={row.id} className={row.is_published ? '' : 'muted-row'}>
+                  <div className="record-head">
+                    <strong>{row.question}</strong>
+                    <span className="sp-meta">
+                      <span className="pill">{row.category}</span>
+                      <span className={`pill ${row.is_published ? 'status-confirmed' : 'status-cancelled'}`}>
+                        {row.is_published ? '已发布' : '已下架'}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="record-body sp-answer">{row.answer.replace(/**/g, '')}</div>
+                  {row.aliases && <div className="record-body muted-note">也会这么问：{row.aliases}</div>}
+                  <div className="record-actions">
+                    <span className="sp-hits">被引用 {row.hit_count} 次</span>
+                    <button className="btn ghost small" onClick={() => setEditing(row)}>编辑</button>
+                    <button className="btn ghost small" onClick={() => toggle(row)}>
                       {row.is_published ? '下架' : '上架'}
                     </button>
-                    <button className="link danger" onClick={() => removeFaq(row)}>删除</button>
-                  </td>
-                </tr>
+                    <button className="btn ghost small danger-text" onClick={() => removeFaq(row)}>删除</button>
+                  </div>
+                </li>
               ))}
-              {!faqs.length && (
-                <tr><td colSpan={5} className="muted">还没有知识条目</td></tr>
-              )}
-            </tbody>
-          </table>
+            </ul>
+          )}
         </div>
       )}
 
       {tab === 'quality' && stats && (
         <div>
-          <div className="stat-row">
-            <div className="stat"><b>{stats.total}</b><span>近 {stats.days} 天提问</span></div>
-            <div className="stat">
-              <b>{(stats.answer_rate * 100).toFixed(1)}%</b><span>答出率</span>
-            </div>
-            <div className="stat">
-              <b>{(stats.refuse_rate * 100).toFixed(1)}%</b><span>拒答率</span>
-            </div>
-            <div className="stat"><b>{stats.median_latency_ms}ms</b><span>响应中位数</span></div>
-            <div className="stat"><b>{stats.pending_handoffs}</b><span>待处理转人工</span></div>
+          <div className="sp-stats small">
+            <div><b>{(stats.refuse_rate * 100).toFixed(1)}%</b><span>没答上的比例</span></div>
+            <div><b>{(stats.median_latency_ms / 1000).toFixed(1)} 秒</b><span>回答用时（中位数）</span></div>
+            <div><b>{stats.top_gaps.length}</b><span>待补的问题</span></div>
+            <div><b>{stats.disliked.length}</b><span>被点「没用」的回答</span></div>
           </div>
 
-          <p className="hint">
-            下面是用户问过、但知识库里还没有答案的问题，点「补一条」就能补上。
-          </p>
-
-          <h4>知识缺口（反复被拒答的问题）</h4>
-          <table className="data-table">
-            <thead><tr><th>问题</th><th>次数</th><th /></tr></thead>
-            <tbody>
+          <div className="section-title">知识缺口</div>
+          <p className="desc">用户问过、但知识库里还没有答案的问题，点「补一条」就能补上。</p>
+          {stats.top_gaps.length === 0 ? (
+            <p className="desc">暂时没有答不上来的问题。</p>
+          ) : (
+            <ul className="record-list compact">
               {stats.top_gaps.map((row) => (
-                <tr key={row.question}>
-                  <td>{row.question}</td>
-                  <td>{row.count}</td>
-                  <td>
-                    <button className="link" onClick={() => draftFrom(row.question)}>
-                      补一条
-                    </button>
-                  </td>
-                </tr>
+                <li key={row.question}>
+                  <div className="record-head">
+                    <strong>{row.question}</strong>
+                    <span className="pill">问了 {row.count} 次</span>
+                  </div>
+                  <div className="record-actions">
+                    <button className="btn small" onClick={() => draftFrom(row.question)}>补一条</button>
+                  </div>
+                </li>
               ))}
-              {!stats.top_gaps.length && (
-                <tr><td colSpan={3} className="muted">暂时没有被拒答的问题</td></tr>
-              )}
-            </tbody>
-          </table>
+            </ul>
+          )}
 
-          <h4>最常被引用的条目</h4>
-          <ul className="plain">
+          <div className="section-title">最常用的条目</div>
+          <ol className="sp-rank">
             {stats.top_faqs.map((row) => (
-              <li key={row.code}>{row.question}<span className="muted"> · {row.hit_count} 次</span></li>
+              <li key={row.code}><span>{row.question}</span><em>{row.hit_count} 次</em></li>
             ))}
-          </ul>
+          </ol>
 
           {!!stats.unused_faqs.length && (
             <>
-              <h4>从未被引用的条目</h4>
-              <p className="hint">
-                这些条目还没被问到过，可以补几种口语化的问法。
-              </p>
-              <ul className="plain">
-                {stats.unused_faqs.map((row) => <li key={row.code}>{row.question}</li>)}
-              </ul>
+              <div className="section-title">还没被问到过的条目</div>
+              <p className="desc">可以给它们补几种口语化的问法。</p>
+              <div className="sp-chips static">
+                {stats.unused_faqs.map((row) => <span key={row.code}>{row.question}</span>)}
+              </div>
             </>
           )}
 
           {!!stats.disliked.length && (
             <>
-              <h4>被点「没用」的回答</h4>
-              <ul className="plain">
+              <div className="section-title">被点「没用」的回答</div>
+              <ul className="record-list compact">
                 {stats.disliked.map((row) => (
                   <li key={row.id}>
-                    {row.question}
-                    <span className="muted"> · 引用 {row.cited.join('、') || '无'}</span>
+                    <div className="record-head"><strong>{row.question}</strong></div>
+                    <div className="record-body muted-note">
+                      当时用的条目：{row.cited.join('、') || '没有'}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -318,50 +337,58 @@ export default function SupportPanel() {
       )}
 
       {tab === 'handoff' && (
-        <table className="data-table">
-          <thead>
-            <tr><th>工单</th><th>问题</th><th>没答上的原因</th><th>状态</th><th>操作</th></tr>
-          </thead>
-          <tbody>
+        handoffs.length === 0 ? (
+          <p className="desc">没有转人工的问题。</p>
+        ) : (
+          <ul className="record-list">
             {handoffs.map((row) => (
-              <tr key={row.handoff_no}>
-                <td>{row.handoff_no}<div className="muted small">{row.created_at}</div></td>
-                <td>
-                  {row.question}
-                  {row.reply && <div className="muted small">已回复：{row.reply}</div>}
-                  {replying === row.handoff_no && (
-                    <div className="reply-box">
-                      <textarea
-                        rows={3}
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder="回复会通过站内消息发给用户"
-                      />
-                      <button onClick={() => sendReply(row)}>发送</button>
-                      <button className="ghost" onClick={() => setReplying(null)}>取消</button>
+              <li key={row.handoff_no} className={row.status === 'pending' ? 'unread' : ''}>
+                <div className="record-head">
+                  <strong>{row.question}</strong>
+                  <span className={`pill ${row.status === 'pending' ? 'status-pending' : 'status-confirmed'}`}>
+                    {row.status === 'pending' ? '待回复' : '已回复'}
+                  </span>
+                </div>
+                <div className="record-body muted-note">
+                  {row.handoff_no} · {row.created_at} · {handoffReason(row.reason)}
+                </div>
+                {row.reply && <div className="record-body done-note">已回复：{row.reply}</div>}
+                {replying === row.handoff_no ? (
+                  <div className="sp-reply">
+                    <textarea
+                      rows={3}
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="回复会通过站内消息发给用户"
+                      autoFocus
+                    />
+                    <div className="record-actions">
+                      <button className="btn small" onClick={() => sendReply(row)} disabled={busy}>发送</button>
+                      <button className="btn ghost small" onClick={() => setReplying(null)}>取消</button>
                     </div>
-                  )}
-                </td>
-                <td className="muted small">{row.reason || '用户主动要求'}</td>
-                <td>{row.status === 'pending' ? '待处理' : '已回复'}</td>
-                <td>
-                  {row.status === 'pending' && (
-                    <button
-                      className="link"
-                      onClick={() => { setReplying(row.handoff_no); setReplyText('') }}
-                    >
+                  </div>
+                ) : row.status === 'pending' && (
+                  <div className="record-actions">
+                    <button className="btn small"
+                            onClick={() => { setReplying(row.handoff_no); setReplyText('') }}>
                       回复
                     </button>
-                  )}
-                </td>
-              </tr>
+                    <button className="btn ghost small" onClick={() => draftFrom(row.question)}>
+                      写进知识库
+                    </button>
+                  </div>
+                )}
+              </li>
             ))}
-            {!handoffs.length && (
-              <tr><td colSpan={5} className="muted">没有转人工工单</td></tr>
-            )}
-          </tbody>
-        </table>
+          </ul>
+        )
       )}
     </div>
   )
+}
+
+/** 转人工的原因存的是检索闸门的判断（「覆盖率 0.37 未达 0.42……」），给人看要换成人话 */
+function handoffReason(reason) {
+  if (!reason || reason.includes('用户')) return '用户主动要求转人工'
+  return '助手没找到可靠的依据'
 }
