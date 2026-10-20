@@ -1,0 +1,35 @@
+# 构建镜像时 Docker 会先把整个目录打包交给构建器（叫「构建上下文」）。
+# 这里列的东西一律不打包：既为了快（仓库根目录有一个 8 GB 的模型文件），
+# 也为了安全（本地的 .env 里有密钥，不能进镜像）。
+
+# 模型与推理引擎：在宿主机上跑，不进容器
+*.ninfer
+*.gguf
+infer-engine-*
+*.zip
+
+# 依赖与构建产物：镜像里会重新装、重新构建
+**/node_modules
+**/.venv
+.venv
+**/__pycache__
+**/*.pyc
+web/dist
+
+# 本地数据与密钥
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+server/static/uploads
+profiles
+launcher/logs
+**/logs
+
+# 用不到的目录
+back
+front
+docs
+.git
+.github
+.claude

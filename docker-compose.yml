@@ -1,0 +1,60 @@
+# 用 Docker 一条命令起业务后端 + 智能体：
+#
+#     docker compose up -d --build        # 第一次构建要几分钟
+#     打开 http://localhost:8080           # 网站（页面由后端直接提供）
+#     docker compose logs -f agent         # 看智能体日志
+#     docker compose down                  # 停掉（数据卷保留，下次起来数据还在）
+#
+# 大模型不在 compose 里：本机的 NInfer 引擎要在宿主机上单独起
+# （start-everything.bat 或 start-ninfer.ps1，端口 18241）。容器通过
+# host.docker.internal 访问它。用云端模型就在 .env 里改 LLM_BASE_URL / LLM_MODEL / LLM_API_KEY。
+#
+# 可选的配置写在仓库根目录的 .env（compose 自动读取，不要提交），没写就用下面的默认值。
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: deploy/docker/server.Dockerfile
+    image: ai-house-rental/server
+    ports:
+      - "8080:8080"
+    environment:
+      # 演示用的默认密钥；真上线必须换掉，并加 APP_ENV=production 让后端做上线检查
+      AUTH_SECRET: ${AUTH_SECRET:-docker-demo-secret-change-me}
+      AMAP_WEB_SERVICE_KEY: ${AMAP_WEB_SERVICE_KEY:-}
+    volumes:
+      - rental-data:/data                          # SQLite 数据库
+      - rental-uploads:/app/server/static/uploads  # 用户上传的图片
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: deploy/docker/agent.Dockerfile
+    image: ai-house-rental/agent
+    ports:
+      # 页面在 http 下会直连同一台机器的 8000 端口找智能体（web/src/api.js 的 AGENT_BASE）
+      - "8000:8000"
+    environment:
+      BACKEND_BASE_URL: http://server:8080       # compose 网络里用服务名互相访问
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:18241/v1}
+      LLM_MODEL: ${LLM_MODEL:-Ternary-Bonsai-2-27B-PQ2_0.gguf}
+      LLM_API_KEY: ${LLM_API_KEY:-none}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_THINKING_HEADROOM: ${LLM_THINKING_HEADROOM:-512}
+      LLM_TURN_BUDGET: ${LLM_TURN_BUDGET:-30}
+      LLM_PLAN_BUDGET: ${LLM_PLAN_BUDGET:-12}
+      LLM_VISION_REASONING_EFFORT: ${LLM_VISION_REASONING_EFFORT:-}
+    extra_hosts:
+      # Linux 上 host.docker.internal 默认不存在，这一行让它指向宿主机（Windows/Mac 自带）
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  rental-data:
+  rental-uploads:
