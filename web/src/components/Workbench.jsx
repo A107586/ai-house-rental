@@ -137,6 +137,17 @@ export default function Workbench({ user, onClose }) {
     // 拖垮——而会话恰恰是这个页面最重要的一栏
     api.myAppointments('landlord')
       .then((d) => setAppts(d.list || [])).catch(() => setAppts([]))
+    if (user.role === 'agent') {
+      // 中介没有名下房源，地图上画的是**在托的房源**。原先照样去调房东的接口，
+      // 每次进工作台都是两个 403，地图上永远「名下还没有房源」
+      api.brokerDashboard()
+        .then((d) => setHouses((d.delegations || [])
+          .filter((x) => x.status === 'active')
+          .map((x) => ({ house_no: x.house_no, title: x.house_title, district: x.district,
+                         rent_price: x.rent_price, status: 'available' }))))
+        .catch(() => setHouses([]))
+      return
+    }
     api.landlordHouses()
       .then((d) => setHouses(d.list || [])).catch(() => setHouses([]))
     api.landlordTenants()
@@ -455,16 +466,18 @@ export default function Workbench({ user, onClose }) {
                   selected={district}
                   onPick={setDistrict}
                   rows={myDistricts}
-                  title="我的房源分布"
+                  title={user.role === 'agent' ? '在托房源分布' : '我的房源分布'}
                   hint={houses.length
                     ? '点击区域只看该区的房源'
-                    : '名下还没有房源'}
+                    : user.role === 'agent' ? '还没有在托的房源' : '名下还没有房源'}
                 />
               </Suspense>
 
               <ul className="record-list">
                 {houses.length === 0 && (
-                  <li className="wb-empty">名下还没有房源。</li>
+                  <li className="wb-empty">
+                    {user.role === 'agent' ? '还没有在托的房源。' : '名下还没有房源。'}
+                  </li>
                 )}
                 {houses
                   .filter((h) => !district || h.district === district)

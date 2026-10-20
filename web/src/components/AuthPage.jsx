@@ -27,6 +27,15 @@ const ROLES = [
 /** 注册后需要审核的角色。见 D1。 */
 const NEEDS_REVIEW = new Set(['landlord', 'agent'])
 
+// 演示账号。原先是一行灰字，要自己抄用户名密码，还漏了中介。
+// 做成四张卡片，点一下直接以这个身份登录
+const DEMO = [
+  { key: 'tenant', label: '租客', user: 'tenant1', pass: 'test123', desc: '找房、签约、交租、报修' },
+  { key: 'landlord', label: '房东', user: 'landlord1', pass: 'test123', desc: '发布房源、处理预约和工单' },
+  { key: 'agent', label: '中介', user: 'agent1', pass: 'test123', desc: '带看、代管房源、看佣金' },
+  { key: 'admin', label: '管理员', user: 'admin', pass: 'admin123', desc: '审核、看数据、改配置' },
+]
+
 const SELLING_POINTS = [
   ['一句话找房', '说出你想要的房子，自动变成筛选条件，随时能改'],
   ['从签约到退租，全程查得到', '合同一生效，整个租期的账单就排好了；每笔缴费都有流水和凭证'],
@@ -80,6 +89,23 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
     }
     setErrs(e)
     return Object.keys(e).length === 0
+  }
+
+  // 演示卡片：填好账号直接登录
+  async function demoLogin(d) {
+    if (busy) return
+    setForm((f) => ({ ...f, username: d.user, password: d.pass }))
+    setTop('')
+    setBusy(true)
+    try {
+      const r = await api.login(d.user, d.pass)
+      setToken(r.token)
+      onDone?.(r.user)
+    } catch (err) {
+      setTop(err.message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function submit(ev) {
@@ -147,7 +173,7 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
         <button className="auth-back" onClick={onBack}
                 aria-label="返回首页" title="返回首页">‹</button>
         <div className="auth-brand">大连<span>智租</span></div>
-        <p className="auth-slogan">基于 AI 智能体的房屋租赁平台</p>
+        <p className="auth-slogan">AI 智能找房 · 签约、交租、报修一站办完</p>
         <ul className="auth-points">
           {SELLING_POINTS.map(([k, v]) => (
             <li key={k}>
@@ -282,11 +308,29 @@ export default function AuthPage({ mode = 'login', onDone, onSwitch, onBack }) {
             )}
           </div>
 
-          <div className="demo-accounts">
-            演示账号：tenant1 / test123（租客）·
-            landlord1 / test123（房东）· admin / admin123（管理员）
-          </div>
         </div>
+
+        {mode === 'login' && (
+          <section className="demo-box" aria-label="演示账号">
+            <div className="demo-head">
+              <b>演示账号</b>
+              <span>点一下直接登录，看看每种身份能做什么</span>
+            </div>
+            <div className="demo-grid">
+              {DEMO.map((d) => (
+                <button key={d.key} type="button" className={`demo-card ${d.key}`}
+                        disabled={busy} onClick={() => demoLogin(d)}>
+                  <span className="demo-badge" aria-hidden="true">{d.label[0]}</span>
+                  <span className="demo-text">
+                    <b>{d.label}</b>
+                    <em>{d.desc}</em>
+                    <code>{d.user} / {d.pass}</code>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
     </div>
   )
