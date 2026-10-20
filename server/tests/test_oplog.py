@@ -5,8 +5,26 @@
 改密码接口的请求体里是明文密码。
 """
 
+import re
+
 from tests.base import ApiTestCase, auth_header, make_admin
+from app import oplog
 from app.oplog import action_of, should_log
+
+
+def _routes():
+    """(方法, 示例路径)。新版 FastAPI 把 include_router 进来的路由包了一层，要钻进去。"""
+    from app.main import app
+
+    def walk(routes):
+        for r in routes:
+            inner = getattr(r, "original_router", None)
+            if inner is not None:
+                yield from walk(inner.routes)
+            else:
+                yield r
+    return [(m, re.sub(r"\{[^}]*\}", "1", r.path))
+            for r in walk(app.routes) for m in (getattr(r, "methods", None) or [])]
 
 
 class TestActionNaming(ApiTestCase):
@@ -16,7 +34,10 @@ class TestActionNaming(ApiTestCase):
         cases = [
             ("POST", "/api/houses", "发布房源"),
             ("PATCH", "/api/houses/DL0001/status", "上下架房源"),
-            ("PATCH", "/api/houses/DL0001", "修改房源"),
+            ("PUT", "/api/houses/DL0001", "修改房源"),
+            ("POST", "/api/houses/DL0001/images/3/cover", "设置房源封面"),
+            ("POST", "/api/delegations/5/end", "解除房源委托"),
+            ("PATCH", "/api/admin/config", "修改系统配置"),
             ("POST", "/api/contracts/HT001/activate", "确认合同生效"),
             ("POST", "/api/bills/ZD001/pay", "缴纳账单"),
             ("PATCH", "/api/admin/users/3", "修改用户状态或角色"),
@@ -29,6 +50,25 @@ class TestActionNaming(ApiTestCase):
         否则上下架会被记成「修改房源」。"""
         self.assertEqual(action_of("PATCH", "/api/houses/DL0001/status"),
                          "上下架房源")
+
+    def test_every_logged_route_has_a_name(self):
+        """管理员反馈日志里一堆「POST /api/delegations」看不懂。新接口忘了起名，这里就过不去。"""
+        unnamed = sorted({"%s %s" % (m, p) for m, p in _routes()
+                          if should_log(m, p) and action_of(m, p).startswith(m + " ")})
+        self.assertEqual(unnamed, [], "这些接口在操作日志里没有动作名，去 app/oplog.py 补一条")
+
+    def test_no_stale_rules(self):
+        """规则对不上任何接口，说明接口改过路径或方法——原先「修改个人资料」写的是
+        PATCH /api/profile，实际是 PUT /api/auth/profile，日志里一直是原始路径。"""
+        routes = _routes()
+        stale = [(m, pat.pattern, name) for m, pat, name in oplog._COMPILED
+                 if not any(rm == m and pat.match(rp) for rm, rp in routes)]
+        self.assertEqual(stale, [])
+
+    def test_automatic_read_marks_are_not_logged(self):
+        self.assertFalse(should_log("PATCH", "/api/messages/12/read"))
+        self.assertFalse(should_log("POST", "/api/conversations/3/read"))
+        self.assertTrue(should_log("POST", "/api/messages/read-all"))     # 这个是人点的
 
     def test_unknown_route_falls_back_to_raw(self):
         self.assertEqual(action_of("POST", "/api/whatever"),
