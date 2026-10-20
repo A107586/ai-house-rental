@@ -34,6 +34,13 @@
 **那几处才是最容易烂掉的**：一张表还能看出行数不对，
 一句「全部 1,445 条自动化测试」混在段落中间，谁也不会去核。
 
+各个 README 也在其中，而且是**最先被人看到**的地方：2026-10-15 答辩前核对，
+根目录 README 的「规模」表还写着 31 张表 · 127 个接口 · 16 个智能体接口 ·
+1193 个测试（当时实际是 36 · 152 · 19 · 1,837），`server/README.md`
+写 29 个用例（实际 932），`agent/README.md` 写 92 个（实际 905）——
+都是手写的，都不在任何 `--check` 里。表数与接口数照旧不在这里数，
+从《概要设计说明书》读，见 `_outline_numbers`。
+
 ## 用法
 
     python scripts/gen_test_counts.py            # 重写
@@ -64,42 +71,79 @@ END = "<!-- /自动生成：测试清单 -->"
 
 # 正文里零散引用这些数字的地方。
 #
-# 每条是 (文档, 匹配正则, 改成什么)。正则必须**恰好命中一处**：
+# 每条是 (文档, 匹配正则, 改成什么)，文档路径相对仓库根。正则必须**恰好命中一处**：
 # 命中零处或多处都说明文档结构变了，那时候宁可报错，也不要猜着改。
+# 正则里不要用捕获组——`re.findall` 有组时返回的是组，不是整段命中。
 INLINE = [
-    ("技术架构说明.md",
+    ("docs/技术架构说明.md",
      r"全部 [\d,]+ 条自动化测试能在没有 API Key 的机器上跑通",
      "全部 {total} 条自动化测试能在没有 API Key 的机器上跑通"),
-    ("技术架构说明.md",
+    ("docs/技术架构说明.md",
      r"server [\d,]+ \+ agent [\d,]+ = \*\*[\d,]+ 条\*\*",
      "server {server} + agent {agent} = **{total} 条**"),
-    ("概要设计说明书.md",
+    ("docs/概要设计说明书.md",
      r"功能需求已全部完成、[\d,]+ 条自动化测试全绿",
      "功能需求已全部完成、{total} 条自动化测试全绿"),
-    ("概要设计说明书.md",
+    ("docs/概要设计说明书.md",
      r"项目的 [\d,]+ 条自动化测试全部跑在这个模式下",
      "项目的 {total} 条自动化测试全部跑在这个模式下"),
-    ("代码导读.md",
+    ("docs/代码导读.md",
      r"全部 [\d,]+ 条自动化测试都走这条分支",
      "全部 {total} 条自动化测试都走这条分支"),
-    ("需求分析说明书.md",
+    ("docs/需求分析说明书.md",
      r"[\d,]+ 句，覆盖 [\d,]+ 个工具",
      "{eval_cases} 句，覆盖 {eval_tools} 个工具"),
+    ("docs/需求分析说明书.md",
+     r"[\d,]+ 个自动化测试在不联网",
+     "{total} 个自动化测试在不联网"),
 
     # 《技术架构说明》那张「代码量」表。接口数与表数以
     # `gen_api_list.py` 写进《概要设计说明书》的那份为准（它已经有
     # --check 盯着），这里只是不让第二处再各说一个数。
-    ("技术架构说明.md",
+    ("docs/技术架构说明.md",
      r"\| 业务后端 \| [\d,]+ 个文件，[\d,]+ 行，[\d,]+ 个接口，[\d,]+ 张表，[\d,]+ 步迁移 \|",
      "| 业务后端 | {server_files} 个文件，{server_lines} 行，"
      "{endpoints} 个接口，{tables} 张表，{migrations} 步迁移 |"),
-    ("技术架构说明.md",
+    ("docs/技术架构说明.md",
      r"\| 智能体 \| [\d,]+ 个文件，[\d,]+ 行，[\d,]+ 个子智能体 \|",
      "| 智能体 | {agent_files} 个文件，{agent_lines} 行，"
      "{subagents} 个子智能体 |"),
-    ("技术架构说明.md",
+    ("docs/技术架构说明.md",
      r"\| 前端 \| [\d,]+ 个文件，[\d,]+ 行 \|",
      "| 前端 | {web_files} 个文件，{web_lines} 行 |"),
+
+    # 《测试说明》页首那行版本摘要。同上，表数与接口数以概要设计为准。
+    ("docs/测试说明.md",
+     r"[\d,]+ 张数据表 · [\d,]+ 个后端接口 · [\d,]+ 个智能体接口 · [\d,]+ 个自动化测试",
+     "{tables} 张数据表 · {endpoints} 个后端接口 · "
+     "{agent_endpoints} 个智能体接口 · {total} 个自动化测试"),
+
+    # 根目录 README 的「规模」表，答辩材料直接引用这四个数。
+    ("README.md",
+     r"\| 数据表 \| [\d,]+ \|",
+     "| 数据表 | {tables} |"),
+    ("README.md",
+     r"\| 后端接口 \| [\d,]+ \|",
+     "| 后端接口 | {endpoints} |"),
+    ("README.md",
+     r"\| 智能体接口 \| [\d,]+ \|",
+     "| 智能体接口 | {agent_endpoints} |"),
+    ("README.md",
+     r"\| 自动化测试 \| \*\*[\d,]+\*\*（后端 [\d,]+ \+ 智能体 [\d,]+） \|",
+     "| 自动化测试 | **{total}**（后端 {server} + 智能体 {agent}） |"),
+
+    # 两个子项目各自的 README 只报自己那一半。
+    ("server/README.md",
+     r"[\d,]+ 个用例，跑在内存数据库上",
+     "{server} 个用例，跑在内存数据库上"),
+    ("agent/README.md",
+     r"目前 \*\*[\d,]+ 个单元测试，全部不依赖网络",
+     "目前 **{agent} 个单元测试，全部不依赖网络"),
+    # 目录树那一行：前面那串空格是为了和上下几行的注释对齐，
+    # 放进后顾断言里只认不改。
+    ("agent/README.md",
+     r"(?<=├── tests/ {19})[\d,]+ 个单元测试",
+     "{agent} 个单元测试"),
 ]
 
 # 数代码量时跳过的目录。**测试不算进「代码量」**——
@@ -199,7 +243,7 @@ def _source_size(root, exts):
 
 
 def _outline_numbers():
-    """接口数与表数，**从《概要设计说明书》里读**。
+    """接口数（后端、智能体）与表数，**从《概要设计说明书》里读**。
 
     那份是 `gen_api_list.py` 生成并且有 `--check` 盯着的，已经是
     这两个数的权威。这里再数一遍只会多出第二套口径——
@@ -210,12 +254,15 @@ def _outline_numbers():
     # 的「N 个接口 · M 张表」，那张图改成图片之后这句话就不在正文里了。
     text = io.open(os.path.join(DOCS, "概要设计说明书.md"),
                    encoding="utf-8").read()
-    endpoints = re.search(r"业务后端 \*\*(\d+)\*\* 个接口，智能体服务", text)
+    endpoints = re.search(
+        r"业务后端 \*\*(\d+)\*\* 个接口，智能体服务 \*\*(\d+)\*\* 个接口", text)
     tables = re.search(r"共 \*\*(\d+) 张表、", text)
     if not (endpoints and tables):
         raise SystemExit("《概要设计说明书》里找不到附录 A 的接口数或 4.2 的表数，"
                          "先跑 python scripts/gen_api_list.py")
-    return {"endpoints": endpoints.group(1), "tables": tables.group(1)}
+    return {"endpoints": endpoints.group(1),
+            "agent_endpoints": endpoints.group(2),
+            "tables": tables.group(1)}
 
 
 def _code_stats():
@@ -287,7 +334,7 @@ def _rewrite_inline(values, check):
     """改写正文里零散引用的那几个数。返回还对不上的位置。"""
     stale = []
     for name, pattern, template in INLINE:
-        path = os.path.join(DOCS, name)
+        path = os.path.join(ROOT, name)
         text = io.open(path, encoding="utf-8").read()
         hits = re.findall(pattern, text)
         if len(hits) != 1:
@@ -337,9 +384,10 @@ def main():
     if table_stale:
         io.open(DOC, "w", encoding="utf-8", newline="\n").write(
             text[:start] + fresh + text[stop:])
-    print("已更新：%s" % "、".join(
-        (["docs/测试说明.md"] if table_stale else [])
-        + sorted({s.split("：")[0] for s in stale})))
+    # 《测试说明》既有清单又有页首那行 INLINE，可能两边都改了，只报一次
+    print("已更新：%s" % "、".join(sorted(
+        ({"docs/测试说明.md"} if table_stale else set())
+        | {s.split("：")[0] for s in stale})))
     return 0
 
 
