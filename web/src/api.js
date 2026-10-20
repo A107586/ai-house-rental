@@ -317,6 +317,9 @@ export const api = {
   landlordDashboard: () => request('/api/landlord/dashboard'),
   landlordHouses: () => request('/api/landlord/houses'),
   landlordTenants: () => request('/api/landlord/tenants'),
+  // 一位租客和我之间的合同、账单、报修
+  landlordTenant: (id) => request(`/api/landlord/tenants/${id}`),
+  remindTenant: (id) => post(`/api/landlord/tenants/${id}/remind`, {}),
   updateRepair: (id, status) =>
     request(`/api/repairs/${id}`, {
       method: 'PATCH',

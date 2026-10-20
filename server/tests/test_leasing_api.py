@@ -420,6 +420,38 @@ class TestEndAndRenew(ContractCase):
         self.assertEqual(response.status_code, 409)
 
 
+class TestTenantDetail(ContractCase):
+    """房东点开一位租客：只看到他和自己之间的合同、账单、报修。"""
+
+    def tenant_id(self):
+        return self.client.get("/api/auth/me", headers=self.tenant).json()["id"]
+
+    def test_landlord_sees_contracts_and_bills(self):
+        self.active_contract()
+        body = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(),
+                               headers=self.landlord).json()
+        self.assertEqual(body["tenant"]["username"], "tenant1")
+        self.assertNotIn("password_hash", body["tenant"])
+        self.assertEqual(len(body["contracts"]), 1)
+        self.assertTrue(body["bills"])
+        self.assertIn("overdue_count", body["summary"])
+
+    def test_other_landlords_get_nothing(self):
+        self.active_contract()
+        # 另一位房东：直接以房东身份注册
+        self.client.post("/api/auth/register", json={
+            "username": "landlord2", "password": "test123", "real_name": "赵房东",
+            "phone": "13800000002", "role": "landlord"})
+        other = auth_header(self.client, "landlord2", "test123")
+        response = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(), headers=other)
+        self.assertEqual(response.status_code, 404)
+
+    def test_tenants_cannot_use_it(self):
+        response = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(),
+                                   headers=self.tenant)
+        self.assertEqual(response.status_code, 403)
+
+
 class TestMessages(ContractCase):
 
     def test_list_and_read(self):

@@ -2164,6 +2164,60 @@ def landlord_tenants(user: User = Depends(require_staff),
     return {"total": len(rows), "list": rows}
 
 
+@app.get("/api/landlord/tenants/{tenant_id}")
+def landlord_tenant_detail(tenant_id: int, user: User = Depends(require_staff),
+                           session: Session = Depends(get_session)):
+    """一位租客的详情：**只看他和我之间的事**——在我名下的合同、账单、报修。
+
+    原先租客列表点进去什么都没有，房东想知道「他哪笔没交」「上次报修修好没」
+    得去合同、工单两个栏目各翻一遍再自己对。别的房东和他之间的事不给看。
+    """
+    stmt = select(Contract).where(Contract.tenant_id == tenant_id)
+    if user.role != "admin":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    contracts = sorted(session.scalars(stmt).all(), key=lambda c: c.start_date, reverse=True)
+    if not contracts:
+        raise HTTPException(status_code=404, detail="这位租客没有在你名下签过合同")
+    tenant = session.get(User, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="租客不存在")
+
+    bills = sorted((b for c in contracts for b in c.bills if b.status != "cancelled"),
+                   key=lambda b: b.due_date)
+    house_ids = {c.house_id for c in contracts}
+    repairs = session.scalars(select(Repair).where(
+        Repair.tenant_id == tenant_id, Repair.house_id.in_(house_ids))
+        .order_by(Repair.created_at.desc()).limit(20)).all()
+
+    def bill_row(b):
+        return {"bill_no": b.bill_no, "type": b.type, "period": b.period,
+                "amount": float(b.amount), "status": b.status, "overdue": b.overdue,
+                "due_date": b.due_date.strftime("%Y-%m-%d"),
+                "house_no": b.contract.house.house_no if b.contract and b.contract.house else ""}
+
+    unpaid = [b for b in bills if b.status == "unpaid"]
+    profile = tenant.to_dict()
+    return {
+        "tenant": {k: profile.get(k) for k in ("id", "username", "real_name", "phone")},
+        "summary": {
+            "paid_total": round(sum(float(b.amount) for b in bills if b.status == "paid"), 2),
+            "unpaid_total": round(sum(float(b.amount) for b in unpaid), 2),
+            "overdue_count": sum(1 for b in unpaid if b.overdue),
+            "overdue_total": round(sum(float(b.amount) for b in unpaid if b.overdue), 2),
+        },
+        "contracts": [{k: c.to_dict()[k] for k in (
+            "contract_no", "house_no", "house_title", "start_date", "end_date", "rent",
+            "deposit", "status", "days_left", "request")} for c in contracts],
+        # 逾期的、最近要交的排前面；已交的只留最近几笔，够看出缴费习惯就行
+        "bills": ([bill_row(b) for b in unpaid][:12]
+                  + [bill_row(b) for b in bills if b.status == "paid"][-6:]),
+        "repairs": [{"id": r.id, "house_no": r.house.house_no if r.house else "",
+                     "category": r.category, "urgency": r.urgency, "status": r.status,
+                     "content": r.content[:60],
+                     "created_at": r.created_at.strftime("%Y-%m-%d")} for r in repairs],
+    }
+
+
 # 同一位租客一天只催一次。房东在对话框里连说几遍「提醒一下」，
 # 租客收到的不该是一串一模一样的消息。
 REMIND_TITLE = "房东提醒你缴纳逾期账单"

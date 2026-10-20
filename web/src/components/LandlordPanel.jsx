@@ -6,6 +6,7 @@ import ContractDetail from './ContractDetail'
 import DelegationPanel from './DelegationPanel'
 import ImageUploader from './ImageUploader'
 import SignContractDialog from './SignContractDialog'
+import TenantDetail from './TenantDetail'
 
 const MapFinder = lazy(() => import('./MapFinder'))
 
@@ -65,7 +66,7 @@ const ALL_TAGS = ['电梯', '地铁', '近学校', '近医院', '有阳台', '�
 
 export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                                        onSections, activeTab, onTabChange,
-                                       editRequest }) {
+                                       editRequest, onTalk }) {
   // 嵌入整页工作台时，当前页签由外面的左栏说了算；独立抽屉时自己管。
   // **两套状态不能并存**——并存就会出现「左栏高亮 A、正文显示 B」，
   // 而这种不一致在切换几次之后才显形，最难查
@@ -97,6 +98,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
   const [contracts, setContracts] = useState([])
   const [signing, setSigning] = useState(false)
   const [detailNo, setDetailNo] = useState('')
+  const [tenantId, setTenantId] = useState(0)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState('')
@@ -647,9 +649,12 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
           ) : (
             <ul className="record-list">
               {tenants.map((t) => (
-                <li key={t.id} className={t.overdue_count ? 'unread' : ''}>
+                <li key={t.id} className={`clickable ${t.overdue_count ? 'unread' : ''}`}
+                    onClick={() => setTenantId(t.id)}>
                   <div className="record-head">
-                    <strong>{t.real_name || t.username}</strong>
+                    <button className="link-title" onClick={(e) => { e.stopPropagation(); setTenantId(t.id) }}>
+                      {t.real_name || t.username}
+                    </button>
                     {t.overdue_count > 0 && (
                       <span className="pill urgent">逾期 {t.overdue_count} 笔</span>
                     )}
@@ -859,6 +864,16 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
           </p>
         )}
       </div>
+
+      {tenantId > 0 && (
+        <TenantDetail
+          tenantId={tenantId}
+          onClose={() => setTenantId(0)}
+          onOpenContract={(no) => { setTenantId(0); setDetailNo(no) }}
+          onOpenHouse={(no) => { setTenantId(0); openHouseByNo(no) }}
+          onTalk={onTalk && ((houseNo, username) => { setTenantId(0); onTalk(houseNo, username) })}
+        />
+      )}
 
       {detailNo && (
         <ContractDetail

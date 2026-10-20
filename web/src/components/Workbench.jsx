@@ -499,6 +499,8 @@ export default function Workbench({ user, onClose }) {
                 <LandlordPanel
                   user={user} embedded
                   editRequest={editRequest}
+                  onTalk={(houseNo, username) => talkTo({
+                    id: `tenant-${username}`, house_no: houseNo, tenant_username: username })}
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
