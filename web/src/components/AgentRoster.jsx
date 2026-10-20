@@ -24,7 +24,7 @@ const LICENSE = {
   rejected: { label: '未通过', cls: 'status-rejected' },
 }
 
-export default function AgentRoster() {
+export default function AgentRoster({ onOpenUser }) {
   const [rows, setRows] = useState([])
   const [platform, setPlatform] = useState(null)
   const [status, setStatus] = useState('')
@@ -164,7 +164,9 @@ export default function AgentRoster() {
                   <tr key={row.user_id}
                     className={row.reported.accepted > 0 ? 'bad' : ''}>
                     <td>
-                      {row.name || row.username}
+                      <button className="link-title" onClick={() => onOpenUser?.(row.user_id)}>
+                        {row.name || row.username}
+                      </button>
                       <div className="log-path mono">
                         {row.username}
                         {row.districts.length > 0

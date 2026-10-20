@@ -1368,6 +1368,91 @@ def admin_users(keyword: str = "", role: str = "",
     return {"total": len(rows), "list": [u.to_dict() for u in rows]}
 
 
+@app.get("/api/admin/users/{user_id}/overview")
+def admin_user_overview(user_id: int, user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """管理员看一个人的全貌：作为租客、房东、中介各做过什么，最近的操作。
+
+    用户管理、户主档案、中介档案三处原先都只有一行摘要，点不开。
+    一个账号可以同时是租客和房东（K-13），所以三块都查，有数据才给。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    from app.models import AgentCommission, AgentProfile
+
+    def contract_row(c):
+        return {"contract_no": c.contract_no,
+                "house_no": c.house.house_no if c.house else "",
+                "house_title": c.house.title if c.house else "",
+                "start_date": c.start_date.strftime("%Y-%m-%d"),
+                "end_date": c.end_date.strftime("%Y-%m-%d"),
+                "rent": float(c.rent), "status": c.status}
+
+    out = {"user": dict(target.to_dict(),
+                        email=target.email,
+                        created_at=target.created_at.strftime("%Y-%m-%d")
+                        if target.created_at else "")}
+
+    rented = session.scalars(select(Contract).where(Contract.tenant_id == user_id)
+                             .order_by(Contract.start_date.desc())).all()
+    if rented:
+        unpaid = [b for c in rented for b in c.bills if b.status == "unpaid"]
+        out["as_tenant"] = {
+            "contracts": [contract_row(c) for c in rented[:10]],
+            "active": sum(1 for c in rented if c.status == "active"),
+            "overdue_count": sum(1 for b in unpaid if b.overdue),
+            "overdue_total": round(sum(float(b.amount) for b in unpaid if b.overdue), 2),
+            "repairs": session.scalar(select(func.count(Repair.id))
+                                      .where(Repair.tenant_id == user_id)) or 0,
+        }
+
+    houses = session.scalars(select(House).where(House.landlord_id == user_id)).all()
+    if houses:
+        let = session.scalars(select(Contract).where(Contract.landlord_id == user_id)).all()
+        by_status = {}
+        for h in houses:
+            by_status[h.status] = by_status.get(h.status, 0) + 1
+        open_repairs = session.scalar(select(func.count(Repair.id)).where(
+            Repair.house_id.in_([h.id for h in houses]), Repair.status != "done")) or 0
+        out["as_landlord"] = {
+            "houses": [{"house_no": h.house_no, "title": h.title, "status": h.status,
+                        "rent_price": float(h.rent_price)} for h in houses[:12]],
+            "house_count": len(houses),
+            "by_status": by_status,
+            "active_contracts": sum(1 for c in let if c.status == "active"),
+            "open_repairs": open_repairs,
+        }
+
+    profile = session.scalar(select(AgentProfile).where(AgentProfile.user_id == user_id))
+    if profile or target.role == "agent":
+        commissions = session.scalars(select(AgentCommission)
+                                      .where(AgentCommission.agent_id == user_id)).all()
+        out["as_agent"] = {
+            "license_status": profile.license_status if profile else "unsubmitted",
+            "license_no": profile.license_no if profile else "",
+            "service_districts": profile.service_districts if profile else "",
+            "accepting": bool(profile.accepting) if profile else False,
+            "delegations": session.scalar(select(func.count(HouseDelegation.id)).where(
+                HouseDelegation.agent_id == user_id,
+                HouseDelegation.status == "active")) or 0,
+            "viewings": session.scalar(select(func.count(ViewingRecord.id))
+                                       .where(ViewingRecord.agent_id == user_id)) or 0,
+            "deals": len(commissions),
+            "commission_total": round(sum(float(c.amount) for c in commissions
+                                          if c.status != "cancelled"), 2),
+        }
+
+    logs = session.scalars(select(OperationLog).where(OperationLog.user_id == user_id)
+                           .order_by(OperationLog.created_at.desc()).limit(10)).all()
+    out["recent_ops"] = [{"action": l.action, "status_code": l.status_code,
+                          "created_at": l.created_at.strftime("%Y-%m-%d %H:%M")
+                          if l.created_at else ""} for l in logs]
+    return out
+
+
 @app.get("/api/admin/landlords")
 def admin_landlords(keyword: str = "", user: User = Depends(require_login),
                     session: Session = Depends(get_session)):

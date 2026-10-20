@@ -294,5 +294,37 @@ class TestUserManagement(AdminCase):
         self.assertEqual(response.status_code, 404)
 
 
+class TestUserOverview(AdminCase):
+    """用户管理、户主档案、中介档案点进去看一个人的全貌。"""
+
+    def user_id(self, username):
+        rows = self.client.get("/api/admin/users", headers=self.admin,
+                               params={"keyword": username}).json()["list"]
+        return next(r["id"] for r in rows if r["username"] == username)
+
+    def test_landlord_section(self):
+        body = self.client.get("/api/admin/users/%d/overview" % self.user_id("landlord1"),
+                               headers=self.admin).json()
+        self.assertEqual(body["user"]["username"], "landlord1")
+        self.assertNotIn("password_hash", body["user"])
+        self.assertGreater(body["as_landlord"]["house_count"], 0)
+        self.assertNotIn("as_agent", body)
+
+    def test_tenant_without_contracts_has_no_tenant_section(self):
+        body = self.client.get("/api/admin/users/%d/overview" % self.user_id("tenant1"),
+                               headers=self.admin).json()
+        self.assertNotIn("as_tenant", body)            # 没签过约就不摆一块空的
+        self.assertIn("recent_ops", body)
+
+    def test_only_admin(self):
+        response = self.client.get("/api/admin/users/%d/overview" % self.user_id("tenant1"),
+                                   headers=self.landlord)
+        self.assertEqual(response.status_code, 403)
+
+    def test_missing_user(self):
+        response = self.client.get("/api/admin/users/99999/overview", headers=self.admin)
+        self.assertEqual(response.status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

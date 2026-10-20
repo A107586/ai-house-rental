@@ -4129,3 +4129,18 @@
   .pv-nav { width: 38px; height: 38px; font-size: 24px; }
   .pv-thumbs { justify-content: flex-start; }
 }
+
+/* 管理员看用户全貌：两列的事实表 */
+.uo-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+  margin: 12px 0;
+}
+
+.uo-facts > div { display: flex; gap: 10px; font-size: 13px; }
+.uo-facts dt { color: var(--muted); flex: none; min-width: 5em; }
+.uo-facts dd { margin: 0; }
+
+/* 表格里的名字做成可点的链接 */
+.log-table .link-title { font-size: inherit; padding: 0; }

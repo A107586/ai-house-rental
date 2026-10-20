@@ -5,7 +5,7 @@
   "class_appointment": "15f60b46309d1a955b7e4cc1eb770cbff1fbc05278c8ba8b7b5108d915a7ebe5",
   "class_broker": "98a791ef5ee7751d357d1a276d537880adec94caf01282cb0c85b97059aadfc5",
   "class_contract": "3294f20742ee6a94dd0ed5282724d33055ee0523c58e5c14b98e8e1a09c35bf1",
-  "class_governance": "34c9ecfc3155c4cc85192a32cc3433ab1a9fb21425aad1c953d5e1a859120300",
+  "class_governance": "ca739882cd10916e987634a6139a687ba61c285dd36c64392f1b081bdf129aec",
   "class_house": "e4afb1f8d9d2cc481bf51205713de8c400cdd3896b0c16a5ec44e3eb63cacca2",
   "class_interaction": "d25a41a5a85ba05a51d343a5ad0e6c71ded9ff14f29d77b9251d816d06293230",
   "class_repair": "040354a371c8c7c5c1bcfe74297e66de3a21c97c9b0dd853560793cbe0193492",
@@ -17,10 +17,10 @@
   "struct_appointment": "a9037024cae975853caa784940a59861ec55fbe6ae9bcce9b09cdd1d333ae49e",
   "struct_broker": "ecfbef1b7fd60f56329f20a22dafcb09b43bb253bffed4e68c96db0cb9409050",
   "struct_contract": "094d5ee29b49a64c8e5c799c43acf8061885a0d028ec78d0ca6754f1584dcf56",
-  "struct_governance": "7a8d4bcc34e7f50355f35b89fdcea75d62d18156f9d4c4f295cc8081230c2a1b",
+  "struct_governance": "4466cfbea08906f0ded37d19e086a474f11b605614b4e1bd03b351ae47045fc7",
   "struct_house": "6a0c2d59fc632ca49798d5264a77331a88ecb593b74e50efde4e9b7e91ed8ca9",
   "struct_interaction": "b2221759eb60e8f13ffa697794dc07cee187c4f4dae361625260fa3bb7c5a6f5",
   "struct_repair": "de082d009e02d58a06373ebf94b8053df8fab4dc4670100dc73a2ad1afeafa28",
   "struct_support": "38bd87df81d95cbb748618e07ebd1d229b97f96cadba9817f535911ddf1dc3f9",
-  "system": "93e62a3aa378d6cf13d8788c8c2a598b289dbebaf268a953cfe8bace9af0011c"
+  "system": "64075d37d0d7a5c3829f61afcb8cb9b0e76ba3124aef31abb31176f938a5e6e1"
 }

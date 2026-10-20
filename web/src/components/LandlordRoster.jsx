@@ -12,7 +12,7 @@ import { api } from '../api'
  * 或者工单堆了七八条不处理，都是需要平台介入的信号，
  * 光看账号列表看不出来。
  */
-export default function LandlordRoster() {
+export default function LandlordRoster({ onOpenUser }) {
   const [rows, setRows] = useState([])
   const [keyword, setKeyword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -105,7 +105,9 @@ export default function LandlordRoster() {
               {rows.map((row) => (
                 <tr key={row.id} className={row.repair_open > 2 ? 'bad' : ''}>
                   <td>
-                    {row.real_name || row.username}
+                    <button className="link-title" onClick={() => onOpenUser?.(row.id)}>
+                      {row.real_name || row.username}
+                    </button>
                     <div className="log-path mono">{row.username}</div>
                   </td>
                   <td className="mono">{row.phone || '-'}</td>

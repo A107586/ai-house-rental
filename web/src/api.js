@@ -344,6 +344,8 @@ export const api = {
       body: JSON.stringify({ approved, reason }),
     }),
   adminUsers: (params = {}) => request(`/api/admin/users?${toQuery(params)}`),
+  // 一个人的全貌：作为租客 / 房东 / 中介各做过什么
+  adminUserOverview: (id) => request(`/api/admin/users/${id}/overview`),
   adminContracts: (status = '') =>
     request(`/api/admin/contracts?${toQuery({ status })}`),
   adminAppointments: (status = '') =>
