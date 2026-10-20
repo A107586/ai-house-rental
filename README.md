@@ -14,7 +14,11 @@
 ├── agent/           AI 智能体服务（Python + FastAPI）              ← 当前主线
 ├── web/             React 前端（Vite + React 18）
 ├── docs/            设计文档、评审材料、测试说明
-├── start-all.ps1    一键启动两个服务
+├── launcher/        本地控制面板（start-everything.bat 打开的那个网页）
+├── scripts/         文档生成器、冒烟测试、上线自检等脚本
+├── deploy/          上线用的 systemd / nginx 配置样例
+├── start-everything.bat  一键启动（推荐）：控制面板 + 全部服务
+├── start-all.ps1    命令行启动后端与智能体两个服务
 ├── back/ front/     早期 SpringBoot + Vue 方案，暂留作参考
 ├── db/              早期 MySQL 建库脚本与初始化工具
 └── LICENSE          MIT
@@ -26,7 +30,7 @@
 |---|---|
 | 前端 | React 18 · Vite · 高德地图 JavaScript API 2.0 |
 | 后端 | Python · FastAPI · SQLAlchemy |
-| 智能体 | Python · FastAPI · DeepSeek API |
+| 智能体 | Python · FastAPI · OpenAI 兼容接口（DeepSeek / 中转站 / 本机模型，均可在面板切换） |
 | 数据库 | 开发用 SQLite，部署用 MySQL |
 
 前后端分离，智能体作为独立微服务通过 HTTP 与业务后端通信。
@@ -48,29 +52,42 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 打开 **<http://localhost:8080>** 就是完整网站——业务后端直接托管前端构建产物，
 不需要单独启动前端服务。
 
-也可以双击 **`start-everything.bat`**：打开控制面板 <http://127.0.0.1:8099>，
-在后台起全部服务，没有黑窗口，启停和日志都在面板上看。
+**更省事的是双击 `start-everything.bat`**：打开控制面板 <http://127.0.0.1:8099>，
+在后台起全部服务，没有黑窗口；启停、日志、**大模型与高德地图的配置**都在面板上。
+网站在 <http://localhost:5173>（开发模式，有热更新）或 <http://localhost:8080>。
+面板上「退出」会停掉全部服务。
 
 ### 大模型：没有显卡就用 API
 
-智能体用哪个模型，**只看 `agent/.env` 里的 `LLM_BASE_URL`**：
+在面板的「配置 → 智能体用的大模型」里选：
 
-| `LLM_BASE_URL` | 意思 | 一键启动时 |
+| 选项 | 意思 | 一键启动时 |
 |---|---|---|
-| `https://…`（远程，如中转站） | 走 API，**不需要显卡** | **跳过本地模型**，面板上显示「用不到」 |
-| `http://127.0.0.1:18241/v1` | 用本机模型（需要显卡） | 先起本地模型再起智能体 |
-| 留空 | 纯规则模式，不调任何模型 | 跳过本地模型 |
+| **远程 API** | 走服务商接口（中转站、DeepSeek 等），**不需要显卡** | **跳过本地模型**，面板上显示「用不到」 |
+| 本地模型 | 用本机显卡跑模型 | 先起本地模型再起智能体 |
+| 不用模型 | 纯规则模式，不调任何模型，功能照样能用 | 跳过本地模型 |
 
-改完 `agent/.env` 要**重启智能体**才生效。`LLM_MODEL` 必须是服务方当前还提供的模型——
+远程 API 可以填服务地址和 Key，「取列表」从服务商拉当前提供的模型，
+「测试连接」实测一次耗时。保存后面板自动重启智能体。Key 只写进 `agent/.env`，面板不会把它显示出来。
+
+**「超时」别设得太紧，建议 30 秒。** 助手每答一句要调 2～4 次模型，每次都带着完整的工具清单，
+比「测试连接」那一句慢一倍以上。超时的调用答不出来，**连续两次超时还会暂停调用模型 60 秒**，
+这期间每一句都瞬间回「连不上大模型」，看起来像助手坏了。2026-10-21 实测中转站
+gpt-6-sol 超时 7 秒时 8 句里只答出 1 句；调到 30 秒后 10 句答出 9 句，每句 13～41 秒。
+
+面板改的就是 `agent/.env`（`LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` /
+`LLM_TIMEOUT`），手改也行，改完要**重启智能体**才生效。`LLM_MODEL` 必须是服务方当前还提供的模型——
 中转站下架某个模型后会一律返回 503，而智能体按设计会静默退回规则，**表面上看不出坏了**；
 面板上「智能体」一栏和 <http://localhost:8000/health> 的 `llm.last_error` 能看到原因。
 
 ### 高德地图
 
-真实地图要分别配置高德的 Web 端与 Web 服务两套凭据：把
-`web/.env.example` 复制成 `web/.env.local`、`server/.env.example` 复制成
-`server/.env`，填进各自的 Key（Web 端那套还有一个「安全密钥」）。
-改了 `web/.env.local` 要**重新 `npm run build`**——Key 是构建时写进前端的。
+真实地图要高德的两套凭据，在 console.amap.com「应用管理」里创建：
+**Web端（JS API）** Key 会附带一个「安全密钥」，**Web服务** Key 是另一个。
+填进面板的「配置 → 高德地图」，保存后面板会重启相关服务，并重新构建 8080 的网站。
+
+手动配置的话：`web/.env.example` 复制成 `web/.env.local`、`server/.env.example` 复制成
+`server/.env`，填进各自的 Key。改了 `web/.env.local` 要**重新 `npm run build`**——Key 是构建时写进前端的。
 
 **连不上高德时自动用离线图**：没配 Key、脚本加载失败，或者 8 秒内底图没画出来
 （网络被拦、Key 或安全密钥填错），都会换成离线的行政区示意图，
@@ -86,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 
 改前端代码时用开发模式：`cd web && npm run dev`，访问 <http://localhost:5173>，有热更新。
 
-**怎么测试见 [docs/测试说明.md](docs/测试说明.md)**，含 153 条手工用例。
+**怎么测试见 [docs/测试说明.md](docs/测试说明.md)**，含按模块分成 29 组的手工用例。
 
 ## 关键时间节点（2026）
 
@@ -103,8 +120,7 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 
 | 完成度 | 模块 |
 |---|---|
-| ✅ 完整 | F-01 房屋信息 · F-03 租客管理 · F-04 看房申请 · F-05 租赁合同 · F-06 收租信息 · F-07 收租统计 · F-10 公告管理 |
-| ⚠️ 部分 | F-02 户主管理 · F-08 报修（缺图片）· F-11 系统管理（缺配置） |
+| ✅ 完整 | F-01 房屋信息 · F-02 户主管理 · F-03 租客管理 · F-04 看房申请 · F-05 租赁合同 · F-06 收租信息 · F-07 收租统计 · F-08 报修（含照片）· F-09 维修数据 · F-10 公告管理 · F-11 系统管理（含系统配置） |
 
 按端划分：
 
@@ -136,10 +152,12 @@ powershell -ExecutionPolicy Bypass -File .\start-all.ps1
 
 | 项 | 数量 |
 |---|---|
-| 数据表 | 31 |
-| 后端接口 | 127 |
-| 智能体接口 | 16 |
-| 自动化测试 | **1193**（后端 700 + 智能体 493） |
+| 数据表 | 36 |
+| 后端接口 | 152 |
+| 智能体接口 | 19 |
+| 自动化测试 | **1,861**（后端 956 + 智能体 905） |
+
+这几个数由 `scripts/gen_test_counts.py` 改写，并有测试盯着，不用手改。
 
 测试全部不依赖网络、数据库与大模型，任何装了 Python 的机器都能跑。
 

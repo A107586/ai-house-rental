@@ -33,6 +33,10 @@ Thumbs.db
 **/application-local.yml
 **/application-local.properties
 agent/.env
+# 面板改 .env 时先写的临时文件（里面有 Key），写完立刻改名；万一中途断了也不能进 git
+.env*.tmp
+# 面板自己记的上一套远程地址与模型名（不含 Key）
+launcher/panel-settings.json
 
 # ===== 上传文件 / 日志 =====
 back/src/main/resources/static/upload/
