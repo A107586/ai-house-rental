@@ -255,7 +255,7 @@ export default function SupportPanel() {
                       </span>
                     </span>
                   </div>
-                  <div className="record-body sp-answer">{row.answer.replace(/**/g, '')}</div>
+                  <div className="record-body sp-answer">{row.answer.replaceAll('**', '')}</div>
                   {row.aliases && <div className="record-body muted-note">也会这么问：{row.aliases}</div>}
                   <div className="record-actions">
                     <span className="sp-hits">被引用 {row.hit_count} 次</span>
