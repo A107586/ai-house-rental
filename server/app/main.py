@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app import gateway, house_query, leasing
 from app.console import force_utf8
 from app import prodcheck
+from app import tracing
 from app.auth import create_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
@@ -159,6 +160,13 @@ async def record_operation(request, call_next):
     finally:
         session.close()
     return response
+
+
+# 请求编号 + 结构化访问日志，见 app/tracing.py。
+# **注册在最后**：Starlette 里后注册的中间件在最外层，这样编号从请求一进来就有，
+# 上面的慢请求日志、操作日志里如果要用也拿得到，耗时也包住了整条链。
+tracing.setup()
+app.middleware("http")(tracing.trace_requests)
 
 
 # 按业务模块拆出去的路由，见 app/routers/__init__.py

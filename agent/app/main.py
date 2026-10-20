@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import fusion, memory, supervisor
+from app import fusion, memory, supervisor, tracing
 from app.agents.assistant import loop as assistant_loop
 from app.agents.assistant.toolkit import Toolkit
 from app.retrieval.tokenize import WORD_LEVEL
@@ -86,7 +86,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 让前端脚本读得到请求编号（跨域时响应头默认只暴露几个标准字段）
+    expose_headers=[tracing.HEADER],
 )
+
+# 请求编号 + 结构化访问日志，见 app/tracing.py。注册在 CORS 之后＝在它外层，
+# 编号从请求一进来就有，耗时也包住整条链
+tracing.setup()
+app.middleware("http")(tracing.trace_requests)
 
 provider = build_provider(settings)
 
@@ -663,7 +670,10 @@ def agent_chat_stream(payload: ChatRequest):
         finally:
             events.put(None)
 
-    threading.Thread(target=work, daemon=True).start()
+    # 新线程不会继承当前请求的上下文（请求编号存在 ContextVar 里），
+    # 不复制的话这一轮调业务后端时就带不上编号，两边日志串不起来
+    context = contextvars.copy_context()
+    threading.Thread(target=context.run, args=(work,), daemon=True).start()
 
     def stream():
         while True:
@@ -765,6 +775,17 @@ def _agent_turn(payload, on_event=None):
             _AGENT_UNAVAILABLE, {}, [], slots, feats, status="unavailable", ok=False))
 
     result = _agent_reply(out["message"], out["artifacts"], out["trace"], slots, feats)
+    # 分步计时（app/agents/assistant/loop.py 的 run）：放进 route 给前端和答辩看，
+    # 再写一行汇总日志——带着请求编号，和访问日志、模型调用日志对得上
+    timings = out.get("timings") or {}
+    result["route"]["timings"] = timings
+    steps = timings.get("steps") or []
+    tracing.log("agent_turn", total_ms=timings.get("total_ms"),
+                model_ms=round(sum(s["ms"] for s in steps if s["kind"] == "model"), 1),
+                tool_ms=round(sum(s["ms"] for s in steps if s["kind"] == "tool"), 1),
+                model_calls=sum(1 for s in steps if s["kind"] == "model"),
+                tools=[s["tool"] for s in steps if s["kind"] == "tool"],
+                stopped_by=out["stopped_by"])
     # 用户在流程里插了句别的：答完把待办原样交回去，下一句还能接着填
     if pending and not result.get("pending") and not out["stopped_by"]:
         result["pending"] = pending

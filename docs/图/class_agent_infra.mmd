@@ -7,6 +7,7 @@ classDiagram
         +complete(system_prompt, user_prompt, max_tokens, deadline)
         +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
         +chat(system_prompt, messages, max_tokens, deadline, temperature)
+        +chat_stream(system_prompt, messages, max_tokens, deadline, temperature)
         +complete_json(system_prompt, user_prompt, max_tokens, deadline)
         +stats()
         +available()
@@ -25,6 +26,7 @@ classDiagram
         +complete_json(system_prompt, user_prompt, max_tokens, deadline)
         +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
         +chat(system_prompt, messages, max_tokens, deadline, temperature)
+        +chat_stream(system_prompt, messages, max_tokens, deadline, temperature)
         +stats()
     }
     class OpenAICompatibleProvider["OpenAICompatibleProvider（llm/providers.py）"] {
@@ -33,6 +35,7 @@ classDiagram
         +complete_vision(system_prompt, user_prompt, images, max_tokens, deadline)
         +complete(system_prompt, user_prompt, max_tokens, deadline)
         +chat(system_prompt, messages, max_tokens, deadline, temperature)
+        +chat_stream(system_prompt, messages, max_tokens, deadline, temperature)
     }
     class KnowledgeIndex["KnowledgeIndex（retrieval/index.py）"] {
         +__init__(chunks, embedder, cache, model)

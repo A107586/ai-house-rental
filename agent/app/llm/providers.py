@@ -19,6 +19,7 @@ import random
 import urllib.error
 import urllib.request
 
+from app import tracing
 from app.llm.base import LLMProvider, LLMUnavailable, NullProvider
 
 
@@ -115,6 +116,23 @@ class OpenAICompatibleProvider(LLMProvider):
         }
 
     def _post_with_retry(self, request, deadline=None):
+        """`_post_with_retry_raw` 外面包一层：每次调用记一行耗时日志（app/tracing.py）。
+
+        「助手慢」时第一个要回答的就是「慢在模型还是慢在别处」，
+        这行日志带着请求编号，和访问日志、agent 每一步的计时对得上。
+        """
+        started = time.perf_counter()
+        try:
+            body = self._post_with_retry_raw(request, deadline=deadline)
+        except LLMUnavailable as exc:
+            tracing.log("llm_call", mode="chat", ok=False, error=str(exc)[:120],
+                        ms=round((time.perf_counter() - started) * 1000, 1))
+            raise
+        tracing.log("llm_call", mode="chat", ok=True,
+                    ms=round((time.perf_counter() - started) * 1000, 1))
+        return body
+
+    def _post_with_retry_raw(self, request, deadline=None):
         """发请求，遇到瞬时故障时重试。
 
         原先任何一次失败都直接降级到纯规则。但**超时与限流是可重试的
@@ -305,6 +323,24 @@ class OpenAICompatibleProvider(LLMProvider):
 
     def chat_stream(self, system_prompt, messages, max_tokens=None,
                     deadline=None, temperature=0.0):
+        """流式调用的计时外壳：记首段正文多久到（用户多久开始看到字）和总耗时。"""
+        started = time.perf_counter()
+        first_ms = None
+        try:
+            for piece in self._chat_stream_raw(system_prompt, messages, max_tokens=max_tokens,
+                                               deadline=deadline, temperature=temperature):
+                if first_ms is None:
+                    first_ms = round((time.perf_counter() - started) * 1000, 1)
+                yield piece
+        except LLMUnavailable as exc:
+            tracing.log("llm_call", mode="stream", ok=False, error=str(exc)[:120],
+                        first_ms=first_ms, ms=round((time.perf_counter() - started) * 1000, 1))
+            raise
+        tracing.log("llm_call", mode="stream", ok=True, first_ms=first_ms,
+                    ms=round((time.perf_counter() - started) * 1000, 1))
+
+    def _chat_stream_raw(self, system_prompt, messages, max_tokens=None,
+                         deadline=None, temperature=0.0):
         """`chat` 的流式版本（OpenAI 协议的 `stream: true`），边生成边吐正文。
 
         和 `_post_with_retry` 共用熔断与统计，但**不重试**：已经吐给用户一半的话

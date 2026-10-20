@@ -25,6 +25,7 @@
 
 import json
 import re
+import time
 from datetime import date
 
 from app.llm.base import LLMUnavailable, extract_json
@@ -279,6 +280,22 @@ def _ask_model(llm, system, messages, emit, deadline=None):
 
 def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None,
         today=None, on_event=None):
+    """跑一轮，见 `_run`。这一层只多做一件事：分步计时，结果放在返回值的 `timings` 里——
+    每次问模型花了多久、每个工具花了多久、整轮多久。「助手慢」时先看这张表，
+    就知道该优化模型、检索还是后端接口（app/tracing.py 会把它写进日志）。"""
+    timings = {"steps": [], "started": time.perf_counter()}
+    out = _run(text, images, llm, toolkit, context_lines, dialogue, deadline, today,
+               on_event, timings)
+    out["timings"] = {"total_ms": _ms_since(timings["started"]), "steps": timings["steps"]}
+    return out
+
+
+def _ms_since(started):
+    return round((time.perf_counter() - started) * 1000, 1)
+
+
+def _run(text, images, llm, toolkit, context_lines, dialogue, deadline, today,
+         on_event, timings):
     """跑一轮。返回 dict：
 
     - `message`：给用户的话
@@ -309,7 +326,9 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
     for step in range(MAX_STEPS + 1):
         if step == MAX_STEPS:
             messages.append({"role": "user", "content": _NUDGE_FINAL})
+        asked_at = time.perf_counter()
         raw, pushed = _ask_model(llm, system, messages, on_event, deadline)
+        timings["steps"].append({"kind": "model", "ms": _ms_since(asked_at)})
         decision = extract_json(raw)
         answered = (isinstance(decision, dict) and isinstance(decision.get("answer"), str)
                     and decision["answer"].strip()
@@ -354,7 +373,9 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
 
         if on_event is not None:
             on_event({"type": "step", "tool": name, "label": step_label(name)})
+        called_at = time.perf_counter()
         outcome = toolkit.call(name, params, text=text, images=images)
+        timings["steps"].append({"kind": "tool", "tool": name, "ms": _ms_since(called_at)})
         trace.append({"tool": name, "params": params,
                       "thought": str(decision.get("thought") or "")[:120]})
         _merge(artifacts, outcome.artifacts)

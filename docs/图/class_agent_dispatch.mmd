@@ -1,9 +1,10 @@
 classDiagram
     direction LR
-    class AgentApi["智能体服务 · HTTP 接口（19 个）"] {
+    class AgentApi["智能体服务 · HTTP 接口（20 个）"] {
         <<router>>
         +agent_booking(BookingRequest) POST /agent/booking
         +agent_chat(ChatRequest) POST /agent/chat
+        +agent_chat_stream(ChatRequest) POST /agent/chat/stream
         +agent_contract(ContractRequest) POST /agent/contract/review
         +agent_describe(DescribeRequest) POST /agent/describe
         +agent_handoff(HandoffRequest) POST /agent/handoff
@@ -75,8 +76,9 @@ classDiagram
     }
     class ag_assistant["assistant · AI-09 统一对话入口"] {
         <<agent>>
-        +run(text, images, llm, toolkit, context_lines, dialogue, deadline, today)
+        +run(text, images, llm, toolkit, context_lines, dialogue, deadline, today, on_event)
         +Outcome «class»
+        +AnswerStream «class»
         +modules toolkit
     }
     class ag_booking["booking · AI-06 预约"] {

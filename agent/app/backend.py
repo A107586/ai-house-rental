@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from app import tracing
 from app.config import settings
 
 _MOMENT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
@@ -68,6 +69,9 @@ class BackendClient(object):
         # 智能体不持有身份，只能把前端带来的令牌原样转发。
         if token:
             headers["Authorization"] = "Bearer " + token
+        # 带上这一轮的请求编号，业务后端沿用它记日志（app/tracing.py）
+        if tracing.current():
+            headers[tracing.HEADER] = tracing.current()
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
