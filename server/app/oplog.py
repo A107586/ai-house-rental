@@ -97,6 +97,9 @@ ACTION_RULES = (
 
     # 消息与会话
     ("POST", r"^/api/messages/read-all$", "全部消息标为已读"),
+    # 下面两条现在不记日志（见 SKIP_PATTERNS），名字留给改规则之前写下的旧记录用
+    ("PATCH", r"^/api/messages/\d+/read$", "标记消息已读"),
+    ("POST", r"^/api/conversations/\d+/read$", "标记会话已读"),
     ("POST", r"^/api/conversations$", "发起会话"),
     ("POST", r"^/api/conversations/\d+/lines$", "发送会话消息"),
 
