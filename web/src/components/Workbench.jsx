@@ -406,7 +406,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                       </button>
                     </form>
                     <p className="muted-note">
-                      请在平台内沟通。交换微信、电话会被拦截——私下成交，平台无法提供保障。
+                      请在平台内沟通，私下交易平台无法提供保障。
                     </p>
                   </>
                 )}
@@ -587,7 +587,7 @@ function ApptList({ rows, emptyText, showActions, busy, onReply, onTalk,
                         onClick={() => onTalk(a)}
                         title={a.accept_contact === false
                           ? '该租客关闭了主动联系' : ''}>
-                  {busy === `t${a.id}` ? '打开中…' : '找他说'}
+                  {busy === `t${a.id}` ? '打开中…' : '发消息'}
                 </button>
               )}
             </div>

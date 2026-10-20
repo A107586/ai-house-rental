@@ -116,7 +116,7 @@ export default function AgentQueue({ onReviewed }) {
       )}
 
       <p className="rd-note">
-        通过之后，这个人才能接单。审核通过，意味着他能看到租客联系方式、能代房东回咨询，不是一个走过场的标记——按这个标准看材料。
+        审核通过后，中介才能接单，并能看到租客联系方式、代房东回复咨询，请仔细核对材料。
       </p>
     </div>
   )

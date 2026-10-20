@@ -175,7 +175,7 @@ export default function SignContractDialog({ houses, onDone, onClose }) {
                 <div className="assist-body">
                   月租按房源当前定价 <b>{Math.round(picked.rent_price)}</b> 元计，
                   押金默认取房源上填的 <b>{Math.round(picked.deposit)}</b> 元
-                  ——和租客在详情页看到的是同一个数（K-02）。
+                  ，和租客在详情页看到的一致。
                   <div className="assist-hint">
                     确认生效时会一次排满整个租期的账单：1 条押金 +
                     {' '}{months} 条租金，不用每月手工补。

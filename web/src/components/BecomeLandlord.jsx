@@ -84,7 +84,7 @@ export default function BecomeLandlord({ onUpgraded }) {
           </button>
 
           <div className="fld-hint">
-            这一步不可逆。名下有房源和合同后再降回租客，那些数据就没了主人——真要退出出租，应当先下架房源、结清合同。
+            成为房东后不能再改回租客。以后不想出租了，下架房源、结清合同即可。
           </div>
         </>
       )}

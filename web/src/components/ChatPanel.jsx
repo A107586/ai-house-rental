@@ -62,10 +62,8 @@ function loadSessionId(user) {
 const OPENING = {
   role: 'assistant',
   content: '你好，我是租房助手。找房可以一句一句补条件，我都记得住；'
-    + '平台规则也可以直接问我，比如「押金怎么退」——'
-    + '我只按知识库回答，查不到就直说，不瞎编。'
-    + '也可以让我帮你办事——交房租、约看房、报修都行，'
-    + '我会先把要办的事列出来，你点确认，我才动手。',
+    + '押金怎么退、退租要提前多久这类平台规定也可以问我，查不到的我会直说。'
+    + '交房租、约看房、报修也能帮你办，办之前会先让你确认。',
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
@@ -803,9 +801,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 这句话组员看了两次都没看出问题在哪，所以把排查方向直接写进去。
         // 「联系不上」最常见的原因不是网络，是 8000 端口那个服务压根没起来——
         // 智能体有自己的 requirements.txt，只装后端依赖的话它启动即退出。
-        content: '当前智能体无连接，聊天暂不可用。'
-          + '如果是在本地跑：确认 8000 端口的智能体窗口还开着，'
-          + '它的依赖要单独装（pip install -r agent/requirements.txt）。',
+        content: '助手暂时连不上，请稍后再试。',
         ok: false,
       }])
     } finally {
@@ -916,8 +912,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         </button>
         <h3>租房助手</h3>
         <div className="loc">
-          多轮对话 · 会记住你已经说过的条件
-          {user ? '' : ' · 登录后，换设备也能接着聊'}
+          找房、问规定、办事都可以问我
         </div>
 
         {context && (

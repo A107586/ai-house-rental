@@ -191,9 +191,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
             </span>
             <span className="score-unit">/ 100</span>
             <span className="score-note">
-              {review.source === 'rules' ? '规则解析，未调用大模型'
-                : review.source === 'llm' ? '大模型解析'
-                : '大模型不可用，已降级为规则解析'}
+              {review.source === 'llm' ? 'AI 审阅' : '按常见条款自动检查'}
             </span>
           </div>
 

@@ -632,7 +632,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                   {priceTip.message}
                   {priceTip.ok && (
                     <div className="assist-hint">
-                      用的是中位单价，不是平均值——一套定价离谱的房源，就能把平均值拉歪。
+                      参考的是附近同类房源的中间价位。
                     </div>
                   )}
                 </div>
@@ -746,11 +746,9 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
             <div className="assist">
               <div className="assist-body">
-                写不出来？智能体可以按你填好的字段生成一段。
+                写不出来？可以按你填好的信息自动生成一段。
                 <div className="assist-hint">
-                  只组织语言，<b>不添加任何字段里没有的信息</b>——
-                  写了「步行五分钟到地铁」而实际没有，那是虚假宣传。
-                  生成后可以自己改。
+                  只用你填过的信息，不会添油加醋，生成后可以自己改。
                 </div>
               </div>
               <button type="button" className="btn ghost small"
@@ -773,7 +771,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
         {tab === 'publish' && !editing && (
           <p className="desc">
-            房源图片要等提交发布后，到「我的房源」里点「编辑」上传——图片要挂到房源编号上，新房源还没有编号。
+            发布成功后，在「我的房源」里点「编辑」上传图片。
           </p>
         )}
       </div>

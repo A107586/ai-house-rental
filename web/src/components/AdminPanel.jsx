@@ -183,14 +183,11 @@ export default function AdminPanel({ user, onClose, embedded,
   // 正在等这个结果」。工单也有人等，但等的是维修师傅上门，
   // 不是等管理员点一下——放进来会稀释这条的含义
   const FOCUS = [
-    { key: 'review', label: '房源待审', n: pending.length, urgent: true,
-      hint: '房东发布后卡在这' },
-    { key: 'agentQueue', label: '资质待审', n: agentPending, urgent: true,
-      hint: '中介不能接单' },
-    { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true,
-      hint: '申请人还是租客权限' },
-    { key: 'flags', label: '内容待审', n: flagPending, hint: '命中敏感词的文本' },
-    { key: 'repairs', label: '未完成工单', n: openRepairs, hint: '含处理中' },
+    { key: 'review', label: '房源待审', n: pending.length, urgent: true },
+    { key: 'agentQueue', label: '中介资质待审', n: agentPending, urgent: true },
+    { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true },
+    { key: 'flags', label: '内容待审', n: flagPending },
+    { key: 'repairs', label: '未完成工单', n: openRepairs },
   ]
 
   // 把页签清单（含计数）报给外面的左栏。
@@ -224,8 +221,7 @@ export default function AdminPanel({ user, onClose, embedded,
           </>
         )}
 
-        <FocusBar items={FOCUS} onPick={setTab}
-                  hint="这几项都有人在等结果，请尽快处理。" />
+        <FocusBar items={FOCUS} onPick={setTab} />
 
         {!embedded && (
         <div className="tabs scroll grouped">

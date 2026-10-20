@@ -50,7 +50,7 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
         <div className="home-sec-head">
           <div>
             <h2 className="home-sec-title">为你推荐</h2>
-            <p className="home-sec-desc">智能体正在分析你的浏览偏好…</p>
+            <p className="home-sec-desc">正在根据你的浏览记录挑选…</p>
           </div>
         </div>
       </section>
@@ -77,7 +77,7 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
         <div>
           <h2 className="home-sec-title">
             为你推荐
-            <span className="rec-badge">AI 智能体</span>
+            <span className="rec-badge">AI</span>
           </h2>
           <p className="home-sec-desc">{data.reason}</p>
         </div>

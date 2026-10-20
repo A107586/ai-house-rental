@@ -162,8 +162,7 @@ export default function CloseRepairDialog({ repair, onDone, onClose }) {
           </div>
 
           <p className="rd-note">
-            提交后工单转为「已完成」，物料从库存扣减，并计入维修统计。
-            <b>一张工单只能登记一次</b>——重复登记会把物料重复扣一遍。
+            提交后工单变为「已完成」，用到的物料会从库存扣除。每张工单只能登记一次。
           </p>
 
           <button className="btn block" type="submit" disabled={busy}>

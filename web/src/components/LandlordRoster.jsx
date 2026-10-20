@@ -129,7 +129,7 @@ export default function LandlordRoster() {
       )}
 
       <p className="rd-note">
-        电话按数据安全要求掩码显示，联系房东请走站内消息。积压工单超过 2 条的行标红，通常需要平台介入。
+        电话只显示部分号码，联系房东请用站内消息。未处理工单超过 2 条的房东标红。
       </p>
     </div>
   )

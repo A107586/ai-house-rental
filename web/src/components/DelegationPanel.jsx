@@ -125,8 +125,7 @@ export default function DelegationPanel({ houses = [] }) {
 
       <p className="desc">
         把房源委托给中介，让他代你带看、回咨询。
-        <b>委托不是过户</b>——委托期间你照样能改房源、回消息，
-        随时可以单方面解除；<b>签合同永远是你自己点</b>，中介签不了。
+        委托期间你照样能改房源、回消息，随时可以解除委托；合同只能由你本人签。
       </p>
 
       {/* --------------------------------------- 中介申请接单，等我确认 */}
@@ -225,7 +224,7 @@ export default function DelegationPanel({ houses = [] }) {
       <div className="section-title">委托给指定中介</div>
       {free.length === 0 ? (
         <p className="desc">
-          没有可委托的房源——要么已经委托出去，要么还没发布。
+          暂时没有可委托的房源（已委托或还没发布的房源不在这里）。
         </p>
       ) : (
         <form
@@ -293,7 +292,7 @@ export default function DelegationPanel({ houses = [] }) {
 
             {dirState === 'ok' && dir.length === 0 && (
               <p className="desc">
-                没有匹配的中介。中介要资质过审并开着接单开关，才会出现在这里；换个词试试，或清空搜索看全部。
+                没有匹配的中介，换个词试试，或清空搜索看全部。
               </p>
             )}
 
@@ -386,7 +385,7 @@ export default function DelegationPanel({ houses = [] }) {
       )}
 
       <p className="rd-note">
-        一套房同时只能委托一个中介。两个中介同时在托，带看和佣金归谁就说不清。解除委托后，带看记录仍会保留，出纠纷查得到。
+        一套房同时只能委托一个中介。解除委托后，带看记录仍会保留。
       </p>
     </div>
   )

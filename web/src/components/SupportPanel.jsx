@@ -90,7 +90,7 @@ export default function SupportPanel() {
   }
 
   async function removeFaq(row) {
-    if (!window.confirm(`删除「${row.question}」？删除后智能体不再检索这一条。`)) return
+    if (!window.confirm(`删除「${row.question}」？删除后助手不会再用这一条回答。`)) return
     const done = await run(() => api.deleteFaq(row.id), '已删除')
     if (done) loadFaqs()
   }
@@ -170,7 +170,7 @@ export default function SupportPanel() {
                   rows={5}
                   value={editing.answer}
                   onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
-                  placeholder="第一句话必须是结论——大模型不可用时，只会返回这一句"
+                  placeholder="第一句话先写结论，再补充细节"
                 />
               </label>
               <label>
@@ -182,7 +182,7 @@ export default function SupportPanel() {
                 />
               </label>
               <p className="hint">
-                别名最影响命中率：用户说「保证金」，你写的是「押金」，检索就对不上。想到几种说法就写几种。
+                用户可能换种说法问，比如把「押金」说成「保证金」，想到几种就写几种。
               </p>
               <div className="row">
                 <label>
@@ -258,7 +258,7 @@ export default function SupportPanel() {
           </div>
 
           <p className="hint">
-            拒答率高，不代表智能体不行，只说明这些问题库里还没写。下面就是该补的清单，点「补一条」直接起草。
+            下面是用户问过、但知识库里还没有答案的问题，点「补一条」就能补上。
           </p>
 
           <h4>知识缺口（反复被拒答的问题）</h4>
@@ -293,7 +293,7 @@ export default function SupportPanel() {
             <>
               <h4>从未被引用的条目</h4>
               <p className="hint">
-                写了却没人问。可能是问题太书面，用户不会那么说——补几条口语化别名试试。
+                这些条目还没被问到过，可以补几种口语化的问法。
               </p>
               <ul className="plain">
                 {stats.unused_faqs.map((row) => <li key={row.code}>{row.question}</li>)}
@@ -320,7 +320,7 @@ export default function SupportPanel() {
       {tab === 'handoff' && (
         <table className="data-table">
           <thead>
-            <tr><th>工单</th><th>问题</th><th>智能体为什么没答</th><th>状态</th><th>操作</th></tr>
+            <tr><th>工单</th><th>问题</th><th>没答上的原因</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             {handoffs.map((row) => (

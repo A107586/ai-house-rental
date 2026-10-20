@@ -102,21 +102,6 @@ function toFilters(parsed) {
 // 解析来源。fused 是当前的正常路径：规则先解析一遍，结论作为参考
 // 交给大模型，由它给出最终结果——两者同时参与，不是二选一。
 //
-// **这张表只是兜底。** 正文优先用后端返回的 `source_label`：
-// 同一句话在两处各写一份，早晚会写得不一样——实测就是这么写岔的。
-// 前端这份把 `rules` 说成「未配置大模型」，而大模型明明配着
-// （gpt-5.5），只是规则已经足够确定、按 K-10 跳过了它。
-// 页面上于是出现「未配置大模型」，用户和评委都会以为接入失败了。
-const SOURCE_LABEL = {
-  rules: '规则解析，未使用大模型',
-  fused: '规则 + 大模型融合',
-  llm: '大模型解析',
-  rules_fallback: '大模型未返回可用结果，已使用规则结果',
-}
-
-const sourceLabel = (parsed) => (parsed?.source_label
-  || SOURCE_LABEL[parsed?.source] || '')
-
 const PAGE_SIZE = 12
 
 export default function App() {
@@ -452,7 +437,7 @@ export default function App() {
       // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
       // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
       await byKeyword(content)
-      setError('当前智能体无连接，已使用关键词匹配搜索；也可用下方筛选条件找房。')
+      setError('智能找房暂时用不了，先按关键词帮你搜了；也可以用下面的筛选条件。')
     } finally {
       setBusy(false)
     }
@@ -693,7 +678,7 @@ export default function App() {
             {site.site_name.slice(0, 2)}
             <span>{site.site_name.slice(2)}</span>
           </div>
-          <div className="tagline">AI 智能体租房平台</div>
+          <div className="tagline">AI 智能找房</div>
 
           <div className="topbar-right">
             {/* B1：服务状态和「退出」都收进个人中心了。
@@ -705,7 +690,7 @@ export default function App() {
                 服务未连接时是例外：这时它不再是状态，是一句**要立刻看见**
                 的警告，所以只在异常时留在顶栏。 */}
             {online === false && (
-              <span className="status-dot offline" title="后端接口连接不上">
+              <span className="status-dot offline" title="服务暂时连不上">
                 <span className="dot down" />
                 当前无连接
               </span>
@@ -1036,7 +1021,7 @@ export default function App() {
         ) : houses.length === 0 ? (
           <div className="empty">
             {error
-              ? '房源加载失败，请确认后端服务已启动。'
+              ? '房源加载失败，请稍后刷新再试。'
               : hasFilters
                 ? '没有符合条件的房源。'
                 : '暂时还没有房源'}

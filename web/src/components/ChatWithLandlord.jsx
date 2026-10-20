@@ -225,8 +225,7 @@ export default function ChatWithLandlord({ me, onClose, onOpenHouse, initialId }
                 </button>
               </form>
               <div className="muted-note">
-                请在平台内沟通。交换微信、电话等联系方式会被拦截——
-                平台无法为私下成交提供任何保障。
+                请在平台内沟通，私下交易平台无法提供保障。
               </div>
             </div>
           </div>
