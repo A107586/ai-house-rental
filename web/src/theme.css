@@ -3984,3 +3984,148 @@
 
 .td-bills { width: 100%; font-size: 13px; }
 .td-bills tr.bad td { color: var(--danger, #d14343); }
+
+/* ============================================================
+   房源相册：主图左右翻页 + 点开全屏看图
+   ============================================================ */
+.album-stage { position: relative; }
+
+.album-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+
+.album-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.45);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.album-nav:hover { opacity: 1; background: rgba(15, 23, 42, 0.65); }
+.album-nav.prev { left: 14px; }
+.album-nav.next { right: 14px; }
+
+.album-count {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* 缩略图放大一档：62×46 只看得出颜色，看不出是哪个房间 */
+.drawer .thumb { width: 96px; height: 68px; border-radius: 6px; }
+
+/* 全屏看图器：压在抽屉之上 */
+.pv {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 12, 20, 0.97);
+  color: #fff;
+}
+
+.pv-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  font-size: 14px;
+}
+
+.pv-count { color: rgba(255, 255, 255, 0.6); font-variant-numeric: tabular-nums; }
+
+.pv-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #fff;
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pv-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 64px;
+}
+
+.pv-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.pv-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 30px;
+  cursor: pointer;
+}
+
+.pv-nav:hover { background: rgba(255, 255, 255, 0.24); }
+.pv-nav.prev { left: 10px; }
+.pv-nav.next { right: 10px; }
+
+.pv-thumbs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px 18px;
+  overflow-x: auto;
+}
+
+.pv-thumbs button {
+  flex: none;
+  width: 84px;
+  height: 58px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  background: none;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.pv-thumbs button.on { border-color: #7ec2ff; opacity: 1; }
+.pv-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+@media (max-width: 720px) {
+  .pv-stage { padding: 0 8px; }
+  .pv-nav { width: 38px; height: 38px; font-size: 24px; }
+  .pv-thumbs { justify-content: flex-start; }
+}

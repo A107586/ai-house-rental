@@ -3,6 +3,7 @@ import ImageUploader from './ImageUploader'
 import { FeeTable, VerifyBar } from './VerifyBadge'
 import ReportDialog from './ReportDialog'
 import HousePhoto from './HousePhoto'
+import PhotoViewer from './PhotoViewer'
 import { api } from '../api'
 
 // 智能体返回的 status 与展示样式的对应关系。
@@ -43,6 +44,8 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
   const [repairPhotos, setRepairPhotos] = useState([])
   const [picking, setPicking] = useState('')
   const [shot, setShot] = useState(0)
+  // 全屏看图
+  const [viewing, setViewing] = useState(false)
   // A-5：房东概要与相似房源。两者都是「锦上添花」，
   // 取不到就不显示，不能拖累详情页本身
   const [landlord, setLandlord] = useState(null)
@@ -88,12 +91,12 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [house.house_no])
 
-  // 按 Esc 关闭抽屉
+  // 按 Esc 关闭抽屉。全屏看图时 Esc 只关看图器
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    const onKey = (e) => e.key === 'Escape' && !viewing && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, viewing])
 
   // 切换标签时清掉上一个功能的回复，避免串台
   useEffect(() => {
@@ -177,6 +180,10 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
   return (
     <>
       <div className="drawer-mask" onClick={onClose} />
+      {viewing && (
+        <PhotoViewer photos={photos} index={shot} onIndex={setShot}
+                     title={house.title} onClose={() => setViewing(false)} />
+      )}
       <aside className="drawer">
         <button className="drawer-close" onClick={onClose} aria-label="关闭">
           ×
@@ -184,8 +191,23 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
 
         {photos.length > 0 && (
           <div className="album">
-            <HousePhoto className="album-main" src={photos[shot]}
-                        alt={house.title} lazy={false} />
+            {/* 主图可点开全屏看；多张时左右两侧直接翻 */}
+            <div className="album-stage">
+              <button className="album-open" onClick={() => setViewing(true)}
+                      aria-label="查看大图">
+                <HousePhoto className="album-main" src={photos[shot]}
+                            alt={house.title} lazy={false} />
+              </button>
+              {photos.length > 1 && (
+                <>
+                  <button className="album-nav prev" aria-label="上一张"
+                          onClick={() => setShot((shot - 1 + photos.length) % photos.length)}>‹</button>
+                  <button className="album-nav next" aria-label="下一张"
+                          onClick={() => setShot((shot + 1) % photos.length)}>›</button>
+                </>
+              )}
+              <span className="album-count">{shot + 1} / {photos.length} · 点击看大图</span>
+            </div>
             {photos.length > 1 && (
               <div className="album-thumbs">
                 {photos.map((url, i) => (
