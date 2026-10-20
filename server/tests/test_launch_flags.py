@@ -34,7 +34,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 def _read(path):
-    return io.open(path, encoding="utf-8-sig").read()
+    with io.open(path, encoding="utf-8-sig") as handle:
+        return handle.read()
 
 
 def uvicorn_launches():
@@ -55,6 +56,16 @@ def uvicorn_launches():
             if "uvicorn app.main:app" in line and not line.lstrip().startswith("#"):
                 found.append(("start-all.ps1", line.strip()))
 
+    # 一键启动的控制面板（9-28 之后新加的入口）。**第一版的这条测试没扫它**，
+    # 面板于是又起了两个不带 --no-proxy-headers 的 uvicorn——
+    # 2026-10-21 读面板代码时才发现。启动入口每多一个，这里就要跟着多扫一处。
+    panel = os.path.join(ROOT, "launcher", "panel.py")
+    if os.path.exists(panel):
+        for match in re.finditer(r"lambda:\s*\[([^\]]*)\]", _read(panel), re.S):
+            if '"uvicorn"' in match.group(1):
+                found.append((os.path.join("launcher", "panel.py"),
+                              " ".join(match.group(1).split())))
+
     launch = os.path.join(ROOT, ".claude", "launch.json")
     if os.path.exists(launch):
         for cfg in json.loads(_read(launch)).get("configurations", []):
@@ -73,6 +84,9 @@ class TestUvicornProxyHeadersAreOff(unittest.TestCase):
         self.assertIn(os.path.join("deploy", "rental-api.service"), sources)
         self.assertIn(os.path.join("deploy", "rental-agent.service"), sources)
         self.assertIn("start-all.ps1", sources)
+        self.assertIn(os.path.join("launcher", "panel.py"), sources)
+        panel = [s for s, _ in uvicorn_launches() if s.startswith("launcher")]
+        self.assertEqual(len(panel), 2, "面板里应当有业务后端、智能体两条 uvicorn 启动命令")
 
     def test_every_launch_turns_proxy_headers_off(self):
         missing = [source for source, command in uvicorn_launches()

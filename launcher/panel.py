@@ -82,11 +82,16 @@ def model_cmd():
 SERVICES = {
     "model": {"title": "本地模型", "port": MODEL_PORT, "cwd": ROOT, "cmd": model_cmd,
               "health": f"http://127.0.0.1:{MODEL_PORT}/v1/models", "boot": 180},
+    # `--no-proxy-headers`：uvicorn 默认开着它、默认信任 127.0.0.1，会在请求到达应用前
+    # 拿 X-Forwarded-For 改写客户端地址——登录限流就能被一个请求头绕过。
+    # 原因与实测见 server/tests/test_launch_flags.py，那条测试也盯着这里。
     "backend": {"title": "业务后端", "port": 8080, "cwd": ROOT / "server",
-                "cmd": lambda: [PY, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8080"],
+                "cmd": lambda: [PY, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8080",
+                                "--no-proxy-headers"],
                 "health": "http://127.0.0.1:8080/docs", "boot": 60},
     "agent": {"title": "智能体", "port": 8000, "cwd": ROOT / "agent",
-              "cmd": lambda: [PY, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+              "cmd": lambda: [PY, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000",
+                              "--no-proxy-headers"],
               "health": "http://127.0.0.1:8000/health", "boot": 90},
     "web": {"title": "前端网站", "port": 5173, "cwd": ROOT / "web",
             "cmd": lambda: [find_npm() or "npm.cmd", "run", "dev"],
@@ -162,6 +167,32 @@ def point_agent_at_model():
     return True
 
 
+def agent_llm_target():
+    """agent\\.env 里 LLM_BASE_URL 的值；没有文件或没写就是空串。"""
+    if not ENV_FILE.exists():
+        return ""
+    text = ENV_FILE.read_bytes().decode("utf-8-sig", "replace")
+    m = re.search(r"^\s*LLM_BASE_URL\s*=\s*(\S*)", text, re.M)
+    return m.group(1).strip().strip('"').strip("'") if m else ""
+
+
+def agent_uses_local_model():
+    """智能体是不是在用本机的模型。**不是的话，本地模型就不必起。**
+
+    没有显卡的机器上，本地模型要么起不来、要么用 CPU 慢到没法用；
+    而「一键启动」原先总是先起模型、再**最多等 180 秒**才轮到后端和智能体——
+    走远程 API 的人每次都要白等这三分钟，换来一个用不上的进程。
+    所以以 agent\\.env 为准：LLM_BASE_URL 指向 127.0.0.1 / localhost 才算用本地模型。
+    想换回本地模型，把那一行改回 http://127.0.0.1:18241/v1 即可，面板会照旧先起模型。
+    """
+    target = agent_llm_target()
+    return bool(re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?(/|$)", target))
+
+
+# 只服务于本地模型的两项：远程 API 模式下一键启动跳过它们
+NEEDS_LOCAL_MODEL = ("model", "chat")
+
+
 # ---------- lifecycle -------------------------------------------------------------------------
 def status(name):
     svc = SERVICES[name]
@@ -177,7 +208,12 @@ def status(name):
         state = "exited"
     else:
         state = "stopped"
-    return {"name": name, "title": svc["title"], "port": svc["port"], "state": state,
+    note = ""
+    if state == "stopped" and name in NEEDS_LOCAL_MODEL and not agent_uses_local_model():
+        state = "not_needed"
+        target = agent_llm_target() or "（未配置，纯规则模式）"
+        note = "智能体走的是远程 API：%s，用不到本地模型；需要时仍可手动启动" % target
+    return {"name": name, "title": svc["title"], "port": svc["port"], "state": state, "note": note,
             "optional": svc.get("optional", False), "exit": p.poll() if p is not None else None}
 
 
@@ -241,8 +277,12 @@ def wait_healthy(name):
 
 def start_all(include_optional=True):
     # Model first so the agent comes up already talking to it.
+    # 智能体走远程 API 时跳过本地模型与模型对话页——见 agent_uses_local_model()
+    local = agent_uses_local_model()
     for name in ORDER:
         if SERVICES[name].get("optional") and not include_optional:
+            continue
+        if name in NEEDS_LOCAL_MODEL and not local:
             continue
         start(name)
         if name == "model":

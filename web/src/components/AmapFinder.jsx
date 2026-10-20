@@ -8,6 +8,16 @@ const AMAP_KEY = import.meta.env.VITE_AMAP_KEY || ''
 const AMAP_SECURITY_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE || ''
 const DALIAN_CENTER = [121.614682, 38.914003]
 
+// 多久没画出来就当「连不上」，换成离线区域图。
+//
+// **原先只在脚本加载报错时才换**，而连不上高德的常见样子不是报错，是**卡住**：
+// 网络被拦、外网很慢时 `AMapLoader.load` 一直不返回；Key 或安全密钥填错时
+// 脚本能加载、底图却永远画不出来。两种情况都既不成功也不失败，
+// 地图那一块就一直是白的——比离线图糟得多，离线图至少能点能筛。
+// 所以以底图的 `complete` 事件为准：画出来了才算接上。
+// 正常网络下高德 1~3 秒就画完，8 秒留足了余量。
+const LOAD_TIMEOUT_MS = 8000
+
 export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
@@ -28,6 +38,15 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
   useEffect(() => {
     if (!AMAP_KEY || !containerRef.current) return undefined
     let alive = true
+    let drawn = false
+
+    // 看门狗：到点还没画出底图，就认定连不上，拆掉半成品换离线图
+    const giveUp = window.setTimeout(() => {
+      if (!alive || drawn) return
+      if (mapRef.current) mapRef.current.destroy()
+      mapRef.current = null
+      setFallback(true)
+    }, LOAD_TIMEOUT_MS)
 
     window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_CODE }
     AMapLoader.load({
@@ -47,6 +66,11 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
         map.addControl(new AMap.Scale())
         map.addControl(new AMap.ToolBar({ position: 'RB' }))
         mapRef.current = map
+        // 底图真的画出来了，才算接上——见 LOAD_TIMEOUT_MS 的说明
+        map.on('complete', () => {
+          drawn = true
+          window.clearTimeout(giveUp)
+        })
 
         refreshRef.current = async ({ useBounds = true, fitView = false } = {}) => {
           const params = { ...filtersRef.current }
@@ -84,11 +108,13 @@ export default function AmapFinder({ selected, onPick, filters = {}, onOpen }) {
         refreshRef.current({ useBounds: false, fitView: true })
       })
       .catch(() => {
+        window.clearTimeout(giveUp)
         if (alive) setFallback(true)
       })
 
     return () => {
       alive = false
+      window.clearTimeout(giveUp)
       if (mapRef.current) mapRef.current.destroy()
       mapRef.current = null
     }

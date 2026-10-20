@@ -79,7 +79,8 @@
 const LINKS = { web: ['http://localhost:5173', '打开网站'], chat: ['http://127.0.0.1:8090', '打开对话页'],
                 backend: ['http://localhost:8080/docs', '接口文档'], agent: ['http://localhost:8000/docs', '接口文档'],
                 model: ['http://127.0.0.1:18241/v1/models', '模型列表'] };
-const STATE = { running: '运行中', external: '外部进程', starting: '启动中', exited: '已退出', stopped: '已停止' };
+const STATE = { running: '运行中', external: '外部进程', starting: '启动中', exited: '已退出', stopped: '已停止',
+                not_needed: '用不到' };
 let logName = 'model', last = null;
 
 const post = body => fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -129,12 +130,14 @@ function render(st) {
       <div class="meta">端口 ${s.port}${up ? ` · <a href="${href}" target="_blank">${text}</a>` : ''}
         ${s.state === 'external' ? '<br>不是本面板起的（可能是旧的黑窗口）；可以停掉后由面板重起' : ''}
         ${s.state === 'exited' ? `<br>进程退出（代码 ${s.exit}），看下面的日志` : ''}
+        ${s.note ? `<br>${s.note}` : ''}
         <br>${detail(s, st)}</div>
       <div class="row"></div>`;
     const row = d.querySelector('.row');
     for (const [act, label] of [['start', '启动'], ['restart', '重启'], ['stop', '停止']]) {
       const b = document.createElement('button'); b.textContent = label;
-      b.disabled = (act === 'start' && (up || s.state === 'starting')) || (act !== 'start' && s.state === 'stopped');
+      const idle = s.state === 'stopped' || s.state === 'not_needed';
+      b.disabled = (act === 'start' && (up || s.state === 'starting')) || (act !== 'start' && idle);
       b.onclick = () => post({ action: act, name: s.name });
       row.appendChild(b);
     }
