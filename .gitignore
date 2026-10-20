@@ -76,3 +76,7 @@ server/static/uploads/
 
 # Word / WPS 打开文档时生成的锁文件
 ~$*
+
+# ===== Playwright 端到端测试的产物 =====
+web/test-results/
+web/playwright-report/
