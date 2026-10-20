@@ -100,8 +100,8 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
 
       {why && (
         <div className="rec-why">
-          推荐基于你的浏览足迹与收藏，按区域 30 分、租金 25 分、户型 20 分、标签 15 分、出租方式 10 分给候选房源打分；看过的房源会降权，低于 15 分的不推荐。
-          <b>全过程由规则计算，不调用大模型</b>——推荐理由必须对得上真实数据。
+          根据你看过和收藏的房子，从区域、租金、户型、配套、整租/合租几方面挑相似的；
+          已经看过的往后排，不太像的就不推了。
         </div>
       )}
 

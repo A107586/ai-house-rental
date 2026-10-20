@@ -1511,8 +1511,22 @@
 
 .card .card-trust + .tags { margin-top: 8px; }
 
-/* 推荐卡片的理由区同理：高度不齐时靠底对齐 */
-.rec-item .rec-reasons { margin-top: auto; }
+/* 推荐卡片：卡片本身吃掉剩余高度，理由区固定一行。
+   原先只给外层 rec-item 拉了等高，里面的卡片还是按内容撑高，
+   理由又有的一行有的两行——四张卡底边各在各的位置。 */
+.rec-grid > .rec-item > .card { flex: 1; }
+
+/* 只留一行：放不下的理由整条折到第二行再被裁掉，
+   而不是每条都挤成「在…」「租金 2…」 */
+.rec-item .rec-reasons {
+  margin-top: auto;
+  flex-wrap: wrap;
+  height: 30px;
+  overflow: hidden;
+}
+
+.rec-item .rec-score,
+.rec-item .rec-reason { white-space: nowrap; line-height: 18px; }
 
 /* ---------- A9：卡片区放宽 ----------
    原来固定三列，1180px 宽的容器里每张卡只有 273px，
@@ -3206,16 +3220,17 @@
 .foot-inner {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 40px 24px 32px;
+  padding: 44px 24px 0;
   display: grid;
-  gap: 32px;
+  gap: 32px 48px;
   grid-template-columns: minmax(0, 1fr);
+  text-align: left;
 }
 
 @media (min-width: 860px) {
-  /* 左边讲这个站是什么，右边是入口。左宽右窄——
-     左边是读的，右边是点的 */
-  .foot-inner { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  /* 左边讲这个站是什么，右边是入口。两边都贴着容器边：
+     品牌靠左、链接组靠右，中间留白，眼睛不用来回找 */
+  .foot-inner { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
 .foot-logo {
@@ -3231,7 +3246,7 @@
   margin: 10px 0 16px;
   font-size: 13.5px;
   line-height: 1.9;
-  max-width: 38ch;
+  max-width: 30em;
   color: rgba(255, 255, 255, 0.62);
 }
 
@@ -3255,6 +3270,12 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+}
+
+@media (min-width: 860px) {
+  /* 每列按内容宽，列间距固定——等分的话「联系我们」那列的电话号码
+     和左边两列的短链接之间会空出一大截 */
+  .foot-links { grid-template-columns: repeat(3, max-content); column-gap: 64px; }
 }
 
 @media (max-width: 480px) {
@@ -3297,13 +3318,23 @@
 
 .foot-muted { font-size: 12.5px; color: rgba(255, 255, 255, 0.45); }
 
+/* 版权行在 foot-inner 里占满一整行：分割线和上面的内容一样宽。
+   底部多留 72px——右下角悬浮的「租房助手」按钮会盖住最后一行字 */
 .foot-bottom {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.09);
-  padding: 14px 24px;
-  text-align: center;
+  padding: 16px 0 72px;
   font-size: 12px;
   line-height: 1.8;
   color: rgba(255, 255, 255, 0.42);
+}
+
+@media (min-width: 860px) {
+  .foot-bottom { padding-bottom: 22px; }
 }
 
 /* ============================================================

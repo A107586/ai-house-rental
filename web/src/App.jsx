@@ -1247,7 +1247,7 @@ export default function App() {
               <span>{site.site_name.slice(2)}</span>
             </div>
             <p className="foot-slogan">
-              AI 智能找房
+              在大连找房、签约、交租、报修，一个地方办完。
             </p>
             <div className="foot-badges">
               <span>房源人工核验</span>
@@ -1263,7 +1263,7 @@ export default function App() {
                   用户是滚到页面最底下才看到这几个入口的，点完页面换了
                   但滚动位置没动，他看到的是新页面的底部——一片页脚，
                   而他刚点的是「全部房源」。第一反应是「没反应」。 */}
-              <button onClick={() => goTop('list', 'all')}>自己翻也行，用筛选和地图收窄更快</button>
+              <button onClick={() => goTop('list', 'all')}>全部房源</button>
               <button onClick={() => goTop('list', 'latest')}>最新发布</button>
               <button onClick={() => goTop('list', 'featured')}>优选好房</button>
             </div>
@@ -1285,21 +1285,22 @@ export default function App() {
               </button>
             </div>
             <div className="foot-col">
-              <h4>联系</h4>
+              <h4>联系我们</h4>
               {site.contact_phone
                 ? <span className="foot-phone">{site.contact_phone}</span>
                 : <span className="foot-muted">客服电话未配置</span>}
               <span className="foot-muted">工作日 9:00–18:00</span>
-              <span className="foot-muted">大连理工大学 实习实训</span>
             </div>
           </nav>
-        </div>
 
-        {/* **这句话必须有。** 站里的房源、评价、账单全是课程演示数据，
-            界面又做得像个真站；不写清楚，看到的人真按上面的号码打过去
-            就成了我们的问题。 */}
-        <div className="foot-bottom">
-          <span>© 2026 {site.site_name} · 课程设计作品，房源与交易数据均为演示用途，不构成任何真实租赁要约</span>
+          {/* **这句话必须有。** 站里的房源、评价、账单全是课程演示数据，
+              界面又做得像个真站；不写清楚，看到的人真按上面的号码打过去
+              就成了我们的问题。
+              放进 foot-inner 里：分割线和上面的内容一样宽，左右对齐。 */}
+          <div className="foot-bottom">
+            <span>© 2026 {site.site_name}</span>
+            <span>大连理工大学实习实训作品 · 房源与交易均为演示数据</span>
+          </div>
         </div>
       </footer>
 
