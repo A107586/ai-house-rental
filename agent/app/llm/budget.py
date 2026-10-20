@@ -127,6 +127,21 @@ class DeadlineProvider(LLMProvider):
         return self._inner.chat(system_prompt, messages, max_tokens=max_tokens,
                                 temperature=temperature)
 
+    # 流式也要转发——见上面 complete_vision 那段：没转发的方法会落到基类，
+    # 基类的 chat_stream 会调**这一层**的 chat，截止时间照样生效，只是不流式了。
+    def chat_stream(self, system_prompt, messages, max_tokens=None,
+                    deadline=None, temperature=0.0):
+        self._check()
+        method = getattr(self._inner, "chat_stream", None)
+        if method is None:
+            yield self.chat(system_prompt, messages, max_tokens=max_tokens,
+                            temperature=temperature)
+            return
+        kwargs = {"max_tokens": max_tokens, "temperature": temperature}
+        if self._takes_deadline:
+            kwargs["deadline"] = self._deadline
+        yield from method(system_prompt, messages, **kwargs)
+
     def stats(self):
         return self._inner.stats()
 

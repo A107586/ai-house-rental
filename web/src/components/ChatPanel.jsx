@@ -464,6 +464,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [thinkIntent, setThinkIntent] = useState('default')
+  // 流式接口推来的：此刻真实在做的那一步（「在查你的账单」）和已经生成的那部分回答
+  const [streamStep, setStreamStep] = useState('')
+  const [streamText, setStreamText] = useState('')
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
@@ -682,9 +685,25 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setError('')
 
     try {
-      const res = await api.agentChat(content, sessionId, history, houseNos,
-                                     pending,
-                                     { seen: houseNos.length, houseNo: focus || houseNo, images })
+      const extra = { seen: houseNos.length, houseNo: focus || houseNo, images }
+      let res
+      try {
+        // 流式：「在查你的账单」这类真实进度先出来，回答一个字一个字显示在等待气泡里；
+        // 收到最终结果后照原样处理，等待气泡换成正式的那条消息
+        res = await api.agentChatStream(content, sessionId, history, houseNos, pending, extra,
+          (event) => {
+            if (event.type === 'step') setStreamStep(event.label || '')
+            else if (event.type === 'delta') setStreamText((cur) => cur + event.text)
+            else if (event.type === 'reset') setStreamText('')
+          })
+      } catch (err) {
+        // 只有「流式接口用不了」才退回普通接口；模型答错、服务报错照常往外抛
+        if (!err.streamUnsupported) throw err
+        res = await api.agentChat(content, sessionId, history, houseNos, pending, extra)
+      } finally {
+        setStreamText('')
+        setStreamStep('')
+      }
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -1122,7 +1141,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           {busy && (
             <div className="bubble assistant thinking-bubble">
               <ChatAvatar kind="ai" />
-              <Thinking intent={thinkIntent} />
+              {streamText
+                ? <div className="bubble-text streaming">{streamText}</div>
+                : <Thinking intent={thinkIntent} label={streamStep} />}
             </div>
           )}
           <div ref={bottomRef} />

@@ -4918,3 +4918,14 @@ button.account-row:last-child { border-bottom: none; }
   font-weight: 600;
   background: var(--ok-soft);
 }
+
+/* 流式输出：回答还在生成时末尾带一个闪烁的光标，写完换成正式的消息 */
+.bubble-text.streaming::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--brand);
+  animation: stream-caret 1s steps(1) infinite;
+}
+@keyframes stream-caret {
+  50% { opacity: 0; }
+}

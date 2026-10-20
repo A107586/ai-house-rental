@@ -23,6 +23,12 @@ import { useEffect, useState } from 'react'
  *
  * 走到最后一句就停在那里，不循环回第一句：真的慢下来时，
  * 反复轮播只会让人以为它卡在了一个死循环里。
+ *
+ * ## 有了流式接口之后
+ *
+ * `/agent/chat/stream` 会推送**真实**的步骤（「在查你的账单」「在看查到的结果」），
+ * 由调用方经 `label` 传进来——那时就只显示它，不再轮播上面的阶段清单。
+ * 退回普通接口（没有 label）时照旧轮播。
  */
 
 /** 各条路线的真实阶段。键与 supervisor 的 intent 对齐。 */
@@ -38,8 +44,8 @@ const SCRIPTS = {
 /** 每句停留多久。太快像跑马灯，太慢又显得没在动。 */
 const STEP_MS = 1400
 
-export default function Thinking({ intent = 'default' }) {
-  const steps = SCRIPTS[intent] || SCRIPTS.default
+export default function Thinking({ intent = 'default', label = '' }) {
+  const steps = label ? [label] : (SCRIPTS[intent] || SCRIPTS.default)
   const [i, setI] = useState(0)
 
   useEffect(() => {
@@ -50,7 +56,7 @@ export default function Thinking({ intent = 'default' }) {
       setI((cur) => (cur >= steps.length - 1 ? cur : cur + 1))
     }, STEP_MS)
     return () => clearInterval(timer)
-  }, [intent, steps.length])
+  }, [intent, steps.length, label])
 
   return (
     <div className="thinking" role="status" aria-live="polite">

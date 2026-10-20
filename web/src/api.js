@@ -44,6 +44,26 @@ const AGENT_BASE = (() => {
 
 const agentUrl = (path) => AGENT_BASE + path
 
+// 对话请求体。普通版 /agent/chat 和流式版 /agent/chat/stream 用同一份
+function chatBody(text, sessionId, history, lastHouseNos, pending, extra) {
+  return {
+    text,
+    session_id: sessionId,
+    token: getToken(),
+    history,
+    last_house_nos: lastHouseNos,
+    // 已经列出来几套（翻页要接着往下数），以及用户此刻打开的那一套
+    // （「这套」指它，不指列表第一条）
+    seen: extra.seen || 0,
+    house_no: extra.houseNo || '',
+    // 上一轮没做完的代办：助手问了哪个槽、已经填了什么、
+    // 或者已经摆出的确认卡片。服务端不存会话态，由前端带着走。
+    pending,
+    // 随这句话发的照片，已传到本系统的地址（/static/uploads/...）
+    images: extra.images || [],
+  }
+}
+
 const TOKEN_KEY = 'rental_token'
 
 /**
@@ -554,22 +574,51 @@ export const api = {
   // 登录用户的上下文存在后端，未登录用户由前端自己带着走。
   agentChat: (text, sessionId, history = [], lastHouseNos = [], pending = null,
               extra = {}) =>
-    post(agentUrl('/agent/chat'), {
-      text,
-      session_id: sessionId,
-      token: getToken(),
-      history,
-      last_house_nos: lastHouseNos,
-      // 已经列出来几套（翻页要接着往下数），以及用户此刻打开的那一套
-      // （「这套」指它，不指列表第一条）
-      seen: extra.seen || 0,
-      house_no: extra.houseNo || '',
-      // 上一轮没做完的代办：助手问了哪个槽、已经填了什么、
-      // 或者已经摆出的确认卡片。服务端不存会话态，由前端带着走。
-      pending,
-      // 随这句话发的照片，已传到本系统的地址（/static/uploads/...）
-      images: extra.images || [],
-    }),
+    post(agentUrl('/agent/chat'), chatBody(text, sessionId, history, lastHouseNos, pending, extra)),
+
+  // 同一轮对话的流式版本（SSE）：边查边告诉你在做哪一步，回答一个字一个字出来。
+  // onEvent 收到 {type:'step', label} / {type:'delta', text} / {type:'reset'}；
+  // 返回的 Promise 最后给出和 agentChat 一模一样的结果。
+  //
+  // 浏览器自带的 EventSource 只能发 GET，带不了请求体，所以这里用 fetch
+  // 读响应流，自己按 SSE 的格式（空行分隔、event:/data: 开头）切开。
+  agentChatStream: async (text, sessionId, history = [], lastHouseNos = [], pending = null,
+                          extra = {}, onEvent = () => {}) => {
+    let response
+    try {
+      response = await fetch(agentUrl('/agent/chat/stream'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chatBody(text, sessionId, history, lastHouseNos, pending, extra)),
+      })
+    } catch {
+      throw Object.assign(new Error('流式接口连不上'), { streamUnsupported: true })
+    }
+    // 旧版智能体没有这个接口（404），调用方退回 agentChat
+    if (!response.ok || !response.body) {
+      throw Object.assign(new Error(`流式接口返回 ${response.status}`), { streamUnsupported: true })
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let cut
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, cut)
+        buffer = buffer.slice(cut + 2)
+        const data = block.split('\n').find((line) => line.startsWith('data:'))
+        if (!data) continue                       // 心跳（: ping）之类的注释行
+        const event = JSON.parse(data.slice(5))
+        if (event.type === 'done') return event.result
+        if (event.type === 'error') throw new Error(event.message)
+        onEvent(event)
+      }
+    }
+    throw new Error('连接中断，没收到完整回复')
+  },
 
   chatHistory: (sessionId) =>
     request(`/api/chat-messages?${toQuery({ session_id: sessionId })}`),

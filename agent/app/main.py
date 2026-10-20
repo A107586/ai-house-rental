@@ -5,6 +5,8 @@
 """
 
 import contextvars
+import queue
+import threading
 import json
 import sys
 import re
@@ -12,6 +14,7 @@ import time
 from types import SimpleNamespace
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -624,13 +627,69 @@ def agent_chat(payload: ChatRequest):
     return _with_photos(payload, urls)
 
 
+# 流式连接上多久没有新事件就发一行心跳。开思考时模型可能十几秒不吐正文，
+# 中间的代理（nginx 等）看到连接一直没动静会以为断了
+STREAM_HEARTBEAT = 10.0
+
+
+@app.post("/agent/chat/stream")
+def agent_chat_stream(payload: ChatRequest):
+    """`/agent/chat` 的流式版本（SSE，Server-Sent Events）。
+
+    同一轮对话、同一种结果，只是不用干等：
+
+        event: step   data: {"type":"step","tool":"my_bills","label":"在查你的账单"}
+        event: delta  data: {"type":"delta","text":"你有 36 笔"}      ← 回答边生成边推
+        event: reset  data: {"type":"reset"}                         ← 推过的字作废
+        event: done   data: {"type":"done","result":{...}}           ← 和 /agent/chat 的返回一模一样
+
+    前端以 done 里的 result 为准（话术会去掉 Markdown 星号等）。
+    确认卡片的「好的」、legacy 模式这类不经过 agent 循环的轮次，只会有一个 done。
+
+    一轮对话在后台线程里跑，事件经队列交给这里一条条写出去：
+    agent 循环是同步代码，这样不用把它改成异步。
+    """
+    events = queue.Queue()
+
+    def work():
+        try:
+            if settings.assistant_mode != "legacy":
+                result = _agent_turn(payload, on_event=events.put)
+            else:
+                result = agent_chat(payload)
+            events.put({"type": "done", "result": result})
+        except Exception:                                        # noqa: BLE001
+            events.put({"type": "error", "message": "这一轮处理出错了，稍后再试一次。"})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def stream():
+        while True:
+            try:
+                item = events.get(timeout=STREAM_HEARTBEAT)
+            except queue.Empty:
+                yield ": ping\n\n"                # 冒号开头是 SSE 的注释行，浏览器会忽略
+                continue
+            if item is None:
+                return
+            yield "event: %s\ndata: %s\n\n" % (
+                item["type"], json.dumps(item, ensure_ascii=False, default=str))
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",                # 让 nginx 别攒着，来一条转一条
+    })
+
+
 # ============================================================================ agent
 
 _AGENT_UNAVAILABLE = ("助手这会儿连不上大模型，没法帮你查和办事。稍后再试一次；"
                       "急的话可以点「转人工」。")
 
 
-def _agent_turn(payload):
+def _agent_turn(payload, on_event=None):
     """agent 版的一轮对话。
 
     理解、选工具、多步查询、组织话术全归模型（`app/agents/assistant/loop.py`）。
@@ -700,7 +759,7 @@ def _agent_turn(payload):
         out = assistant_loop.run(
             payload.text, images, turn, Toolkit(deps),
             context_lines=_agent_context(payload, who, slots, feats, pending),
-            dialogue=dialogue)
+            dialogue=dialogue, on_event=on_event)
     except LLMUnavailable:
         return _log_agent_turn(payload, urls, _agent_reply(
             _AGENT_UNAVAILABLE, {}, [], slots, feats, status="unavailable", ok=False))

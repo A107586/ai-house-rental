@@ -170,14 +170,127 @@ def _as_answer(raw):
     return text
 
 
+# 流式时告诉用户「此刻在做哪一步」。这些是**真实发生的工具调用**，不是猜的——
+# 前端原先只能轮播一份固定的阶段清单（见 web/src/components/Thinking.jsx 的说明）
+STEP_LABELS = {
+    "search_houses": "在找房", "more_houses": "在找更多房源", "recommend_houses": "在挑推荐",
+    "house_detail": "在看这套房的详情", "house_reviews": "在看住户评价",
+    "landlord_reputation": "在看房东口碑", "compare_houses": "在比较这几套",
+    "knowledge": "在查平台规则", "my_bills": "在查你的账单", "my_contracts": "在查你的合同",
+    "my_appointments": "在查你的预约", "my_repairs": "在查你的报修", "my_favorites": "在查你的收藏",
+    "my_history": "在查浏览记录", "my_todos": "在查待办事项",
+}
+
+
+def step_label(name):
+    return STEP_LABELS.get(name) or ("在准备确认单" if name else "在想")
+
+
+class AnswerStream:
+    """从**还没生成完的** JSON 里实时取出 `"answer"` 字段的文字。
+
+    每一步模型输出的是 `{"thought": "...", "answer": "..."}` 或者一次工具调用。
+    要等整段 JSON 收全再解析，用户就得干等；这里一段段喂进来，一旦看到
+    `"answer": "`，后面的字就边到边吐，直到那个字符串结束。工具调用那一步
+    不会吐任何东西。模型没按格式、直接说了一段话（不以 { 开头），整段照吐——
+    和 `_as_answer` 的判断一致。
+
+    转义要自己处理：`\\n`、`\\"`、`\\uXXXX`，而且一个转义可能被切在两段之间。
+    """
+
+    _KEY = re.compile(r'"answer"\s*:\s*"')
+
+    def __init__(self):
+        self.buf = ""
+        self.mode = None        # None：还看不出；"json"；"text"
+        self.pos = 0
+        self.inside = False
+        self.done = False
+
+    def feed(self, piece):
+        """喂一段原始输出，返回这一段里新出现的回答文字（可能是空串）。"""
+        self.buf += piece or ""
+        if self.mode is None:
+            head = self.buf.lstrip()
+            if not head:
+                return ""
+            self.mode = "json" if head[0] in "{`" else "text"
+            if self.mode == "text":
+                return head
+        if self.mode == "text":
+            return piece or ""
+        if self.done:
+            return ""
+        if not self.inside:
+            match = self._KEY.search(self.buf, self.pos)
+            if not match:
+                return ""
+            self.inside, self.pos = True, match.end()
+        out = []
+        i, buf = self.pos, self.buf
+        while i < len(buf):
+            ch = buf[i]
+            if ch == "\\":
+                if i + 1 >= len(buf):
+                    break                                  # 转义被切断，等下一段
+                nxt = buf[i + 1]
+                if nxt == "u":
+                    if i + 6 > len(buf):
+                        break
+                    try:
+                        out.append(chr(int(buf[i + 2:i + 6], 16)))
+                    except ValueError:
+                        pass
+                    i += 6
+                    continue
+                out.append({"n": "\n", "t": "\t", "r": "", "b": "", "f": ""}.get(nxt, nxt))
+                i += 2
+                continue
+            if ch == '"':
+                self.done = True
+                i += 1
+                break
+            out.append(ch)
+            i += 1
+        self.pos = i
+        return "".join(out)
+
+
+def _ask_model(llm, system, messages, emit, deadline=None):
+    """问一次模型。有人在听（emit）就流式，回答部分边到边推；返回完整原文和是否推过字。"""
+    if emit is None:
+        return llm.chat(system, messages, max_tokens=STEP_MAX_TOKENS, deadline=deadline), False
+    stream, chunks, pushed = AnswerStream(), [], False
+    try:
+        for piece in llm.chat_stream(system, messages, max_tokens=STEP_MAX_TOKENS,
+                                     deadline=deadline):
+            chunks.append(piece)
+            text = stream.feed(piece)
+            if text:
+                pushed = True
+                emit({"type": "delta", "text": text})
+    except LLMUnavailable:
+        if chunks:
+            raise
+        # 一个字都还没收到就失败：退回带重试的普通调用，至少答得出来
+        return llm.chat(system, messages, max_tokens=STEP_MAX_TOKENS, deadline=deadline), False
+    return "".join(chunks), pushed
+
+
 def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None,
-        today=None):
+        today=None, on_event=None):
     """跑一轮。返回 dict：
 
     - `message`：给用户的话
     - `artifacts`：合并后的结构化结果
     - `trace`：每一步调了什么、参数是什么（写进 route，答辩时能说清它怎么想的）
     - `stopped_by`：哪个工具结束了这一轮（写操作出卡片 / 追问），没有就是 None
+
+    `on_event`：可选的回调，给流式接口用。每调一个工具推一条
+    `{"type": "step", "tool", "label"}`，回答边生成边推 `{"type": "delta", "text"}`；
+    推了字、这一步最后却没有收尾（比如模型改主意去调工具了）就推一条
+    `{"type": "reset"}`，前端把已显示的字清掉。不传时行为和原来完全一样。
+    最终以返回值里的 `message` 为准（会去掉 Markdown 星号等）。
 
     模型不可用时抛 `LLMUnavailable`，由调用方决定怎么告诉用户。
     """
@@ -196,8 +309,13 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
     for step in range(MAX_STEPS + 1):
         if step == MAX_STEPS:
             messages.append({"role": "user", "content": _NUDGE_FINAL})
-        raw = llm.chat(system, messages, max_tokens=STEP_MAX_TOKENS, deadline=deadline)
+        raw, pushed = _ask_model(llm, system, messages, on_event, deadline)
         decision = extract_json(raw)
+        answered = (isinstance(decision, dict) and isinstance(decision.get("answer"), str)
+                    and decision["answer"].strip()
+                    and str(decision.get("tool") or "none").strip() in ("", "none"))
+        if pushed and not (answered or (not isinstance(decision, dict) and _as_answer(raw))):
+            on_event({"type": "reset"})
         if not isinstance(decision, dict):
             answer = _as_answer(raw)
             if answer:
@@ -234,6 +352,8 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
             continue
         seen.add(key)
 
+        if on_event is not None:
+            on_event({"type": "step", "tool": name, "label": step_label(name)})
         outcome = toolkit.call(name, params, text=text, images=images)
         trace.append({"tool": name, "params": params,
                       "thought": str(decision.get("thought") or "")[:120]})
@@ -247,6 +367,9 @@ def run(text, images, llm, toolkit, context_lines=(), dialogue=(), deadline=None
             message = "%s\n\n%s" % (said, outcome.message) if said else outcome.message
             return _done(message, artifacts, trace, stopped_by=name)
         messages.append({"role": "user", "content": _observation_text(name, outcome.observation)})
+        if on_event is not None:
+            # 工具返回之后、下一次模型吐字之前，模型在读结果、想下一步（开思考时要好几秒）
+            on_event({"type": "step", "tool": "", "label": "在看查到的结果"})
 
     return _done(_fallback_answer(artifacts), artifacts, trace)
 
