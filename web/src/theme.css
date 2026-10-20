@@ -3881,3 +3881,77 @@
 }
 
 .lease-request-actions { display: flex; gap: 6px; }
+
+/* ============================================================
+   房东「我的房源」：列表 / 地图切换 + 封面缩略图
+   ============================================================ */
+.my-houses-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.my-houses-bar .btn:last-child:not(:first-child) { margin-left: auto; }
+
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--bg-soft, #f1f4f8);
+}
+
+.seg button {
+  border: none;
+  background: none;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.seg button.on {
+  background: var(--card, #fff);
+  color: var(--text, #1f2937);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.chip-x {
+  border: 1px solid var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.record-list.my-houses > li {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.my-house-cover {
+  flex: 0 0 132px;
+  height: 92px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-soft, #eef1f5);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.my-house-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.my-house-main { flex: 1; min-width: 0; }
+
+@media (max-width: 560px) {
+  .my-house-cover { flex-basis: 96px; height: 72px; }
+}

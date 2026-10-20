@@ -4,6 +4,7 @@ import { appendLines, lastLineId } from '../chatLines'
 import ChatAvatar from './ChatAvatar'
 
 const MapFinder = lazy(() => import('./MapFinder'))
+const HouseDrawer = lazy(() => import('./HouseDrawer'))
 const LandlordPanel = lazy(() => import('./LandlordPanel'))
 const AgentPanel = lazy(() => import('./AgentPanel'))
 const AdminPanel = lazy(() => import('./AdminPanel'))
@@ -76,12 +77,13 @@ const ROLE_TITLE = {
 // 一起时，过滤会把面板那一栏挤掉，中介就再也看不到邀请了——
 // 实测就是这么丢的。房东面板没有对应栏目，所以由这里补上。
 const COMM_BY_ROLE = {
-  landlord: ['chat', 'appt', 'today', 'map'],
+  // 房东的地图并进了「我的房源」（列表 / 地图切换），不再单列一项
+  landlord: ['chat', 'appt', 'today'],
   agent: ['chat', 'map'],
   admin: [],
 }
 
-export default function Workbench({ user, onClose, onOpenHouse }) {
+export default function Workbench({ user, onClose }) {
   const isAdmin = user.role === 'admin'
   // 管理员没有「与租客沟通」这一路，直接从后台的第一栏开始
   const [nav, setNav] = useState(
@@ -100,6 +102,21 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
   const [ok, setOk] = useState('')
   const bottomRef = useRef(null)
   const lastIdRef = useRef(0)
+  // 在工作台里点房源：就地打开详情。原先跳到前台的房源页，
+  // 房东看完自己的房子一关，人在首页，工作台没了
+  const [preview, setPreview] = useState(null)
+  // 详情里点「编辑房源」：交给房东面板，在「我的房源」里打开编辑
+  const [editRequest, setEditRequest] = useState(null)
+
+  async function openHouse(target) {
+    if (!target) return
+    try {
+      const no = typeof target === 'string' ? target : target.house_no
+      setPreview(await api.getHouse(no))
+    } catch {
+      setError('这套房源已下架或不存在，看不到详情了。')
+    }
+  }
 
   const title = ROLE_TITLE[user.role] || '工作台'
 
@@ -243,14 +260,10 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
   // 「我要找的东西属于哪一块」才知道往哪看，而他并不关心这个分界。
   const commKeys = COMM_BY_ROLE[user.role] || []
   const ALL_COMM = {
-    chat: { key: 'chat', label: '会话', n: unread, hint: '与租客直接沟通',
-            group: '要做的事' },
-    appt: { key: 'appt', label: '看房预约', n: pending.length,
-            hint: '待我确认的申请', group: '要做的事' },
-    today: { key: 'today', label: '今日带看', n: today.length,
-             hint: '今天要去的场次', group: '要做的事' },
-    map: { key: 'map', label: '房源分布', hint: '在地图上按区域挑，位置和周边都看得见',
-           group: '要做的事' },
+    chat: { key: 'chat', label: '会话', n: unread, group: '要做的事' },
+    appt: { key: 'appt', label: '看房预约', n: pending.length, group: '要做的事' },
+    today: { key: 'today', label: '今日带看', n: today.length, group: '要做的事' },
+    map: { key: 'map', label: '房源分布', group: '要做的事' },
   }
   const COMM = commKeys.map((k) => ALL_COMM[k])
   const NAV = [...COMM, ...sections.filter((x) => !commKeys.includes(x.key))]
@@ -355,7 +368,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   <>
                     <div className="wb-thread-head">
                       <button className="link-title"
-                              onClick={() => onOpenHouse?.(active.house_no)}>
+                              onClick={() => openHouse(active.house_no)}>
                         {active.house_title || active.house_no}
                       </button>
                       <span className="muted-note">{active.house_no}</span>
@@ -424,7 +437,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
               busy={busy}
               onReply={reply}
               onTalk={talkTo}
-              onOpenHouse={onOpenHouse}
+              onOpenHouse={openHouse}
             />
           )}
 
@@ -459,7 +472,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                     <li key={h.house_no}>
                       <div className="record-head">
                         <button className="link-title"
-                                onClick={() => onOpenHouse?.(h.house_no)}>
+                                onClick={() => openHouse(h.house_no)}>
                           {h.title}
                         </button>
                         <span className="pill">{h.status === 'available' ? '在架'
@@ -485,10 +498,11 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
               {user.role === 'landlord' && (
                 <LandlordPanel
                   user={user} embedded
+                  editRequest={editRequest}
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
-                  onOpenHouse={onOpenHouse}
+                  onOpenHouse={openHouse}
                   onClose={onClose}
                 />
               )}
@@ -498,7 +512,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
-                  onOpenHouse={onOpenHouse}
+                  onOpenHouse={openHouse}
                   onClose={onClose}
                 />
               )}
@@ -537,6 +551,23 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
           )}
         </main>
       </div>
+
+      {preview && (
+        <Suspense fallback={null}>
+          <HouseDrawer
+            house={preview}
+            user={user}
+            owner={user.role === 'landlord'}
+            onEdit={(house) => {
+              setPreview(null)
+              setNav('houses')
+              setEditRequest({ house, at: Date.now() })
+            }}
+            onOpenHouse={(house) => openHouse(house)}
+            onClose={() => setPreview(null)}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

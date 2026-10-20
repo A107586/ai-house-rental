@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { api } from '../api'
 import CloseRepairDialog from './CloseRepairDialog'
 import ContractCard from './ContractCard'
@@ -6,6 +6,8 @@ import ContractDetail from './ContractDetail'
 import DelegationPanel from './DelegationPanel'
 import ImageUploader from './ImageUploader'
 import SignContractDialog from './SignContractDialog'
+
+const MapFinder = lazy(() => import('./MapFinder'))
 
 const HOUSE_STATUS = {
   available: { label: '在租中', cls: 'status-confirmed' },
@@ -62,7 +64,8 @@ const ALL_TAGS = ['电梯', '地铁', '近学校', '近医院', '有阳台', '�
   '有家具', '可养宠物', '采光好']
 
 export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
-                                       onSections, activeTab, onTabChange }) {
+                                       onSections, activeTab, onTabChange,
+                                       editRequest }) {
   // 嵌入整页工作台时，当前页签由外面的左栏说了算；独立抽屉时自己管。
   // **两套状态不能并存**——并存就会出现「左栏高亮 A、正文显示 B」，
   // 而这种不一致在切换几次之后才显形，最难查
@@ -78,6 +81,10 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
   const [tenants, setTenants] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [editing, setEditing] = useState('')
+  // 「我的房源」一页里切列表 / 地图。原先地图是左栏单独一项「房源分布」，
+  // 编辑又是另一项「编辑房源」，同一批房子散在三个地方
+  const [houseView, setHouseView] = useState('list')
+  const [district, setDistrict] = useState('')
   // L-10 定价建议 / AI-08 描述生成，两者都只在发布表单里用
   const [priceTip, setPriceTip] = useState(null)
   const [descBusy, setDescBusy] = useState(false)
@@ -175,8 +182,43 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       orientation: house.orientation, description: house.description,
       tags: house.tags || [],
     })
-    setTab('publish')
+    // 编辑就在「我的房源」里进行，不再跳到另一个栏目
+    setTab('houses')
   }
+
+  function stopEdit() {
+    setEditing('')
+    setForm(EMPTY_FORM)
+  }
+
+  // 工作台里从房源详情点了「编辑房源」
+  useEffect(() => {
+    if (editRequest?.house) startEdit(editRequest.house)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest])
+
+  // 离开「我的房源」就放弃编辑：切到「发布房源」时看到的应该是一张空表
+  useEffect(() => {
+    if (tab !== 'houses' && editing) stopEdit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
+  // 按区聚合自己的房源，喂给地图（口径是「我的房源」，不是全城统计）
+  const myDistricts = (() => {
+    const acc = {}
+    houses.forEach((h) => {
+      const key = h.district || '未填写'
+      if (!acc[key]) acc[key] = { district: key, count: 0, _rent: 0 }
+      acc[key].count += 1
+      acc[key]._rent += Number(h.rent_price) || 0
+    })
+    return Object.values(acc).map((d) => ({
+      district: d.district, count: d.count, avg_rent: Math.round(d._rent / d.count),
+    }))
+  })()
+
+  // 表单出现在两处：「发布房源」（新房源）和「我的房源」里点了编辑
+  const showForm = (tab === 'publish' && !editing) || (tab === 'houses' && !!editing)
 
   function submitHouse(e) {
     e.preventDefault()
@@ -268,7 +310,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
     // 这样的短名词，只有它写成一句带逗号的口号，在竖排左栏里还会折行；
     // 「委托不是过户」那段解释本来就在正文第一屏，用不着标签再说一遍
     { key: 'delegations', label: '委托中介' },
-    { key: 'publish', label: editing ? '编辑房源' : '发布房源' },
+    { key: 'publish', label: '发布房源' },
   ]
 
       {/* 嵌入模式：工作台整页把左栏和标题接管过去了，这里只出正文。
@@ -420,21 +462,62 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
         )}
 
         {/* ---------------- 我的房源 ---------------- */}
-        {tab === 'houses' &&
+        {tab === 'houses' && editing && (
+          <div className="my-houses-bar">
+            <button className="btn ghost small" onClick={stopEdit}>‹ 返回我的房源</button>
+          </div>
+        )}
+
+        {tab === 'houses' && !editing && (
+          <div className="my-houses-bar">
+            <div className="seg" role="tablist">
+              <button className={houseView === 'list' ? 'on' : ''}
+                      onClick={() => setHouseView('list')}>列表</button>
+              <button className={houseView === 'map' ? 'on' : ''}
+                      onClick={() => setHouseView('map')}>地图</button>
+            </div>
+            {district && (
+              <button className="chip-x" onClick={() => setDistrict('')}>
+                只看 {district} <span aria-hidden="true">×</span>
+              </button>
+            )}
+            <button className="btn small" onClick={() => setTab('publish')}>发布新房源</button>
+          </div>
+        )}
+
+        {tab === 'houses' && !editing && houseView === 'map' && (
+          <Suspense fallback={<div className="map-loading">地图加载中…</div>}>
+            <MapFinder selected={district} onPick={setDistrict} rows={myDistricts}
+                       title="我的房源分布"
+                       hint={houses.length ? '点击区域只看该区的房源' : '名下还没有房源'} />
+          </Suspense>
+        )}
+
+        {tab === 'houses' && !editing &&
           (houses.length === 0 ? (
-            <p className="desc">还没有发布房源，切到「发布房源」开始。</p>
+            <p className="desc">还没有发布房源，点「发布新房源」开始。</p>
           ) : (
-            <ul className="record-list">
-              {houses.map((house) => {
+            <ul className="record-list my-houses">
+              {houses.filter((h) => !district || h.district === district).map((house) => {
                 const st = HOUSE_STATUS[house.status] || { label: house.status, cls: '' }
                 return (
                   <li key={house.house_no}>
+                    {/* 点图或标题在工作台里打开详情，不离开工作台 */}
+                    <button className="my-house-cover" onClick={() => onOpenHouse?.(house)}
+                            aria-label={`查看 ${house.title}`}>
+                      {house.cover_image
+                        ? <img src={house.cover_image} alt="" loading="lazy" />
+                        : <span>暂无图片</span>}
+                    </button>
+                    <div className="my-house-main">
                     <div className="record-head">
-                      <strong>{house.title}</strong>
+                      <button className="link-title" onClick={() => onOpenHouse?.(house)}>
+                        {house.title}
+                      </button>
                       <span className={`pill ${st.cls}`}>{st.label}</span>
                     </div>
                     <div className="record-body">
-                      {house.house_no} · <span className="amount">{house.rent_price} 元</span>
+                      {house.house_no} · {house.district} · <span className="amount">{house.rent_price} 元</span>
                       {' '}· {house.layout} · {Math.round(house.area)}㎡ · 浏览 {house.view_count}
                     </div>
                     <div className="record-actions">
@@ -462,6 +545,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                       {house.status === 'pending' && (
                         <span className="own">等待管理员审核</span>
                       )}
+                    </div>
                     </div>
                   </li>
                 )
@@ -588,7 +672,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
         {/* ---------------- 委托中介（J-04） ---------------- */}
         {tab === 'delegations' && <DelegationPanel houses={houses} />}
 
-        {tab === 'publish' && (
+        {showForm && (
           <form onSubmit={submitHouse} className="house-form">
             {editing && (
               <p className="desc">
@@ -765,7 +849,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
         {/* 相册管理只在编辑已有房源时出现：图片要挂到某个 house_no 上，
             新房源还没提交，没有编号可挂。 */}
-        {tab === 'publish' && editing && (
+        {tab === 'houses' && editing && (
           <ImageUploader mode="house" houseNo={editing} onChanged={load} />
         )}
 

@@ -23,7 +23,8 @@ const TABS = [
 
 export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                                      onClose, onOpenHouse, onTalk,
-                                     onAskAssistant, demandText = '' }) {
+                                     onAskAssistant, demandText = '',
+                                     owner = false, onEdit }) {
   const [tab, setTab] = useState('booking')
   // K-08 举报弹窗。入口放在详情页而不是个人中心——
   // 用户是在看这套房、觉得不对劲的那一刻才想举报的
@@ -216,10 +217,21 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             再看别的——放到页面底部等于没放（K-07） */}
         <VerifyBar house={house} />
 
+        {/* 房东在工作台里看自己的房：收藏、咨询、举报都不适用，只给「编辑」 */}
+        {owner && (
+          <div className="record-actions">
+            <span className="own">这是你的房源</span>
+            {onEdit && (
+              <button className="btn small" onClick={() => onEdit(house)}>编辑房源</button>
+            )}
+          </div>
+        )}
+
+        {!owner && (
         <div className="record-actions">
           <button
             className={`btn ghost small ${favorited ? 'active' : ''}`}
-            onClick={() => onToggleFavorite(house.house_no)}
+            onClick={() => onToggleFavorite?.(house.house_no)}
           >
             {favorited ? '★ 已收藏' : '☆ 收藏'}
           </button>
@@ -287,6 +299,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             举报该房源
           </button>
         </div>
+        )}
 
         {/* ---------- 房东概要（A-5） ---------- */}
         {landlord && (
@@ -496,7 +509,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           <>
             <div className="section-title">该房源的报修记录</div>
             {repairs.length === 0 ? (
-              <p className="desc">报修记录</p>
+              <p className="desc">暂无报修记录</p>
             ) : (
               <ul className="booked-list">
                 {repairs.map((item) => (
@@ -512,10 +525,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </>
         )}
 
+        {!owner && (
         <div className="section-title">
           {tab === 'booking' ? '智能预约看房' : '智能报修'}
         </div>
+        )}
 
+        {!owner && (
         <form onSubmit={submit}>
           <div className="field">
             <input
@@ -551,6 +567,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             </button>
           </div>
         </form>
+        )}
 
         {/* 报修才给拍照。**提交之前**传，照片要参与分派。
             现场拍一张，比让人把「水槽下面那根管子的接口在渗水」

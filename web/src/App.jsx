@@ -647,7 +647,6 @@ export default function App() {
         <Workbench
           user={user}
           onClose={() => go('home', '', true)}
-          onOpenHouse={(no) => go('house', no)}
         />
       </Suspense>
     )
