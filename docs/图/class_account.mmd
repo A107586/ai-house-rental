@@ -43,6 +43,7 @@ classDiagram
         <<service>>
         +active_delegation(session, house_id, agent_id)
         +can_manage_house(session, user, house)
+        +can_report_repair(session, user, house)
         +require_can_manage_house(session, user, house)
         +responsible_user_id(session, house)
         +contact_window_open(appointment, now)

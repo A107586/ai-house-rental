@@ -3,7 +3,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, make_resident
 
 
 class TestToken(ApiTestCase):
@@ -188,8 +188,40 @@ class TestAppointmentWorkflow(ApiTestCase):
 
 class TestRepairs(ApiTestCase):
 
-    def test_create_and_list(self):
+    def setUp(self):
+        super().setUp()
+        # 报修只收在住租客与管房的人：先让 tenant1 住进 DL0001
+        make_resident("tenant1", "DL0001")
+        self.resident = auth_header(self.client)
+
+    def test_anonymous_cannot_report(self):
+        """原先连登录都不用，任何人都能往任何房源的公开维修历史里写一条。"""
         response = self.client.post("/api/repairs", json={
+            "house_no": "DL0001", "content": "漏水严重"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_a_tenant_who_does_not_live_there_cannot_report(self):
+        response = self.client.post("/api/repairs", headers=self.resident, json={
+            "house_no": "DL0002", "content": "漏水严重"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_landlord_can_report_on_his_own_house(self):
+        response = self.client.post("/api/repairs",
+                                    headers=auth_header(self.client, "landlord1", "test123"),
+                                    json={"house_no": "DL0002", "content": "楼道灯不亮"})
+        self.assertEqual(response.status_code, 200)
+
+    def test_house_detail_says_whether_i_can_report(self):
+        """页面靠这个字段决定给不给「报修」，判断与接口是同一处。"""
+        mine = self.client.get("/api/houses/DL0001", headers=self.resident).json()
+        elsewhere = self.client.get("/api/houses/DL0002", headers=self.resident).json()
+        anonymous = self.client.get("/api/houses/DL0001").json()
+        self.assertTrue(mine["can_report_repair"])
+        self.assertFalse(elsewhere["can_report_repair"])
+        self.assertFalse(anonymous["can_report_repair"])
+
+    def test_create_and_list(self):
+        response = self.client.post("/api/repairs", headers=self.resident, json={
             "house_no": "DL0001", "content": "卫生间水管漏水",
             "category": "水暖", "urgency": "紧急", "assignee": "水暖工"})
         self.assertEqual(response.status_code, 200)
@@ -200,7 +232,7 @@ class TestRepairs(ApiTestCase):
 
     def test_filter_by_urgency(self):
         for content, urgency in (("漏水", "紧急"), ("灯泡坏了", "可延后")):
-            self.client.post("/api/repairs", json={
+            self.client.post("/api/repairs", headers=self.resident, json={
                 "house_no": "DL0001", "content": content, "urgency": urgency})
         # 不带房源号会列出全平台工单，含联系人与故障描述，必须登录
         data = self.client.get("/api/repairs", params={"urgency": "紧急"},
@@ -214,17 +246,17 @@ class TestRepairs(ApiTestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_empty_content_rejected(self):
-        response = self.client.post("/api/repairs",
+        response = self.client.post("/api/repairs", headers=self.resident,
                                     json={"house_no": "DL0001", "content": ""})
         self.assertEqual(response.status_code, 422)
 
     def test_unknown_house(self):
-        response = self.client.post("/api/repairs",
+        response = self.client.post("/api/repairs", headers=self.resident,
                                     json={"house_no": "NOPE", "content": "漏水"})
         self.assertEqual(response.status_code, 404)
 
     def test_status_update_requires_staff(self):
-        repair_id = self.client.post("/api/repairs", json={
+        repair_id = self.client.post("/api/repairs", headers=self.resident, json={
             "house_no": "DL0001", "content": "漏水"}).json()["repair"]["id"]
         tenant = self.client.patch("/api/repairs/%d" % repair_id,
                                    headers=auth_header(self.client),
@@ -237,7 +269,7 @@ class TestRepairs(ApiTestCase):
         self.assertEqual(landlord.status_code, 200)
 
     def test_phone_masked_in_list(self):
-        self.client.post("/api/repairs", json={
+        self.client.post("/api/repairs", headers=self.resident, json={
             "house_no": "DL0001", "content": "漏水",
             "contact_phone": "13800009999"})
         response = self.client.get("/api/repairs")

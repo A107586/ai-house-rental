@@ -34,6 +34,7 @@ from app.db import get_session, init_db
 from app.deps import (current_user, require_house_manager,
                       require_login, require_staff)
 from app.permissions import (can_manage_house,
+                             can_report_repair,
                              can_see_tenant_contact,
                              require_can_manage_house,
                              responsible_user_id)
@@ -649,6 +650,8 @@ def get_house(house_no: str, user: User = Depends(current_user),
         HouseDelegation.house_id == house.id, HouseDelegation.status == "active"))
     data["viewing_by"] = "agent" if delegation else "landlord"
     data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
+    # 页面靠它决定给不给「报修」——判断与 POST /api/repairs 同一处，界面和接口不会各说各的
+    data["can_report_repair"] = can_report_repair(session, user, house)
     return data
 
 
@@ -2198,22 +2201,28 @@ def list_repairs(house_no: str = "", status: str = "", urgency: str = "",
 
 
 @app.post("/api/repairs")
-def create_repair(payload: RepairCreate, user: User = Depends(current_user),
+def create_repair(payload: RepairCreate, user: User = Depends(require_login),
                   session: Session = Depends(get_session)):
     """提交报修工单。
 
     `category` / `urgency` / `assignee` 由调用方（智能体）分析后填入；
     直接调用本接口而不填这几项也允许，此时工单进入人工分派流程。
+
+    **只有在住的租客和管得了这套房的人能报**（见 permissions.can_report_repair）。
+    原先连登录都不用，任何人都能往任何一套房的公开维修历史里写一条。
     """
     house = session.scalar(select(House).where(House.house_no == payload.house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if not can_report_repair(session, user, house):
+        raise HTTPException(status_code=403,
+                            detail="只有正住在这套房的租客、房东或受托中介可以报修")
 
     repair = Repair(
         house_id=house.id,
-        tenant_id=user.id if user else None,
-        contact_name=payload.contact_name or (user.real_name if user else ""),
-        contact_phone=payload.contact_phone or (user.phone if user else ""),
+        tenant_id=user.id,
+        contact_name=payload.contact_name or user.real_name,
+        contact_phone=payload.contact_phone or user.phone or "",
         content=payload.content,
         category=payload.category,
         urgency=payload.urgency,

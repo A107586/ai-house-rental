@@ -233,6 +233,8 @@ class RepairRequest(BaseModel):
     # 报修照片。只收 data URI 或本系统 /static/ 下的路径，
     # 交给模型之前由 `vision.safe_images` 过一遍，理由见那个函数。
     images: list[str] = []
+    # 报修人的登录令牌。提交时转给后端，后端据此判断他是不是这套房的在住租客
+    token: str = ""
 
 
 class RecommendRequest(BaseModel):
@@ -361,6 +363,7 @@ def agent_repair(payload: RepairRequest):
         submit=payload.submit,
         images=repair_vision.safe_images(payload.images,
                                          settings.backend_base_url),
+        token=payload.token or None,
     )
 
 

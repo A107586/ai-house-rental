@@ -15,6 +15,7 @@ const REPLY_STYLE = {
   need_choice: 'pending',
   need_house: 'pending',
   need_content: 'pending',
+  need_login: 'pending',
 }
 
 const TABS = [
@@ -27,6 +28,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                                      onAskAssistant, demandText = '',
                                      owner = false, onEdit }) {
   const [tab, setTab] = useState('booking')
+  // 「报修」只给正住在这套房的租客和管房的人（后端 can_report_repair）。
+  // 原先所有人都看得到、匿名也能提交，任何人都能往别人的房源上写一条维修记录
+  const [canRepair, setCanRepair] = useState(false)
+  const tabs = TABS.filter((item) => item.key !== 'repair' || canRepair)
+  useEffect(() => {
+    if (tab === 'repair' && !canRepair) setTab('booking')
+  }, [tab, canRepair])
   // K-08 举报弹窗。入口放在详情页而不是个人中心——
   // 用户是在看这套房、觉得不对劲的那一刻才想举报的
   const [reporting, setReporting] = useState(false)
@@ -62,7 +70,9 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     // 但不查的话浏览量永远不增长、足迹永远是空的，
     // 而 AI-07 房源推荐正是靠足迹工作的。
     // 失败不影响抽屉展示，所以单独 catch。
-    api.getHouse(house.house_no).catch(() => {})
+    api.getHouse(house.house_no)
+      .then((detail) => setCanRepair(!!detail?.can_report_repair))
+      .catch(() => setCanRepair(false))
 
     // 这两块失败就静默略过——房东概要拉不到不该让整个详情页报错
     api.houseLandlord(house.house_no).then(setLandlord).catch(() => setLandlord(null))
@@ -500,7 +510,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
         )}
 
         <div className="tabs">
-          {TABS.map((item) => (
+          {tabs.map((item) => (
             <button
               key={item.key}
               className={`tab ${tab === item.key ? 'active' : ''}`}

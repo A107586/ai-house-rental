@@ -11,7 +11,7 @@
 
 import os
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, make_resident
 from app import uploads
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -238,6 +238,7 @@ class TestHouseImages(UploadCase):
 class TestRepairImages(UploadCase):
 
     def new_repair(self):
+        make_resident("tenant1", "DL0001")   # 报修只收在住租客
         return self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": "DL0001", "content": "水管漏水",
             "contact_name": "租客甲", "contact_phone": "13900005678",

@@ -7,7 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, settle
+from tests.base import ApiTestCase, auth_header, make_resident, settle
 
 
 def future(days=7):
@@ -45,6 +45,7 @@ class ManageCase(ApiTestCase):
             session.close()
 
     def make_repair(self, house_no="DL0001", content="卫生间漏水"):
+        make_resident("tenant1", house_no)   # 报修只收在住租客
         return self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": house_no, "content": content,
             "category": "水暖", "urgency": "紧急"}).json()["repair"]["id"]

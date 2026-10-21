@@ -211,8 +211,10 @@ class BackendClient(object):
     # ------------------------------------------------------------ 报修
 
     def create_repair(self, house_no, content, category="", urgency="",
-                      assignee="", analysis="", applicant=None):
-        """提交报修工单。分类结果由智能体分析得出，一并写入。"""
+                      assignee="", analysis="", applicant=None, token=None):
+        """提交报修工单。分类结果由智能体分析得出，一并写入。
+
+        **以报修人的身份提交**（token）：后端只收在住租客与管房的人。"""
         applicant = applicant or {}
         return self.post("/api/repairs", {
             "house_no": house_no,
@@ -223,7 +225,7 @@ class BackendClient(object):
             "analysis": analysis,
             "contact_name": applicant.get("xingming") or applicant.get("contact_name") or "",
             "contact_phone": applicant.get("shouji") or applicant.get("contact_phone") or "",
-        })
+        }, token=token)
 
     # ------------------------------------------------------------ AI-03 客服
 

@@ -8,7 +8,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, settle
+from tests.base import ApiTestCase, auth_header, make_resident, settle
 
 
 def future(days=7):
@@ -187,7 +187,8 @@ class TestLandlordDashboard(AdminCase):
         self.assertGreaterEqual(data["todo"]["total"], 1)
 
     def test_todo_counts_open_repairs(self):
-        self.client.post("/api/repairs", json={
+        make_resident("tenant1", "DL0001")   # 报修只收在住租客
+        self.client.post("/api/repairs", headers=auth_header(self.client), json={
             "house_no": "DL0001", "content": "漏水", "urgency": "紧急"})
         data = self.client.get("/api/landlord/dashboard",
                                headers=self.landlord).json()

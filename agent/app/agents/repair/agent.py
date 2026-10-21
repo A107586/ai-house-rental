@@ -10,6 +10,7 @@ from app.agents.repair.tools import vision
 from app.agents.repair.tools.classify import (URGENCY_LEVELS, classify_repair,
                                               describe)
 from app import fusion
+from app.backend import BackendError
 from app.config import settings
 
 _SYSTEM = "你是房屋租赁平台的报修工单分派员，只输出 JSON，不要任何解释。"
@@ -101,10 +102,13 @@ def _never_downgrade_safety(rule_result, fused):
 
 
 def run(text, house_no=None, applicant=None, provider=None, backend=None,
-        submit=True, images=None):
+        submit=True, images=None, token=None):
     """报修智能体入口。
 
     :param submit: 为 False 时只分析不落库，用于前端预览分派结果。
+    :param token: 报修人的登录令牌。**提交必须带**——后端只收在住租客与管房的人
+                  （server permissions.can_report_repair）；原先这里不带身份提交，
+                  任何人都能往任何房源的公开维修历史里写一条（2026-10-22）。
     :param images: 报修照片（本系统上传出来的地址或 data URI）。
                    看得出问题时，把看到的写成一句话**并进描述**再分派。
     """
@@ -167,6 +171,13 @@ def run(text, house_no=None, applicant=None, provider=None, backend=None,
         payload["message"] += "请到具体房源页面提交报修。"
         return payload
 
+    if not token:
+        # 分析结果照给，只是不落库：看得到「这是水暖、紧急」，提交要先登录
+        payload["status"] = "need_login"
+        payload["ok"] = False
+        payload["message"] += "登录后才能提交报修。"
+        return payload
+
     applicant = applicant or {}
     try:
         created = backend.create_repair(
@@ -177,7 +188,16 @@ def run(text, house_no=None, applicant=None, provider=None, backend=None,
             assignee=result["assignee"],
             analysis=analysis,
             applicant=applicant,
+            token=token,
         )
+    except BackendError as exc:
+        # 后端拒收时把原因原样给用户（比如「只有正住在这套房的租客……可以报修」），
+        # 否则他只看到「稍后再试」，会一遍遍重试一件注定不成的事
+        return {
+            "intent": "repair", "status": "error", "ok": False,
+            "source": source,
+            "message": "报修没能提交：%s" % exc,
+        }
     except Exception:
         return {
             "intent": "repair", "status": "error", "ok": False,

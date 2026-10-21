@@ -543,6 +543,8 @@ export const api = {
       shouji: applicant.phone || '',
       submit,
       images,
+      // 以报修人的身份提交：后端只收在住租客与管房的人
+      token: getToken(),
     }),
 
   // 看一张房源照片，写一句图片说明的**草稿**。

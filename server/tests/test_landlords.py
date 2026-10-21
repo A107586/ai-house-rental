@@ -6,7 +6,7 @@
 
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, make_resident
 
 
 def future(days=1):
@@ -47,6 +47,7 @@ class TestRoster(LandlordRosterCase):
         self.assertEqual(row["phone"], "138****1234")
 
     def test_counts_open_repairs(self):
+        make_resident("tenant1", "DL0001")   # 报修只收在住租客
         self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": "DL0001", "content": "水管漏水",
             "contact_name": "租客甲", "contact_phone": "13900005678"})

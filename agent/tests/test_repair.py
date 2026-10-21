@@ -171,7 +171,7 @@ class TestRun(unittest.TestCase):
     def test_creates_ticket(self):
         backend = FakeBackend()
         result = agent.run("卫生间水管漏水了", house_no="DL0001",
-                           provider=NullProvider(), backend=backend)
+                           provider=NullProvider(), backend=backend, token="tok")
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "created")
         self.assertEqual(backend.created["category"], "水暖")
@@ -196,13 +196,43 @@ class TestRun(unittest.TestCase):
 
     def test_backend_failure_is_graceful(self):
         result = agent.run("水管漏水", house_no="DL0001",
-                           provider=NullProvider(), backend=FakeBackend(fail=True))
+                           provider=NullProvider(), backend=FakeBackend(fail=True),
+                           token="tok")
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "error")
 
+    def test_submitting_needs_a_login(self):
+        """不带身份就不落库——原先匿名就能往任何房源的公开维修历史里写一条。
+        分析结果照给，用户能看到「这是水暖、紧急」，只是提交要先登录。"""
+        backend = FakeBackend()
+        result = agent.run("卫生间水管漏水了", house_no="DL0001",
+                           provider=NullProvider(), backend=backend)
+        self.assertEqual(result["status"], "need_login")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["category"], "水暖")
+        self.assertIsNone(backend.created)
+
+    def test_token_is_passed_to_the_backend(self):
+        backend = FakeBackend()
+        agent.run("水管漏水", house_no="DL0001", provider=NullProvider(),
+                  backend=backend, token="tok")
+        self.assertEqual(backend.created["token"], "tok")
+
+    def test_backend_refusal_reason_reaches_the_user(self):
+        from app.backend import BackendError
+
+        class Refuses(FakeBackend):
+            def create_repair(self, **kwargs):
+                raise BackendError("只有正住在这套房的租客、房东或受托中介可以报修")
+
+        result = agent.run("水管漏水", house_no="DL0002", provider=NullProvider(),
+                           backend=Refuses(), token="tok")
+        self.assertFalse(result["ok"])
+        self.assertIn("正住在这套房", result["message"])
+
     def test_response_shape(self):
         result = agent.run("水管漏水", house_no="DL0001",
-                           provider=NullProvider(), backend=FakeBackend())
+                           provider=NullProvider(), backend=FakeBackend(), token="tok")
         for key in ("intent", "status", "ok", "message"):
             self.assertIn(key, result)
 

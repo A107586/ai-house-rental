@@ -12,7 +12,7 @@
 
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, make_resident
 import app.db as db
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
                         House, HouseDelegation, User, ViewingRecord)
@@ -978,6 +978,7 @@ class TestRepairListIsPartyBased(BrokerCase):
 
     def test_landlord_still_sees_the_repair_he_filed_as_a_tenant(self):
         # 先以租客身份报一张工单，再把这个账号升级成房东
+        make_resident("tenant1", "DL0002")   # 报修只收在住租客
         filed = self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": "DL0002", "content": "厨房水管漏水",
             "contact_name": "租客甲", "contact_phone": "13800000001"})
@@ -1096,6 +1097,7 @@ class TestRepairHistoryHidesTheReporter(BrokerCase):
 
     def setUp(self):
         super().setUp()
+        make_resident("tenant1", "DL0001")   # 报修只收在住租客
         filed = self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": "DL0001", "content": "卧室门锁打不开",
             "contact_name": "林小雨", "contact_phone": "13800000001"})

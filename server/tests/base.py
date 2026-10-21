@@ -111,6 +111,35 @@ def make_admin(client, username="root", password="admin123"):
     return auth_header(client, username, password)
 
 
+def make_resident(username="tenant1", house_no="DL0001"):
+    """让这个人成为这套房的**在住租客**：直接写一份生效中的合同。
+
+    2026-10-22 起报修只收在住租客与管得了这套房的人（permissions.can_report_repair），
+    原先大量用例拿匿名或随便一个租客去报 DL0001。只想「有一张工单」的用例
+    先调这一行。**不排账单、不改房源状态**——要测签约链路的用例走真接口，
+    这里只是让报修的前提成立，别的用例数到的合同和账单不受影响。
+    """
+    from datetime import datetime, timedelta
+    from app.models import Contract, House, User
+    session = db.SessionLocal()
+    try:
+        user = session.query(User).filter_by(username=username).one()
+        house = session.query(House).filter_by(house_no=house_no).one()
+        exists = session.query(Contract).filter_by(
+            tenant_id=user.id, house_id=house.id, status="active").first()
+        if not exists:
+            now = datetime.now()
+            session.add(Contract(
+                contract_no="HTRES%d%d" % (user.id, house.id), house_id=house.id,
+                tenant_id=user.id, landlord_id=house.landlord_id,
+                start_date=now - timedelta(days=30), end_date=now + timedelta(days=335),
+                rent=house.rent_price, deposit=0, pay_months=1, status="active",
+                content="（测试用在住租约）"))
+            session.commit()
+    finally:
+        session.close()
+
+
 def auth_header(client, username="tenant1", password="test123"):
     """登录并返回可直接用于请求的 Authorization 头。"""
     data = client.post("/api/auth/login",

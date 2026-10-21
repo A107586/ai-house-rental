@@ -59,6 +59,23 @@ def can_manage_house(session, user, house):
     return active_delegation(session, house.id, user.id) is not None
 
 
+def can_report_repair(session, user, house):
+    """能不能给这套房报修：**正住在里面的租客**，或者管得了这套房的人。
+
+    原先谁都能报，连登录都不用：房源详情页的「报修」对所有人开放，
+    智能体提交时也不带身份。而一套房的维修历史是公开展示的——
+    等于任何人都能往别人的房源页上写一条「漏水严重」（2026-10-22 收紧）。
+    """
+    if not user:
+        return False
+    if can_manage_house(session, user, house):
+        return True
+    from app.models import Contract
+    return session.scalar(select(Contract.id).where(
+        Contract.house_id == house.id, Contract.tenant_id == user.id,
+        Contract.status == "active").limit(1)) is not None
+
+
 def require_can_manage_house(session, user, house):
     """管不了就 403。
 

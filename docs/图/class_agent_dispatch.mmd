@@ -114,7 +114,7 @@ classDiagram
     }
     class ag_repair["repair · AI-04 报修分析"] {
         <<agent>>
-        +run(text, house_no, applicant, provider, backend, submit, images)
+        +run(text, house_no, applicant, provider, backend, submit, images, token)
         +tools classify, vision
     }
     class ag_report["report · AI-05 经营报告"] {

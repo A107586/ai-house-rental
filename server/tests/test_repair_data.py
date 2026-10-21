@@ -8,7 +8,7 @@
   那等于把已经发生的账改了。
 """
 
-from tests.base import ApiTestCase, auth_header, make_admin
+from tests.base import ApiTestCase, auth_header, make_admin, make_resident
 
 
 class RepairDataCase(ApiTestCase):
@@ -30,6 +30,7 @@ class RepairDataCase(ApiTestCase):
         }).json()["item"]
 
     def new_repair(self, house_no="DL0001", content="厨房水龙头一直滴水"):
+        make_resident("tenant1", house_no)   # 报修只收在住租客
         return self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": house_no, "content": content,
             "contact_name": "租客甲", "contact_phone": "13900005678",
@@ -356,6 +357,7 @@ class TestRepairSla(RepairDataCase):
     def test_urgent_has_a_tighter_limit(self):
         """同样挂了 6 小时，紧急的算超时，一般的不算。"""
         self.set_sla(urgent=4, normal=48)
+        make_resident("tenant1", "DL0001")   # 报修只收在住租客
         urgent = self.client.post("/api/repairs", headers=self.tenant, json={
             "house_no": "DL0001", "content": "厨房漏水",
             "contact_name": "租客甲", "contact_phone": "13900005678",
