@@ -91,6 +91,27 @@ class TestCreateContract(LeasingCase):
         for clause in ("租赁期限", "租金", "押金", "维修责任", "违约责任"):
             self.assertIn(clause, text)
 
+    def test_payment_day_in_the_text_is_the_bills_due_day(self):
+        """正文写的缴费日必须就是账单的到期日——逾期是按到期日算的。
+
+        原先正文写「每期首月 5 日前」，账单却按起租日排：20 日起租的合同，
+        正文说 5 日前交，系统 21 日才算逾期。
+        """
+        contract = leasing.create_contract(
+            self.session, self.house, self.tenant,
+            start_date=datetime(2026, 10, 20), months=3)
+        leasing.activate_contract(self.session, contract)
+        self.session.commit()
+        self.assertIn("每月 20 日", contract.content)
+        self.assertNotIn("5 日前", contract.content)
+        rent_days = {b.due_date.day for b in contract.bills if b.type == "rent"}
+        self.assertEqual(rent_days, {20})
+
+    def test_month_end_start_explains_short_months(self):
+        contract = leasing.create_contract(
+            self.session, self.house, self.tenant, start_date=datetime(2026, 1, 31), months=2)
+        self.assertIn("每月 31 日，当月没有这一天的为当月最后一天", contract.content)
+
     def test_pending_does_not_occupy_house(self):
         """待确认阶段不能占用房源，否则一挂着就没人能签了。"""
         self.sign()

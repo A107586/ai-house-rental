@@ -37,6 +37,7 @@ classDiagram
         +house_specific_clauses(house, deposit, pay_months)
         +render_contract_text(house, tenant, start_date, end_date, rent, deposit, pay_months)
         +settle_delegation(session, contract, house)
+        +close_open_viewings(session, house, reason)
         +activate_contract(session, contract)
         +generate_bills(session, contract)
         +start_payment(session, bill, user, method, idempotency_key)

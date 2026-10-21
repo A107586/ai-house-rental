@@ -274,7 +274,7 @@ def render_contract_text(house, tenant, start_date, end_date, rent,
 
 第三条 租金及支付方式
 月租金为人民币 {rent} 元，乙方按每 {pay_months} 个月支付一次，
-应于每期首月 5 日前支付当期租金。
+应于每期起始日（每月 {due_day} 日{due_day_note}）当日或之前支付当期租金。
 
 第四条 押金
 乙方应于签约时支付押金人民币 {deposit} 元。租赁期满且无违约情形的，
@@ -306,6 +306,11 @@ def render_contract_text(house, tenant, start_date, end_date, rent,
         end=end_date.strftime("%Y 年 %m 月 %d 日"),
         rent=int(rent),
         pay_months=pay_months,
+        # 缴费日写成系统真正用的那一天。原先写「每期首月 5 日前」，而账单的
+        # 到期日是每期的起始日（_rent_bills），逾期也按它算——20 日起租的合同，
+        # 正文说 5 日前交，系统 21 日才算逾期，两边对不上（2026-10-22）
+        due_day=start_date.day,
+        due_day_note="，当月没有这一天的为当月最后一天" if start_date.day > 28 else "",
         deposit=int(deposit),
     )
 
@@ -347,6 +352,29 @@ def settle_delegation(session, contract, house):
     return commission
 
 
+def close_open_viewings(session, house, reason):
+    """房子租出去了，还没到时间的看房预约一并取消，并告诉约的人为什么。
+
+    原先签约生效只改房源状态，别人约的看房还挂着「待确认」：约的人一直等，
+    房东的待办里也一直躺着一批已经没意义的申请，点「确认」还能确认成功
+    （2026-10-22 补）。已经过了时间的不动，那是历史记录。
+    """
+    from app.models import Appointment
+
+    rows = session.scalars(select(Appointment).where(
+        Appointment.house_id == house.id,
+        Appointment.status.in_(("pending", "confirmed")),
+        Appointment.viewing_time > datetime.now())).all()
+    for appointment in rows:
+        appointment.status = "cancelled"
+        appointment.reply = reason
+        notify(session, appointment.tenant_id, "system", "看房预约已取消",
+               "%s %s 的看房已取消：%s。" % (
+                   house.house_no, appointment.viewing_time.strftime("%m-%d %H:%M"), reason),
+               house.house_no)
+    return len(rows)
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":
@@ -361,6 +389,7 @@ def activate_contract(session, contract):
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
+    close_open_viewings(session, house, "这套房已经租出去了")
 
     # 这套房如果是委托给中介带看的，成交这一刻结算佣金并结束委托（J-06）。
     # 放在这里而不是签约那一步：合同生效才算成交，pending 的合同

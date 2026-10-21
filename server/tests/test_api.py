@@ -161,6 +161,90 @@ class TestAppointments(ApiTestCase):
             "viewing_time": (base + timedelta(hours=1)).isoformat()})
         self.assertEqual(adjacent.status_code, 200)
 
+    def _book(self, headers, moment):
+        response = self.client.post("/api/appointments", headers=headers, json={
+            "house_no": "DL0001", "viewing_time": moment.isoformat(),
+            "contact_phone": "13800009999"})
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["appointment"]["id"]
+
+    def _set(self, headers, appointment_id, status):
+        return self.client.patch("/api/appointments/%d" % appointment_id,
+                                 headers=headers, json={"status": status})
+
+    def test_cancelled_slot_cannot_be_confirmed_back(self):
+        """取消后让出的时段别人约了并确认，原先房东还能把取消的那条「确认」回来——
+        同一时段两条已确认的看房。状态只能往前走。"""
+        landlord = auth_header(self.client, "landlord1", "test123")
+        moment = self._future()
+        first = self._book(self.headers, moment)
+        self._set(self.headers, first, "cancelled")
+        self.client.post("/api/auth/register", json={
+            "username": "tenant9", "password": "secret123", "real_name": "李四"})
+        second = self._book(auth_header(self.client, "tenant9", "secret123"), moment)
+        self.assertEqual(self._set(landlord, second, "confirmed").status_code, 200)
+
+        back = self._set(landlord, first, "confirmed")
+        self.assertEqual(back.status_code, 409)
+        slots = self.client.get("/api/appointments?house_no=DL0001").json()["list"]
+        self.assertEqual(sum(1 for s in slots if s["status"] == "confirmed"), 1)
+
+    def test_confirmed_can_only_be_cancelled(self):
+        landlord = auth_header(self.client, "landlord1", "test123")
+        appointment = self._book(self.headers, self._future())
+        self._set(landlord, appointment, "confirmed")
+        self.assertEqual(self._set(landlord, appointment, "rejected").status_code, 409)
+        self.assertEqual(self._set(self.headers, appointment, "cancelled").status_code, 200)
+
+    def test_double_click_is_harmless(self):
+        landlord = auth_header(self.client, "landlord1", "test123")
+        appointment = self._book(self.headers, self._future())
+        self.assertEqual(self._set(landlord, appointment, "confirmed").status_code, 200)
+        self.assertEqual(self._set(landlord, appointment, "confirmed").status_code, 200)
+
+    def test_landlord_hears_when_the_tenant_cancels(self):
+        """租客取消已确认的看房，房东要知道——否则他照样跑一趟。"""
+        from app import db
+        from app.models import Message, User
+        landlord = auth_header(self.client, "landlord1", "test123")
+        appointment = self._book(self.headers, self._future())
+        self._set(landlord, appointment, "confirmed")
+        session = db.SessionLocal()
+        try:
+            landlord_id = session.query(User).filter_by(username="landlord1").one().id
+            self._set(self.headers, appointment, "cancelled")
+            titles = [m.title for m in session.query(Message).filter_by(user_id=landlord_id)]
+        finally:
+            session.close()
+        self.assertIn("看房预约已被租客取消", titles)
+
+    def test_renting_the_house_cancels_open_viewings(self):
+        """房子租出去了，别人约的看房不能还挂着「待确认」。"""
+        from datetime import date
+        from app import db
+        from app.models import Appointment, Message, User
+        landlord = auth_header(self.client, "landlord1", "test123")
+        waiting = self._book(self.headers, self._future())
+
+        self.client.post("/api/auth/register", json={
+            "username": "tenant9", "password": "secret123", "real_name": "李四"})
+        signer = auth_header(self.client, "tenant9", "secret123")
+        no = self.client.post("/api/contracts", headers=landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant9",
+            "start_date": (date.today() + timedelta(days=10)).isoformat(),
+            "months": 12, "pay_months": 1}).json()["contract"]["contract_no"]
+        activated = self.client.post("/api/contracts/%s/activate" % no, headers=signer)
+        self.assertEqual(activated.status_code, 200, activated.text)
+
+        session = db.SessionLocal()
+        try:
+            self.assertEqual(session.get(Appointment, waiting).status, "cancelled")
+            tenant_id = session.query(User).filter_by(username="tenant1").one().id
+            notes = [m.content for m in session.query(Message).filter_by(user_id=tenant_id)]
+        finally:
+            session.close()
+        self.assertTrue(any("已经租出去了" in n for n in notes), notes)
+
     def test_rejects_past_time(self):
         past = (datetime.now() - timedelta(days=1)).isoformat()
         response = self.client.post("/api/appointments", headers=self.headers,

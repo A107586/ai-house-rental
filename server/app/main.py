@@ -184,6 +184,15 @@ app.include_router(agent.router)
 # 智能体端的默认值与此保持一致。
 VIEWING_MINUTES = 60
 
+# 看房预约的状态只能往前走：待确认的可以确认、拒绝、取消；已确认的只能取消；
+# 拒绝与取消是终点——要再看就重新约一次，重新约会重新查时段冲突。
+APPOINTMENT_NEXT = {
+    "pending": ("confirmed", "rejected", "cancelled"),
+    "confirmed": ("cancelled",),
+}
+APPOINTMENT_STATUS_TEXT = {"pending": "还在待确认", "confirmed": "已经确认",
+                           "rejected": "已经被拒绝", "cancelled": "已经取消"}
+
 # 允许匿名与普通用户查询的房源状态。pending 待审、offline 已下架不对外。
 PUBLIC_HOUSE_STATUS = ("available", "rented")
 
@@ -2006,6 +2015,25 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
         raise HTTPException(status_code=403,
                             detail="只有房东、受托中介或管理员可以处理预约")
 
+    # 状态只能往前走（2026-10-22 补）。原先任意状态都能改成任意状态：
+    # 租客取消之后、别人约了同一时段并被确认，房东再把取消的那条「确认」一下，
+    # 同一时段就有两条已确认的看房——取消时让出的时段没有再查冲突。
+    if payload.status == appointment.status:
+        # 重复点（网络慢时点了两下）：什么都不改，也不再发一遍通知
+        return {"ok": True,
+                "appointment": appointment.to_dict(
+                    show_contact=can_see_tenant_contact(session, user, appointment, house))}
+    allowed = APPOINTMENT_NEXT.get(appointment.status, ())
+    if payload.status not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail="这条预约%s，不能再%s" % (
+                APPOINTMENT_STATUS_TEXT.get(appointment.status, "已处理"),
+                {"confirmed": "确认", "rejected": "拒绝",
+                 "cancelled": "取消"}[payload.status]))
+    if payload.status == "confirmed" and appointment.viewing_time <= datetime.now():
+        raise HTTPException(status_code=409, detail="看房时间已经过了，不能再确认")
+
     appointment.status = payload.status
     appointment.reply = payload.reply
 
@@ -2037,6 +2065,15 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
             session, appointment.tenant_id, "system", "看房预约已取消",
             "%s %s 的看房已被取消。%s" % (house_no, when, payload.reply or ""),
             house_no)
+    elif payload.status == "cancelled" and house:
+        # 租客自己取消：要告诉负责带看的人。原先这一支不存在，
+        # 已确认的看房被租客取消后房东 / 中介毫不知情，照样跑一趟（2026-10-22 补）
+        responsible = responsible_user_id(session, house)
+        for user_id in {responsible, house.landlord_id}:
+            leasing.notify(
+                session, user_id, "system", "看房预约已被租客取消",
+                "%s %s 的看房，租客已取消。%s" % (house_no, when, payload.reply or ""),
+                house_no)
 
     session.commit()
     return {"ok": True,

@@ -441,7 +441,10 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                   {item.remark && <div className="record-body">备注：{item.remark}</div>}
                   {item.reply && <div className="record-body">房东回复：{item.reply}</div>}
 
-                  {item.status === 'pending' && (
+                  {/* 已确认的也能取消：临时有事恰恰发生在确认之后。原先只有待确认的
+                      有这个按钮，确认了就没法取消，只能爽约。取消会通知房东 / 中介 */}
+                  {(item.status === 'pending'
+                    || (item.status === 'confirmed' && new Date(item.viewing_time.replace(' ', 'T')) > new Date())) && (
                     <div className="record-actions">
                       {/* 「确认 / 拒绝预约」是**房东动作**，已移到工作台。
                           个人中心只答「我作为租客的事」——我约了谁、
@@ -449,12 +452,14 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                           等于让用户在同一个列表里既当申请方又当审批方。 */}
                       <button
                         className="btn ghost small"
-                        onClick={() =>
+                        onClick={() => {
+                          if (item.status === 'confirmed'
+                              && !window.confirm('这次看房房东已经确认了，确定取消吗？取消后会通知对方。')) return
                           run(`a${item.id}`, () =>
                             api.updateAppointment(item.id, 'cancelled'))
-                        }
+                        }}
                       >
-                        取消
+                        {item.status === 'confirmed' ? '取消看房' : '取消'}
                       </button>
                     </div>
                   )}
