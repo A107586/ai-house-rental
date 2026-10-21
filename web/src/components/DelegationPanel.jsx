@@ -38,6 +38,9 @@ export default function DelegationPanel({ houses = [] }) {
   const [dir, setDir] = useState([])
   const [dirQuery, setDirQuery] = useState('')
   const [dirState, setDirState] = useState('loading')   // loading | ok | fail
+  // 应付佣金。原先佣金成交时记一笔「待结算」，此后谁也改不了它——
+  // 房东这边看不到自己欠多少，中介那边「已结算」永远是 0
+  const [owed, setOwed] = useState({ list: [], pending_amount: 0 })
 
   /** 选中房源所在的区。用来在名录里标出「覆盖该区」的中介——
    *  **房源信息用于排序提示，不用于限制浏览**：
@@ -67,6 +70,7 @@ export default function DelegationPanel({ houses = [] }) {
     try {
       const data = await api.delegations({ role: 'landlord' })
       setRows(data.list || [])
+      setOwed(await api.owedCommissions())
     } catch (err) {
       setError(err.message)
     }
@@ -384,8 +388,46 @@ export default function DelegationPanel({ houses = [] }) {
         </>
       )}
 
+      {owed.list.length > 0 && (
+        <>
+          <div className="section-title">
+            应付佣金{owed.pending_amount > 0 && ` · 待结 ${owed.pending_amount} 元`}
+          </div>
+          <ul className="record-list">
+            {owed.list.map((c) => (
+              <li key={c.id}>
+                <div className="record-head">
+                  <strong>{c.house_no} · {c.agent_name}</strong>
+                  <span className={`pill ${c.status === 'settled' ? 'status-confirmed'
+                    : c.status === 'cancelled' ? 'status-cancelled' : 'status-pending'}`}>
+                    {c.status === 'settled' ? '已结清' : c.status === 'cancelled' ? '已取消' : '待结算'}
+                  </span>
+                </div>
+                <div className="record-body">
+                  <span className="amount">{c.amount} 元</span>
+                  （月租 {c.base_amount} × {c.rate}%）· 合同 {c.contract_no}
+                  {c.settled_at && ` · 结清于 ${c.settled_at}`}
+                </div>
+                {c.status === 'pending' && (
+                  <div className="record-actions">
+                    <button className="btn small" disabled={!!busy}
+                            onClick={() => {
+                              if (!window.confirm(`确认已把 ${c.amount} 元佣金付给 ${c.agent_name}？确认后会通知对方。`)) return
+                              run(`c${c.id}`, () => api.settleCommission(c.id), '已标记结清，中介会收到通知。')
+                            }}>
+                      {busy === `c${c.id}` ? '处理中…' : '我已付清'}
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <p className="rd-note">
         一套房同时只能委托一个中介。解除委托后，带看记录仍会保留。
+        佣金在线下支付，付清后点「我已付清」记录下来。
       </p>
     </div>
   )

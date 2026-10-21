@@ -1060,10 +1060,26 @@ def update_house(house_no: str, payload: HouseUpdate,
     if checked:
         moderate(checked, scene="house")
 
+    # 核验认的是「这个地址、这么大的一套房」的产权凭证。改了这几项还挂着「已核验」，
+    # 公开的核验编号就在为一套没核验过的房子背书（2026-10-22 补）。管理员改的不算
+    identity_changed = [
+        key for key in ("address", "community", "building", "unit", "area")
+        if key in fields and str(getattr(house, key) or "") != str(fields[key] or "")]
+
     for key, value in fields.items():
         setattr(house, key, value)
     if tags is not None:
         house.tags = ",".join(tags)
+
+    if (identity_changed and user.role != "admin"
+            and house.verify_status in ("verified", "pending")):
+        house.verify_status = "unverified"
+        house.verify_no = ""
+        house.verified_at = None
+        house.verify_remark = "改过房源地址或面积，需要重新提交核验"
+        leasing.notify(session, house.landlord_id, "system", "房源需要重新核验",
+                       "房源 %s 的地址或面积改过了，原来的核验已失效，请重新提交核验材料。"
+                       % house.house_no, house.house_no)
 
     # 改了押付方式或租金，押金要跟着重算——否则「押一付一」的标签
     # 和 `deposit` 里那个数会各说各话（K-02）
@@ -1570,11 +1586,21 @@ def admin_update_user(user_id: int, payload: UserUpdate,
     # 拿着旧令牌还能以房东身份操作满七天——这才是更危险的那半。
     revoke = False
 
+    offlined = 0
     if payload.status is not None:
         if payload.status not in ("active", "disabled"):
             raise HTTPException(status_code=400, detail="状态值不合法")
         if target.status != payload.status:
             revoke = True
+        if payload.status == "disabled" and target.status != "disabled":
+            # 停用房东时，他在架的房源一并下架、还没到时间的看房取消。
+            # 原先只吊销了令牌：房源照常对外展示、照常能约看，约的人等一个
+            # 已经登不上来的房东（2026-10-22）。重新启用不会自动上架，由房东自己决定
+            for house in session.scalars(select(House).where(
+                    House.landlord_id == target.id, House.status == "available")).all():
+                house.status = "offline"
+                leasing.close_open_viewings(session, house, "房东账号已停用")
+                offlined += 1
         target.status = payload.status
     if payload.role is not None:
         if payload.role not in ("tenant", "landlord", "admin"):
@@ -1588,7 +1614,7 @@ def admin_update_user(user_id: int, payload: UserUpdate,
 
     session.commit()
     session.refresh(target)
-    return {"ok": True, "user": target.to_dict()}
+    return {"ok": True, "user": target.to_dict(), "houses_offlined": offlined}
 
 
 @app.get("/api/history")

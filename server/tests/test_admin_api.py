@@ -254,6 +254,24 @@ class TestUserManagement(AdminCase):
                                  json={"username": "tenant1", "password": "test123"})
         self.assertEqual(login.status_code, 403, "被禁用的账号不能再登录")
 
+    def test_disabling_a_landlord_takes_his_listings_down(self):
+        """原先只吊销令牌：房源照常对外展示、照常能约看，约的人等一个登不上来的房东。"""
+        from datetime import datetime, timedelta
+        moment = (datetime.now() + timedelta(days=3)).replace(hour=15, minute=0, second=0,
+                                                               microsecond=0)
+        booked = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0001", "viewing_time": moment.isoformat(),
+            "contact_phone": "13900005678"})
+        self.assertEqual(booked.status_code, 200, booked.text)
+
+        response = self.client.patch("/api/admin/users/%d" % self._user_id("landlord1"),
+                                     headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(response.json()["houses_offlined"], 2)   # DL0001、DL0002；DL0003 已出租不动
+        listed = self.client.get("/api/houses").json()["list"]
+        self.assertNotIn("DL0001", [h["house_no"] for h in listed])
+        mine = self.client.get("/api/appointments/mine", headers=self.tenant).json()["list"]
+        self.assertEqual(mine[0]["status"], "cancelled")
+
     def test_change_role(self):
         user_id = self._user_id("tenant1")
         response = self.client.patch("/api/admin/users/%d" % user_id,

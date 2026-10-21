@@ -267,6 +267,17 @@ class TestAccess(ConversationCase):
         admin = make_admin(self.client)
         self.assertEqual(self.lines(self.cid, admin).status_code, 200)
 
+    def test_admin_cannot_speak_for_either_side(self):
+        """原先管理员发得出去，还会被标成「经纪人 管*」——
+        房东一侧非房东本人的一律当成受托中介。"""
+        admin = make_admin(self.client)
+        self.assertEqual(self.send(self.cid, "我是平台", admin).status_code, 403)
+
+    def test_unpublished_house_cannot_be_asked_about(self):
+        """待审、已下架的房源对外不可见；知道编号也不能从会话绕进去。"""
+        self.client.patch("/api/houses/DL0002/status?status=offline", headers=self.landlord)
+        self.assertEqual(self.start("DL0002", self.outsider).status_code, 404)
+
     def test_unknown_conversation_404(self):
         self.assertEqual(self.lines(999999).status_code, 404)
 

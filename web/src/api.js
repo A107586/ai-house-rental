@@ -739,6 +739,9 @@ export const api = {
 
   // 委托。房东和中介调的是同一组接口，靠 role 参数区分「我是哪一方」
   delegations: (params = {}) => request(`/api/delegations?${toQuery(params)}`),
+  // 我（房东）应付给中介的佣金，与「付清后标记已结清」。钱线下给，这里只记状态
+  owedCommissions: () => request('/api/landlord/commissions'),
+  settleCommission: (id) => request(`/api/commissions/${id}/settle`, { method: 'POST' }),
   createDelegation: (payload) => post('/api/delegations', payload),
 
   // 由房源负责人主动联系某位租客（J-07）。租客设了免打扰会被服务端拒绝，

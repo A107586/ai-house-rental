@@ -262,6 +262,20 @@ def respond_delegation(delegation_id: int,
                        "房源 %s 的带看委托已生效，可以开始接待看房了。"
                        % (row.house.house_no if row.house else ""),
                        row.house.house_no if row.house else "")
+        # 同一套房上别的中介还在等的申请：一套房只能有一条生效委托，它们已经不可能
+        # 再被同意（会 409）。原先一直挂着「待确认」，那几位中介永远等不到回音
+        others = session.scalars(select(HouseDelegation).where(
+            HouseDelegation.house_id == row.house_id,
+            HouseDelegation.status == "pending",
+            HouseDelegation.id != row.id)).all()
+        for other in others:
+            other.status = "rejected"
+            other.end_at = datetime.now()
+            other.end_reason = "房东已委托给其他中介"
+            leasing.notify(session, other.agent_id, "system", "委托未成",
+                           "房源 %s 已委托给其他中介，你的申请自动结束。"
+                           % (row.house.house_no if row.house else ""),
+                           row.house.house_no if row.house else "")
     session.commit()
     session.refresh(row)
     return {"ok": True, "delegation": row.to_dict()}
@@ -447,6 +461,89 @@ def my_commissions(status: str = "",
     return {"total": len(rows), "pending_amount": pending,
             "settled_amount": settled,
             "list": [r.to_dict() for r in rows]}
+
+
+@router.get("/api/landlord/commissions")
+def owed_commissions(status: str = "",
+                     user: User = Depends(require_login),
+                     session: Session = Depends(get_session)):
+    """我（房东）应付给中介的佣金。管理员看全部。"""
+    stmt = select(AgentCommission).join(
+        Contract, AgentCommission.contract_id == Contract.id)
+    if user.role != "admin":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    if status:
+        stmt = stmt.where(AgentCommission.status == status)
+    rows = session.scalars(stmt.order_by(AgentCommission.created_at.desc())).all()
+    return {"total": len(rows),
+            "pending_amount": sum(float(r.amount) for r in rows if r.status == "pending"),
+            "settled_amount": sum(float(r.amount) for r in rows if r.status == "settled"),
+            "list": [dict(r.to_dict(),
+                          agent_name=mask_name(session.get(User, r.agent_id)),
+                          house_no=(r.contract.house.house_no
+                                    if r.contract and r.contract.house else ""),
+                          contract_no=r.contract.contract_no if r.contract else "")
+                     for r in rows]}
+
+
+def _commission_or_404(session, commission_id):
+    row = session.get(AgentCommission, commission_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="佣金记录不存在")
+    return row
+
+
+@router.post("/api/commissions/{commission_id}/settle")
+def settle_commission(commission_id: int,
+                      user: User = Depends(require_login),
+                      session: Session = Depends(get_session)):
+    """房东付清佣金后点「已结清」。钱线下给，这里记下状态与时间、通知中介。
+
+    原先佣金只有「成交那一刻记一笔 pending」，**此后没有任何一处会改它的状态**：
+    中介工作台上「已结算」永远是 0，每一笔都永远「待结算」（2026-10-22）。
+    只有欠这笔钱的那位房东（或管理员）能点——中介自己点「已结清」不算数。
+    """
+    row = _commission_or_404(session, commission_id)
+    landlord_id = row.contract.landlord_id if row.contract else None
+    if user.role != "admin" and user.id != landlord_id:
+        raise HTTPException(status_code=403, detail="只有付佣金的房东可以确认结清")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="这笔佣金已经%s" % (
+            "结清" if row.status == "settled" else "取消"))
+    row.status = "settled"
+    row.settled_at = datetime.now()
+    leasing.notify(session, row.agent_id, "system", "佣金已结清",
+                   "合同 %s 的佣金 %s 元，房东已确认结清。" % (
+                       row.contract.contract_no if row.contract else "",
+                       leasing._money(row.amount)),
+                   row.contract.contract_no if row.contract else "")
+    session.commit()
+    session.refresh(row)
+    return {"ok": True, "commission": row.to_dict()}
+
+
+@router.post("/api/commissions/{commission_id}/cancel")
+def cancel_commission(commission_id: int,
+                      reason: str = Body(default="", embed=True),
+                      user: User = Depends(require_login),
+                      session: Session = Depends(get_session)):
+    """取消一笔佣金：**只有管理员**，用于纠纷处理（比如成交后很快因中介的问题退租）。
+    房东不能单方面取消自己欠的钱。"""
+    _require_admin(user)
+    row = _commission_or_404(session, commission_id)
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="只有待结算的佣金可以取消")
+    if not reason.strip():
+        raise HTTPException(status_code=400, detail="请填写取消原因")
+    row.status = "cancelled"
+    leasing.notify(session, row.agent_id, "system", "佣金已取消",
+                   "合同 %s 的佣金 %s 元已由平台取消：%s" % (
+                       row.contract.contract_no if row.contract else "",
+                       leasing._money(row.amount), reason.strip()[:100]),
+                   row.contract.contract_no if row.contract else "")
+    session.commit()
+    session.refresh(row)
+    return {"ok": True, "commission": row.to_dict()}
 
 
 # ---------------------------------------------------------------- 工作台

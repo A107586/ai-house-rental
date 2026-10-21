@@ -112,6 +112,8 @@ ACTION_RULES = (
     ("POST", r"^/api/delegations$", "发起房源委托"),
     ("POST", r"^/api/delegations/\d+/end$", "解除房源委托"),
     ("PATCH", r"^/api/delegations/", "处理委托邀请"),
+    ("POST", r"^/api/commissions/\d+/settle$", "确认佣金结清"),
+    ("POST", r"^/api/commissions/\d+/cancel$", "取消佣金"),
     ("POST", r"^/api/viewings$", "登记带看记录"),
 
     # 管理员

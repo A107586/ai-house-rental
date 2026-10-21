@@ -329,6 +329,33 @@ class TestVerificationFields(FacetCase):
                     "maintained_at"):
             self.assertIn(key, body)
 
+    def _verified(self):
+        from tests.base import make_admin
+        house_no = self.publish().json()["house"]["house_no"]
+        admin = make_admin(self.client)
+        self.client.post("/api/houses/%s/verify-request" % house_no, headers=self.landlord)
+        decided = self.client.patch("/api/houses/%s/verify" % house_no, headers=admin,
+                                    json={"approved": True})
+        assert decided.status_code == 200, decided.text
+        return house_no
+
+    def test_changing_the_address_voids_the_verification(self):
+        """核验认的是这个地址、这么大的房子。改了地址还挂着「已核验」，
+        公开的核验编号就在替一套没核验过的房子背书。"""
+        house_no = self._verified()
+        self.assertEqual(self.fetch(house_no)["verify_status"], "verified")
+        self.client.put("/api/houses/%s" % house_no, headers=self.landlord,
+                        json={"address": "中山区另一条街 8 号"})
+        house = self.fetch(house_no)
+        self.assertEqual(house["verify_status"], "unverified")
+        self.assertEqual(house["verify_no"], "")
+
+    def test_editing_the_description_keeps_the_verification(self):
+        house_no = self._verified()
+        self.client.put("/api/houses/%s" % house_no, headers=self.landlord,
+                        json={"description": "新换了窗帘，采光很好"})
+        self.assertEqual(self.fetch(house_no)["verify_status"], "verified")
+
     def test_landlord_cannot_self_verify(self):
         """房东不能把自己的房源标成「已核验」。
 

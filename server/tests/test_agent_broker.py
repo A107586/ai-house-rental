@@ -83,6 +83,19 @@ class TestDelegation(BrokerCase):
         row = next(d for d in body["list"] if d["id"] == did)
         self.assertEqual(row["status"], "active")
 
+    def test_other_pending_applications_are_closed_when_one_is_accepted(self):
+        """一套房只能有一条生效委托：别的中介还在等的申请原先永远「待确认」。"""
+        other = self.make_agent("agent2")
+        applied = self.client.post("/api/delegations", headers=other,
+                                   json={"house_no": "DL0001", "commission_rate": 40})
+        self.assertEqual(applied.status_code, 200, applied.text)
+        self.delegate()
+        row = next(d for d in self.client.get("/api/delegations", headers=other).json()["list"]
+                   if d["id"] == applied.json()["delegation"]["id"])
+        self.assertEqual(row["status"], "rejected")
+        notes = self.client.get("/api/messages", headers=other).json()["list"]
+        self.assertTrue(any(m["title"] == "委托未成" for m in notes))
+
     def test_house_detail_says_who_shows_the_flat(self):
         """租客问「这套有中介带看吗」，助手要从房源详情里拿到答案，
         而不是去翻平台规则答「没查到」。只有生效中的委托才算。"""
@@ -354,6 +367,39 @@ class TestCommission(BrokerCase):
         body = self.client.get("/api/agent/commissions",
                                headers=self.agent).json()
         self.assertEqual(body["total"], 0)
+
+    def test_landlord_settles_and_the_agent_sees_it(self):
+        """原先佣金记下之后再没有任何一处改它的状态：「已结算」永远是 0。"""
+        self.delegate(rate=50)
+        self.sign_and_activate()
+        owed = self.client.get("/api/landlord/commissions", headers=self.landlord).json()
+        self.assertEqual(owed["pending_amount"], 1400.0)
+        cid = owed["list"][0]["id"]
+
+        # 中介自己点「已结清」不算数
+        self.assertEqual(self.client.post("/api/commissions/%d/settle" % cid,
+                                          headers=self.agent).status_code, 403)
+        done = self.client.post("/api/commissions/%d/settle" % cid, headers=self.landlord)
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertEqual(self.client.post("/api/commissions/%d/settle" % cid,
+                                          headers=self.landlord).status_code, 409)
+        mine = self.client.get("/api/agent/commissions", headers=self.agent).json()
+        self.assertEqual((mine["pending_amount"], mine["settled_amount"]), (0, 1400.0))
+        notes = self.client.get("/api/messages", headers=self.agent).json()["list"]
+        self.assertTrue(any(m["title"] == "佣金已结清" for m in notes))
+
+    def test_only_admin_cancels_and_needs_a_reason(self):
+        self.delegate()
+        self.sign_and_activate()
+        cid = self.client.get("/api/landlord/commissions",
+                              headers=self.landlord).json()["list"][0]["id"]
+        self.assertEqual(self.client.post("/api/commissions/%d/cancel" % cid, headers=self.landlord,
+                                          json={"reason": "不想给"}).status_code, 403)
+        self.assertEqual(self.client.post("/api/commissions/%d/cancel" % cid, headers=self.admin,
+                                          json={"reason": ""}).status_code, 400)
+        done = self.client.post("/api/commissions/%d/cancel" % cid, headers=self.admin,
+                                json={"reason": "成交后三天因中介隐瞒问题退租"})
+        self.assertEqual(done.json()["commission"]["status"], "cancelled")
 
     def test_base_and_rate_are_kept(self):
         """基数和比例分开存——只留最终金额，事后就没法核对怎么算的。"""

@@ -1,6 +1,6 @@
 classDiagram
     direction LR
-    class Api["房源 · HTTP 接口（33 个）"] {
+    class Api["房源 · HTTP 接口（34 个）"] {
         <<router>>
         +list_districts() GET
         +list_houses() GET
@@ -20,6 +20,7 @@ classDiagram
         +update_house_status() PATCH
         +decide_verify(HouseReview) PATCH
         +request_verify() POST
+        +owed_commissions() GET
         +landlord_dashboard() GET
         +landlord_houses() GET
         +contract_candidates() GET

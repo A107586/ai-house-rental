@@ -18,7 +18,7 @@ from app.deps import require_login
 from app.models import (Appointment, ChatLine, ContentFlag, Conversation,
                         House, HouseDelegation, User, ViewingRecord,
                         mask_name)
-from app.permissions import can_manage_house, responsible_user_id
+from app.permissions import active_delegation, can_manage_house, responsible_user_id
 
 router = APIRouter()
 
@@ -180,6 +180,9 @@ def start_conversation(payload: ConversationStart,
         tenant_id = tenant.id
     elif house.landlord_id == user.id:
         raise HTTPException(status_code=400, detail="不能和自己的房源发起咨询")
+    elif house.status not in ("available", "rented") and not can_manage_house(session, user, house):
+        # 待审、已下架的房源对外不可见；知道房源编号也不该能从这里绕进去问
+        raise HTTPException(status_code=404, detail="房源不存在")
 
     existing = session.scalar(select(Conversation).where(
         Conversation.house_id == house.id,
@@ -280,6 +283,11 @@ def send_line(conversation_id: int, payload: LineCreate,
     conversation = _my_conversation(session, conversation_id, user)
     if conversation.status != "active":
         raise HTTPException(status_code=409, detail="该会话已关闭")
+    if (user.role == "admin" and user.id not in (conversation.tenant_id, conversation.landlord_id)
+            and not (conversation.house and active_delegation(session, conversation.house_id, user.id))):
+        # 管理员能看（纠纷要有人查），但不能以任一方的名义说话：原先发得出去，
+        # 而且会被标成「经纪人 管*」——房东一侧非房东本人的一律当成受托中介（2026-10-22）
+        raise HTTPException(status_code=403, detail="管理员只能查看会话，不能代任何一方发言")
 
     verdict = moderation.check(payload.content, scene="chat")
     if verdict["level"] == moderation.LEVEL_BLOCK:
@@ -310,7 +318,8 @@ def send_line(conversation_id: int, payload: LineCreate,
         conversation.landlord_unread += 1
         # 租客的问题发给**当前负责答的人**：委托中就是受托中介，
         # 否则是房东本人（J-03）
-        peer_id = responsible_user_id(session, conversation.house)             if conversation.house else conversation.landlord_id
+        peer_id = (responsible_user_id(session, conversation.house)
+                   if conversation.house else conversation.landlord_id)
     else:
         conversation.tenant_unread += 1
         peer_id = conversation.tenant_id
@@ -327,7 +336,7 @@ def send_line(conversation_id: int, payload: LineCreate,
     # 自己的房子被问了什么、中介怎么答的，他有权看到。
     # 抄送只是提示，会话未读数不重复计（那是「谁该回」的信号，
     # 而该回的人只有一个）。
-    if peer_id != conversation.landlord_id and             user.id == conversation.tenant_id:
+    if peer_id != conversation.landlord_id and user.id == conversation.tenant_id:
         leasing.notify(
             session, conversation.landlord_id, "system",
             "租客咨询（由中介代答）",
