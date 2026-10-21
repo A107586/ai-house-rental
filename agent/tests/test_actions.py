@@ -260,6 +260,35 @@ class TestCardContents(unittest.TestCase):
         self.assertIn("线下", message)
         self.assertIn("1800", message)
 
+    def test_agreeing_to_the_landlords_request_is_spelled_out(self):
+        """房东已提提前退租时，租客点确认就是同意、合同当场结束——卡片不能还说「只是提申请」。"""
+        backend = RecordingBackend({"/api/contracts/mine": {"list": [
+            {"contract_no": "HT001", "status": "active", "house_no": "DL0001",
+             "start_date": "2026-01-01", "end_date": "2026-12-31",
+             "request": {"type": "end", "by": "landlord", "reason": "房东要自住",
+                         "deduct": 300}},
+        ]}})
+        status, _, card, _ = actions.propose("end_contract", "我要退租", "tok", backend)
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertEqual(card["label"], "同意退租")
+        self.assertIn("立即结束", card["warning"])
+        self.assertIn("房东要自住", card["warning"])
+        self.assertIn("300", card["warning"])
+
+    def test_end_contract_only_looks_at_my_own_leases(self):
+        """不带 side 时房东账号拿到的是他出租的租约，「我要退租」就成了替房东退租客。"""
+        class Recording(RecordingBackend):
+            params = []
+
+            def get(self, path, params=None, token=None):
+                if path == "/api/contracts/mine":
+                    self.params.append((params or {}).get("side"))
+                return super().get(path, params, token)
+
+        backend = Recording(ACTIVE_CONTRACT)
+        actions.propose("end_contract", "我要退租", "tok", backend)
+        self.assertEqual(backend.params, ["tenant"])
+
     def test_money_and_irreversible_actions_are_high_risk(self):
         backend = RecordingBackend(dict(UNPAID, **ACTIVE_CONTRACT))
         for name, text in [("pay_bill", "帮我交房租"),

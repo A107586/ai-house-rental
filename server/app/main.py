@@ -1123,7 +1123,12 @@ def landlord_dashboard(user: User = Depends(require_staff),
     contracts = session.scalars(
         select(Contract).where(Contract.landlord_id == user.id)).all()
     active = [c for c in contracts if c.status == "active"]
-    expiring = [c for c in active if c.days_left <= 30]
+    # 已到期、还没办退租的单独一类：它们不是「快到期」，是**已经该办了**。
+    # 原先混在 days_left <= 30 里显示「剩余 0 天」，看不出要做什么（2026-10-22）
+    expired = [c for c in active if c.expired]
+    expiring = [c for c in active if not c.expired and c.days_left <= 30]
+    # 租客提的退租 / 续租等房东确认——不在待办里，房东只能靠翻消息想起来
+    lease_requests = [c for c in active if c.request_type and c.request_by == "tenant"]
 
     contract_ids = [c.id for c in contracts] or [-1]
     bills = session.scalars(
@@ -1181,10 +1186,14 @@ def landlord_dashboard(user: User = Depends(require_staff),
             "repairs": len(open_repairs),
             "urgent_repairs": len(urgent_repairs),
             "expiring_contracts": len(expiring),
+            "expired_leases": len(expired),
+            "lease_requests": len(lease_requests),
             "total": (len(pending_appointments) + len(open_repairs)
-                      + len(expiring)),
+                      + len(expiring) + len(expired) + len(lease_requests)),
         },
         "expiring_list": [c.to_dict() for c in expiring],
+        "expired_leases": [c.to_dict() for c in expired],
+        "lease_requests": [c.to_dict() for c in lease_requests],
     }
 
 
@@ -2808,29 +2817,50 @@ def _contract_side(contract, user):
 def end_contract(contract_no: str, payload: ContractEnd,
                  user: User = Depends(require_login),
                  session: Session = Depends(get_session)):
-    """退租。**租客点是提申请，房东点才是真的退。**
+    """退租。**提前退租要对方同意；到期退租房东直接办。**
 
     原先租客一点就退：押金全额退、房源重新上架，房东事后才收到一条消息，
-    想扣点损坏赔偿都没地方填。现在租客提出、房东确认时结算押金；
-    房东 / 管理员自己发起的退租照旧直接办（也就是确认租客申请的那一步）。
+    想扣点损坏赔偿都没地方填——改成了租客提、房东确认时结算押金。
+    而房东这一侧一直是**点了就退**：租约中途、不需要租客知情、押金扣多少自己定。
+    系统生成的合同第六条写的却是「提前 30 日书面通知」（2026-10-22 补上这一半）。
+
+    现在的规则：
+
+    - 租客点：提申请；房东已经提了提前退租时，租客点就是**同意**，
+      押金按房东申请时写明的扣款结算（租客同意的就是那个数）；
+    - 房东点：租客提过申请 → 确认并结算；合同已到期 → 直接办（到期退租是合同
+      本来的约定）；否则 → 提前退租申请，写明原因与押金拟扣，等租客同意；
+    - 管理员点：直接办（平台介入的纠纷处理）。
     """
     contract = _visible_contract(session, contract_no, user)
     side = _contract_side(contract, user)
-    if side == "tenant":
-        if payload.deduct:
-            raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
-        try:
-            leasing.request_change(session, contract, "end", "tenant",
-                                   reason=payload.reason)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+
+    def requested():
         session.commit()
         session.refresh(contract)
         return {"ok": True, "requested": True, "contract": contract.to_dict()}
 
     try:
-        result = leasing.end_contract(session, contract,
-                                      reason=payload.reason, deduct=payload.deduct)
+        if side == "tenant":
+            if payload.deduct:
+                raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+            if contract.request_type == "end" and contract.request_by == "landlord":
+                result = leasing.end_contract(
+                    session, contract,
+                    reason=contract.request_reason or "房东提前退租，租客同意",
+                    deduct=contract.request_deduct)
+            else:
+                leasing.request_change(session, contract, "end", "tenant",
+                                       reason=payload.reason)
+                return requested()
+        elif (user.role == "admin" or contract.expired
+              or (contract.request_type == "end" and contract.request_by == "tenant")):
+            result = leasing.end_contract(session, contract,
+                                          reason=payload.reason, deduct=payload.deduct)
+        else:
+            leasing.request_change(session, contract, "end", "landlord",
+                                   reason=payload.reason, deduct=payload.deduct)
+            return requested()
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 

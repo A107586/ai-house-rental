@@ -1218,7 +1218,10 @@ def _propose_renew_contract(text, token, backend, context):
 
 
 def _propose_end_contract(text, token, backend, context):
-    rows = _rows(backend.get("/api/contracts/mine", token=token))
+    # 只看我作为租客的租约（同 pay_bill）。不带 side 时房东账号会拿到他出租的那些，
+    # 「我要退租」就成了替房东把租客退掉
+    rows = _rows(backend.get("/api/contracts/mine", params={"side": "tenant"},
+                             token=token))
     active = [c for c in rows if c.get("status") in ("active", "生效中")]
     if not active:
         return NOT_APPLICABLE, "你名下没有生效中的租约。", None, None
@@ -1226,6 +1229,20 @@ def _propose_end_contract(text, token, backend, context):
     target, asking = _pick_contract(active, text, context, "退")
     if asking:
         return asking
+    request = target.get("request") or {}
+    if request.get("type") == "end" and request.get("by") == "landlord":
+        # 房东已经提了提前退租：这时租客点确认就是**同意**，合同当场结束，
+        # 押金按房东写明的扣款结算——卡片要把这两件事说在前面（2026-10-22）
+        deduct = float(request.get("deduct") or 0)
+        return CONFIRM, "", _card(
+            "end_contract", "同意退租",
+            "同意房东对租约 %s 的提前退租申请" % target.get("contract_no", ""), RISK_HIGH,
+            {"contract_no": target.get("contract_no"), "reason": "租客同意房东的提前退租申请"},
+            detail=target,
+            warning="房东申请提前退租%s，押金拟扣 %s 元。确认即同意，合同立即结束，"
+                    "未到期账单作废、已付未住的租金退回。不同意的话，到「我的租约」里点「不同意」。"
+                    % ("（%s）" % request["reason"] if request.get("reason") else "",
+                       _money(deduct)))
     return CONFIRM, "", _card(
         "end_contract", "退租",
         "申请租约 %s 退租" % target.get("contract_no", ""), RISK_HIGH,

@@ -436,6 +436,22 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                     {dash.todo.repairs - dash.todo.urgent_repairs} 条一般报修待处理
                   </li>
                 )}
+                {/* 已到期还没办退租的：押金要结算、房子要验收，只有房东办得了。
+                    原先它们混在「30 天内到期」里显示「剩余 0 天」，看不出该做什么 */}
+                {dash.todo.expired_leases > 0 && (
+                  <li>
+                    <span className="dot-mark danger" />
+                    {dash.todo.expired_leases} 份租约<strong>已到期</strong>，待办理退租
+                    {(dash.expired_leases || []).length > 0 &&
+                      `（${dash.expired_leases.map((c) => c.house_no).join('、')}）`}
+                  </li>
+                )}
+                {dash.todo.lease_requests > 0 && (
+                  <li>
+                    <span className="dot-mark warn" />
+                    {dash.todo.lease_requests} 份租约有租客的退租 / 续租申请等你确认
+                  </li>
+                )}
                 {dash.todo.expiring_contracts > 0 && (
                   <li>
                     <span className="dot-mark warn" />

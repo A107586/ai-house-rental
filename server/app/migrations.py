@@ -525,3 +525,9 @@ def _oplog_backfill_names(connection, engine):
         if not name.startswith(method + " "):
             connection.execute(text("UPDATE operation_logs SET action = :a WHERE id = :i"),
                                {"a": name, "i": row_id})
+
+
+@step("0020", "合同表：房东提前退租时写明的押金拟扣金额（要租客同意）")
+def _contract_request_deduct(connection, engine):
+    _add_column(connection, engine, "contracts", "request_deduct",
+                "NUMERIC(10, 2) NOT NULL DEFAULT 0")

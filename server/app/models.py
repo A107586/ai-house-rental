@@ -696,6 +696,9 @@ class Contract(Base):
     request_months: Mapped[int] = mapped_column(Integer, default=0)
     request_reason: Mapped[str] = mapped_column(String(100), default="")
     requested_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    # 房东提前退租时写明的押金拟扣金额。**租客同意的是这个数**——
+    # 原先房东点「退租」当场生效、扣多少自己定，租客事后才知道（2026-10-22）
+    request_deduct: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
 
     signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
@@ -711,6 +714,17 @@ class Contract(Base):
     # selectin 是因为「待评价」列表要逐条读中介名，懒加载会变成 N+1
     agent: Mapped["User"] = relationship(foreign_keys=[agent_id],
                                          lazy="selectin")
+
+    @property
+    def expired(self):
+        """**已到期、还没办退租**：状态仍是生效中，但到期日已到。
+
+        系统不会到期自动结束合同——押金要结算、屋子要验收，这一步得房东来办。
+        原先这种合同只显示「生效中 · 剩余 0 天」，房源一直「已出租」，
+        谁也不会被提醒（2026-10-22）。现在单独标出来，房东工作台列为待办，
+        房东办理时不需要租客再确认：到期退租是合同本来的约定，不是提前解约。
+        """
+        return self.status == "active" and self.end_date.date() <= datetime.now().date()
 
     @property
     def days_left(self):
@@ -747,6 +761,7 @@ class Contract(Base):
             "status": self.status,
             "content": self.content,
             "days_left": self.days_left,
+            "expired": self.expired,
             "end_reason": self.end_reason,
             "deposit_refund": (float(self.deposit_refund)
                                if self.deposit_refund is not None else None),
@@ -754,6 +769,7 @@ class Contract(Base):
             "review_result": self.review_summary,
             "request": ({"type": self.request_type, "by": self.request_by,
                          "months": self.request_months, "reason": self.request_reason,
+                         "deduct": float(self.request_deduct or 0),
                          "at": self.requested_at.strftime("%Y-%m-%d %H:%M")
                          if self.requested_at else ""}
                         if self.request_type else None),

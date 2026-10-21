@@ -769,22 +769,36 @@ _REQUEST_LABEL = {"end": "退租", "renew": "续租"}
 _SIDE_LABEL = {"tenant": "租客", "landlord": "房东"}
 
 
-def request_change(session, contract, kind, by, months=0, reason=""):
-    """一方提出退租 / 续租，等另一方确认。"""
+def request_change(session, contract, kind, by, months=0, reason="", deduct=0):
+    """一方提出退租 / 续租，等另一方确认。
+
+    `deduct` 只用于**房东提出的退租**：押金拟扣多少当场写明，租客同意的就是这个数。
+    租客提的退租不带扣款——扣款由房东确认时填（他要先验房）。
+    """
     if contract.status != "active":
         raise ValueError("只有生效中的合同可以申请%s" % _REQUEST_LABEL[kind])
     if contract.request_type and contract.request_type != kind:
         raise ValueError("这份合同已有一个%s申请在等处理，先处理或撤回它"
                          % _REQUEST_LABEL[contract.request_type])
+    deduct = Decimal(str(deduct or 0)) if kind == "end" and by == "landlord" else Decimal("0")
+    if deduct < 0:
+        raise ValueError("扣款不能为负")
+    if deduct > Decimal(str(contract.deposit or 0)):
+        raise ValueError("扣款不能超过押金")
     contract.request_type = kind
     contract.request_by = by
     contract.request_months = int(months or 12) if kind == "renew" else 0
     contract.request_reason = (reason or "")[:100]
+    contract.request_deduct = deduct
     contract.requested_at = datetime.now()
 
     other = contract.landlord_id if by == "tenant" else contract.tenant_id
     what = "续租 %d 个月" % contract.request_months if kind == "renew" else "退租"
+    if kind == "end" and by == "landlord":
+        what = "提前退租"
     detail = "，原因：%s" % reason if reason and kind == "end" else ""
+    if deduct > 0:
+        detail += "，押金拟扣 %s 元" % _money(deduct)
     notify(session, other, "contract", "%s申请%s" % (_SIDE_LABEL[by], _REQUEST_LABEL[kind]),
            "合同 %s：%s申请%s%s。请到合同里确认或拒绝。" % (
                contract.contract_no, _SIDE_LABEL[by], what, detail),
@@ -818,6 +832,7 @@ def _clear_request(contract):
     contract.request_by = ""
     contract.request_months = 0
     contract.request_reason = ""
+    contract.request_deduct = 0
     contract.requested_at = None
 
 

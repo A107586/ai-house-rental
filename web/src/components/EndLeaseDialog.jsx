@@ -26,11 +26,47 @@ import { useEffect, useState } from 'react'
  *   在卡片角落里看到一行红字。
  * - **请求失败时弹窗不关**。表单一关，用户填的原因和金额就没了，
  *   还得重头再来一遍。
+ *
+ * ## 四种情形（`mode`）
+ *
+ * 2026-10-22 起房东在租期内退租也要租客同意，原先房东点了就退、押金扣多少自己定：
+ *
+ * - `tenant_request`   租客提申请，等房东确认，不填扣款；
+ * - `landlord_request` 房东提前退租：写明原因与**押金拟扣**，等租客同意；
+ * - `settle`           房东确认租客的申请、办理到期退租，或管理员处理：当场结算；
+ * - `tenant_accept`    租客同意房东的提前退租：原因与扣款是房东写的，这里只读。
  */
-export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }) {
-  // 房东确认租客的退租申请时，带上租客填的原因
-  const [reason, setReason] = useState(contract.request?.reason || '退租')
-  const [deduct, setDeduct] = useState('0')
+const MODES = {
+  tenant_request: {
+    title: '申请退租', button: '提交申请', editDeduct: false,
+    warn: '提交后等房东确认，确认前合同照常有效。',
+    hint: '房东确认时结算押金；提前退租可能需要按合同支付违约金。',
+  },
+  landlord_request: {
+    title: '申请提前退租', button: '发给租客确认', editDeduct: true,
+    warn: <>租约还没到期，提前退租要<b>租客同意</b>才生效。</>,
+    hint: '按合同第六条，提前解约应提前 30 日书面通知对方并支付一个月租金的违约金，请先与租客协商。'
+      + '押金拟扣金额会写进申请，租客同意的就是这个数。',
+  },
+  settle: {
+    title: '确认退租', button: '确认退租', editDeduct: true,
+    warn: <>退租<b>不可撤销</b>。</>,
+    hint: '未到期的租金账单会作废，房源重新上架，押金按下面金额结算。',
+  },
+  tenant_accept: {
+    title: '同意提前退租', button: '同意退租', editDeduct: false,
+    warn: <>确认后合同<b>立即结束</b>，不可撤销。</>,
+    hint: '未到期的租金账单作废，押金按房东写明的扣款结算。不同意请关掉弹窗，在合同上点「不同意」。',
+  },
+}
+
+export default function EndLeaseDialog({ contract, mode = 'tenant_request', onConfirm, onClose }) {
+  const conf = MODES[mode] || MODES.tenant_request
+  const request = contract.request || {}
+  const accepting = mode === 'tenant_accept'
+  // 确认对方的申请时带上对方填的原因；同意房东申请时原因与扣款都是房东写的
+  const [reason, setReason] = useState(request.reason || (contract.expired ? '租期届满' : '退租'))
+  const [deduct, setDeduct] = useState(accepting ? String(request.deduct || 0) : '0')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -44,16 +80,16 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
   }, [busy, onClose])
 
   const deposit = Number(contract.deposit) || 0
-  // 只有出租方能扣押金，租客侧这一栏根本不出现，也就恒为 0
-  const amount = isStaff ? Number(deduct) : 0
-  const valid = !isStaff || (deduct.trim() !== '' && Number.isFinite(amount)
+  // 租客提申请时这一栏根本不出现，恒为 0
+  const amount = conf.editDeduct || accepting ? Number(deduct) : 0
+  const valid = !conf.editDeduct || (deduct.trim() !== '' && Number.isFinite(amount)
     && amount >= 0 && amount <= deposit)
   const refund = valid ? deposit - amount : null
 
   async function submit(e) {
     e.preventDefault()
     if (busy) return
-    if (isStaff) {
+    if (conf.editDeduct) {
       if (deduct.trim() === '' || !Number.isFinite(amount)) {
         setError('扣款金额必须是数字，无扣款请填 0。')
         return
@@ -71,7 +107,8 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
     setBusy(true)
     setError('')
     try {
-      await onConfirm(reason.trim() || '退租', amount)
+      // 同意房东申请时扣款不由租客传——后端按申请里写明的数结算
+      await onConfirm(reason.trim() || '退租', accepting ? 0 : amount)
       onClose()
     } catch (err) {
       // 失败留在弹窗里，用户填的内容不丢
@@ -87,33 +124,37 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
            aria-labelledby="end-lease-title">
         <button className="drawer-close" onClick={onClose} aria-label="关闭"
                 disabled={busy}>×</button>
-        <h3 id="end-lease-title">{isStaff ? '确认退租' : '申请退租'}</h3>
+        <h3 id="end-lease-title">
+          {mode === 'settle' && contract.expired ? '办理到期退租' : conf.title}
+        </h3>
 
-        {/* 租客这一步只是提申请：房东确认时才结算押金、作废账单 */}
         <div className="assist warn">
           <div className="assist-body">
-            {isStaff ? <>退租<b>不可撤销</b>。</> : '提交后等房东确认，确认前合同照常有效。'}
-            <div className="assist-hint">
-              {isStaff
-                ? '未到期的租金账单会作废，房源重新上架，押金按下面金额结算。'
-                : '房东确认时结算押金；提前退租可能需要按合同支付违约金。'}
-            </div>
+            {conf.warn}
+            <div className="assist-hint">{conf.hint}</div>
           </div>
         </div>
 
         {error && <div className="reply failed">{error}</div>}
 
         <form onSubmit={submit} className="house-form">
-          <label className="fld">
-            <span>退租原因</span>
-            <input value={reason} maxLength={100}
-                   onChange={(e) => setReason(e.target.value)}
-                   placeholder="如：租期届满 / 提前退租" autoFocus />
-          </label>
-
-          {isStaff && (
+          {accepting ? (
+            <div className="fld">
+              <span>房东写的原因</span>
+              <div className="record-body">{request.reason || '（未填写）'}</div>
+            </div>
+          ) : (
             <label className="fld">
-              <span>押金扣款（元）</span>
+              <span>退租原因</span>
+              <input value={reason} maxLength={100}
+                     onChange={(e) => setReason(e.target.value)}
+                     placeholder="如：租期届满 / 提前退租" autoFocus />
+            </label>
+          )}
+
+          {conf.editDeduct && (
+            <label className="fld">
+              <span>{mode === 'landlord_request' ? '押金拟扣（元）' : '押金扣款（元）'}</span>
               <input type="number" min="0" max={deposit} step="1"
                      value={deduct}
                      onChange={(e) => { setDeduct(e.target.value); setError('') }} />
@@ -127,14 +168,14 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
               让他自己去减一次是没必要的，也容易和后端算出来的数对不上 */}
           <dl className="settle">
             <div><dt>押金</dt><dd>{Math.round(deposit)} 元</dd></div>
-            {isStaff && (
+            {(conf.editDeduct || accepting) && (
               <div>
                 <dt>扣款</dt>
                 <dd>{valid && amount > 0 ? '−' + Math.round(amount) : '0'} 元</dd>
               </div>
             )}
             <div className="settle-total">
-              <dt>预计退还</dt>
+              <dt>预计退还押金</dt>
               <dd>{refund === null ? '—' : Math.round(refund) + ' 元'}</dd>
             </div>
           </dl>
@@ -145,7 +186,7 @@ export default function EndLeaseDialog({ contract, isStaff, onConfirm, onClose }
               取消
             </button>
             <button type="submit" className="btn block danger" disabled={busy}>
-              {busy ? '处理中…' : isStaff ? '确认退租' : '提交申请'}
+              {busy ? '处理中…' : conf.button}
             </button>
           </div>
         </form>

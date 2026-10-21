@@ -7,7 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin, settle
+from tests.base import ApiTestCase, auth_header, make_admin, settle, end_lease
 
 
 def future(days=7):
@@ -272,8 +272,7 @@ class TestBills(ContractCase):
         页面还让人「与房东线下结清」——而结算里明明写着押金未缴、无需退款。
         """
         no = self.active_contract()
-        ended = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                                 json={"reason": "到期"})
+        ended = end_lease(self.client, no, self.landlord, self.tenant)
         self.assertEqual(ended.status_code, 200, ended.text)
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
         self.assertEqual(bills["unpaid_count"], 0)
@@ -283,8 +282,7 @@ class TestBills(ContractCase):
     def test_a_paid_deposit_is_still_refunded_not_voided(self):
         no = self.active_contract()
         self.pay_deposit(no)
-        ended = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                                 json={"reason": "到期", "deduct": 300}).json()
+        ended = end_lease(self.client, no, self.landlord, self.tenant, deduct=300).json()
         self.assertIsNotNone(ended["refund_record"])
         bills = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"]
         self.assertEqual(next(b for b in bills if b["type"] == "deposit")["status"], "paid")
@@ -355,9 +353,7 @@ class TestEndAndRenew(ContractCase):
 
     def test_end_releases_house(self):
         no = self.active_contract()
-        response = self.client.post("/api/contracts/%s/end" % no,
-                                    headers=self.landlord,
-                                    json={"reason": "到期"})
+        response = end_lease(self.client, no, self.landlord, self.tenant)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["contract"]["status"], "ended")
         self.assertEqual(
@@ -384,6 +380,80 @@ class TestEndAndRenew(ContractCase):
         self.assertEqual(done.json()["contract"]["status"], "ended")
         self.assertIsNone(done.json()["contract"]["request"])
 
+    def _expire(self, contract_no):
+        from app import db
+        from app.models import Contract
+        session = db.SessionLocal()
+        try:
+            contract = session.query(Contract).filter_by(contract_no=contract_no).one()
+            contract.end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            session.commit()
+        finally:
+            session.close()
+
+    def test_landlord_early_end_needs_the_tenant(self):
+        """房东提前退租原先点了就生效、押金扣多少自己定。现在是申请，写明原因与拟扣。"""
+        no = self.active_contract()
+        response = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                    json={"reason": "房东要自住", "deduct": 300})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["requested"])
+        self.assertEqual(body["contract"]["status"], "active")
+        self.assertEqual(body["contract"]["request"]["by"], "landlord")
+        self.assertEqual(body["contract"]["request"]["deduct"], 300.0)
+        self.assertEqual(self.client.get("/api/houses/DL0001").json()["status"], "rented")
+        notes = self.client.get("/api/messages", headers=self.tenant).json()["list"]
+        note = next(m for m in notes if m["title"] == "房东申请退租")
+        self.assertIn("房东要自住", note["content"])
+        self.assertIn("300", note["content"])
+
+    def test_tenant_agrees_and_the_stated_deduction_applies(self):
+        no = self.active_contract()
+        self.pay_deposit(no)
+        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                         json={"reason": "房东要自住", "deduct": 300})
+        agreed = self.client.post("/api/contracts/%s/end" % no, headers=self.tenant, json={})
+        self.assertEqual(agreed.status_code, 200, agreed.text)
+        self.assertEqual(agreed.json()["contract"]["status"], "ended")
+        self.assertEqual(agreed.json()["refund"], 2500.0, "租客同意的就是房东写明的扣款")
+
+    def test_tenant_can_decline(self):
+        no = self.active_contract()
+        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                         json={"reason": "房东要自住"})
+        declined = self.client.delete("/api/contracts/%s/request" % no, headers=self.tenant)
+        self.assertEqual(declined.status_code, 200)
+        self.assertEqual(declined.json()["contract"]["status"], "active")
+        self.assertIsNone(declined.json()["contract"]["request"])
+
+    def test_landlord_cannot_propose_more_than_the_deposit(self):
+        no = self.active_contract()
+        response = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                    json={"deduct": 99999})
+        self.assertEqual(response.status_code, 409)
+
+    def test_expired_lease_is_flagged_and_landlord_ends_it_directly(self):
+        """到期退租是合同本来的约定，房东直接办；原先它只显示「剩余 0 天」，谁也不提醒。"""
+        no = self.active_contract()
+        self._expire(no)
+        mine = self.client.get("/api/contracts/mine", headers=self.landlord).json()["list"]
+        self.assertTrue(next(c for c in mine if c["contract_no"] == no)["expired"])
+        dashboard = self.client.get("/api/landlord/dashboard", headers=self.landlord).json()
+        self.assertEqual(dashboard["todo"]["expired_leases"], 1)
+        self.assertEqual(dashboard["expired_leases"][0]["contract_no"], no)
+
+        ended = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                 json={"reason": "租期届满"})
+        self.assertEqual(ended.json()["contract"]["status"], "ended")
+
+    def test_admin_ends_directly(self):
+        no = self.active_contract()
+        admin = make_admin(self.client)
+        ended = self.client.post("/api/contracts/%s/end" % no, headers=admin,
+                                 json={"reason": "平台介入"})
+        self.assertEqual(ended.json()["contract"]["status"], "ended")
+
     def test_tenant_cannot_deduct_deposit(self):
         """扣押金是出租方的权利，租客不能自己填扣款。"""
         no = self.active_contract()
@@ -394,8 +464,7 @@ class TestEndAndRenew(ContractCase):
     def test_landlord_deducts(self):
         no = self.active_contract()
         self.pay_deposit(no)
-        response = self.client.post("/api/contracts/%s/end" % no,
-                                    headers=self.landlord, json={"deduct": 500})
+        response = end_lease(self.client, no, self.landlord, self.tenant, deduct=500)
         self.assertEqual(response.json()["refund"], 2300.0)
         refunds = self.client.get("/api/refunds/mine",
                                   headers=self.tenant).json()
@@ -410,8 +479,7 @@ class TestEndAndRenew(ContractCase):
         那不是记录不准，是造了一笔没发生过的资金流动。
         """
         no = self.active_contract()
-        response = self.client.post("/api/contracts/%s/end" % no,
-                                    headers=self.landlord, json={"deduct": 0})
+        response = end_lease(self.client, no, self.landlord, self.tenant)
         self.assertEqual(response.status_code, 200)
         # 「应退金额」照常算得出来，那是结算结论
         self.assertEqual(response.json()["refund"], 2800.0)
@@ -425,8 +493,7 @@ class TestEndAndRenew(ContractCase):
         """押金没收过却通知租客「退还押金 2800 元」，会直接引出
         「钱退哪去了」的质问。"""
         no = self.active_contract()
-        self.client.post("/api/contracts/%s/end" % no,
-                         headers=self.landlord, json={"deduct": 0})
+        end_lease(self.client, no, self.landlord, self.tenant)
         messages = self.client.get("/api/messages", headers=self.tenant).json()
         ended = [m for m in messages["list"] if m["title"] == "合同已结束"]
         self.assertTrue(ended)
@@ -647,8 +714,7 @@ class TestNoPaymentAfterEnd(ContractCase):
         no = self.active_contract()
         owed = self._overdue_rent(no)
 
-        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                         json={"reason": "提前退租"})
+        end_lease(self.client, no, self.landlord, self.tenant, reason="提前退租")
 
         r = self.client.post("/api/bills/%s/pay" % owed["bill_no"],
                              headers=self.tenant, json={"method": "alipay"})
@@ -659,8 +725,7 @@ class TestNoPaymentAfterEnd(ContractCase):
         """被拒之后账单状态不能被改动，更不能产生流水。"""
         no = self.active_contract()
         owed = self._overdue_rent(no)
-        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                         json={"reason": "提前退租"})
+        end_lease(self.client, no, self.landlord, self.tenant, reason="提前退租")
         self.client.post("/api/bills/%s/pay" % owed["bill_no"],
                          headers=self.tenant, json={"method": "alipay"})
 

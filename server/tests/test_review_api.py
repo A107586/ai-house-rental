@@ -6,7 +6,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header
+from tests.base import ApiTestCase, auth_header, end_lease
 
 
 def future(days=7):
@@ -27,8 +27,7 @@ class ReviewCase(ApiTestCase):
             "house_no": house_no, "tenant_username": "tenant1",
             "start_date": future().isoformat()}).json()["contract"]["contract_no"]
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
-        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                         json={"reason": "到期"})
+        end_lease(self.client, no, self.landlord, self.tenant)
         return no
 
     def active_contract(self, house_no="DL0001"):

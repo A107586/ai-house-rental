@@ -140,6 +140,19 @@ def make_resident(username="tenant1", house_no="DL0001"):
         session.close()
 
 
+def end_lease(client, contract_no, landlord, tenant, reason="到期", deduct=0):
+    """把一份生效中的合同**正常地**退掉：租客申请，房东确认并结算押金。
+
+    2026-10-22 起房东不能再一点就退（提前退租要租客同意，见 main.end_contract），
+    只想「有一份已结束的合同」来测结算、评价、时间线的用例走这一个函数。
+    返回房东确认那一步的响应。
+    """
+    client.post("/api/contracts/%s/end" % contract_no, headers=tenant,
+                json={"reason": reason})
+    return client.post("/api/contracts/%s/end" % contract_no, headers=landlord,
+                       json={"reason": reason, "deduct": deduct})
+
+
 def auth_header(client, username="tenant1", password="test123"):
     """登录并返回可直接用于请求的 Authorization 头。"""
     data = client.post("/api/auth/login",

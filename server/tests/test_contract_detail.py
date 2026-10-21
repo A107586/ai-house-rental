@@ -13,7 +13,7 @@
 
 from datetime import datetime, timedelta
 
-from tests.base import ApiTestCase, auth_header, make_admin, settle
+from tests.base import ApiTestCase, auth_header, make_admin, settle, end_lease
 
 
 def future(days=1):
@@ -91,8 +91,7 @@ class TestDetailContent(DetailCase):
 
     def test_timeline_records_ending(self):
         no = self.sign_and_activate()
-        self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
-                         json={"reason": "租期届满"})
+        end_lease(self.client, no, self.landlord, self.tenant, reason="租期届满")
         timeline = self.detail(no).json()["timeline"]
         self.assertEqual(timeline[-1]["title"], "合同结束")
         self.assertIn("租期届满", timeline[-1]["detail"])

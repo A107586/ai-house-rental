@@ -7,7 +7,7 @@
 --   生成：python scripts/gen_db_sql.py
 --   校验：python scripts/gen_db_sql.py --check（测试套件里也跑这一条）
 --
--- 共 36 张表、394 个字段。建表顺序是依赖拓扑序，被引用的表先建。
+-- 共 36 张表、395 个字段。建表顺序是依赖拓扑序，被引用的表先建。
 --
 -- 列默认值有意不写进 DDL：模型里的 default 是 Python 侧的，由 ORM 插入时填。
 -- 写进来就等于多一份由数据库执行的语义，两边不一致时谁说了算会说不清。
@@ -489,6 +489,7 @@ CREATE TABLE contracts (
 	request_months INTEGER NOT NULL, 
 	request_reason VARCHAR(100) NOT NULL, 
 	requested_at DATETIME, 
+	request_deduct NUMERIC(10, 2) NOT NULL, 
 	signed_at DATETIME, 
 	ended_at DATETIME, 
 	end_reason VARCHAR(100) NOT NULL, 

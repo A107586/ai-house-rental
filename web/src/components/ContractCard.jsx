@@ -52,10 +52,15 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
 
   const isTenant = role === 'tenant'
   const isStaff = role === 'landlord' || role === 'admin'
-  const status = STATUS[contract.status] || { label: contract.status, cls: '' }
+  // 已到期、还没办退租：状态仍是「生效中」，但要单独标出来——押金要结算、
+  // 屋子要验收，这一步得房东办。原先只显示「剩余 0 天」，谁也不知道该做什么
+  const expired = contract.status === 'active' && contract.expired
+  const status = expired
+    ? { label: '已到期', cls: 'status-pending' }
+    : STATUS[contract.status] || { label: contract.status, cls: '' }
 
   // 剩余不足 30 天就提醒，这是租约到期提醒的触发线
-  const expiring = contract.status === 'active' && contract.days_left <= 30
+  const expiring = contract.status === 'active' && !expired && contract.days_left <= 30
 
   // 待处理的退租 / 续租申请。mine：是我这一方提的（我只能撤回，确认按钮在对方那边）
   const request = contract.request || null
@@ -63,7 +68,16 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
   const mine = request && request.by === mySide
   const byLabel = request?.by === 'tenant' ? '租客' : '房东'
   const otherLabel = isTenant ? '房东' : '租客'
-  const requestWhat = request?.type === 'renew' ? `续租 ${request.months} 个月` : '退租'
+  const landlordEnd = request?.type === 'end' && request?.by === 'landlord'
+  const requestWhat = request?.type === 'renew' ? `续租 ${request.months} 个月`
+    : landlordEnd ? '提前退租' : '退租'
+
+  // 退租弹窗的四种情形（2026-10-22 起房东提前退租也要租客同意）：
+  //   tenant_request   租客提申请，等房东确认
+  //   landlord_request 房东在租期内提前退租：写明原因与押金拟扣，等租客同意
+  //   settle           房东确认租客的申请 / 办理到期退租 / 管理员处理：当场结算
+  //   tenant_accept    租客同意房东的提前退租，押金按房东写明的扣款结算
+  const directEnd = role === 'admin' || expired
 
   async function act(fn) {
     if (busy) return
@@ -113,10 +127,16 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         {contract.pay_months > 1 && ` · 每 ${contract.pay_months} 个月一付`}
       </div>
 
-      {contract.status === 'active' && (
+      {contract.status === 'active' && !expired && (
         <div className={`record-body ${expiring ? 'warn-text' : ''}`}>
           剩余 {contract.days_left} 天
           {expiring && ' · 即将到期，可发起续租'}
+        </div>
+      )}
+      {expired && (
+        <div className="record-body warn-text">
+          已于 {contract.end_date} 到期 ·{' '}
+          {isTenant ? '等房东办理退租结算，也可以申请续租' : '请办理退租结算，或与租客续租'}
         </div>
       )}
 
@@ -177,8 +197,9 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         {contract.status === 'active' && !request && (
           <>
             <button className="btn ghost small" disabled={busy}
-                    onClick={() => setEnding(true)}>
-              {isTenant ? '申请退租' : '退租'}
+                    onClick={() => setEnding(isTenant ? 'tenant_request'
+                      : directEnd ? 'settle' : 'landlord_request')}>
+              {isTenant ? '申请退租' : directEnd ? '办理退租' : '提前退租'}
             </button>
             <button
               className="btn ghost small"
@@ -198,6 +219,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
               ? `你已申请${requestWhat}，等${otherLabel}确认`
               : `${byLabel}申请${requestWhat}`}
             {request.reason && request.type === 'end' && `（${request.reason}）`}
+            {landlordEnd && ` · 押金拟扣 ${Math.round(request.deduct || 0)} 元`}
             <em>{request.at}</em>
           </span>
           <span className="lease-request-actions">
@@ -209,9 +231,11 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
             ) : (
               <>
                 {request.type === 'end' ? (
-                  // 房东确认退租时在弹窗里结算押金
-                  <button className="btn small" disabled={busy} onClick={() => setEnding(true)}>
-                    确认退租
+                  // 房东确认租客的申请时在弹窗里结算押金；
+                  // 租客同意房东的提前退租时，押金按房东写明的扣款结算
+                  <button className="btn small" disabled={busy}
+                          onClick={() => setEnding(landlordEnd ? 'tenant_accept' : 'settle')}>
+                    {landlordEnd ? '同意退租' : '确认退租'}
                   </button>
                 ) : (
                   <button className="btn small" disabled={busy}
@@ -301,7 +325,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
       {ending && (
         <EndLeaseDialog
           contract={contract}
-          isStaff={isStaff}
+          mode={ending}
           onConfirm={endLease}
           onClose={() => setEnding(false)}
         />

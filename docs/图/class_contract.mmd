@@ -47,7 +47,7 @@ classDiagram
         +pay_bill(session, bill, user, method, idempotency_key)
         +end_contract(session, contract, reason, deduct)
         +renew_contract(session, contract, months)
-        +request_change(session, contract, kind, by, months, reason)
+        +request_change(session, contract, kind, by, months, reason, deduct)
         +withdraw_request(session, contract, side)
         +notify(session, user_id, type_, title, content, link_no)
     }
@@ -81,7 +81,8 @@ classDiagram
         +int landlord_id «FK»
         +int agent_id «FK»
         +str status
-        +… 另 17 列（见数据库设计书）
+        +… 另 18 列（见数据库设计书）
+        +/expired
         +/days_left
         +/review_summary
         +to_dict()
