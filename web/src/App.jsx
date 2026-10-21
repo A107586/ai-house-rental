@@ -1115,26 +1115,24 @@ export default function App() {
             </span>
           </div>
 
-          {true && (
-            <div className="map-panel-body">
-              {/* **地图必须有自己的 Suspense。**
-                  外层那个 Suspense 包着整个页面，地图是懒加载的——
-                  一点击就开始加载，React 会挂起整棵树、渲染 fallback，
-                  于是整页卸载、滚动位置归零，加载完再从头挂上。
-                  表现就是「点地图找房，页面弹回最顶端」。
-                  在这里单独兜一层，挂起的范围就只剩地图这一块。 */}
-              <Suspense
-                fallback={<div className="map-loading">高德地图加载中…</div>}
-              >
-                <MapFinder
-                  selected={filters.district || ''}
-                  filters={filters}
-                  onPick={pickDistrict}
-                  onOpen={(house) => go('house', house.house_no)}
-                />
-              </Suspense>
-            </div>
-          )}
+          <div className="map-panel-body">
+            {/* **地图必须有自己的 Suspense。**
+                外层那个 Suspense 包着整个页面，地图是懒加载的——
+                一点击就开始加载，React 会挂起整棵树、渲染 fallback，
+                于是整页卸载、滚动位置归零，加载完再从头挂上。
+                表现就是「点地图找房，页面弹回最顶端」。
+                在这里单独兜一层，挂起的范围就只剩地图这一块。 */}
+            <Suspense
+              fallback={<div className="map-loading">高德地图加载中…</div>}
+            >
+              <MapFinder
+                selected={filters.district || ''}
+                filters={filters}
+                onPick={pickDistrict}
+                onOpen={(house) => go('house', house.house_no)}
+              />
+            </Suspense>
+          </div>
         </section>
         )}
 

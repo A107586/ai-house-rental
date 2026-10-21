@@ -4,7 +4,7 @@
 # 本地跑同样的检查：
 #   cd server && python -m unittest discover -s tests
 #   cd agent  && python -m unittest discover -s tests -t .
-#   cd web    && npm ci && npm run build
+#   cd web    && npm ci && npm run lint && npm run build
 #   docker compose up -d --build
 
 name: CI
@@ -66,6 +66,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci --no-audit --no-fund
+        working-directory: web
+      # 只查会出错的（未定义的名字、Hooks 用错等），不管风格，见 web/eslint.config.js。
+      # 起因：退出登录调用一个早已删掉的 setShowWork，打包照样成功，一个多月没人发现
+      - name: 静态检查
+        run: npm run lint
         working-directory: web
       - run: npm run build
         working-directory: web

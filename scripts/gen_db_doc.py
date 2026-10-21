@@ -80,6 +80,10 @@ doc_path = os.path.join(_ROOT, 'docs', '数据库设计说明书.md')
 whole = io.open(doc_path, encoding='utf-8').read()
 start = whole.index('## 三、表结构')
 end = whole.index('## 四、索引设计')
-io.open(doc_path, 'w', encoding='utf-8', newline='').write(
-    whole[:start] + out.rstrip() + "\n\n---\n\n" + whole[end:])
+new = whole[:start] + out.rstrip() + "\n\n---\n\n" + whole[end:]
+# 内容没变就不写。读的时候换行已被统一成 \n，原样写回会把 Windows 上
+# 检出的 CRLF 改成 LF——内容一字未变，git status 却报这个文件被改了，
+# 而 test_design_artifacts 每跑一次全套都会调一次这个脚本（2026-10-22 修）
+if new != whole:
+    io.open(doc_path, 'w', encoding='utf-8', newline='').write(new)
 print("生成 %d 张表，%d 行" % (len(ordered), len(lines)))
