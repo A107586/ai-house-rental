@@ -53,6 +53,16 @@ DEFAULTS = (
 
 _DEFAULT_MAP = {item[0]: item for item in DEFAULTS}
 
+# 整数项的上限。超过它的值不是「配置」，是笔误
+INT_MAX = {
+    "viewing_minutes": 240,
+    "appointment_daily_limit": 50,
+    "deposit_months": 6,
+    "review_window_days": 365,
+    "repair_sla_urgent_hours": 72,
+    "repair_sla_normal_hours": 720,
+}
+
 
 def ensure_defaults(session):
     """补齐缺失的配置项。
@@ -130,6 +140,11 @@ def validate(key, value):
             return False, "该项必须填整数"
         if number <= 0:
             return False, "该项必须大于 0"
+        # 上限也要有：少打一个小数点，「看房时段 600 分钟」等于一套房一天只能约一次，
+        # 「押金 99 个月」会原样写进之后每一份合同（2026-10-22 补）
+        limit = INT_MAX.get(key)
+        if limit and number > limit:
+            return False, "该项不能超过 %d" % limit
         return True, str(number)
 
     if vtype == "bool":

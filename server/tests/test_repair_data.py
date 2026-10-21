@@ -130,6 +130,58 @@ class TestRecord(RepairDataCase):
         body = self.client.get("/api/repair-items", headers=self.admin).json()
         self.assertEqual(body["list"][0]["stock"], 8, "库存不能被扣第二次")
 
+    def _stock(self, item_id):
+        items = self.client.get("/api/repair-items", headers=self.admin).json()["list"]
+        return next(i for i in items if i["id"] == item_id)["stock"]
+
+    def test_the_same_item_on_two_lines_is_checked_as_a_total(self):
+        """原先逐行核库存：同一物品两行各 6、库存 10，两行都「够」，扣完是 -2。"""
+        item = self.new_item(stock=10)
+        r = self.close(self.new_repair()["id"],
+                       items=[{"item_id": item["id"], "quantity": 6},
+                              {"item_id": item["id"], "quantity": 6}])
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self._stock(item["id"]), 10)
+
+    def test_duplicate_lines_within_stock_are_merged(self):
+        item = self.new_item(price=45, stock=10)
+        r = self.close(self.new_repair()["id"],
+                       items=[{"item_id": item["id"], "quantity": 3},
+                              {"item_id": item["id"], "quantity": 3}])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stock(item["id"]), 4)
+        self.assertEqual(r.json()["record"]["item_cost"], 270.0)
+
+    def test_an_inactive_worker_cannot_be_assigned(self):
+        worker = self.new_worker()
+        self.client.patch("/api/repair-workers/%d" % worker["id"], headers=self.admin,
+                          json={"status": "off"})
+        r = self.close(self.new_repair()["id"], worker_id=worker["id"])
+        self.assertEqual(r.status_code, 409)
+
+    def test_closing_by_record_tells_the_tenant(self):
+        """走状态接口改「已完成」会通知租客，走登记结案原先不会。"""
+        self.close(self.new_repair()["id"])
+        notes = self.client.get("/api/messages", headers=self.tenant).json()["list"]
+        self.assertTrue(any(m["title"] == "报修已处理完成" for m in notes))
+
+    def test_landlord_list_is_filtered_before_the_limit(self):
+        """原先先取全平台最近 N 条再筛：别的房东的记录一多，自己的就看不到了。"""
+        self.close(self.new_repair()["id"], note="我名下的那张")
+        self.client.post("/api/auth/register", json={
+            "username": "landlord2", "password": "test123", "real_name": "房东乙",
+            "role": "landlord"})
+        other = auth_header(self.client, "landlord2", "test123")
+        house_no = self.client.post("/api/houses", headers=other, json={
+            "title": "别人的房子", "district": "中山区", "rent_price": 2000,
+            "area": 50, "layout": "一室一厅"}).json()["house"]["house_no"]
+        theirs = self.client.post("/api/repairs", headers=other, json={
+            "house_no": house_no, "content": "楼道灯不亮"}).json()["repair"]
+        self.close(theirs["id"], note="别人名下的那张")
+        rows = self.client.get("/api/repair-records", headers=self.landlord,
+                               params={"limit": 1}).json()["list"]
+        self.assertEqual([r["note"] for r in rows], ["我名下的那张"])
+
     def test_insufficient_stock_is_rejected(self):
         item = self.new_item(stock=1)
         repair = self.new_repair()

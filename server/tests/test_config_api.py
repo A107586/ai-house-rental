@@ -57,6 +57,12 @@ class TestConfigCrud(ConfigCase):
         self.assertEqual(
             self.set_config(appointment_daily_limit=-1).status_code, 400)
 
+    def test_reject_values_that_are_typos(self):
+        """少打一个小数点：看房时段 600 分钟、押金 99 个月——都会原样生效。"""
+        self.assertEqual(self.set_config(viewing_minutes=600).status_code, 400)
+        self.assertEqual(self.set_config(deposit_months=99).status_code, 400)
+        self.assertEqual(self.set_config(viewing_minutes=240).status_code, 200)
+
     def test_reject_unknown_key(self):
         r = self.set_config(**{"drop_all_tables": "1"})
         self.assertEqual(r.status_code, 400)
