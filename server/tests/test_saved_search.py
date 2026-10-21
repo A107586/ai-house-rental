@@ -8,6 +8,7 @@
 """
 
 import json
+import re
 
 from tests.base import ApiTestCase, auth_header, make_admin
 import app.db as db
@@ -273,10 +274,12 @@ class TestNotifyIsNotQuadratic(SavedSearchCase):
             statements = []
 
             def before(conn, cursor, statement, params, context, many):
-                # 只数「匹配查询」——它只选 houses.id。
-                # ORM 顺手重新加载整行房源那条会把每一列都起别名
-                # （`... AS houses_xxx`），据此排除；它和保存搜索的条数无关
-                if "FROM houses" in statement and " AS houses_" not in statement:
+                # 只数「匹配查询」——它**只选 houses.id**。
+                # ORM 提交后顺手重新加载整行房源那条和保存搜索的条数无关。
+                # 原先靠「整行加载会给每列起别名 AS houses_xxx」来排除它，
+                # SQLAlchemy 2.1 不再起这个别名，CI 装到新版后就把它也数进去了；
+                # 改成直接认「SELECT 后面只有 houses.id」
+                if re.match(r"\s*SELECT houses\.id\s+FROM houses\b", statement):
                     statements.append(statement)
 
             event.listen(session.get_bind(), "before_cursor_execute", before)
