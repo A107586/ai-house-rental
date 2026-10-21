@@ -217,6 +217,9 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
     { key: 'appointments', label: '我的预约', n: appointments.length },
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
+    // 订阅的搜索条件（K-09）：有新房上架发站内消息。9-10 撤「保存这组条件」按钮时
+    // 这个页签一起撤了，后端与面板都还在，**订阅了却找不到在哪管**（2026-10-22 放回）
+    { key: 'searches', label: '我的订阅' },
     { key: 'history', label: '足迹', n: history.length },
     { key: 'repairs', label: '我的报修',
       n: repairs.filter((r) => r.status !== 'done').length },

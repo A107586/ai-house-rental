@@ -29,6 +29,12 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
         setMsg({ ok: false, text: '没有需要保存的修改' })
         return
       }
+      // 与后端同一条规则（schemas._REAL_NAME）：姓名会写进合同、给房东看全名，
+      // 不能带数字和符号——否则「微信abc888」这种就把联系方式带出去了
+      if (payload.real_name && !/^[A-Za-z一-鿿·• ]{2,20}$/.test(payload.real_name)) {
+        setMsg({ ok: false, text: '真实姓名需 2–20 位中文或英文，不能包含数字和符号' })
+        return
+      }
       const data = await api.updateProfile(payload)
       onUpdated(data.user)
       setProfile({ real_name: data.user.real_name || '', phone: '',

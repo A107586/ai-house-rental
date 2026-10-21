@@ -11,10 +11,28 @@
 搬过来反而要在两个文件之间来回跳。
 """
 
+import re
 from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# 真实姓名：2–20 位中英文（可带间隔号与空格），和注册页前端那条规则一致。
+#
+# 原先只有前端在注册时查，**接口和改资料都不查**（2026-10-22）。演示库里就有一个
+# 叫「微信abc888」的租客——姓名会原样写进合同的承租方，也会原样给要签约的房东看；
+# 而聊天里留联系方式是被拦的，姓名就成了绕过去的那条路。
+_REAL_NAME = re.compile(r"^[A-Za-z一-鿿·• ]{2,20}$")
+
+
+def _valid_real_name(value):
+    if value is None:
+        return value
+    value = value.strip()
+    if value and not _REAL_NAME.match(value):
+        raise ValueError("真实姓名需 2–20 位中文或英文，不能包含数字和符号")
+    return value
 
 
 class RegisterRequest(BaseModel):
@@ -23,6 +41,8 @@ class RegisterRequest(BaseModel):
     real_name: str = ""
     phone: str = ""
     role: str = "tenant"
+
+    _name = field_validator("real_name")(_valid_real_name)
 
 
 class LoginRequest(BaseModel):
@@ -245,6 +265,8 @@ class ProfileUpdate(BaseModel):
     real_name: str | None = Field(default=None, max_length=50)
     phone: str | None = Field(default=None, max_length=20)
     email: str | None = Field(default=None, max_length=100)
+
+    _name = field_validator("real_name")(_valid_real_name)
     # 免打扰（J-07）。用 None 表示「这次不改」，而不是默认 False——
     # 只改手机号的请求不该顺手把免打扰关掉
     accept_contact: bool | None = None

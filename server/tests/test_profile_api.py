@@ -34,13 +34,33 @@ class TestProfile(ApiTestCase):
     def test_cannot_change_role_via_profile(self):
         """资料接口不接受 role 字段，避免绕过管理员提权。"""
         self.client.put("/api/auth/profile", headers=self.tenant,
-                        json={"real_name": "x", "role": "admin"})
+                        json={"real_name": "新名字", "role": "admin"})
         user = self.client.get("/api/auth/me", headers=self.tenant).json()
         self.assertEqual(user["role"], "tenant")
 
     def test_requires_login(self):
-        response = self.client.put("/api/auth/profile", json={"real_name": "x"})
+        response = self.client.put("/api/auth/profile", json={"real_name": "新名字"})
         self.assertEqual(response.status_code, 401)
+
+    def test_name_cannot_carry_contact_details(self):
+        """姓名会写进合同、给房东看全名；聊天里留联系方式被拦，姓名不能成为绕过去的路。
+        演示库里就有一个叫「微信abc888」的租客——原先接口与改资料都不查。"""
+        for bad in ("微信abc888", "13900001234", "加V:abc", "张"):
+            response = self.client.put("/api/auth/profile", headers=self.tenant,
+                                       json={"real_name": bad})
+            self.assertEqual(response.status_code, 422, bad)
+        for good in ("欧阳娜娜", "Tom Lee", "阿依古丽·买买提"):
+            response = self.client.put("/api/auth/profile", headers=self.tenant,
+                                       json={"real_name": good})
+            self.assertEqual(response.status_code, 200, good)
+
+    def test_register_checks_the_name_too(self):
+        response = self.client.post("/api/auth/register", json={
+            "username": "newbie1", "password": "secret123", "real_name": "微信abc888"})
+        self.assertEqual(response.status_code, 422)
+        ok = self.client.post("/api/auth/register", json={
+            "username": "newbie2", "password": "secret123"})
+        self.assertEqual(ok.status_code, 200, "姓名可以先不填，签约前再补")
 
 
 class TestPassword(ApiTestCase):

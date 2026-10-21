@@ -31,7 +31,7 @@ import HeroBanner from './components/HeroBanner'
 // 让他先看半秒白屏不值当
 import AuthPage from './components/AuthPage'
 import HomeSections from './components/HomeSections'
-import ActiveFilters from './components/ActiveFilters'
+import ActiveFilters, { filterChips } from './components/ActiveFilters'
 import RelaxHints from './components/RelaxHints'
 import CompareBar from './components/CompareBar'
 import FilterBar from './components/FilterBar'
@@ -103,6 +103,22 @@ function toFilters(parsed) {
 // 交给大模型，由它给出最终结果——两者同时参与，不是二选一。
 //
 const PAGE_SIZE = 12
+
+/** 一组条件的一句话摘要：「中山区 · 两室一厅 · 3000 元以内」。搜索记录与订阅名都用它 */
+function summarizeFilters(filters) {
+  return filterChips(filters || {}).map((chip) => chip.label).join(' · ')
+}
+
+/** 「3 分钟前」「昨天」这种说法。搜索记录看的是「我最近在找什么」，精确时刻没有意义 */
+function timeAgo(iso) {
+  if (!iso) return ''
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (!Number.isFinite(minutes) || minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} 小时前`
+  const days = Math.round(minutes / 60 / 24)
+  return days === 1 ? '昨天' : `${days} 天前`
+}
 
 export default function App() {
   const [text, setText] = useState('')
@@ -389,9 +405,12 @@ export default function App() {
       setPage(nextPage)
       setOnline(true)
       setError('')
+      // 返回套数：搜索记录要连同「当时搜到几套」一起记
+      return data.total || 0
     } catch (err) {
       setError(err.message)
       setOnline(false)
+      return null
     }
   }
 
@@ -418,14 +437,17 @@ export default function App() {
       if (!parsed.ok) {
         // 一个条件都没解析出来——那多半是个地名（「桂林街」「青泥洼桥」）。
         // 直接当关键词搜，别回一句「没听懂」把人打发走。
-        await byKeyword(content)
+        const { next, found } = await byKeyword(content)
+        history.remember(content, next, found)
         return
       }
       // 覆盖式合并：这一句话表达的是一次新的检索意图，
       // 和上一句的条件叠加只会得到一个谁也没要过的结果
       const next = toFilters(parsed)
       setFilters(next)
-      await loadPage(1, true, next)
+      const found = await loadPage(1, true, next)
+      // 记的是解析出来、真正生效的条件——下次点这条直接套用，不再解析一遍
+      history.remember(content, next, found)
     } catch (err) {
       // **智能体不通时，这个框仍然要能找房。**
       //
@@ -436,7 +458,8 @@ export default function App() {
       // **先搜，再报。**
       // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
       // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
-      await byKeyword(content)
+      const { next, found } = await byKeyword(content)
+      history.remember(content, next, found)
       setError('智能找房暂时用不了，先按关键词帮你搜了；也可以用下面的筛选条件。')
     } finally {
       setBusy(false)
@@ -466,11 +489,31 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }
 
-  function byKeyword(word) {
+  async function byKeyword(word) {
     const next = { ...filters, keyword: (word || '').trim() }
     if (!next.keyword) delete next.keyword
     setFilters(next)
-    return loadPage(1, true, next)
+    const found = await loadPage(1, true, next)
+    return { next, found }
+  }
+
+  /** 从搜索记录恢复：**直接套用当时生效的条件**，不再交给智能体解析一遍。
+   *  旧版记录只有一句话，按原来的方式重搜。 */
+  function restoreSearch(entry) {
+    setShowHistory(false)
+    if (!entry.filters) {
+      setText(entry.q)
+      search(null, entry.q)
+      return
+    }
+    setText(entry.q || '')
+    setSearched(entry.q || '')
+    setParsed(null)
+    setSaveState('')
+    setFilters(entry.filters)
+    if (route.name !== 'list') go('list', 'search')
+    loadPage(1, true, entry.filters)
+      .then((found) => history.remember(entry.q, entry.filters, found))
   }
 
   /** 把当前这组条件存进「我的搜索」（K-09）。
@@ -478,14 +521,15 @@ export default function App() {
    * 存的是 filters 本身，不是那句话——用户之后要的是「按这组条件再找一次」，
    * 而条件已经是结构化的了，没必要再让智能体翻译一遍。
    */
-  async function saveCurrentSearch() {
+  async function saveCurrentSearch(conditions = filters, name = searched) {
     if (!user) {
       setShowAuth(true)
       return
     }
     setSaveState('saving')
     try {
-      await api.createSavedSearch(filters)
+      // 名字用那句话；纯筛选的用条件摘要——「我的订阅」里得认得出是哪一组
+      await api.createSavedSearch(conditions, (name || summarizeFilters(conditions)).slice(0, 50))
       setSaveState('saved')
     } catch (err) {
       setSaveState('')
@@ -508,7 +552,7 @@ export default function App() {
     const next = { ...filters, district }
     if (!district) delete next.district
     setFilters(next)
-    loadPage(1, true, next)
+    loadPage(1, true, next).then((found) => history.refine(searched, next, found))
   }
 
   /** 应用筛选条件。
@@ -525,7 +569,8 @@ export default function App() {
     if (filters.keyword) merged.keyword = filters.keyword
     if (filters.features) merged.features = filters.features
     setFilters(merged)
-    loadPage(1, true, merged)
+    // 搜完紧接着收窄：更新刚才那条搜索记录，而不是每点一下多一条
+    loadPage(1, true, merged).then((found) => history.refine(searched, merged, found))
   }
 
   async function toggleFavorite(houseNo) {
@@ -785,7 +830,6 @@ export default function App() {
               // 用户看到的是什么，点下去就搜什么，所见即所得。
               const q = text.trim() || EXAMPLES[hintIdx]
               if (!text.trim()) setText(q)
-              history.remember(q)
               setShowHistory(false)
               search(null, q)
             }}
@@ -819,33 +863,52 @@ export default function App() {
                     清空
                   </button>
                 </div>
-                {history.match(text).map((q) => (
-                  <div className="sh-item" key={q}>
-                    <button
-                      type="button"
-                      className="sh-text"
-                      // mousedown 里阻止默认，免得输入框先失焦把下拉关掉
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setText(q)
-                        setShowHistory(false)
-                        history.remember(q)
-                        search(null, q)
-                      }}
-                    >
-                      {q}
-                    </button>
-                    <button
-                      type="button"
-                      className="sh-del"
-                      aria-label={`删除记录：${q}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => history.forget(q)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                {history.match(text).map((h) => {
+                  const summary = summarizeFilters(h.filters)
+                  const title = h.q || summary || '全部房源'
+                  const meta = [h.q && summary, h.total != null && `${h.total} 套`,
+                                timeAgo(h.at)].filter(Boolean).join(' · ')
+                  return (
+                    <div className="sh-item" key={h.q + JSON.stringify(h.filters || {})}>
+                      <button
+                        type="button"
+                        className="sh-text"
+                        // mousedown 里阻止默认，免得输入框先失焦把下拉关掉
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => restoreSearch(h)}
+                      >
+                        {title}
+                        {meta && (
+                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                            {meta}
+                          </small>
+                        )}
+                      </button>
+                      {h.filters && (
+                        // 把这一条变成订阅：有符合条件的新房上架就发站内消息（K-09）
+                        <button
+                          type="button"
+                          className="sh-del"
+                          title="有符合这组条件的新房上架时提醒我"
+                          aria-label={`订阅：${title}`}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => saveCurrentSearch(h.filters, h.q || summary)}
+                        >
+                          提醒
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="sh-del"
+                        aria-label={`删除记录：${title}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => history.forget(h)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </form>
@@ -973,7 +1036,7 @@ export default function App() {
                 onChange={(next) => {
                   setFilters(next)
                   setSaveState('')
-                  loadPage(1, true, next)
+                  loadPage(1, true, next).then((found) => history.refine(searched, next, found))
                 }}
               />
             )}
@@ -1000,6 +1063,19 @@ export default function App() {
           </button>
           <h3>{LIST_TITLE[listKind] || '房源'}</h3>
           <span className="count">共 {total} 套</span>
+          {/* 把当前这组条件订阅下来：有符合的新房上架就发站内消息（K-09）。
+              不是 9-10 撤掉的那个「保存这组条件」——那个要用户预判以后还用不用，
+              这个是「现在没有合适的，有了告诉我」，正是搜完不满意时的念头 */}
+          {hasFilters && (
+            <button
+              className="btn ghost small"
+              disabled={saveState === 'saving' || saveState === 'saved'}
+              onClick={() => saveCurrentSearch()}
+            >
+              {saveState === 'saved' ? '已订阅，有新房会提醒你'
+                : saveState === 'saving' ? '订阅中…' : '有新房时提醒我'}
+            </button>
+          )}
         </div>
         )}
 
@@ -1029,7 +1105,7 @@ export default function App() {
                 onPick={(next) => {
                   setFilters(next)
                   setSaveState('')
-                  loadPage(1, true, next)
+                  loadPage(1, true, next).then((found) => history.refine(searched, next, found))
                 }}
               />
             )}
