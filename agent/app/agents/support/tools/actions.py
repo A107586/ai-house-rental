@@ -790,7 +790,10 @@ def _propose_pay_bill(text, token, backend, context):
 
 
 def _live_appointments(token, backend):
-    rows = _rows(backend.get("/api/appointments/mine", token=token))
+    # 取消 / 改期的都是**我约的**。不带 side 时，房东账号会拿到别人约他房子的预约——
+    # 而后端允许房东取消那些，「取消我的看房」就可能取消掉一个陌生人的（2026-10-22）
+    rows = _rows(backend.get("/api/appointments/mine", params={"side": "tenant"},
+                             token=token))
     return [r for r in rows if r.get("status") in ("pending", "confirmed",
                                                    "待审核", "已确认")]
 
@@ -1083,8 +1086,9 @@ def _propose_submit_repair(text, token, backend, context):
 
     house_no = context.get("house_no") or ""
     if not house_no:
-        # 报修的对象一般是自己正在租的房子，从生效租约里取
-        rows = _rows(backend.get("/api/contracts/mine", token=token))
+        # 报修的对象一般是自己正在租的房子，从生效租约里取（只看我作为租客的）
+        rows = _rows(backend.get("/api/contracts/mine", params={"side": "tenant"},
+                                 token=token))
         active = [c for c in rows if c.get("status") in ("active", "生效中")]
         if not active:
             return (NOT_APPLICABLE,
@@ -1441,7 +1445,9 @@ def _propose_handle_appointment(text, token, backend, context):
     真去处理还会 403。`/mine` 才是「与我有关的」，房东、租客、
     受托中介各取各的那一份。
     """
-    rows = _rows(backend.get("/api/appointments/mine", token=token))
+    # 只要「等我确认的」：同一个账号自己约别人房子的那些，他确认不了（后端 403）
+    rows = _rows(backend.get("/api/appointments/mine", params={"side": "landlord"},
+                             token=token))
     pending = [r for r in rows if r.get("status") in ("pending", "待审核")]
     if not pending:
         return NOT_APPLICABLE, "没有待处理的看房预约。", None, None
@@ -1478,7 +1484,8 @@ def _propose_handle_appointment(text, token, backend, context):
 
 def _propose_update_repair(text, token, backend, context):
     """房东把工单标记为已完成。"""
-    rows = _rows(backend.get("/api/repairs", token=token))
+    # 我要处理的工单，不含我自己作为租客报的（那些我处理不了）
+    rows = _rows(backend.get("/api/repairs", params={"side": "landlord"}, token=token))
     open_rows = [r for r in rows
                  if r.get("status") not in ("done", "已完成", "closed")]
     if not open_rows:
@@ -1508,7 +1515,9 @@ def _propose_activate_contract(text, token, backend, context):
     这是整套系统里金额最大、后果最长的一次点击：确认之后合同生效，
     整个租期的账单一次性排出来。摘要写得含糊等于骗签字。
     """
-    rows = _rows(backend.get("/api/contracts/mine", token=token))
+    # 确认签约是租客的动作：房东账号会拿到他自己发起、等对方确认的那些（确认会 403）
+    rows = _rows(backend.get("/api/contracts/mine", params={"side": "tenant"},
+                             token=token))
     waiting = [c for c in rows
                if c.get("status") in ("pending", "待生效", "待确认")]
     if not waiting:

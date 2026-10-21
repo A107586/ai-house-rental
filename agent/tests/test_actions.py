@@ -289,6 +289,31 @@ class TestCardContents(unittest.TestCase):
         actions.propose("end_contract", "我要退租", "tok", backend)
         self.assertEqual(backend.params, ["tenant"])
 
+    def test_each_action_asks_for_its_own_side(self):
+        """一个账号可能既是租客又是房东。不带 side 时两份数据混在一起：
+        「取消我的看房」可能取消掉陌生人约他房子的那条（后端允许房东取消），
+        别的几项则是挑中了自己那一侧根本办不了的记录、点确认才 403。"""
+        class Recording(RecordingBackend):
+            def __init__(self):
+                super().__init__()
+                self.sides = {}
+
+            def get(self, path, params=None, token=None):
+                self.sides.setdefault(path, set()).add((params or {}).get("side"))
+                return super().get(path, params, token)
+
+        expected = {
+            ("cancel_viewing", "取消看房"): ("/api/appointments/mine", "tenant"),
+            ("reschedule_viewing", "看房改期"): ("/api/appointments/mine", "tenant"),
+            ("activate_contract", "确认签约"): ("/api/contracts/mine", "tenant"),
+            ("handle_appointment", "确认预约"): ("/api/appointments/mine", "landlord"),
+            ("update_repair", "工单完成"): ("/api/repairs", "landlord"),
+        }
+        for (name, text), (path, side) in expected.items():
+            backend = Recording()
+            actions.propose(name, text, "tok", backend)
+            self.assertEqual(backend.sides.get(path), {side}, name)
+
     def test_money_and_irreversible_actions_are_high_risk(self):
         backend = RecordingBackend(dict(UNPAID, **ACTIVE_CONTRACT))
         for name, text in [("pay_bill", "帮我交房租"),
