@@ -1137,7 +1137,7 @@ def landlord_dashboard(user: User = Depends(require_staff),
     unpaid = [b for b in bills if b.status == "unpaid"]
 
     this_month = datetime.now().strftime("%Y-%m")
-    month_income = sum(float(b.amount) for b in paid
+    month_income = sum(b.net_amount for b in paid
                        if b.paid_at and b.paid_at.strftime("%Y-%m") == this_month)
 
     pending_appointments = session.scalars(
@@ -1155,7 +1155,7 @@ def landlord_dashboard(user: User = Depends(require_staff),
         if not bill.paid_at:
             continue
         monthly.setdefault(bill.paid_at.strftime("%Y-%m"), 0.0)
-        monthly[bill.paid_at.strftime("%Y-%m")] += float(bill.amount)
+        monthly[bill.paid_at.strftime("%Y-%m")] += bill.net_amount
 
     # 中间没有收入的月份要补 0，否则曲线会把 1 月和 5 月画成相邻两根柱子，
     # 看上去像是「一直有稳定收入」
@@ -1527,7 +1527,7 @@ def admin_landlords(keyword: str = "", user: User = Depends(require_login),
                       if house_owner.get(r.house_id) == u.id]
 
         month_income = sum(
-            float(b.amount) for b in my_bills
+            b.net_amount for b in my_bills
             if b.status == "paid" and b.paid_at
             and b.paid_at.strftime("%Y-%m") == this_month)
 
@@ -2287,7 +2287,7 @@ def landlord_tenants(user: User = Depends(require_staff),
         entry["contracts"].append(contract)
         for bill in contract.bills:
             if bill.status == "paid":
-                entry["paid"] += float(bill.amount)
+                entry["paid"] += bill.net_amount
             elif bill.status == "unpaid":
                 entry["unpaid"] += float(bill.amount)
                 if bill.overdue:
@@ -2353,7 +2353,7 @@ def landlord_tenant_detail(tenant_id: int, user: User = Depends(require_staff),
     return {
         "tenant": {k: profile.get(k) for k in ("id", "username", "real_name", "phone")},
         "summary": {
-            "paid_total": round(sum(float(b.amount) for b in bills if b.status == "paid"), 2),
+            "paid_total": round(sum(b.net_amount for b in bills if b.status == "paid"), 2),
             "unpaid_total": round(sum(float(b.amount) for b in unpaid), 2),
             "overdue_count": sum(1 for b in unpaid if b.overdue),
             "overdue_total": round(sum(float(b.amount) for b in unpaid if b.overdue), 2),
@@ -2537,8 +2537,11 @@ def stats(user: User | None = Depends(current_user),
     contract_active = scalar(select(func.count(Contract.id))
                              .where(Contract.status == "active"))
 
-    income_received = scalar(select(func.sum(Bill.amount))
-                             .where(Bill.status == "paid"), 0.0)
+    # 实收 = 已缴 − 已退（押金结算、提前退租退回的预付租金）
+    income_received = (float(scalar(select(func.sum(Bill.amount))
+                                    .where(Bill.status == "paid"), 0.0))
+                       - float(scalar(select(func.sum(Refund.refund_amount))
+                                      .where(Refund.status == "succeeded"), 0.0)))
     income_pending = scalar(select(func.sum(Bill.amount))
                             .where(Bill.status == "unpaid"), 0.0)
     # 逾期的判定与 Bill.overdue 属性保持一致：未缴且到期日已过。
@@ -2553,14 +2556,15 @@ def stats(user: User | None = Depends(current_user),
     # 月份用 strftime 分组：SQLite 与 MySQL 的日期函数名不同，
     # 这里取的是行数最少的那部分数据（只有已缴租金），
     # 在 Python 侧分组反而更省事也更可移植。
-    paid_rents = session.execute(
-        select(Bill.paid_at, Bill.amount).where(
+    paid_rents = session.scalars(
+        select(Bill).where(
             Bill.status == "paid", Bill.type == "rent",
             Bill.paid_at.isnot(None))).all()
     monthly = {}
-    for paid_at, amount in paid_rents:
-        key = paid_at.strftime("%Y-%m")
-        monthly[key] = monthly.get(key, 0.0) + float(amount)
+    for bill in paid_rents:
+        key = bill.paid_at.strftime("%Y-%m")
+        # 退回的预付租金要扣掉，否则这个月的「已收租金」比实际多
+        monthly[key] = monthly.get(key, 0.0) + bill.net_amount
 
     # 公开的一档：房源侧的事实。这些数字本来就写在每一张房源卡片上，
     # 聚合起来也推不出别的；首页地图（未登录可用）靠 by_district 上色
@@ -2990,14 +2994,21 @@ def contract_detail(contract_no: str, user: User = Depends(require_login),
                 "title": "缴纳%s" % ("押金" if bill.type == "deposit" else "租金"),
                 "detail": "%s · %d 元" % (bill.bill_no, round(float(bill.amount)))})
     if contract.ended_at:
-        refunded = contract.deposit_refund
+        # 原先这里写「退还押金 X 元」，押金一分没交过也照写——和退租通知里的
+        # 「押金未曾缴纳，无需退款」对不上。退了什么，以退款流水为准，逐笔列出
         timeline.append({
             "at": contract.ended_at.strftime("%Y-%m-%d %H:%M"),
             "title": "合同结束",
-            "detail": "%s%s" % (
-                contract.end_reason or "退租",
-                ("，退还押金 %d 元" % round(float(refunded)))
-                if refunded is not None else "")})
+            "detail": contract.end_reason or "退租"})
+    for bill in bills:
+        for refund in bill.refunds:
+            timeline.append({
+                "at": refund.refunded_at.strftime("%Y-%m-%d %H:%M"),
+                "title": "押金退款" if refund.type == "deposit" else "退回预付租金",
+                "detail": "%s · %s 元%s" % (
+                    refund.refund_no, leasing._money(refund.refund_amount),
+                    "（扣款 %s 元）" % leasing._money(refund.deduct_amount)
+                    if refund.type == "deposit" and float(refund.deduct_amount or 0) else "")})
     timeline.sort(key=lambda item: item["at"])
 
     return {
@@ -3008,6 +3019,7 @@ def contract_detail(contract_no: str, user: User = Depends(require_login),
             "paid_count": len(paid),
             "unpaid_count": len(unpaid),
             "paid_amount": round(sum(float(b.amount) for b in paid), 2),
+            "refunded_amount": round(sum(b.refunded_amount for b in bills), 2),
             "unpaid_amount": round(sum(float(b.amount) for b in unpaid), 2),
             "overdue_count": sum(1 for b in unpaid if b.overdue),
         },
@@ -3263,6 +3275,101 @@ def my_refunds(user: User = Depends(require_login),
                               Contract.landlord_id == user.id))
     rows = session.scalars(stmt.order_by(Refund.refunded_at.desc())).all()
     return {"total": len(rows), "list": [row.to_dict() for row in rows]}
+
+
+@app.get("/api/contracts/{contract_no}/settlement")
+def contract_settlement(contract_no: str, deduct: float = 0,
+                        user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """退租结算预览：**如果今天退租**，押金退多少、预付租金退多少、哪些账单作废、还欠多少。
+
+    和真正退租用的是同一份计算（leasing.plan_settlement），只是不落库——
+    弹窗里显示的数和点了确认之后的数不会对不上。
+    租客在看房东的提前退租申请时，扣款按申请里写明的那个数算。
+    """
+    contract = _visible_contract(session, contract_no, user)
+    if contract.status != "active":
+        raise HTTPException(status_code=409, detail="只有生效中的合同可以结算")
+    if (_contract_side(contract, user) == "tenant" and contract.request_type == "end"
+            and contract.request_by == "landlord"):
+        deduct = float(contract.request_deduct or 0)
+    try:
+        plan = leasing.plan_settlement(contract, deduct)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"ok": True, "settlement": leasing.settlement_summary(plan)}
+
+
+@app.get("/api/money/records")
+def money_records(side: Literal["", "tenant", "landlord"] = "",
+                  user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """资金流水：**真正发生过的每一笔钱**——缴费成功的，和退回去的。
+
+    原先缴费凭证只能一张张点开账单看，退款记录有接口（/api/refunds/mine）
+    却没有任何页面用它，退了多少钱、哪天退的，租客房东都看不到。
+    这里按时间合成一张流水；`direction` 从当前这一方的角度写：
+    租客交钱是 out、收到退款是 in；房东正好相反。管理员看全平台，不分方向。
+
+    失败、超时关单的支付尝试不在这里（没有发生资金流动），挂在各自的账单上（attempts）。
+    """
+    contracts = select(Contract.id)
+    if user.role != "admin" or side:
+        if side == "tenant":
+            contracts = contracts.where(Contract.tenant_id == user.id)
+        elif side == "landlord":
+            contracts = contracts.where(Contract.landlord_id == user.id)
+        else:
+            contracts = contracts.where(or_(Contract.tenant_id == user.id,
+                                            Contract.landlord_id == user.id))
+    contract_ids = [row[0] for row in session.execute(contracts).all()]
+    bills = session.scalars(select(Bill).where(
+        Bill.contract_id.in_(contract_ids or [-1]))).all()
+    by_id = {c.id: c for c in session.scalars(select(Contract).where(
+        Contract.id.in_(contract_ids or [-1]))).all()}
+
+    def viewer_is_tenant(contract):
+        if side:
+            return side == "tenant"
+        return user.role != "admin" and contract.tenant_id == user.id
+
+    def direction(contract, money_to_landlord):
+        if user.role == "admin" and not side:
+            return ""
+        return ("out" if money_to_landlord else "in") if viewer_is_tenant(contract) \
+            else ("in" if money_to_landlord else "out")
+
+    rows = []
+    for bill in bills:
+        contract = by_id.get(bill.contract_id)
+        house_no = contract.house.house_no if contract and contract.house else ""
+        what = "押金" if bill.type == "deposit" else "租金"
+        for payment in bill.payments:
+            if payment.status != "succeeded" or not payment.paid_at:
+                continue
+            rows.append({
+                "kind": "payment", "no": payment.trade_no, "title": "缴纳%s" % what,
+                "detail": bill.period or bill.remark, "amount": float(payment.amount),
+                "direction": direction(contract, True), "method": payment.method,
+                "at": payment.paid_at.strftime("%Y-%m-%d %H:%M"),
+                "bill_no": bill.bill_no, "house_no": house_no,
+                "contract_no": contract.contract_no if contract else ""})
+        for refund in bill.refunds:
+            if refund.status != "succeeded":
+                continue
+            rows.append({
+                "kind": "refund", "no": refund.refund_no,
+                "title": "押金退款" if refund.type == "deposit" else "退回预付租金",
+                "detail": refund.reason, "amount": float(refund.refund_amount),
+                "direction": direction(contract, False), "method": "",
+                "at": refund.refunded_at.strftime("%Y-%m-%d %H:%M"),
+                "bill_no": bill.bill_no, "house_no": house_no,
+                "contract_no": contract.contract_no if contract else ""})
+    rows.sort(key=lambda r: r["at"], reverse=True)
+    total_in = sum(r["amount"] for r in rows if r["direction"] == "in")
+    total_out = sum(r["amount"] for r in rows if r["direction"] == "out")
+    return {"total": len(rows), "list": rows[:300],
+            "total_in": round(total_in, 2), "total_out": round(total_out, 2)}
 
 
 # ------------------------------------------------------------------ 站内消息

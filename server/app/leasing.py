@@ -19,7 +19,7 @@
 
 import uuid
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 
@@ -510,8 +510,8 @@ def start_payment(session, bill, user=None, method="alipay", idempotency_key=Non
     _guard_payable(bill)
 
     # 同一张账单上如果压着一张过期的 pending 单，先关掉。
-    # 不关的话它会一直占着 bill_id 的唯一约束，用户重新发起时被挡住，
-    # 表现为「点了没反应」——这是三段式最容易踩的坑。
+    # **关掉的、失败的那次都留着**，新的一次另起一条（2026-10-22）。原先 bill_id 唯一：
+    # 关单只改状态，旧行照样占着约束，重新发起撞约束，账单从此付不了。
     existing = bill.payment
     if existing is not None:
         if existing.status == "succeeded":
@@ -526,8 +526,9 @@ def start_payment(session, bill, user=None, method="alipay", idempotency_key=Non
     order = gateway.get_gateway().create(trade_no, bill.amount,
                                          "账单 %s" % bill.bill_no)
 
-    fields = dict(
+    payment = Payment(
         trade_no=trade_no,
+        bill_id=bill.id,
         user_id=user.id if user else None,
         amount=bill.amount,
         method=method,
@@ -536,23 +537,9 @@ def start_payment(session, bill, user=None, method="alipay", idempotency_key=Non
         gateway=gateway.get_gateway().name,
         gateway_trade_no=order["gateway_trade_no"],
         expire_at=datetime.fromtimestamp(order["expire_at"]),
-        failure_reason="", notify_payload="", notified_at=None, paid_at=None,
     )
-    if existing is not None:
-        # **一张账单只有一条支付记录**（bill_id 唯一），记的是最近一次尝试。
-        # 关掉的、失败的那次就地换成新的一单，而不是再插一条。
-        #
-        # 原先在这里新建一条：关单只改了状态，旧行照样占着 bill_id，
-        # 新行撞唯一约束，接口报「该账单正在支付或已经支付」——
-        # 打开收银台没付、15 分钟后回来的人，这张账单**从此再也付不了**，
-        # 线下代收也一样（pay_bill 走的是同一个函数）。2026-10-22 实测。
-        # 换了 trade_no，旧单迟到的回调查不到这条记录，不会误入账。
-        payment = existing
-        for name, value in fields.items():
-            setattr(payment, name, value)
-    else:
-        payment = Payment(bill_id=bill.id, **fields)
-        session.add(payment)
+    session.add(payment)
+    bill.payments.append(payment)
     payment.pay_url = order["pay_url"]   # 仅本次响应用，不落库
     session.flush()
     return payment
@@ -642,40 +629,127 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
 
 # ---------------------------------------------------------------- 退租
 
-def end_contract(session, contract, reason="", deduct=0):
-    """退租或到期结束。
+def _bill_period(bill, contract):
+    """一张租金账单覆盖的区间 [起, 止)。押一付三的一张覆盖三个月。"""
+    rent = Decimal(str(contract.rent or 0))
+    span = 1
+    if rent > 0:
+        span = max(int((Decimal(str(bill.amount)) / rent).to_integral_value(ROUND_HALF_UP)), 1)
+    return bill.due_date, add_months(bill.due_date, span)
 
-    未到期的租金账单一律作废——人已经搬走了还挂着待缴账单是不对的。
-    押金按扣款结算，扣款不能超过押金本身。
+
+def _split_by_days(amount, start, end, moment):
+    """按天拆一笔钱：住过的部分、没住的部分、住了几天、一共几天。"""
+    amount = Decimal(str(amount))
+    total = (end.date() - start.date()).days
+    if total <= 0:
+        return amount, Decimal("0"), 0, 0
+    lived = min(max((moment.date() - start.date()).days, 0), total)
+    lived_part = (amount * lived / total).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    return lived_part, amount - lived_part, lived, total
+
+
+def plan_settlement(contract, deduct=0, now=None):
+    """退租结算算一遍，**不落库**。结算预览和真正退租用的是同一份结果。
+
+    以「今天」为退租日，逐张账单：
+
+    - 押金：已缴的按扣款退；没缴的作废（押金是担保，不是欠款）；
+    - 租金，没缴的：整段在今天之后 → 作废；今天正处在这一期里 → **按住过的天数折算**，
+      剩下的作废；整段已经住完 → 原样保留，是真欠款（合同结束后只能线下结）；
+    - 租金，已缴的：整段在今天之后 → **全额退回**；今天正处在这一期里 → 没住的天数退回；
+      住完的不动。
+
+    原先只作废未缴的、未到期的租金：押一付三的租客月初交了三个月、月中搬走，
+    后两个半月的钱就这么留在房东那边——而系统生成的合同里写着
+    「甲方应退还已付但尚未居住月份的租金」（2026-10-22）。
+
+    违约金不在这里自动扣：提前退租谁违约、扣多少是双方的事，
+    房东要扣就从押金里扣（deduct），租客同意的也是那个数。
     """
-    if contract.status != "active":
-        raise ValueError("只有生效中的合同可以退租")
-
+    now = now or datetime.now()
     deduct = Decimal(str(deduct or 0))
     if deduct < 0:
         raise ValueError("扣款不能为负")
-    deposit = Decimal(str(contract.deposit))
+    deposit = Decimal(str(contract.deposit or 0))
     if deduct > deposit:
         raise ValueError("扣款不能超过押金")
 
-    today = datetime.now()
-    cancelled = 0
-    for bill in contract.bills:
-        if bill.status != "unpaid":
+    plan = {"deposit": {"amount": deposit, "deduct": deduct, "refund": deposit - deduct,
+                        "bill": None, "paid": False},
+            "cancel": [], "prorate": [], "rent_refunds": [], "arrears": []}
+    for bill in sorted(contract.bills, key=lambda b: (b.due_date, b.id)):
+        if bill.type == "deposit":
+            if bill.status == "paid":
+                plan["deposit"].update(bill=bill, paid=True)
+            elif bill.status == "unpaid":
+                plan["cancel"].append(bill)
             continue
-        if bill.type == "rent" and bill.due_date > today:
-            bill.status = "cancelled"
-            bill.remark = (bill.remark + " · 退租作废").strip(" ·")
-            cancelled += 1
-        elif bill.type == "deposit":
-            # **没交的押金也作废。** 押金是给这份租约的担保，租约结束它就没有意义了，
-            # 不是一笔欠款。原先只作废未到期的租金，押金账单留着 unpaid：
-            # 租客的「待缴」里永远挂着一笔付不了的押金（合同已结束，接口拒收），
-            # 页面还提示「这笔欠款请与房东线下结清」——让人去线下补交一笔
-            # 下面结算里已经写明「无需退款」的押金。2026-10-22 实测。
-            bill.status = "cancelled"
-            bill.remark = (bill.remark + " · 退租作废，押金未缴无需再缴").strip(" ·")
-            cancelled += 1
+        if bill.type != "rent" or bill.status not in ("paid", "unpaid"):
+            continue
+        start, end = _bill_period(bill, contract)
+        lived_part, unlived_part, lived, total = _split_by_days(bill.amount, start, end, now)
+        if bill.status == "unpaid":
+            if lived == 0:
+                plan["cancel"].append(bill)
+            elif lived < total:
+                plan["prorate"].append({"bill": bill, "amount": lived_part,
+                                        "lived": lived, "total": total})
+            else:
+                plan["arrears"].append(bill)
+        elif unlived_part > 0 and lived < total:
+            plan["rent_refunds"].append({"bill": bill, "refund": unlived_part,
+                                         "kept": lived_part, "lived": lived, "total": total})
+    return plan
+
+
+def settlement_summary(plan):
+    """把结算方案转成接口能直接返回的样子（金额转 float，账单换成编号）。"""
+    deposit = plan["deposit"]
+    rent_refund = sum((r["refund"] for r in plan["rent_refunds"]), Decimal("0"))
+    arrears = (sum((Decimal(str(b.amount)) for b in plan["arrears"]), Decimal("0"))
+               + sum((p["amount"] for p in plan["prorate"]), Decimal("0")))
+    deposit_refund = deposit["refund"] if deposit["paid"] else Decimal("0")
+    return {
+        "deposit": float(deposit["amount"]), "deposit_paid": deposit["paid"],
+        "deduct": float(deposit["deduct"]),
+        "deposit_refund": float(deposit_refund),
+        "rent_refunds": [{"bill_no": r["bill"].bill_no, "period": r["bill"].period,
+                          "paid": float(r["bill"].amount), "refund": float(r["refund"]),
+                          "lived_days": r["lived"], "total_days": r["total"]}
+                         for r in plan["rent_refunds"]],
+        "rent_refund": float(rent_refund),
+        "cancelled": [{"bill_no": b.bill_no, "type": b.type, "amount": float(b.amount)}
+                      for b in plan["cancel"]],
+        "prorated": [{"bill_no": p["bill"].bill_no, "period": p["bill"].period,
+                      "original": float(p["bill"].amount), "amount": float(p["amount"]),
+                      "lived_days": p["lived"], "total_days": p["total"]}
+                     for p in plan["prorate"]],
+        "arrears": float(arrears),
+        "refund_total": float(deposit_refund + rent_refund),
+    }
+
+
+def end_contract(session, contract, reason="", deduct=0):
+    """退租或到期结束：按 plan_settlement 结算，**每一笔退款都落一条流水**。"""
+    if contract.status != "active":
+        raise ValueError("只有生效中的合同可以退租")
+
+    today = datetime.now()
+    plan = plan_settlement(contract, deduct, today)
+    summary = settlement_summary(plan)
+    deposit_info = plan["deposit"]
+    deduct, deposit = deposit_info["deduct"], deposit_info["amount"]
+
+    for bill in plan["cancel"]:
+        bill.status = "cancelled"
+        note = "退租作废，押金未缴无需再缴" if bill.type == "deposit" else "退租作废"
+        bill.remark = (bill.remark + " · " + note).strip(" ·")
+    for item in plan["prorate"]:
+        bill = item["bill"]
+        bill.remark = (bill.remark + " · 按实际居住 %d/%d 天折算，原 %s 元" % (
+            item["lived"], item["total"], _money(bill.amount))).strip(" ·")
+        bill.amount = item["amount"]
 
     contract.status = "ended"
     contract.ended_at = today
@@ -692,20 +766,36 @@ def end_contract(session, contract, reason="", deduct=0):
     # 押金没收到时也不需要「退 0 元」的记录：没有发生的资金流动不该留痕，
     # 留了反而让对账的人以为退过。合同上的 deposit_refund 仍照常写，
     # 那是「应退多少」的结算结论，与「实际退了多少」是两回事。
-    deposit_bill = next((b for b in contract.bills
-                         if b.type == "deposit" and b.status == "paid"), None)
     refund = None
+    deposit_bill = deposit_info["bill"]
     if deposit_bill:
         refund = Refund(
-            refund_no=_serial("TK"), contract_id=contract.id,
-            payment_id=(deposit_bill.payment.id
-                        if deposit_bill.payment else None),
+            refund_no=_serial("TK"), contract_id=contract.id, type="deposit",
+            bill_id=deposit_bill.id,
+            payment_id=(deposit_bill.payment.id if deposit_bill.payment else None),
             original_amount=deposit, deduct_amount=deduct,
             refund_amount=deposit - deduct, reason=reason or "退租押金结算",
         )
         session.add(refund)
+        deposit_bill.refunds.append(refund)
         # 押金账单本身也要标记已退，否则重复退租会再退一次
         deposit_bill.remark = (deposit_bill.remark + " · 已退款").strip(" ·")
+
+    # 已付未住的租金按天退回，每张账单一条流水
+    rent_records = []
+    for item in plan["rent_refunds"]:
+        bill = item["bill"]
+        record = Refund(
+            refund_no=_serial("TK"), contract_id=contract.id, type="rent", bill_id=bill.id,
+            payment_id=(bill.payment.id if bill.payment else None),
+            original_amount=bill.amount, deduct_amount=item["kept"],
+            refund_amount=item["refund"],
+            reason="退租日 %s，这一期住了 %d/%d 天，退回没住的部分" % (
+                today.strftime("%Y-%m-%d"), item["lived"], item["total"]))
+        session.add(record)
+        bill.refunds.append(record)
+        bill.remark = (bill.remark + " · 退租退回 %s 元" % _money(item["refund"])).strip(" ·")
+        rent_records.append(record)
 
     house = session.get(House, contract.house_id)
     if house and house.status == "rented":
@@ -714,21 +804,27 @@ def end_contract(session, contract, reason="", deduct=0):
 
     # 通知文案要与实际资金流动一致。押金从没收到过却告诉租客
     # 「退还押金 3000 元」，会直接引出「钱退哪去了」的质问。
+    parts = []
     if refund:
-        detail = "退还押金 %d 元%s。" % (
-            int(deposit - deduct),
-            ("，扣款 %d 元" % int(deduct)) if deduct else "")
+        parts.append("退还押金 %d 元%s" % (
+            int(deposit - deduct), ("（扣款 %d 元）" % int(deduct)) if deduct else ""))
     else:
-        detail = "本合同的押金未曾缴纳，无需退款。"
+        parts.append("本合同的押金未曾缴纳，无需退款")
+    if summary["rent_refund"]:
+        parts.append("退回已付未住的租金 %s 元" % _money(summary["rent_refund"]))
+    if summary["arrears"]:
+        parts.append("还有 %s 元住过期间的租金未缴，请与房东线下结清" % _money(summary["arrears"]))
     notify(session, contract.tenant_id, "contract", "合同已结束",
-           "合同 %s 已结束，%s" % (contract.contract_no, detail),
+           "合同 %s 已结束，%s。" % (contract.contract_no, "；".join(parts)),
            contract.contract_no)
     session.flush()
-    return {"cancelled_bills": cancelled,
-            # refund 是「应退金额」的结算结论，无论押金收没收到都算得出来；
+    return {"cancelled_bills": len(plan["cancel"]),
+            # refund 是「应退押金」的结算结论，无论押金收没收到都算得出来；
             # refund_record 是「实际退款流水」，没收到押金就没有这条。
             "refund": float(deposit - deduct),
-            "refund_record": refund.to_dict() if refund else None}
+            "refund_record": refund.to_dict() if refund else None,
+            "rent_refund_records": [r.to_dict() for r in rent_records],
+            "settlement": summary}
 
 
 def renew_contract(session, contract, months=12):

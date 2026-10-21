@@ -1,6 +1,6 @@
 classDiagram
     direction LR
-    class Api["合同与账单 · HTTP 接口（17 个）"] {
+    class Api["合同与账单 · HTTP 接口（18 个）"] {
         <<router>>
         +my_bills() GET
         +pay_bill(PayRequest) POST
@@ -14,6 +14,7 @@ classDiagram
         +renew_contract(ContractRenew) POST
         +withdraw_contract_request() DELETE
         +save_review_result(ReviewResultIn) POST
+        +contract_settlement() GET
         +payment_notify() POST
         +payment_receipt() GET
         +mock_pay() POST
@@ -45,6 +46,8 @@ classDiagram
         +close_payment(session, payment, reason)
         +sweep_expired_payments(session, now)
         +pay_bill(session, bill, user, method, idempotency_key)
+        +plan_settlement(contract, deduct, now)
+        +settlement_summary(plan)
         +end_contract(session, contract, reason, deduct)
         +renew_contract(session, contract, months)
         +request_change(session, contract, kind, by, months, reason, deduct)
@@ -96,6 +99,9 @@ classDiagram
         +decimal amount
         +str status
         +… 另 5 列（见数据库设计书）
+        +/payment
+        +/refunded_amount
+        +/net_amount
         +/overdue
         +to_dict()
     }
@@ -103,7 +109,7 @@ classDiagram
         <<entity>>
         +int id «PK»
         +str trade_no «UK»
-        +int bill_id «FK,UK»
+        +int bill_id «FK»
         +int user_id «FK»
         +decimal amount
         +str status
@@ -116,6 +122,8 @@ classDiagram
         +int id «PK»
         +str refund_no «UK»
         +int contract_id «FK»
+        +str type
+        +int bill_id «FK»
         +int payment_id «FK»
         +str status
         +… 另 5 列（见数据库设计书）
@@ -130,9 +138,10 @@ classDiagram
     User "1" -- "0..*" Contract : landlord_id
     User "0..1" -- "0..*" Contract : agent_id
     Contract "1" -- "0..*" Bill : contract_id
-    Bill "1" -- "0..1" Payment : bill_id
+    Bill "1" -- "0..*" Payment : bill_id
     User "0..1" -- "0..*" Payment : user_id
     Contract "1" -- "0..*" Refund : contract_id
+    Bill "0..1" -- "0..*" Refund : bill_id
     Payment "0..1" -- "0..*" Refund : payment_id
     m_leasing ..> Bill
     m_leasing ..> Contract

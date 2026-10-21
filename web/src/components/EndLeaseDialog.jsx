@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { api } from '../api'
 
 /**
  * 退租确认弹窗（K-01）。
@@ -84,7 +85,22 @@ export default function EndLeaseDialog({ contract, mode = 'tenant_request', onCo
   const amount = conf.editDeduct || accepting ? Number(deduct) : 0
   const valid = !conf.editDeduct || (deduct.trim() !== '' && Number.isFinite(amount)
     && amount >= 0 && amount <= deposit)
-  const refund = valid ? deposit - amount : null
+
+  // 结算预览：押金、已付未住的租金、作废与折算的账单、还欠多少——
+  // 和点了确认之后后端真正做的是同一份计算（GET /contracts/{no}/settlement）。
+  // 原先这里只算「押金 − 扣款」，提前退租退回的预付租金、按天折算的欠款一概看不见
+  const [plan, setPlan] = useState(null)
+  const [planError, setPlanError] = useState('')
+  useEffect(() => {
+    if (!valid) return undefined
+    let alive = true
+    const timer = setTimeout(() => {
+      api.contractSettlement(contract.contract_no, accepting ? 0 : amount)
+        .then((d) => { if (alive) { setPlan(d.settlement); setPlanError('') } })
+        .catch((err) => { if (alive) { setPlan(null); setPlanError(err.message) } })
+    }, 250)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [contract.contract_no, amount, valid, accepting])
 
   async function submit(e) {
     e.preventDefault()
@@ -164,21 +180,10 @@ export default function EndLeaseDialog({ contract, mode = 'tenant_request', onCo
             </label>
           )}
 
-          {/* 押金怎么算的要当场摊开。退租时用户最关心的就是「我能拿回多少」，
-              让他自己去减一次是没必要的，也容易和后端算出来的数对不上 */}
-          <dl className="settle">
-            <div><dt>押金</dt><dd>{Math.round(deposit)} 元</dd></div>
-            {(conf.editDeduct || accepting) && (
-              <div>
-                <dt>扣款</dt>
-                <dd>{valid && amount > 0 ? '−' + Math.round(amount) : '0'} 元</dd>
-              </div>
-            )}
-            <div className="settle-total">
-              <dt>预计退还押金</dt>
-              <dd>{refund === null ? '—' : Math.round(refund) + ' 元'}</dd>
-            </div>
-          </dl>
+          {/* 钱怎么算的要当场摊开。退租时用户最关心的就是「我能拿回多少、还欠多少」，
+              让他自己去算是没必要的，也容易和后端算出来的数对不上 */}
+          <SettlementList plan={valid ? plan : null} error={planError}
+                          showDeduct={conf.editDeduct || accepting} />
 
           <div className="fld-row">
             <button type="button" className="btn ghost block"
@@ -192,5 +197,58 @@ export default function EndLeaseDialog({ contract, mode = 'tenant_request', onCo
         </form>
       </div>
     </>
+  )
+}
+
+
+/** 以「今天退租」为准的结算明细。金额全部来自后端，前端不再自己减一遍。 */
+function SettlementList({ plan, error, showDeduct }) {
+  if (error) return <div className="reply failed">结算预览没算出来：{error}</div>
+  if (!plan) return <p className="desc">正在计算结算明细…</p>
+  const yuan = (v) => `${Math.round(v * 100) / 100} 元`
+  return (
+    <dl className="settle">
+      <div>
+        <dt>押金</dt>
+        <dd>{plan.deposit_paid ? yuan(plan.deposit) : '未缴纳，作废，无需再缴'}</dd>
+      </div>
+      {plan.deposit_paid && showDeduct && (
+        <div><dt>扣款</dt><dd>{plan.deduct > 0 ? '−' + yuan(plan.deduct) : '0 元'}</dd></div>
+      )}
+      {plan.deposit_paid && (
+        <div><dt>退还押金</dt><dd>{yuan(plan.deposit_refund)}</dd></div>
+      )}
+      {plan.rent_refunds.map((r) => (
+        <div key={r.bill_no}>
+          <dt>退回预付租金 {r.period}</dt>
+          <dd>
+            {yuan(r.refund)}
+            <span className="fld-hint">
+              {r.lived_days > 0 ? ` 已住 ${r.lived_days}/${r.total_days} 天` : ' 还没开始住'}
+            </span>
+          </dd>
+        </div>
+      ))}
+      {plan.prorated.map((p) => (
+        <div key={p.bill_no}>
+          <dt>本期租金按天折算 {p.period}</dt>
+          <dd>{yuan(p.original)} → {yuan(p.amount)}
+            <span className="fld-hint"> 住 {p.lived_days}/{p.total_days} 天</span></dd>
+        </div>
+      ))}
+      {plan.cancelled.length > 0 && (
+        <div><dt>作废的账单</dt><dd>{plan.cancelled.length} 张</dd></div>
+      )}
+      {plan.arrears > 0 && (
+        <div>
+          <dt>住过期间仍欠的租金</dt>
+          <dd className="warn-text">{yuan(plan.arrears)}（合同结束后线下结清）</dd>
+        </div>
+      )}
+      <div className="settle-total">
+        <dt>合计退给租客</dt>
+        <dd>{yuan(plan.refund_total)}</dd>
+      </div>
+    </dl>
   )
 }

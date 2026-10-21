@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import MoneyRecords from './MoneyRecords'
 import AgentQueue from './AgentQueue'
 import AgentRoster from './AgentRoster'
 import ConfigPanel from './ConfigPanel'
@@ -70,6 +71,8 @@ export default function AdminPanel({ user, onClose, embedded,
   // 同理：角色升级申请与内容审核的待办数，也得在第一屏就看得见
   const [rolePending, setRolePending] = useState(0)
   const [flagPending, setFlagPending] = useState(0)
+  // 全平台资金流水。订单总览原先只有租约和预约，**一分钱的流向都看不到**
+  const [money, setMoney] = useState(null)
 
   async function load() {
     setError('')
@@ -96,6 +99,11 @@ export default function AdminPanel({ user, onClose, embedded,
     // 中介口径单独取，且**不并进上面那个 Promise.all**：
     // 这是后加的功能，跑在旧数据库上时表可能还没建全，
     // 让它把整个后台首屏一起拖挂不值得
+    try {
+      setMoney(await api.moneyRecords())
+    } catch {
+      setMoney(null)
+    }
     try {
       const a = await api.adminAgentStats()
       setAgentPending(a.license_pending || 0)
@@ -434,6 +442,8 @@ export default function AdminPanel({ user, onClose, embedded,
                 })}
               </ul>
             )}
+
+            <MoneyRecords money={money} side="admin" limit={30} />
 
             <div className="section-title">看房预约（{appointments.length}）</div>
             {appointments.length === 0 ? (

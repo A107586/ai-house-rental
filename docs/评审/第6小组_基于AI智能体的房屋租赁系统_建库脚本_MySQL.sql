@@ -7,7 +7,7 @@
 --   生成：python scripts/gen_db_sql.py
 --   校验：python scripts/gen_db_sql.py --check（测试套件里也跑这一条）
 --
--- 共 36 张表、395 个字段。建表顺序是依赖拓扑序，被引用的表先建。
+-- 共 36 张表、397 个字段。建表顺序是依赖拓扑序，被引用的表先建。
 --
 -- 列默认值有意不写进 DDL：模型里的 default 是 Python 侧的，由 ORM 插入时填。
 -- 写进来就等于多一份由数据库执行的语义，两边不一致时谁说了算会说不清。
@@ -823,7 +823,7 @@ CREATE TABLE payments (
 	UNIQUE (idempotency_key)
 ) COMMENT='缴费流水 — 一条账单对应一条流水，trade_no 唯一防重复入账' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE UNIQUE INDEX ix_payments_bill_id ON payments (bill_id);
+CREATE INDEX ix_payments_bill_id ON payments (bill_id);
 
 CREATE INDEX ix_payments_gateway_trade_no ON payments (gateway_trade_no);
 
@@ -849,6 +849,8 @@ CREATE TABLE refunds (
 	id INTEGER NOT NULL AUTO_INCREMENT, 
 	refund_no VARCHAR(40) NOT NULL, 
 	contract_id INTEGER NOT NULL, 
+	type VARCHAR(20) NOT NULL, 
+	bill_id INTEGER, 
 	payment_id INTEGER, 
 	original_amount NUMERIC(10, 2) NOT NULL, 
 	deduct_amount NUMERIC(10, 2) NOT NULL, 
@@ -859,8 +861,11 @@ CREATE TABLE refunds (
 	PRIMARY KEY (id), 
 	UNIQUE (refund_no), 
 	FOREIGN KEY(contract_id) REFERENCES contracts (id), 
+	FOREIGN KEY(bill_id) REFERENCES bills (id), 
 	FOREIGN KEY(payment_id) REFERENCES payments (id)
 ) COMMENT='押金退款流水 — 退租结算的凭据。课程项目内记录模拟退款，不调真实支付渠道——与 D-1、J-06 同一条边界' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX ix_refunds_bill_id ON refunds (bill_id);
 
 CREATE INDEX ix_refunds_contract_id ON refunds (contract_id);
 

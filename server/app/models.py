@@ -15,6 +15,7 @@
 import json
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (Boolean, Date, DateTime, Float, ForeignKey, Integer,
                         Numeric, String, Text, UniqueConstraint, event)
@@ -807,7 +808,39 @@ class Bill(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     contract: Mapped["Contract"] = relationship(back_populates="bills", lazy="selectin")
-    payment: Mapped["Payment | None"] = relationship(back_populates="bill", uselist=False, lazy="selectin")
+    # **每一次支付尝试都留着**（2026-10-22）。原先一张账单只许一条支付记录：
+    # 收银台过期或失败后重新发起会撞唯一约束，账单从此付不了；临时修法是
+    # 就地覆盖旧记录——能付了，但「付失败过一次」这件事也就从账上消失了。
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="bill", lazy="selectin", order_by="Payment.id")
+    # 这张账单上的退款（押金结算、提前退租退回的预付租金）
+    refunds: Mapped[list["Refund"]] = relationship(
+        back_populates="bill", lazy="selectin", order_by="Refund.id")
+
+    @property
+    def payment(self):
+        """**这张账单的那一笔支付**：成功的那条；还没成功就是最近一次尝试。
+
+        原先是一对一关系，调用方到处在用 `bill.payment`——保留这个名字，
+        语义不变：已付的账单拿到的就是付成的那一笔。
+        """
+        if not self.payments:
+            return None
+        succeeded = [p for p in self.payments if p.status == "succeeded"]
+        return succeeded[-1] if succeeded else self.payments[-1]
+
+    @property
+    def refunded_amount(self):
+        return float(sum(Decimal(str(r.refund_amount)) for r in self.refunds
+                         if r.status == "succeeded"))
+
+    @property
+    def net_amount(self):
+        """实收：已缴的减去退回的。**算收入一律用它**——提前退租退回的预付租金
+        如果还按账单原额算进「本月收租」，房东看到的收入就比实际多。"""
+        if self.status != "paid":
+            return 0.0
+        return float(Decimal(str(self.amount)) - Decimal(str(self.refunded_amount)))
 
     @property
     def overdue(self):
@@ -843,14 +876,22 @@ class Bill(Base):
             "paid_at": self.paid_at.strftime("%Y-%m-%d %H:%M") if self.paid_at else "",
             "remark": self.remark,
             "payment": self.payment.to_dict() if self.payment else None,
+            # 每一次发起支付的记录：成功、失败、超时关单都在。
+            # 「我明明点过付款」这种纠纷，靠的就是这几行
+            "attempts": [{"trade_no": p.trade_no, "method": p.method, "status": p.status,
+                          "amount": float(p.amount),
+                          "at": p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else "",
+                          "failure_reason": p.failure_reason or ""}
+                         for p in self.payments],
+            "refunded_amount": self.refunded_amount,
         }
 
 
 class Payment(Base):
-    """缴费流水。
+    """缴费流水：**每一次发起支付一条**，成功、失败、超时关单都留着。
 
-    与账单一对一，但单独成表——真实系统里退款、对账、第三方回调
-    都挂在流水上，账单只表达「该交多少」。
+    单独成表——真实系统里退款、对账、第三方回调都挂在流水上，
+    账单只表达「该交多少」。一张账单最多一条 succeeded（由 _guard_payable 保证）。
     """
 
     __tablename__ = "payments"
@@ -858,7 +899,7 @@ class Payment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trade_no: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     bill_id: Mapped[int] = mapped_column(ForeignKey("bills.id"), nullable=False,
-                                         unique=True, index=True)
+                                         index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
@@ -897,7 +938,7 @@ class Payment(Base):
     # 等于「发起」和「到账」共用一个时间戳，对账时分不出钱是什么时候到的。
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    bill: Mapped["Bill"] = relationship(back_populates="payment")
+    bill: Mapped["Bill"] = relationship(back_populates="payments")
 
     def to_dict(self):
         return {
@@ -921,7 +962,14 @@ class Payment(Base):
 
 
 class Refund(Base):
-    """押金退款流水；课程项目中记录模拟退款，不调用真实支付渠道。"""
+    """退款流水；课程项目中记录模拟退款，不调用真实支付渠道。
+
+    两类（2026-10-22 起）：
+    - deposit：退租结算押金。original 是押金，deduct 是房东扣款，refund 是实退；
+    - rent：提前退租时**已付未住**的租金按天退回。original 是那张账单的金额，
+      deduct 是已住天数对应的部分，refund 是退回的部分。原先这笔钱不退——
+      系统自己生成的合同里写着「甲方应退还已付但尚未居住月份的租金」。
+    """
 
     __tablename__ = "refunds"
 
@@ -929,6 +977,9 @@ class Refund(Base):
     refund_no: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"),
                                              nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(20), default="deposit")
+    bill_id: Mapped[int | None] = mapped_column(ForeignKey("bills.id"),
+                                                nullable=True, index=True)
     payment_id: Mapped[int | None] = mapped_column(ForeignKey("payments.id"),
                                                    nullable=True)
     original_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
@@ -938,9 +989,17 @@ class Refund(Base):
     status: Mapped[str] = mapped_column(String(20), default="succeeded", index=True)
     refunded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
+    bill: Mapped["Bill | None"] = relationship(back_populates="refunds", lazy="selectin")
+    contract: Mapped["Contract"] = relationship(lazy="selectin")
+
     def to_dict(self):
         return {
             "refund_no": self.refund_no,
+            "type": self.type or "deposit",
+            "bill_no": self.bill.bill_no if self.bill else "",
+            "contract_no": self.contract.contract_no if self.contract else "",
+            "house_no": (self.contract.house.house_no
+                         if self.contract and self.contract.house else ""),
             "contract_id": self.contract_id,
             "payment_id": self.payment_id,
             "original_amount": float(self.original_amount),

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { api } from '../api'
+import MoneyRecords from './MoneyRecords'
 import CloseRepairDialog from './CloseRepairDialog'
 import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
@@ -77,6 +78,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
     else setOwnTab(key)
   }
   const [dash, setDash] = useState(null)
+  const [money, setMoney] = useState(null)
   const [houses, setHouses] = useState([])
   const [repairs, setRepairs] = useState([])
   const [tenants, setTenants] = useState([])
@@ -116,7 +118,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
   async function load() {
     setError('')
     try {
-      const [d, h, r, t, c] = await Promise.all([
+      const [d, h, r, t, c, m] = await Promise.all([
         api.landlordDashboard(),
         api.landlordHouses(),
         // D3：工作台一律只问「我作为房东」的那一份。
@@ -124,12 +126,15 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
         api.listRepairs({ side: 'landlord' }),
         api.landlordTenants(),
         api.myContracts('', 'landlord'),
+        // 收到的每一笔、退出去的每一笔（押金结算、提前退租退回的预付租金）
+        api.moneyRecords('landlord'),
       ])
       setDash(d)
       setHouses(h.list || [])
       setRepairs(r.list || [])
       setTenants(t.list || [])
       setContracts(c.list || [])
+      setMoney(m)
     } catch (err) {
       setError(err.message)
     }
@@ -476,6 +481,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                 <div className="sum-d">笔</div>
               </div>
             </div>
+            <MoneyRecords money={money} side="landlord" limit={20} />
           </>
         )}
 

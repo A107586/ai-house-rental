@@ -531,3 +531,34 @@ def _oplog_backfill_names(connection, engine):
 def _contract_request_deduct(connection, engine):
     _add_column(connection, engine, "contracts", "request_deduct",
                 "NUMERIC(10, 2) NOT NULL DEFAULT 0")
+
+
+@step("0021", "支付记录保留每一次尝试；退款分押金 / 租金并关联账单")
+def _payment_attempts_and_rent_refunds(connection, engine):
+    """一张账单可以有多条支付记录；退款记下类型与对应的账单。
+
+    payments.bill_id 原先唯一（建表时的 ix_payments_bill_id，加上 0002 补的
+    ux_payments_bill_id）。收银台过期或失败后重新发起，撞的就是它。
+    改成普通索引——「一张账单只能付成一次」由业务层保证（_guard_payable）。
+    """
+    if _table_exists(engine, "payments"):
+        connection.execute(text("DROP INDEX IF EXISTS ux_payments_bill_id"))
+        ddl = connection.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'ix_payments_bill_id'")).scalar()
+        if ddl and "UNIQUE" in ddl.upper():
+            connection.execute(text("DROP INDEX ix_payments_bill_id"))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payments_bill_id ON payments (bill_id)"))
+    _add_column(connection, engine, "refunds", "type",
+                "VARCHAR(20) NOT NULL DEFAULT 'deposit'")
+    _add_column(connection, engine, "refunds", "bill_id",
+                "INTEGER REFERENCES bills (id)")
+    if _table_exists(engine, "refunds"):
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_refunds_bill_id ON refunds (bill_id)"))
+        # 已有的押金退款补上对应的押金账单
+        connection.execute(text(
+            "UPDATE refunds SET bill_id = (SELECT b.id FROM bills b "
+            "WHERE b.contract_id = refunds.contract_id AND b.type = 'deposit' LIMIT 1) "
+            "WHERE bill_id IS NULL AND type = 'deposit'"))

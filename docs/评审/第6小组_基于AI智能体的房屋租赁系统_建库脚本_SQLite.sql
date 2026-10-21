@@ -7,7 +7,7 @@
 --   生成：python scripts/gen_db_sql.py
 --   校验：python scripts/gen_db_sql.py --check（测试套件里也跑这一条）
 --
--- 共 36 张表、395 个字段。建表顺序是依赖拓扑序，被引用的表先建。
+-- 共 36 张表、397 个字段。建表顺序是依赖拓扑序，被引用的表先建。
 --
 -- 列默认值有意不写进 DDL：模型里的 default 是 Python 侧的，由 ORM 插入时填。
 -- 写进来就等于多一份由数据库执行的语义，两边不一致时谁说了算会说不清。
@@ -819,7 +819,7 @@ CREATE TABLE payments (
 	UNIQUE (idempotency_key)
 );
 
-CREATE UNIQUE INDEX ix_payments_bill_id ON payments (bill_id);
+CREATE INDEX ix_payments_bill_id ON payments (bill_id);
 
 CREATE INDEX ix_payments_gateway_trade_no ON payments (gateway_trade_no);
 
@@ -845,6 +845,8 @@ CREATE TABLE refunds (
 	id INTEGER NOT NULL, 
 	refund_no VARCHAR(40) NOT NULL, 
 	contract_id INTEGER NOT NULL, 
+	type VARCHAR(20) NOT NULL, 
+	bill_id INTEGER, 
 	payment_id INTEGER, 
 	original_amount NUMERIC(10, 2) NOT NULL, 
 	deduct_amount NUMERIC(10, 2) NOT NULL, 
@@ -855,8 +857,11 @@ CREATE TABLE refunds (
 	PRIMARY KEY (id), 
 	UNIQUE (refund_no), 
 	FOREIGN KEY(contract_id) REFERENCES contracts (id), 
+	FOREIGN KEY(bill_id) REFERENCES bills (id), 
 	FOREIGN KEY(payment_id) REFERENCES payments (id)
 );
+
+CREATE INDEX ix_refunds_bill_id ON refunds (bill_id);
 
 CREATE INDEX ix_refunds_contract_id ON refunds (contract_id);
 

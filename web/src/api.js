@@ -288,7 +288,8 @@ export const api = {
     request(`/api/contracts/${no}/request`, { method: 'DELETE' }),
 
   // ---------------- 账单 ----------------
-  myBills: (status = '') => request(`/api/bills/mine?${toQuery({ status })}`),
+  // side：tenant 我要交的 / landlord 我该收的（D3）。不传就是两份混在一起
+  myBills: (status = '', side = '') => request(`/api/bills/mine?${toQuery({ status, side })}`),
   payBill: (no, method = 'alipay', idempotencyKey = '') =>
     post(`/api/bills/${no}/pay`, {
       method,
@@ -303,6 +304,12 @@ export const api = {
   paymentStatus: (tradeNo) => request(`/api/payments/${tradeNo}/status`),
   paymentReceipt: (tradeNo) => request(`/api/payments/${tradeNo}`),
   myRefunds: () => request('/api/refunds/mine'),
+  // 退租结算预览：如果今天退租，押金退多少、预付租金退多少、哪些账单作废、还欠多少。
+  // 和真正退租用的是同一份计算，弹窗里看到的数就是确认之后的数
+  contractSettlement: (no, deduct = 0) =>
+    request(`/api/contracts/${encodeURIComponent(no)}/settlement?${toQuery({ deduct })}`),
+  // 收支流水：缴费成功的与退回的每一笔。side 为 tenant / landlord，管理员不传看全平台
+  moneyRecords: (side = '') => request(`/api/money/records?${toQuery({ side })}`),
 
   // ---------------- 消息 ----------------
   listMessages: (unreadOnly = false) =>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import MoneyRecords from './MoneyRecords'
 import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
 import ProfileForm from './ProfileForm'
@@ -69,13 +70,15 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
   const [checkout, setCheckout] = useState(null)
   const [payMethod, setPayMethod] = useState('alipay')
   const [receipt, setReceipt] = useState(null)
+  // 收支流水：缴费成功的与退回的每一笔。原先退款有接口没页面，退了多少、哪天退的看不到
+  const [money, setMoney] = useState({ list: [], total_in: 0, total_out: 0 })
 
 
   async function load() {
     setError('')
     try {
       // 一次性拉齐，切标签时不再等待
-      const [mine, myContracts, myBills, favs, msgs, hist, pend, myRepairs] =
+      const [mine, myContracts, myBills, favs, msgs, hist, pend, myRepairs, flows] =
         await Promise.all([
           // D3：个人中心只要「我约的」，不要「别人约我的」
           api.myAppointments('tenant'),
@@ -83,12 +86,15 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
           // 房东兼租客时不加 side，这里会混进他出租的合同与
           // 名下房源的工单——那些属于工作台
           api.myContracts('', 'tenant'),
-          api.myBills(),
+          // 同上，只要「我要交的」。原先不带 side：房东兼租客时，他的租客欠他的账单
+          // 也混进了「我的账单」，待缴总额虚高，每张还摆着一个点了就 403 的「立即缴费」
+          api.myBills('', 'tenant'),
           api.listFavorites(),
           api.listMessages(),
           api.history(),
           api.pendingReviews(),
           api.listRepairs({ side: 'tenant' }),
+          api.moneyRecords('tenant'),
         ])
       setAppointments(mine.list || [])
       setContracts(myContracts.list || [])
@@ -98,6 +104,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
       setHistory(hist.list || [])
       setPending(pend.list || [])
       setRepairs(myRepairs.list || [])
+      setMoney(flows)
     } catch (err) {
       setError(err.message)
     }
@@ -339,6 +346,12 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                     {bill.status === 'paid' && (
                       <div className="record-body">缴费时间 {bill.paid_at}</div>
                     )}
+                    {bill.refunded_amount > 0 && (
+                      <div className="record-body">
+                        已退回 <span className="amount">{bill.refunded_amount} 元</span>
+                        {bill.type === 'deposit' ? '（押金结算）' : '（退租退回没住的部分）'}
+                      </div>
+                    )}
 
                     {/* 合同结束之后这笔欠款只能线下找房东结，接口也会拒。
                         **按钮照摆的话，用户填完收银台才被告知付不了**——
@@ -393,6 +406,14 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                         ['支付状态', bill.payment
                           && (PAY_STATE[bill.payment.status] || bill.payment.status)],
                         ['交易流水号', bill.payment && bill.payment.trade_no, { mono: true }],
+                        // 每一次发起支付都列出来：失败、超时关单的也在。
+                        // 「我明明点过付款」这类问题，看这一行就清楚
+                        ['支付记录', (bill.attempts || []).length > 1
+                          ? bill.attempts.map((a) => `${a.at} ${PAY_STATE[a.status] || a.status}`
+                            + (a.failure_reason ? `（${a.failure_reason}）` : '')).join('；')
+                          : '', { wide: true }],
+                        ['已退回', bill.refunded_amount > 0 ? `${bill.refunded_amount} 元` : '',
+                          { money: true }],
                         ['备注', bill.remark, { wide: true }],
                       ]} note={bill.payment
                         ? '流水号是跟客服核对这笔缴费时要报的号码。'
@@ -402,6 +423,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                 ))}
               </ul>
             )}
+
+            <MoneyRecords money={money} side="tenant" />
           </>
         )}
 
