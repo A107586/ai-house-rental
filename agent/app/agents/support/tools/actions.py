@@ -725,9 +725,22 @@ def _propose_pay_bill(text, token, backend, context):
     # 但「帮我缴这 0 元」是一句没有意义的话，而它恰好因为到期日最早
     # 被排在了第一位。实测「帮我把这个月的房租交了」得到的就是
     # 「要我帮你缴纳押金 0 元吗」。
-    unpaid = [b for b in rows
-              if b.get("status") == "unpaid" and float(b.get("amount") or 0) > 0]
+    #
+    # **付不了的也不算。** 租约已结束的欠款后端拒收（只能线下找房东结），
+    # 而它往往到期最早、正好排在第一位——旧租约还欠一笔、新租约正常交租的人
+    # 说「帮我交房租」，卡片给的是那笔旧欠款，点确认才被告知付不了。
+    # 后端没给 payable 字段时按可付处理，和改动前一致
+    owed = [b for b in rows
+            if b.get("status") == "unpaid" and float(b.get("amount") or 0) > 0]
+    unpaid = [b for b in owed if b.get("payable", True)]
     if not unpaid:
+        if owed:
+            # 只剩旧租约的欠款时不能说「都结清了」——钱确实还欠着，只是线上交不了
+            return (NOT_APPLICABLE,
+                    "你还有 %d 笔已结束租约的欠款，合计 %s 元。租约结束后线上不能再缴，"
+                    "请与房东线下结清。" % (len(owed), _money(sum(float(b.get("amount") or 0)
+                                                           for b in owed))),
+                    None, None)
         return NOT_APPLICABLE, "你的账单都结清了，没有需要缴的。", None, None
 
     # 用户点名了类型就先按类型筛。**他说「房租」，就不该给他押金**——

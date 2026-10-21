@@ -235,6 +235,31 @@ class TestCardContents(unittest.TestCase):
         self.assertIn("另外 1 笔", card["warning"],
                       "有其它待缴账单时必须说明这次只交一笔")
 
+    def test_pay_bill_skips_bills_that_cannot_be_paid_online(self):
+        """旧租约的欠款到期最早，但后端拒收——卡片要给的是现在这份租约的账单。"""
+        backend = RecordingBackend({"/api/bills/mine": {"list": [
+            {"bill_no": "OLD01", "amount": 1800, "status": "unpaid", "payable": False,
+             "bill_type": "租金", "due_date": "2026-03-01"},
+            {"bill_no": "ZD001", "amount": 2200, "status": "unpaid", "payable": True,
+             "bill_type": "租金", "due_date": "2026-09-01"},
+        ]}})
+        status, _, card, _ = actions.propose("pay_bill", "帮我交房租", "tok", backend)
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertEqual(card["params"]["bill_no"], "ZD001")
+
+    def test_only_old_arrears_is_not_called_settled(self):
+        """只剩付不了的欠款时，不能说「都结清了」——钱确实还欠着。"""
+        backend = RecordingBackend({"/api/bills/mine": {"list": [
+            {"bill_no": "OLD01", "amount": 1800, "status": "unpaid", "payable": False,
+             "bill_type": "租金", "due_date": "2026-03-01"},
+        ]}})
+        status, message, card, _ = actions.propose("pay_bill", "帮我交房租", "tok", backend)
+        self.assertEqual(status, actions.NOT_APPLICABLE)
+        self.assertIsNone(card)
+        self.assertNotIn("结清了", message)
+        self.assertIn("线下", message)
+        self.assertIn("1800", message)
+
     def test_money_and_irreversible_actions_are_high_risk(self):
         backend = RecordingBackend(dict(UNPAID, **ACTIVE_CONTRACT))
         for name, text in [("pay_bill", "帮我交房租"),

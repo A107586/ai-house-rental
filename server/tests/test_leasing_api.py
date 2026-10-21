@@ -208,6 +208,87 @@ class TestBills(ContractCase):
         paid = next(b for b in bills["list"] if b["bill_no"] == bill_no)
         self.assertEqual(paid["status"], "paid")
 
+    def _expire_payment(self):
+        from app import db
+        from app.models import Payment
+        session = db.SessionLocal()
+        try:
+            payment = session.query(Payment).one()
+            payment.expire_at = datetime.now() - timedelta(minutes=1)
+            session.commit()
+        finally:
+            session.close()
+
+    def _callback(self, trade_no, amount, result="success"):
+        from app import gateway
+        payload = {"trade_no": trade_no, "amount": float(amount), "result": result}
+        payload["sign"] = gateway.sign(payload)
+        return self.client.post("/api/payments/notify", json=payload)
+
+    def test_can_pay_again_after_the_checkout_expired(self):
+        """打开收银台没付、过了 15 分钟回来，**这张账单必须还能付**。
+
+        原先关单只改状态，旧支付单照样占着 bill_id 的唯一约束，重新发起时
+        撞约束，接口回「该账单正在支付或已经支付」——账单从此再也付不了。
+        """
+        self.active_contract()
+        bill = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"][0]
+        first = self.client.post("/api/bills/%s/pay" % bill["bill_no"],
+                                 headers=self.tenant, json={"method": "alipay"}).json()
+        self._expire_payment()
+
+        again = self.client.post("/api/bills/%s/pay" % bill["bill_no"],
+                                 headers=self.tenant, json={"method": "wechat"})
+        self.assertEqual(again.status_code, 200, again.text)
+        payment = again.json()["payment"]
+        self.assertEqual(payment["status"], "pending")
+        self.assertNotEqual(payment["trade_no"], first["payment"]["trade_no"])
+
+        # 新单能正常入账；过期那张单的回调迟到了，不能把账单记成已付
+        stale = self._callback(first["payment"]["trade_no"], bill["amount"])
+        self.assertNotEqual(stale.status_code, 200)
+        self.assertEqual(self._callback(payment["trade_no"], bill["amount"]).status_code, 200)
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"]
+        self.assertEqual(next(b for b in bills if b["bill_no"] == bill["bill_no"])["status"], "paid")
+
+    def test_can_retry_after_a_failed_payment(self):
+        self.active_contract()
+        bill = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"][0]
+        first = self.client.post("/api/bills/%s/pay" % bill["bill_no"],
+                                 headers=self.tenant, json={"method": "alipay"}).json()
+        failed = self._callback(first["payment"]["trade_no"], bill["amount"], result="fail")
+        self.assertEqual(failed.status_code, 200, failed.text)
+
+        retry = self.client.post("/api/bills/%s/pay" % bill["bill_no"],
+                                 headers=self.tenant, json={"method": "alipay"})
+        self.assertEqual(retry.status_code, 200, retry.text)
+        self.assertEqual(retry.json()["payment"]["status"], "pending")
+        self.assertEqual(retry.json()["payment"]["failure_reason"], "")
+
+    def test_ending_a_lease_voids_the_unpaid_deposit(self):
+        """租约结束，没交的押金就不再是一笔该交的钱。
+
+        原先它留着 unpaid：租客的「待缴」里永远挂着一笔付不了的押金，
+        页面还让人「与房东线下结清」——而结算里明明写着押金未缴、无需退款。
+        """
+        no = self.active_contract()
+        ended = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                 json={"reason": "到期"})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
+        self.assertEqual(bills["unpaid_count"], 0)
+        deposit = next(b for b in bills["list"] if b["type"] == "deposit")
+        self.assertEqual(deposit["status"], "cancelled")
+
+    def test_a_paid_deposit_is_still_refunded_not_voided(self):
+        no = self.active_contract()
+        self.pay_deposit(no)
+        ended = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                 json={"reason": "到期", "deduct": 300}).json()
+        self.assertIsNotNone(ended["refund_record"])
+        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()["list"]
+        self.assertEqual(next(b for b in bills if b["type"] == "deposit")["status"], "paid")
+
     def test_double_pay_rejected(self):
         """已经缴清的账单不能再付一次。
 
@@ -535,25 +616,41 @@ class TestStatsIncome(ContractCase):
 class TestNoPaymentAfterEnd(ContractCase):
     """合同结束之后不能再缴费。
 
-    退租只会作废「未到期的租金」账单，押金与已到期未缴的租金仍是 unpaid。
-    原先 pay_bill 只看账单状态、不看合同状态，于是**合同都结束了还能继续
-    缴费**——收进来的钱既没有对应租约，也不会再产生任何权利义务，
-    退租结算早就做完了，这笔钱只能靠人工退回去。
+    退租会作废未到期的租金和没交的押金，**已到期未缴的租金仍是 unpaid**——
+    那是住过的月份，是真欠款。原先 pay_bill 只看账单状态、不看合同状态，
+    于是**合同都结束了还能继续缴费**——收进来的钱既没有对应租约，也不会再
+    产生任何权利义务，退租结算早就做完了，这笔钱只能靠人工退回去。
+
+    （这两条原先拿没交的押金当例子；10-22 起押金在退租时作废，
+    改用一张已到期的租金账单，测的还是「欠款在、但不能再走线上缴费」。）
 
     这个洞是做合同档案时发现的：时间线上「缴纳押金」排在「合同结束」
     之后，一眼就看出顺序不对。
     """
 
+    def _overdue_rent(self, contract_no):
+        """把第一期租金挪到昨天到期：住过的月份，退租时不作废，是真欠款。"""
+        from app import db
+        from app.models import Bill, Contract
+        session = db.SessionLocal()
+        try:
+            contract = session.query(Contract).filter_by(contract_no=contract_no).one()
+            bill = (session.query(Bill).filter_by(contract_id=contract.id, type="rent")
+                    .order_by(Bill.due_date).first())
+            bill.due_date = datetime.now() - timedelta(days=1)
+            session.commit()
+            return {"bill_no": bill.bill_no}
+        finally:
+            session.close()
+
     def test_cannot_pay_after_contract_ended(self):
         no = self.active_contract()
-        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
-        deposit = next(b for b in bills["list"]
-                       if b["type"] == "deposit" and b["status"] == "unpaid")
+        owed = self._overdue_rent(no)
 
         self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
                          json={"reason": "提前退租"})
 
-        r = self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
+        r = self.client.post("/api/bills/%s/pay" % owed["bill_no"],
                              headers=self.tenant, json={"method": "alipay"})
         self.assertEqual(r.status_code, 409)
         self.assertIn("已结束", r.json()["detail"])
@@ -561,17 +658,15 @@ class TestNoPaymentAfterEnd(ContractCase):
     def test_bill_stays_unpaid_after_rejection(self):
         """被拒之后账单状态不能被改动，更不能产生流水。"""
         no = self.active_contract()
-        bills = self.client.get("/api/bills/mine", headers=self.tenant).json()
-        deposit = next(b for b in bills["list"]
-                       if b["type"] == "deposit" and b["status"] == "unpaid")
+        owed = self._overdue_rent(no)
         self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
                          json={"reason": "提前退租"})
-        self.client.post("/api/bills/%s/pay" % deposit["bill_no"],
+        self.client.post("/api/bills/%s/pay" % owed["bill_no"],
                          headers=self.tenant, json={"method": "alipay"})
 
         after = self.client.get("/api/bills/mine", headers=self.tenant).json()
         same = next(b for b in after["list"]
-                    if b["bill_no"] == deposit["bill_no"])
+                    if b["bill_no"] == owed["bill_no"])
         self.assertEqual(same["status"], "unpaid")
         self.assertIsNone(same.get("payment"))
 

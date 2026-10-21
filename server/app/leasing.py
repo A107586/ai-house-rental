@@ -492,9 +492,8 @@ def start_payment(session, bill, user=None, method="alipay", idempotency_key=Non
     order = gateway.get_gateway().create(trade_no, bill.amount,
                                          "账单 %s" % bill.bill_no)
 
-    payment = Payment(
+    fields = dict(
         trade_no=trade_no,
-        bill_id=bill.id,
         user_id=user.id if user else None,
         amount=bill.amount,
         method=method,
@@ -503,9 +502,24 @@ def start_payment(session, bill, user=None, method="alipay", idempotency_key=Non
         gateway=gateway.get_gateway().name,
         gateway_trade_no=order["gateway_trade_no"],
         expire_at=datetime.fromtimestamp(order["expire_at"]),
+        failure_reason="", notify_payload="", notified_at=None, paid_at=None,
     )
+    if existing is not None:
+        # **一张账单只有一条支付记录**（bill_id 唯一），记的是最近一次尝试。
+        # 关掉的、失败的那次就地换成新的一单，而不是再插一条。
+        #
+        # 原先在这里新建一条：关单只改了状态，旧行照样占着 bill_id，
+        # 新行撞唯一约束，接口报「该账单正在支付或已经支付」——
+        # 打开收银台没付、15 分钟后回来的人，这张账单**从此再也付不了**，
+        # 线下代收也一样（pay_bill 走的是同一个函数）。2026-10-22 实测。
+        # 换了 trade_no，旧单迟到的回调查不到这条记录，不会误入账。
+        payment = existing
+        for name, value in fields.items():
+            setattr(payment, name, value)
+    else:
+        payment = Payment(bill_id=bill.id, **fields)
+        session.add(payment)
     payment.pay_url = order["pay_url"]   # 仅本次响应用，不落库
-    session.add(payment)
     session.flush()
     return payment
 
@@ -613,9 +627,20 @@ def end_contract(session, contract, reason="", deduct=0):
     today = datetime.now()
     cancelled = 0
     for bill in contract.bills:
-        if bill.status == "unpaid" and bill.type == "rent" and bill.due_date > today:
+        if bill.status != "unpaid":
+            continue
+        if bill.type == "rent" and bill.due_date > today:
             bill.status = "cancelled"
             bill.remark = (bill.remark + " · 退租作废").strip(" ·")
+            cancelled += 1
+        elif bill.type == "deposit":
+            # **没交的押金也作废。** 押金是给这份租约的担保，租约结束它就没有意义了，
+            # 不是一笔欠款。原先只作废未到期的租金，押金账单留着 unpaid：
+            # 租客的「待缴」里永远挂着一笔付不了的押金（合同已结束，接口拒收），
+            # 页面还提示「这笔欠款请与房东线下结清」——让人去线下补交一笔
+            # 下面结算里已经写明「无需退款」的押金。2026-10-22 实测。
+            bill.status = "cancelled"
+            bill.remark = (bill.remark + " · 退租作废，押金未缴无需再缴").strip(" ·")
             cancelled += 1
 
     contract.status = "ended"
