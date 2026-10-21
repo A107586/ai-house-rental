@@ -27,7 +27,7 @@
   button { font:inherit; padding:5px 12px; border-radius:7px; border:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
   button:disabled { opacity:.5; cursor:default; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:10px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr)); gap:10px; margin-bottom:12px; }
   .svc h2 { font-size:15px; margin:0 0 4px; display:flex; justify-content:space-between; align-items:center; }
   .badge { font-size:12px; font-weight:normal; padding:1px 8px; border-radius:10px; color:#fff; background:var(--idle); }
   .badge.running { background:var(--ok); } .badge.external { background:var(--warn); }
@@ -39,6 +39,25 @@
   pre { margin:8px 0 0; height:320px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px;
         padding:8px 10px; font:12px/1.45 var(--mono); white-space:pre-wrap; word-break:break-all; }
   .note { color:var(--muted); font-size:12.5px; margin:10px 2px 0; }
+  [hidden] { display:none !important; }
+  .badge.stuck { background:var(--bad); }
+  .cfg { margin-bottom:12px; }
+  .cfg > h2 { font-size:15px; margin:0 0 10px; }
+  .cfg-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:14px 28px; }
+  .cfg h3 { font-size:14px; margin:0 0 8px; }
+  .cfg section { display:flex; flex-direction:column; gap:9px; min-width:0; }
+  .field { display:flex; flex-direction:column; gap:3px; font-size:13px; color:var(--muted); }
+  .field .inline { display:flex; gap:6px; }
+  .field .inline > :first-child { flex:1; min-width:0; }
+  input[type=text], input[type=password], input[type=number], select {
+    font:13px/1.4 var(--mono); padding:5px 8px; border-radius:7px; border:1px solid var(--line);
+    background:var(--bg); color:var(--text); width:100%; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .hint { color:var(--muted); font-size:12.5px; margin:0; }
+  .result { font-size:13px; margin:0; min-height:1.5em; word-break:break-all; }
+  .result.ok { color:var(--ok); } .result.bad { color:var(--bad); } .result.warn { color:var(--warn); }
+  .tag { font-size:11.5px; padding:0 6px; border-radius:8px; border:1px solid var(--line); margin-left:4px; }
+  .tag.yes { color:var(--ok); border-color:var(--ok); }
 </style>
 </head>
 <body>
@@ -53,9 +72,9 @@
     </div>
   </header>
 
-  <div class="card row controls">
+  <div class="card row controls" id="localControls" hidden>
     <div class="row">
-      <span>模型档位</span>
+      <span>本地模型档位</span>
       <div class="seg" id="profile">
         <button data-v="fast" title="DFlash2：代码/结构化 ~200 t/s，带思考 ~160 t/s">极速</button>
         <button data-v="long" title="MTP：上下文大一倍多">长文档</button>
@@ -68,6 +87,63 @@
 
   <div class="grid" id="grid"></div>
 
+  <div class="card cfg">
+    <h2>配置</h2>
+    <div class="cfg-grid">
+      <section aria-labelledby="llmTitle">
+        <h3 id="llmTitle">智能体用的大模型</h3>
+        <div class="seg" id="llmMode" role="group" aria-label="模型来源">
+          <button data-v="remote">远程 API</button>
+          <button data-v="local">本地模型</button>
+          <button data-v="rules">不用模型</button>
+        </div>
+        <p class="hint" id="modeHint"></p>
+        <label class="field" data-for="remote">服务地址
+          <input type="text" id="baseUrl" list="baseList" placeholder="https://…/v1" spellcheck="false" autocomplete="off">
+        </label>
+        <datalist id="baseList">
+          <option value="https://4router.net/v1">中转站</option>
+          <option value="https://api.deepseek.com/v1">DeepSeek 官方</option>
+        </datalist>
+        <label class="field" data-for="remote">API Key
+          <input type="password" id="apiKey" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="field" data-for="remote local">模型
+          <span class="inline">
+            <input type="text" id="model" spellcheck="false" autocomplete="off" aria-label="模型名">
+            <button id="loadModels" type="button">取列表</button>
+          </span>
+          <select id="modelPick" hidden aria-label="从列表选模型"></select>
+        </div>
+        <label class="field" data-for="remote local">单次调用超时（秒）——建议 30；设得太紧，助手会答不出来
+          <input type="number" id="timeout" min="1" max="300" step="1">
+        </label>
+        <div class="row">
+          <button id="testLlm" type="button" data-for="remote local">测试连接</button>
+          <button class="primary" id="saveLlm" type="button">保存并重启智能体</button>
+        </div>
+        <p class="result" id="llmResult" aria-live="polite"></p>
+      </section>
+      <section aria-labelledby="amapTitle">
+        <h3 id="amapTitle">高德地图</h3>
+        <p class="hint">在 console.amap.com 的「应用管理」里建两个 Key：<b>Web端（JS API）</b>会附带一个安全密钥，<b>Web服务</b>是另一个。
+          留空的项不改；三项都没填时地图用离线示意图，其他功能不受影响。</p>
+        <label class="field">Web端 Key <span id="tag_web_key"></span>
+          <input type="password" id="web_key" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">Web端 安全密钥 <span id="tag_web_security"></span>
+          <input type="password" id="web_security" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">Web服务 Key（后端把地址换成坐标用）<span id="tag_service_key"></span>
+          <input type="password" id="service_key" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="row"><button class="primary" id="saveAmap" type="button">保存</button></div>
+        <p class="result" id="amapResult" aria-live="polite"></p>
+        <p class="hint" id="buildLine"></p>
+      </section>
+    </div>
+  </div>
+
   <div class="card logs">
     <div class="row tabs" id="tabs"></div>
     <pre id="log">选一个服务看日志</pre>
@@ -79,8 +155,9 @@
 const LINKS = { web: ['http://localhost:5173', '打开网站'], chat: ['http://127.0.0.1:8090', '打开对话页'],
                 backend: ['http://localhost:8080/docs', '接口文档'], agent: ['http://localhost:8000/docs', '接口文档'],
                 model: ['http://127.0.0.1:18241/v1/models', '模型列表'] };
-const STATE = { running: '运行中', external: '外部进程', starting: '启动中', exited: '已退出', stopped: '已停止' };
-let logName = 'model', last = null;
+const STATE = { running: '运行中', external: '外部进程', starting: '启动中', exited: '已退出', stopped: '已停止',
+                not_needed: '用不到', stuck: '没响应' };
+let logName = 'backend', last = null;
 
 const post = body => fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   .then(() => setTimeout(refresh, 300));
@@ -102,6 +179,10 @@ function detail(s, st) {
     const l = st.agent_llm;
     let text = `模型调用 ${l.calls ?? 0} 次，失败 ${l.failures ?? 0}`;
     if (l.healthy === false) text += ' · <b style="color:var(--bad)">最近一次失败</b>';
+    // 连续超时会熔断 60 秒，这期间助手每一句都直接回「连不上大模型」，而且是瞬间回——
+    // 看起来像助手坏了，其实多半是「超时」设得比模型实际耗时短
+    if (l.circuit_open) text += `<br><b style="color:var(--bad)">连续超时，已暂停调用模型 ${Math.round(l.circuit_reopen_in)} 秒</b>`
+      + '：这期间助手只会回「连不上大模型」。多半是下面「超时」设得太短，调大后保存即可';
     if (l.last_error) text += `<br>${String(l.last_error).slice(0, 120).replace(/</g, '&lt;')}`;
     return text;
   }
@@ -113,7 +194,13 @@ function render(st) {
   if (g) {
     document.getElementById('gpuText').textContent = `显存 ${(g.used / 1024).toFixed(1)} / ${(g.total / 1024).toFixed(1)} GB` + (g.display === 'Disabled' ? ' · 桌面在核显' : ' · 独显带桌面');
     document.getElementById('gpuFill').style.width = (100 * g.used / g.total).toFixed(1) + '%';
+  } else {
+    document.getElementById('gpuText').textContent = '没检测到 NVIDIA 显卡';
   }
+  document.querySelector('.gpu .track').hidden = !g;
+  // 档位 / 识图 / 思考只对本地模型有意义
+  document.getElementById('localControls').hidden = st.llm_mode !== 'local';
+  renderBuild(st.build);
   document.querySelectorAll('#profile button').forEach(b => b.classList.toggle('on', b.dataset.v === st.settings.profile));
   document.getElementById('vision').checked = st.settings.vision;
   document.getElementById('thinking').checked = st.settings.thinking;
@@ -129,12 +216,14 @@ function render(st) {
       <div class="meta">端口 ${s.port}${up ? ` · <a href="${href}" target="_blank">${text}</a>` : ''}
         ${s.state === 'external' ? '<br>不是本面板起的（可能是旧的黑窗口）；可以停掉后由面板重起' : ''}
         ${s.state === 'exited' ? `<br>进程退出（代码 ${s.exit}），看下面的日志` : ''}
+        ${s.note ? `<br>${s.note}` : ''}
         <br>${detail(s, st)}</div>
       <div class="row"></div>`;
     const row = d.querySelector('.row');
     for (const [act, label] of [['start', '启动'], ['restart', '重启'], ['stop', '停止']]) {
       const b = document.createElement('button'); b.textContent = label;
-      b.disabled = (act === 'start' && (up || s.state === 'starting')) || (act !== 'start' && s.state === 'stopped');
+      const idle = s.state === 'stopped' || s.state === 'not_needed';
+      b.disabled = (act === 'start' && (up || s.state === 'starting')) || (act !== 'start' && idle);
       b.onclick = () => post({ action: act, name: s.name });
       row.appendChild(b);
     }
@@ -147,11 +236,104 @@ function render(st) {
 }
 
 function renderTabs(st) {
-  document.getElementById('tabs').replaceChildren(...st.services.map(s => {
-    const b = document.createElement('button'); b.textContent = s.title; b.classList.toggle('on', s.name === logName);
-    b.onclick = () => { logName = s.name; refreshLog(); renderTabs(st); };
+  const tabs = st.services.map(s => [s.name, s.title]).concat([['build', '网站构建']]);
+  document.getElementById('tabs').replaceChildren(...tabs.map(([name, title]) => {
+    const b = document.createElement('button'); b.textContent = title; b.classList.toggle('on', name === logName);
+    b.onclick = () => { logName = name; refreshLog(); renderTabs(st); };
     return b;
   }));
+}
+
+// ---------- 配置 ----------------------------------------------------------------------------
+// 表单只在打开页面和保存之后读一次，不跟着 2.5 秒的状态刷新重画——否则正在打的字会被冲掉。
+const $ = id => document.getElementById(id);
+const call = body => fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  .then(r => r.json());
+const HINT = {
+  remote: '走服务商的接口，不需要显卡；一键启动时不会起本地模型。',
+  local: '用本机显卡跑模型（需要 NVIDIA 独显和本地引擎）。保存后先起模型，再重启智能体。',
+  rules: '不调任何模型。找房、预约、报修等照样能用，只是回答由规则生成。',
+};
+let mode = 'remote', draft = { remote: '', local: '' }, cfg = null;
+
+function say(id, text, kind) { const p = $(id); p.textContent = text || ''; p.className = 'result' + (kind ? ' ' + kind : ''); }
+
+function setMode(next) {
+  draft[mode] = $('model').value.trim();
+  mode = next;
+  $('model').value = draft[mode] || '';
+  $('modelPick').hidden = true;
+  document.querySelectorAll('#llmMode button').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
+  document.querySelectorAll('[data-for]').forEach(el => { el.hidden = !el.dataset.for.split(' ').includes(mode); });
+  $('modeHint').textContent = HINT[mode];
+  say('llmResult', '');
+}
+
+async function loadConfig() {
+  cfg = await (await fetch('/api/config')).json();
+  const l = cfg.llm;
+  $('baseUrl').value = (l.remote && l.remote.base_url) || '';
+  draft = { remote: (l.remote && l.remote.model) || '', local: l.local_model || '' };
+  $('timeout').value = l.timeout || 7;
+  $('apiKey').value = '';
+  $('apiKey').placeholder = l.has_key ? '已保存（不显示）；不换就留空' : '填服务商给的 Key';
+  mode = l.mode; $('model').value = draft[mode] || '';
+  setMode(l.mode);
+  for (const k of ['web_key', 'web_security', 'service_key']) {
+    $(k).value = '';
+    $(k).placeholder = cfg.amap[k] ? '已填（不显示）；不换就留空' : '未填';
+    $('tag_' + k).innerHTML = cfg.amap[k] ? '<span class="tag yes">已填</span>' : '<span class="tag">未填</span>';
+  }
+  renderBuild(cfg.build);
+}
+
+const llmBody = action => ({ action, mode, base_url: $('baseUrl').value.trim(), api_key: $('apiKey').value.trim(),
+                             model: $('model').value.trim(), timeout: $('timeout').value });
+
+document.querySelectorAll('#llmMode button').forEach(b => b.onclick = () => setMode(b.dataset.v));
+
+$('loadModels').onclick = async () => {
+  say('llmResult', '正在取模型列表…');
+  const r = await call(llmBody('llm_models'));
+  if (!r.ok) return say('llmResult', r.error, 'bad');
+  const pick = $('modelPick');
+  pick.replaceChildren(new Option(`选一个（共 ${r.models.length} 个）`, ''), ...r.models.map(m => new Option(m, m, false, m === $('model').value)));
+  pick.hidden = r.models.length === 0;
+  say('llmResult', r.models.length ? `这家现在提供 ${r.models.length} 个模型` : '列表是空的', r.models.length ? 'ok' : 'warn');
+};
+$('modelPick').onchange = e => { if (e.target.value) $('model').value = e.target.value; };
+
+$('testLlm').onclick = async () => {
+  say('llmResult', '正在测试…（最长 30 秒）');
+  const r = await call(llmBody('llm_test'));
+  if (!r.ok) return say('llmResult', `不通：${r.error}` + (r.seconds != null ? `（${r.seconds} 秒）` : ''), 'bad');
+  if (r.message) return say('llmResult', r.message, 'ok');
+  if (r.warning) return say('llmResult', `通了，但是：${r.warning}`, 'warn');
+  say('llmResult', `通了 · ${r.seconds} 秒` + (r.reply ? ` · 回复「${r.reply}」` : ''), 'ok');
+};
+
+$('saveLlm').onclick = async () => {
+  const r = await call(llmBody('llm_save'));
+  if (!r.ok) return say('llmResult', r.error, 'bad');
+  say('llmResult', r.message, 'ok');
+  setTimeout(() => { loadConfig(); refresh(); }, 800);
+};
+
+$('saveAmap').onclick = async () => {
+  const body = { action: 'amap_save' };
+  for (const k of ['web_key', 'web_security', 'service_key']) body[k] = $(k).value.trim();
+  const r = await call(body);
+  if (!r.ok) return say('amapResult', r.error, 'bad');
+  say('amapResult', r.message, 'ok');
+  setTimeout(() => { loadConfig(); refresh(); }, 800);
+};
+
+function renderBuild(b) {
+  if (!b) return;
+  const text = { idle: '', running: `网站构建中（${b.at} 开始）…`, ok: `网站已重新构建（${b.at}），刷新 8080 就是新的`,
+                 failed: `网站构建失败（${b.at}，退出码 ${b.exit}），看日志里的「网站构建」` }[b.state];
+  $('buildLine').textContent = text || '';
+  $('buildLine').style.color = b.state === 'failed' ? 'var(--bad)' : '';
 }
 
 async function refresh() {
@@ -163,7 +345,7 @@ async function refreshLog() {
   try { pre.textContent = await (await fetch('/api/log?name=' + logName)).text() || '（还没有日志）'; } catch (e) { }
   if (stick) pre.scrollTop = pre.scrollHeight;
 }
-refresh(); refreshLog();
+refresh(); refreshLog(); loadConfig();
 setInterval(refresh, 2500); setInterval(refreshLog, 2000);
 </script>
 </body>

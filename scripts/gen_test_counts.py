@@ -100,6 +100,16 @@ INLINE = [
     ("技术架构说明.md",
      r"\| 前端 \| [\d,]+ 个文件，[\d,]+ 行 \|",
      "| 前端 | {web_files} 个文件，{web_lines} 行 |"),
+
+    # README 的「规模」表。**它在 2026-10-21 之前没人管**：写的还是
+    # 31 张表 / 127 个接口 / 1193 条测试，实际是 36 / 152 / 1,861——
+    # 偏偏 README 是来看项目的人第一眼读到的东西。
+    ("../README.md", r"\| 数据表 \| [\d,]+ \|", "| 数据表 | {tables} |"),
+    ("../README.md", r"\| 后端接口 \| [\d,]+ \|", "| 后端接口 | {endpoints} |"),
+    ("../README.md", r"\| 智能体接口 \| [\d,]+ \|", "| 智能体接口 | {agent_endpoints} |"),
+    ("../README.md",
+     r"\| 自动化测试 \| \*\*[\d,]+\*\*（后端 [\d,]+ \+ 智能体 [\d,]+） \|",
+     "| 自动化测试 | **{total}**（后端 {server} + 智能体 {agent}） |"),
 ]
 
 # 数代码量时跳过的目录。**测试不算进「代码量」**——
@@ -210,12 +220,13 @@ def _outline_numbers():
     # 的「N 个接口 · M 张表」，那张图改成图片之后这句话就不在正文里了。
     text = io.open(os.path.join(DOCS, "概要设计说明书.md"),
                    encoding="utf-8").read()
-    endpoints = re.search(r"业务后端 \*\*(\d+)\*\* 个接口，智能体服务", text)
+    endpoints = re.search(r"业务后端 \*\*(\d+)\*\* 个接口，智能体服务 \*\*(\d+)\*\* 个接口", text)
     tables = re.search(r"共 \*\*(\d+) 张表、", text)
     if not (endpoints and tables):
         raise SystemExit("《概要设计说明书》里找不到附录 A 的接口数或 4.2 的表数，"
                          "先跑 python scripts/gen_api_list.py")
-    return {"endpoints": endpoints.group(1), "tables": tables.group(1)}
+    return {"endpoints": endpoints.group(1), "agent_endpoints": endpoints.group(2),
+            "tables": tables.group(1)}
 
 
 def _code_stats():
