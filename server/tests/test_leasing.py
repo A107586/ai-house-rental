@@ -153,6 +153,14 @@ class TestActivate(LeasingCase):
             count = self.session.query(Message).filter_by(user_id=uid).count()
             self.assertGreater(count, 0)
 
+    def test_says_why_an_offline_house_cannot_be_signed(self):
+        """房东下架了，不能告诉租客「已被占用」——他会以为被别人抢先签了。"""
+        contract = self.sign()
+        self.house.status = "offline"
+        with self.assertRaises(ValueError) as caught:
+            leasing.activate_contract(self.session, contract)
+        self.assertIn("下架", str(caught.exception))
+
 
 class TestBills(LeasingCase):
 

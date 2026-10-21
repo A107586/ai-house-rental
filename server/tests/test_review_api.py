@@ -194,6 +194,25 @@ class TestPendingReviews(ReviewCase):
         data = self.client.get("/api/reviews/pending", headers=self.tenant).json()
         self.assertEqual(data["total"], 0)
 
+    def test_past_the_window_is_not_pending(self):
+        """过了评价有效期的不再算「待评价」——提交会被拒，角标却永远消不掉。"""
+        from datetime import datetime, timedelta
+        from app import db
+        from app.models import Contract
+        no = self.ended_contract()
+        session = db.SessionLocal()
+        try:
+            contract = session.query(Contract).filter_by(contract_no=no).one()
+            contract.ended_at = datetime.now() - timedelta(days=31)
+            session.commit()
+        finally:
+            session.close()
+        data = self.client.get("/api/reviews/pending", headers=self.tenant).json()
+        self.assertEqual(data["total"], 0)
+        late = self.client.post("/api/reviews", headers=self.tenant,
+                                json={"contract_no": no, "rating": 5})
+        self.assertEqual(late.status_code, 409, "两边口径一致：列表里没有的，提交也该被拒")
+
 
 if __name__ == "__main__":
     unittest.main()

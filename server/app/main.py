@@ -930,6 +930,9 @@ def update_house_status(house_no: str, status: str,
             message = "这套房源的当前内容还没通过审核，已提交审核，通过后会自动上架。"
 
     house.status = status
+    if status == "offline":
+        # 下架了，还没到时间的看房也就没意义了——同签约生效时的处理
+        leasing.close_open_viewings(session, house, "房东已下架这套房")
     session.commit()
     out = {"ok": True, "house": house.to_dict()}
     if message:
@@ -1714,13 +1717,23 @@ def create_review(payload: ReviewCreate, user: User = Depends(require_login),
 @app.get("/api/reviews/pending")
 def pending_reviews(user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
-    """待评价的租约：已结束但还没评过的。"""
+    """待评价的租约：已结束、还在评价有效期内、还没评过的。
+
+    **口径必须和 create_review 一模一样**（2026-10-22 补）。原先这里不看有效期：
+    退租超过 30 天的租约一直挂在「待评价」里，角标永远消不掉，点进去提交又被
+    「已过评价有效期」拒掉。被删掉的评价也同理——那份合同允许重评，这里却当它评过了。
+    """
     contracts = session.scalars(
         select(Contract).where(Contract.tenant_id == user.id,
                                Contract.status == "ended")).all()
     reviewed = {row[0] for row in session.execute(
-        select(Review.contract_id).where(Review.tenant_id == user.id)).all()}
-    rows = [c.to_dict() for c in contracts if c.id not in reviewed]
+        select(Review.contract_id).where(Review.tenant_id == user.id,
+                                         Review.deleted_at.is_(None))).all()}
+    window_days = config_store.get_int(session, "review_window_days")
+    now = datetime.now()
+    rows = [c.to_dict() for c in contracts
+            if c.id not in reviewed
+            and not (c.ended_at and (now - c.ended_at).days > window_days)]
     return {"total": len(rows), "list": rows}
 
 

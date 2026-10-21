@@ -245,6 +245,21 @@ class TestAppointments(ApiTestCase):
             session.close()
         self.assertTrue(any("已经租出去了" in n for n in notes), notes)
 
+    def test_taking_the_house_offline_cancels_open_viewings(self):
+        from app import db
+        from app.models import Appointment
+        landlord = auth_header(self.client, "landlord1", "test123")
+        waiting = self._book(self.headers, self._future())
+        off = self.client.patch("/api/houses/DL0001/status?status=offline", headers=landlord)
+        self.assertEqual(off.status_code, 200, off.text)
+        session = db.SessionLocal()
+        try:
+            appointment = session.get(Appointment, waiting)
+            self.assertEqual(appointment.status, "cancelled")
+            self.assertIn("下架", appointment.reply)
+        finally:
+            session.close()
+
     def test_rejects_past_time(self):
         past = (datetime.now() - timedelta(days=1)).isoformat()
         response = self.client.post("/api/appointments", headers=self.headers,

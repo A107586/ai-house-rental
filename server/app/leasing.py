@@ -384,7 +384,12 @@ def activate_contract(session, contract):
     if not house:
         raise ValueError("房源不存在")
     if house.status != "available":
-        raise ValueError("该房源已被占用")
+        # 说清楚是哪一种：原先一律「已被占用」，房东下架了或房源在重审时，
+        # 租客会以为被别人抢先签了
+        raise ValueError({"rented": "该房源已被占用",
+                          "offline": "房东已下架这套房，合同暂时无法生效，请联系房东",
+                          "pending": "这套房源正在重新审核，审核通过后才能确认签约",
+                          }.get(house.status, "该房源当前不可签约"))
 
     contract.status = "active"
     contract.signed_at = datetime.now()
