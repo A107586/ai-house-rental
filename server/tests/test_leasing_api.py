@@ -282,11 +282,26 @@ class TestEndAndRenew(ContractCase):
         self.assertEqual(
             self.client.get("/api/houses/DL0001").json()["status"], "available")
 
-    def test_tenant_can_end_without_deduct(self):
+    def test_tenant_end_is_a_request_for_the_landlord(self):
+        """租客点退租是提申请：合同照常生效，房东收到消息，在房东那边确认时结算押金。"""
         no = self.active_contract()
         response = self.client.post("/api/contracts/%s/end" % no,
                                     headers=self.tenant, json={"reason": "提前退租"})
         self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["requested"])
+        self.assertEqual(body["contract"]["status"], "active")
+        self.assertEqual(body["contract"]["request"]["type"], "end")
+        self.assertEqual(body["contract"]["request"]["by"], "tenant")
+        self.assertEqual(self.client.get("/api/houses/DL0001").json()["status"], "rented")
+        messages = self.client.get("/api/messages", headers=self.landlord).json()["list"]
+        self.assertTrue(any(m["title"] == "租客申请退租" for m in messages))
+
+        # 房东确认（带扣款），这一步才真的退
+        done = self.client.post("/api/contracts/%s/end" % no, headers=self.landlord,
+                                json={"reason": "提前退租", "deduct": 0})
+        self.assertEqual(done.json()["contract"]["status"], "ended")
+        self.assertIsNone(done.json()["contract"]["request"])
 
     def test_tenant_cannot_deduct_deposit(self):
         """扣押金是出租方的权利，租客不能自己填扣款。"""
@@ -349,18 +364,92 @@ class TestEndAndRenew(ContractCase):
                                     headers=self.landlord, json={"deduct": -5})
         self.assertEqual(response.status_code, 422)
 
-    def test_renew(self):
+    def test_renew_needs_the_other_side(self):
+        """租客申请续租，**房东确认**；原先新合同反倒等租客自己确认，房东全程没参与。"""
+        no = self.active_contract(months=12)
+        before = self.client.get("/api/contracts/mine", headers=self.tenant).json()["list"][0]
+        asked = self.client.post("/api/contracts/%s/renew" % no,
+                                 headers=self.tenant, json={"months": 6}).json()
+        self.assertTrue(asked["requested"])
+        self.assertEqual(asked["contract"]["request"],
+                         dict(asked["contract"]["request"], type="renew", by="tenant", months=6))
+        self.assertEqual(asked["contract"]["end_date"], before["end_date"])     # 还没延长
+
+        # 租客自己再点一次不算确认
+        again = self.client.post("/api/contracts/%s/renew" % no,
+                                 headers=self.tenant, json={"months": 6}).json()
+        self.assertTrue(again["requested"])
+
+        done = self.client.post("/api/contracts/%s/renew" % no,
+                                headers=self.landlord, json={}).json()
+        self.assertTrue(done["renewed"])
+        self.assertEqual(done["contract"]["status"], "active")
+        self.assertEqual(done["contract"]["contract_no"], no)
+        self.assertGreater(done["contract"]["end_date"], before["end_date"])
+        self.assertIsNone(done["contract"]["request"])
+
+    def test_landlord_can_propose_renewal_too(self):
         no = self.active_contract()
-        response = self.client.post("/api/contracts/%s/renew" % no,
-                                    headers=self.landlord, json={"months": 6})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["contract"]["status"], "pending")
+        asked = self.client.post("/api/contracts/%s/renew" % no,
+                                 headers=self.landlord, json={"months": 12}).json()
+        self.assertEqual(asked["contract"]["request"]["by"], "landlord")
+        done = self.client.post("/api/contracts/%s/renew" % no,
+                                headers=self.tenant, json={}).json()
+        self.assertTrue(done["renewed"])
+
+    def test_request_can_be_withdrawn_or_declined(self):
+        no = self.active_contract()
+        self.client.post("/api/contracts/%s/end" % no, headers=self.tenant, json={})
+        declined = self.client.delete("/api/contracts/%s/request" % no, headers=self.landlord)
+        self.assertIsNone(declined.json()["contract"]["request"])
+        messages = self.client.get("/api/messages", headers=self.tenant).json()["list"]
+        self.assertTrue(any(m["title"] == "退租申请未通过" for m in messages))
+        self.assertEqual(self.client.delete("/api/contracts/%s/request" % no,
+                                            headers=self.tenant).status_code, 409)
+
+    def test_cannot_stack_end_and_renew_requests(self):
+        no = self.active_contract()
+        self.client.post("/api/contracts/%s/renew" % no, headers=self.tenant, json={})
+        clash = self.client.post("/api/contracts/%s/end" % no, headers=self.tenant, json={})
+        self.assertEqual(clash.status_code, 409)
 
     def test_renew_pending_rejected(self):
         no = self.sign().json()["contract"]["contract_no"]
         response = self.client.post("/api/contracts/%s/renew" % no,
                                     headers=self.landlord, json={})
         self.assertEqual(response.status_code, 409)
+
+
+class TestTenantDetail(ContractCase):
+    """房东点开一位租客：只看到他和自己之间的合同、账单、报修。"""
+
+    def tenant_id(self):
+        return self.client.get("/api/auth/me", headers=self.tenant).json()["id"]
+
+    def test_landlord_sees_contracts_and_bills(self):
+        self.active_contract()
+        body = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(),
+                               headers=self.landlord).json()
+        self.assertEqual(body["tenant"]["username"], "tenant1")
+        self.assertNotIn("password_hash", body["tenant"])
+        self.assertEqual(len(body["contracts"]), 1)
+        self.assertTrue(body["bills"])
+        self.assertIn("overdue_count", body["summary"])
+
+    def test_other_landlords_get_nothing(self):
+        self.active_contract()
+        # 另一位房东：直接以房东身份注册
+        self.client.post("/api/auth/register", json={
+            "username": "landlord2", "password": "test123", "real_name": "赵房东",
+            "phone": "13800000002", "role": "landlord"})
+        other = auth_header(self.client, "landlord2", "test123")
+        response = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(), headers=other)
+        self.assertEqual(response.status_code, 404)
+
+    def test_tenants_cannot_use_it(self):
+        response = self.client.get("/api/landlord/tenants/%d" % self.tenant_id(),
+                                   headers=self.tenant)
+        self.assertEqual(response.status_code, 403)
 
 
 class TestMessages(ContractCase):

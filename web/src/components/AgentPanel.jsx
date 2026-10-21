@@ -165,13 +165,11 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
   // F5 待办条：三件都是「有人在等你回话」的事。
   // 邀请不回、预约不确认、带看不去，损失的都是这一单本身
   const FOCUS = approved ? [
-    { key: 'today', label: '待接受邀请',
-      n: data?.todo.invitations.length || 0, urgent: true,
-      hint: '房东发来的委托' },
-    { key: 'today', label: '待确认预约', n: pendingAppts.length, urgent: true,
-      hint: '租客在等回话' },
+    { key: 'today', label: '待接受的委托',
+      n: data?.todo.invitations.length || 0, urgent: true },
+    { key: 'today', label: '待确认预约', n: pendingAppts.length, urgent: true },
     { key: 'today', label: '今日带看',
-      n: data?.todo.today_viewings.length || 0, hint: '今天要去的场次' },
+      n: data?.todo.today_viewings.length || 0 },
   ] : []
 
   // 把页签清单（含计数）报给外面的左栏。
@@ -209,8 +207,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
         )}
 
         {approved && (
-          <FocusBar items={FOCUS} onPick={setTab}
-                    hint="邀请与预约都有时效，超时房东会另找人。" />
+          <FocusBar items={FOCUS} onPick={setTab} />
         )}
 
         {!embedded && (
@@ -307,7 +304,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
               </ul>
             )}
 
-            <div className="section-title">「今天的带看」只算已确认的。把待确认的也算进去，你会照着一个虚高的数字安排行程，到了才发现约根本没成立——所以它们单列在这里，等你先确认。</div>
+            <div className="section-title">今天的带看</div>
             {data.todo.today_viewings.length === 0 ? (
               <p className="desc">今天没有已确认的看房预约。</p>
             ) : (
@@ -378,15 +375,15 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
               </div>
             )}
             <p className="rd-note">
-              租客号码只在看房当天、预约已确认时才显示——它是给「我到楼下了，你在哪」用的，不是一份可以慢慢攒的通讯录。平时联系走站内会话；对方设了免打扰，按钮会变灰，那时等他来找你就好，预约和带看通知照常送达。
+              租客电话只在看房当天、预约确认后显示，平时请用站内消息联系。
             </p>
 
             <p className="rd-note">
-              「今天的带看」只统计**已确认**的预约；待确认的单列在下方，请先确认再安排行程。
+              这里只算已确认的预约，待确认的在下方，确认后再安排行程。
             </p>
 
             <p className="rd-note">
-              带看完记得补一条记录。那不是给平台看的考勤——租客的异议（嫌厨房小、嫌楼层低）攒够了，就是房东该降价或改描述的依据，也是你日后申请解除委托时唯一拿得出手的证据。
+              带看完记得补一条记录，租客的意见能帮房东调整价格和描述。
             </p>
           </>
         )}
@@ -433,7 +430,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
         {tab === 'market' && (
           <>
             <p className="desc">
-              主营区域内，暂时没有可申请的可租房源。申请要房东点头才生效——否则等于中介给自己派活。
+              申请代理需要房东同意后才生效。
             </p>
             {openList.length === 0 ? (
               <div className="empty">
@@ -475,8 +472,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
           <>
             <div className="section-title">补一条带看纪要</div>
             <p className="desc">
-              照平常说话写就行，智能体会整理成纪要。
-              <b>整理完可以改</b>它给的是草稿，不是结论；智能体不可用时按关键词提取，纪要照样能存。
+              照平常说话写就行，会自动整理成纪要，整理完还可以改。
             </p>
             <form
               className="house-form"
@@ -673,7 +669,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                 <table className="log-table">
                   <thead>
                     <tr>
-                      <th>合同</th><th>房源</th><th>计佣基数和比例分开写，就是为了让你当场能核对这笔钱怎么算出来的；只给总额，事后谁都说不清。结算走线下，平台只记状态——和租金支付是同一条边界。</th>
+                      <th>合同</th><th>房源</th><th>计佣基数</th>
                       <th>比例</th><th>金额</th><th>状态</th>
                     </tr>
                   </thead>
@@ -712,8 +708,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                     <td>带看场次</td>
                     <td className="accent">{stats.recent_viewings}</td>
                     <td className="log-path">
-                      滚动 {stats.recent_days} 天，不是自然月——
-                      月初不会突然清零
+                      近 {stats.recent_days} 天
                     </td>
                   </tr>
                   <tr>
@@ -746,7 +741,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
               </table>
             </div>
             <p className="rd-note">
-              所有比率都带分母。「成交率 25%」，带看 4 次和 400 次完全不是一回事；样本不足 5，直接看原始数字，不折成百分比。管理员后台用的是同一套算法。
+              次数少于 5 次时只显示次数，不算百分比。
             </p>
           </>
         )}
@@ -770,7 +765,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
               <>
                 <div className="section-title">提交从业资质</div>
                 <p className="desc">
-                  接单前必须实名并核验从业资质。这不是走形式——中介能看到租客联系方式，也能代房东处理咨询，把权限给没核验过的人是安全问题。
+                  接单前需要实名，并通过从业资质审核。
                 </p>
                 <form
                   className="house-form"
@@ -856,7 +851,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
               </button>
             </form>
             <p className="rd-note">
-              主营区域决定「接单大厅」给你看哪些房源，留空就不过滤。关掉「接受新委托」只挡新邀请，已在托的房源不受影响——休假不等于甩手。
+              主营区域决定接单大厅里显示哪些房源，留空显示全部。关闭「接受新委托」后不再收到新邀请，已委托的房源不受影响。
             </p>
           </>
         )}

@@ -58,23 +58,29 @@ def _sanitize(data):
 
 
 def understand(text, provider=None):
-    """抽取条款，返回 ``(extracted, source)``。"""
+    """抽取条款，返回 ``(extracted, source)``。
+
+    **规则和大模型同时参与。** 原先规则抽到一半以上条款就不问大模型了——
+    平台模板合同永远走不到大模型，界面上一直写着「按常见条款自动检查」。
+    现在只要配了大模型就一起抽，冲突时规则的值优先（数字它抽得更准）。
+    大模型不可用时：规则本来就有把握，标 rules；没把握，标 rules_fallback。
+    """
     rule_result = extract_clauses(text)
-    if rule_result["coverage"] >= settings.rule_confidence_threshold:
-        return rule_result, "rules"
+    confident = rule_result["coverage"] >= settings.rule_confidence_threshold
+    fallback = "rules" if confident else "rules_fallback"
 
     if provider is None or not provider.available:
-        return rule_result, "rules_fallback"
+        return rule_result, fallback
 
     try:
         # 合同可能很长，截断以控制 Token 消耗（非功能需求 N-08）
         data = provider.complete_json(_SYSTEM, _PROMPT.format(text=text[:3000]))
     except LLMUnavailable:
-        return rule_result, "rules_fallback"
+        return rule_result, fallback
 
     clauses = _sanitize(data)
     if not clauses:
-        return rule_result, "rules_fallback"
+        return rule_result, fallback
 
     # 大模型抽到的与规则抽到的合并，规则结果优先——它更可靠
     merged = dict(clauses)
@@ -84,6 +90,58 @@ def understand(text, provider=None):
         "missing": [k for k in CLAUSE_KEYS if k not in merged],
         "coverage": round(len(merged) / len(CLAUSE_KEYS), 2),
     }, "llm"
+
+
+_RISK_PROMPT = """下面是一份房屋租赁合同。规则已经查出这些问题：{known}。
+请再看一遍，找出**规则没查出来**、对租客明显不利的条款，最多 3 条；没有就返回空数组。
+每条必须摘抄合同里的原文（逐字，不要改写），找不到原文就不要写。
+只输出 JSON：{{"risks": [{{"title": "一句话说是什么问题", "quote": "合同原文",
+"why": "为什么对租客不利", "advice": "签之前该怎么谈"}}]}}
+
+合同正文：
+「{text}」"""
+
+
+def _squash(text):
+    return "".join(str(text or "").split())
+
+
+def llm_risks(text, known, provider):
+    """让大模型补查规则没覆盖到的风险条款。
+
+    规则只认得写死的那几种坑（押金不退、违约金过高……），换个说法就漏。
+    大模型给的每一条都要**摘抄原文**，原文在合同里找不到就丢掉——
+    它说「第 7 条有问题」而合同里根本没有第 7 条，比不说更糟。
+    """
+    if provider is None or not provider.available:
+        return []
+    try:
+        data = provider.complete_json(_SYSTEM, _RISK_PROMPT.format(
+            known="、".join(r["title"] for r in known) or "（无）", text=text[:3000]))
+    except LLMUnavailable:
+        return []
+    rows = data.get("risks") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    body = _squash(text)
+    seen = {_squash(r.get("title")) for r in known}
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title, quote = str(row.get("title") or "").strip(), str(row.get("quote") or "").strip()
+        if not title or len(_squash(quote)) < 4 or _squash(quote) not in body:
+            continue
+        if _squash(title) in seen:
+            continue
+        seen.add(_squash(title))
+        out.append({"id": "llm_%d" % (len(out) + 1), "level": "medium", "source": "llm",
+                    "title": title[:40], "quote": quote[:120],
+                    "why": str(row.get("why") or "").strip()[:200] or "大模型认为这一条对租客不利。",
+                    "advice": str(row.get("advice") or "").strip()[:200] or "签之前和房东确认清楚。"})
+        if len(out) >= 3:
+            break
+    return out
 
 
 def run(text, provider=None):
@@ -96,6 +154,12 @@ def run(text, provider=None):
 
     extracted, source = understand(text, provider=provider)
     result = check_risks(text, extracted["clauses"])
+    # 规则查完再让大模型补查。分数仍按规则算（可复现）；补出来的条目单独标「AI 补充」
+    extra = llm_risks(text, result["risks"], provider)
+    if extra:
+        result["risks"] = result["risks"] + extra
+        result["levels"]["medium"] = result["levels"].get("medium", 0) + len(extra)
+        source = "llm"
 
     return {
         "intent": "contract",

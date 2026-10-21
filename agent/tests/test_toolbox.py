@@ -502,13 +502,16 @@ class TestLandlordTools(unittest.TestCase):
         """「有没有租客拖欠房租的」原先查成了房东自己的账单。"""
         backend = mock.Mock()
         backend.get.return_value = {"list": [
-            {"username": "tenant1", "overdue_count": 2, "unpaid_total": 6100},
+            {"username": "tenant1", "overdue_count": 2, "unpaid_total": 39650,
+             "overdue_total": 6100},
             {"username": "tenant9", "overdue_count": 0, "unpaid_total": 0}]}
         got = runner._account("landlord_tenants", {"token": "t", "backend": backend},
                               {"overdue_only": True})
         self.assertIn("tenant1", got["message"])
         self.assertNotIn("tenant9", got["message"])
+        # 欠的是逾期那 6100，不是含未到期账单的 39650
         self.assertIn("6100", got["message"])
+        self.assertNotIn("39650", got["message"])
 
     def test_income_uses_the_dashboard_numbers(self):
         backend = mock.Mock()
@@ -633,6 +636,42 @@ class TestLandlordTools(unittest.TestCase):
         self.assertIn("1 份出租合同到期", got["message"])
         self.assertIn("DL1", got["message"])
         self.assertNotIn("DL2", got["message"])
+
+    def test_words_starting_with_one_are_not_a_pick(self):
+        """「一般多久能有人来修」以「一」开头，原先被当成选了第一个选项。"""
+        from app.agents.support.tools import actions
+        opts = [{"value": "a", "label": "跳过，直接提交"}, {"value": "b", "label": "选照片"}]
+        for said in ("一般多久能有人来修啊", "一直在漏", "10号那场"):
+            self.assertEqual(actions.pick_option(said, opts), "", said)
+        for said, want in (("一", "a"), ("第二个", "b"), ("1号", "a"), ("一，就它", "a"),
+                           ("二套", "b")):
+            self.assertEqual(actions.pick_option(said, opts), want, said)
+
+    def test_bill_split_is_counted_over_all_unpaid_bills(self):
+        unpaid = ([{"amount": 750, "due_date": "2026-09-01", "overdue": True}] * 5
+                  + [{"amount": 3050, "due_date": "2026-11-%02d" % (i + 1), "overdue": False}
+                     for i in range(31)])
+        card = runner._card("my_bills", [dict(r, status="unpaid") for r in unpaid])
+        self.assertEqual(len(card["data"]["unpaid"]), 5)
+        split = card["data"]["待缴拆分"]
+        self.assertEqual(split["已逾期"], {"笔数": 5, "合计": 3750})
+        self.assertEqual(split["还没到期"]["笔数"], 31)
+        self.assertEqual(split["还没到期"]["最近一笔到期日"], "2026-11-01")
+
+    def test_agent_gets_the_house_fields_without_a_second_model_call(self):
+        """agent 调用时不在工具里再问一次模型：内层只看得到这一句话，
+        「离公司远吗」它不知道公司在哪。字段整份交回 agent，它带着整段对话来答。"""
+        house = {"house_no": "DL0040", "title": "星海广场 一室一厅", "rent_price": 1200,
+                 "address": "沙河口区星海广场巷73号楼"}
+        provider = mock.Mock()
+        ctx = {"last_house_nos": ["DL0041", "DL0040"], "house_no": "", "agent": True,
+               "fetch_houses": lambda nos: [house], "backend": None,
+               "text": "第二套离公司远吗", "provider": provider}
+        with mock.patch.object(runner.pitch, "describe", return_value=("一室一厅…", {})):
+            got = runner._one_house("house_detail", {"ordinal": 2}, ctx)
+        self.assertIs(got["house"], house)
+        provider.complete.assert_not_called()
+        provider.chat.assert_not_called()
 
     def test_unknown_house_code_says_so(self):
         """报了编号却查不到，就说查不到——别回「先说说你的条件」。"""

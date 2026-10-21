@@ -5,6 +5,8 @@
 """
 
 import contextvars
+import queue
+import threading
 import json
 import sys
 import re
@@ -12,10 +14,11 @@ import time
 from types import SimpleNamespace
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import fusion, memory, supervisor
+from app import fusion, memory, supervisor, tracing
 from app.agents.assistant import loop as assistant_loop
 from app.agents.assistant.toolkit import Toolkit
 from app.retrieval.tokenize import WORD_LEVEL
@@ -44,7 +47,7 @@ from app.llm.base import LLMUnavailable
 from app.agents.viewing import agent as viewing
 from app.agents.support.tools import actions as support_actions
 from app.agents.support.tools import forms as support_forms
-from app.backend import client as backend_client
+from app.backend import BackendError, client as backend_client
 from app.config import settings
 from app.llm.providers import build_provider
 
@@ -83,7 +86,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 让前端脚本读得到请求编号（跨域时响应头默认只暴露几个标准字段）
+    expose_headers=[tracing.HEADER],
 )
+
+# 请求编号 + 结构化访问日志，见 app/tracing.py。注册在 CORS 之后＝在它外层，
+# 编号从请求一进来就有，耗时也包住整条链
+tracing.setup()
+app.middleware("http")(tracing.trace_requests)
 
 provider = build_provider(settings)
 
@@ -331,6 +341,7 @@ def agent_booking(payload: BookingRequest):
                    "shouji": payload.shouji},
         token=payload.token,
         backend=backend_client,
+        provider=_llm(),
     )
 
 
@@ -368,6 +379,18 @@ def agent_recommend(payload: RecommendRequest):
     """
     return recommend.run(token=payload.token, limit=payload.limit,
                          backend=backend_client)
+
+
+@app.post("/agent/recommend/explain")
+def agent_recommend_explain(payload: RecommendRequest):
+    """给「为你推荐」写一句推荐理由（大模型）。
+
+    和推荐列表分开请求：列表是规则算的、立刻就有；这句话要等模型，
+    前端先摆出卡片，话到了再换上去，首页不用等它。
+    """
+    result = recommend.run(token=payload.token, limit=payload.limit, backend=backend_client)
+    text = recommend.explain(result, _llm())
+    return {"ok": bool(text), "text": text, "source": "llm" if text else "rules"}
 
 
 class DescribeRequest(BaseModel):
@@ -624,13 +647,72 @@ def agent_chat(payload: ChatRequest):
     return _with_photos(payload, urls)
 
 
+# 流式连接上多久没有新事件就发一行心跳。开思考时模型可能十几秒不吐正文，
+# 中间的代理（nginx 等）看到连接一直没动静会以为断了
+STREAM_HEARTBEAT = 10.0
+
+
+@app.post("/agent/chat/stream")
+def agent_chat_stream(payload: ChatRequest):
+    """`/agent/chat` 的流式版本（SSE，Server-Sent Events）。
+
+    同一轮对话、同一种结果，只是不用干等：
+
+        event: step   data: {"type":"step","tool":"my_bills","label":"在查你的账单"}
+        event: delta  data: {"type":"delta","text":"你有 36 笔"}      ← 回答边生成边推
+        event: reset  data: {"type":"reset"}                         ← 推过的字作废
+        event: done   data: {"type":"done","result":{...}}           ← 和 /agent/chat 的返回一模一样
+
+    前端以 done 里的 result 为准（话术会去掉 Markdown 星号等）。
+    确认卡片的「好的」、legacy 模式这类不经过 agent 循环的轮次，只会有一个 done。
+
+    一轮对话在后台线程里跑，事件经队列交给这里一条条写出去：
+    agent 循环是同步代码，这样不用把它改成异步。
+    """
+    events = queue.Queue()
+
+    def work():
+        try:
+            if settings.assistant_mode != "legacy":
+                result = _agent_turn(payload, on_event=events.put)
+            else:
+                result = agent_chat(payload)
+            events.put({"type": "done", "result": result})
+        except Exception:                                        # noqa: BLE001
+            events.put({"type": "error", "message": "这一轮处理出错了，稍后再试一次。"})
+        finally:
+            events.put(None)
+
+    # 新线程不会继承当前请求的上下文（请求编号存在 ContextVar 里），
+    # 不复制的话这一轮调业务后端时就带不上编号，两边日志串不起来
+    context = contextvars.copy_context()
+    threading.Thread(target=context.run, args=(work,), daemon=True).start()
+
+    def stream():
+        while True:
+            try:
+                item = events.get(timeout=STREAM_HEARTBEAT)
+            except queue.Empty:
+                yield ": ping\n\n"                # 冒号开头是 SSE 的注释行，浏览器会忽略
+                continue
+            if item is None:
+                return
+            yield "event: %s\ndata: %s\n\n" % (
+                item["type"], json.dumps(item, ensure_ascii=False, default=str))
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",                # 让 nginx 别攒着，来一条转一条
+    })
+
+
 # ============================================================================ agent
 
 _AGENT_UNAVAILABLE = ("助手这会儿连不上大模型，没法帮你查和办事。稍后再试一次；"
                       "急的话可以点「转人工」。")
 
 
-def _agent_turn(payload):
+def _agent_turn(payload, on_event=None):
     """agent 版的一轮对话。
 
     理解、选工具、多步查询、组织话术全归模型（`app/agents/assistant/loop.py`）。
@@ -684,12 +766,15 @@ def _agent_turn(payload):
         "last_house_nos": list(payload.last_house_nos or []),
         "house_no": payload.house_no, "slots": slots, "features": feats,
         "seen": payload.seen,
+        # 讲单套房时把资料整份交回 agent，不在工具里再问一次模型（见 runner._one_house）
+        "agent": True,
     }
     deps = SimpleNamespace(
         logged_in=who["logged_in"], role=who["role"], runner_ctx=runner_ctx,
         run_read=tool_runner.run_read,
         knowledge=lambda question: _agent_knowledge(payload, past, question),
         recommend=lambda: recommend.run(token=payload.token, limit=6, backend=backend_client),
+        review=lambda text: contract.run(text, provider=turn),
         propose=lambda action, params, text, images: _agent_propose(
             payload, action, params, text, urls))
     images = repair_vision.safe_images(urls, settings.backend_base_url) if urls else []
@@ -697,12 +782,23 @@ def _agent_turn(payload):
         out = assistant_loop.run(
             payload.text, images, turn, Toolkit(deps),
             context_lines=_agent_context(payload, who, slots, feats, pending),
-            dialogue=dialogue)
+            dialogue=dialogue, on_event=on_event)
     except LLMUnavailable:
         return _log_agent_turn(payload, urls, _agent_reply(
             _AGENT_UNAVAILABLE, {}, [], slots, feats, status="unavailable", ok=False))
 
     result = _agent_reply(out["message"], out["artifacts"], out["trace"], slots, feats)
+    # 分步计时（app/agents/assistant/loop.py 的 run）：放进 route 给前端和答辩看，
+    # 再写一行汇总日志——带着请求编号，和访问日志、模型调用日志对得上
+    timings = out.get("timings") or {}
+    result["route"]["timings"] = timings
+    steps = timings.get("steps") or []
+    tracing.log("agent_turn", total_ms=timings.get("total_ms"),
+                model_ms=round(sum(s["ms"] for s in steps if s["kind"] == "model"), 1),
+                tool_ms=round(sum(s["ms"] for s in steps if s["kind"] == "tool"), 1),
+                model_calls=sum(1 for s in steps if s["kind"] == "model"),
+                tools=[s["tool"] for s in steps if s["kind"] == "tool"],
+                stopped_by=out["stopped_by"])
     # 用户在流程里插了句别的：答完把待办原样交回去，下一句还能接着填
     if pending and not result.get("pending") and not out["stopped_by"]:
         result["pending"] = pending
@@ -735,13 +831,23 @@ def _agent_context(payload, who, slots, feats, pending):
         lines.append("用户正打开着房源 %s 的详情页，「这套」指它。" % payload.house_no)
     listed = [n for n in (payload.last_house_nos or []) if n]
     if listed:
-        rows = {h.get("house_no"): h for h in _fetch_houses(listed[:10])}
+        rows = {h.get("house_no"): h for h in _fetch_houses(listed[:20])}
         shown = []
-        for i, no in enumerate(listed[:10]):
+        for i, no in enumerate(listed[:20]):
             h = rows.get(no) or {}
             bits = [str(h.get(k)) for k in ("title", "rent_type") if h.get(k)]
             if h.get("rent_price"):
                 bits.append("%g元/月" % float(h["rent_price"]))
+            # 楼层、电梯、配套也带上。上一轮工具结果不会留到这一轮——
+            # 只给标题和价钱时，「按房租排一下，说说哪套适合老人」这一句，
+            # 模型得把 9 套挨个再查一遍电梯（实测 4 次调用、36 秒）
+            if h.get("floor"):
+                bits.append(str(h["floor"]))
+            if "elevator" in h:
+                bits.append("有电梯" if h.get("elevator") else "无电梯")
+            tags = [t for t in (h.get("tags") or []) if t][:5]
+            if tags:
+                bits.append("、".join(tags))
             shown.append("%d. %s %s" % (i + 1, no, " ".join(bits)))
         lines.append("屏幕上的房源列表（用户说「第几套」按这个序号）：\n" + "\n".join(shown))
     remembered = memory.describe(slots, feats)
@@ -777,6 +883,19 @@ def _agent_knowledge(payload, past, question):
 _OWN_RENTAL_ACTIONS = {"submit_repair", "pay_bill", "renew_contract", "end_contract"}
 
 
+def _own_rentals(token):
+    """他作为租客、生效中的租约对应的房源编号。查不到就当没有。"""
+    if not token:
+        return set()
+    try:
+        data = backend_client.get("/api/contracts/mine", params={"side": "tenant"},
+                                  token=token) or {}
+    except BackendError:
+        return set()
+    return {c.get("house_no") for c in data.get("list") or []
+            if c.get("status") == "active" and c.get("house_no")}
+
+
 def _agent_propose(payload, action, params, text, urls):
     """写工具：模型给的参数 + 待办里已填的 → 提议器 → 确认卡片或追问。只读后端。"""
     pending = payload.pending or {}
@@ -785,8 +904,13 @@ def _agent_propose(payload, action, params, text, urls):
         context.update(pending.get("slots") or {})
     context.update({k: v for k, v in params.items() if k not in ("request", "ordinal", "house_no")})
     if action in _OWN_RENTAL_ACTIONS:
+        claimed = params.get("house_no")
         params = {k: v for k, v in params.items() if k not in ("house_no", "ordinal")}
         payload = payload.model_copy(update={"house_no": "", "last_house_nos": []})
+        # 模型给的编号**是他在租的那套**就留着。一律丢掉的话，「那套续一年」
+        # （模型知道是 DL0007）又被追问「你有 3 份租约，要续哪一份」
+        if claimed and claimed in _own_rentals(payload.token):
+            context["house_no"] = claimed
 
     listed = list(payload.last_house_nos or [])
     house_no = params.get("house_no") if params.get("house_no") in listed + [payload.house_no] else None

@@ -1,6 +1,6 @@
 classDiagram
     direction LR
-    class Api["合同与账单 · HTTP 接口（16 个）"] {
+    class Api["合同与账单 · HTTP 接口（17 个）"] {
         <<router>>
         +my_bills() GET
         +pay_bill(PayRequest) POST
@@ -12,6 +12,7 @@ classDiagram
         +contract_detail() GET
         +end_contract(ContractEnd) POST
         +renew_contract(ContractRenew) POST
+        +withdraw_contract_request() DELETE
         +save_review_result(ReviewResultIn) POST
         +payment_notify() POST
         +payment_receipt() GET
@@ -45,6 +46,8 @@ classDiagram
         +pay_bill(session, bill, user, method, idempotency_key)
         +end_contract(session, contract, reason, deduct)
         +renew_contract(session, contract, months)
+        +request_change(session, contract, kind, by, months, reason)
+        +withdraw_request(session, contract, side)
         +notify(session, user_id, type_, title, content, link_no)
     }
     Api ..> m_leasing
@@ -77,7 +80,7 @@ classDiagram
         +int landlord_id «FK»
         +int agent_id «FK»
         +str status
-        +… 另 12 列（见数据库设计书）
+        +… 另 17 列（见数据库设计书）
         +/days_left
         +/review_summary
         +to_dict()

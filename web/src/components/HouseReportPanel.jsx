@@ -53,7 +53,7 @@ export default function HouseReportPanel() {
   async function handle(report, verdict) {
     const conclusion = (drafts[report.report_no] || '').trim()
     if (!conclusion) {
-      setError('请先填写处理结论——举报人收到的就是这句话。')
+      setError('请先填写处理结论，举报人会收到这段话。')
       return
     }
     setBusy(report.report_no)

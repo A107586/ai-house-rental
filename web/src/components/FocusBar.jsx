@@ -28,7 +28,7 @@ export default function FocusBar({ items = [], onPick, hint = '' }) {
         {shown.map((it) => (
           <button
             type="button"
-            key={it.key}
+            key={`${it.key}-${it.label}`}
             className={`focus-cell${it.n > 0 ? ' on' : ''}${it.urgent && it.n > 0 ? ' urgent' : ''}`}
             onClick={() => onPick?.(it.key)}
           >

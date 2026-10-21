@@ -24,7 +24,7 @@ const LICENSE = {
   rejected: { label: '未通过', cls: 'status-rejected' },
 }
 
-export default function AgentRoster() {
+export default function AgentRoster({ onOpenUser }) {
   const [rows, setRows] = useState([])
   const [platform, setPlatform] = useState(null)
   const [status, setStatus] = useState('')
@@ -131,9 +131,6 @@ export default function AgentRoster() {
               </table>
             </div>
           )}
-          <p className="rd-note">
-            这两个数，最能回答「中介有没有用」。如果委托反而更低，就说明功能没起作用；该如实摆出来，而不是藏起来。
-          </p>
         </>
       )}
 
@@ -167,7 +164,9 @@ export default function AgentRoster() {
                   <tr key={row.user_id}
                     className={row.reported.accepted > 0 ? 'bad' : ''}>
                     <td>
-                      {row.name || row.username}
+                      <button className="link-title" onClick={() => onOpenUser?.(row.user_id)}>
+                        {row.name || row.username}
+                      </button>
                       <div className="log-path mono">
                         {row.username}
                         {row.districts.length > 0
@@ -209,7 +208,7 @@ export default function AgentRoster() {
       )}
 
       <p className="rd-note">
-        举报按发生时的受托人归集，委托解除后历史举报仍算在他头上；有成立举报的行标红。样本不足 5 时显示原始数字，不折算百分比。
+        有成立举报的中介标红。次数少于 5 次时只显示次数。
       </p>
     </div>
   )

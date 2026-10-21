@@ -687,13 +687,13 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                         ['故障描述', item.content, { wide: true }],
                         // 智能体的初判要标明出处。**用户得知道这句话是谁说的**——
                         // 是维修师傅看过之后的结论，还是模型读了描述给的猜测
-                        ['智能体初判', item.analysis, { wide: true }],
+                        ['AI 初判', item.analysis, { wide: true }],
                         ['建议派单', item.assignee],
                         ['处理人', item.result && item.result.worker_name],
                         ['完成时间', item.result && item.result.finished_at],
                         ['处理说明', item.result && item.result.note, { wide: true }],
                       ]} note={item.analysis
-                        ? '「智能体初判」只是模型读故障描述后的推测，实际以上门检查为准。'
+                        ? '「AI 初判」是根据故障描述做的推测，以师傅上门检查为准。'
                         : ''} />
                     )}
                   </li>

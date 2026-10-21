@@ -184,3 +184,25 @@ class TestVersionsAreUnique(unittest.TestCase):
         但翻文件找「最新一步是哪个」时会看走眼。"""
         versions = [version for version, _, _ in migrations._STEPS]
         self.assertEqual(versions, sorted(versions))
+
+
+class TestOplogBackfill(MigrationCase):
+
+    def test_oplog_backfill_names_old_rows(self):
+        """0019：规则补全之前写下的日志存的是原始路径，按现在的规则补上名字。"""
+        conn = self.raw()
+        conn.execute("CREATE TABLE operation_logs (id INTEGER PRIMARY KEY, action VARCHAR(60),"
+                     " method VARCHAR(10), path VARCHAR(255))")
+        conn.executemany("INSERT INTO operation_logs (action, method, path) VALUES (?, ?, ?)", [
+            ("POST /api/delegations", "POST", "/api/delegations"),
+            ("POST /api/whatever", "POST", "/api/whatever"),
+            ("发布房源", "POST", "/api/houses")])
+        conn.commit()
+        conn.close()
+        step = next(f for v, _, f in migrations._STEPS if v == "0019")
+        with self.engine.begin() as connection:
+            step(connection, self.engine)
+        conn = self.raw()
+        actions = [r[0] for r in conn.execute("SELECT action FROM operation_logs ORDER BY id")]
+        conn.close()
+        self.assertEqual(actions, ["发起房源委托", "POST /api/whatever", "发布房源"])

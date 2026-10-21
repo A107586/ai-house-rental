@@ -308,19 +308,28 @@ class TestEndContract(LeasingCase):
 
 class TestRenew(LeasingCase):
 
-    def test_renew_creates_new_pending_contract(self):
+    def test_renew_extends_the_same_contract(self):
+        """续租在本合同上延长。原先是结束旧合同另起新合同——结束就会退押金、
+        作废后面的租金、把房源重新上架，人还住着房子就能被别人签走。"""
         contract = self.sign(months=12)
         leasing.activate_contract(self.session, contract)
         self.session.commit()
+        old_end = contract.end_date
+        rent_bills = len([b for b in contract.bills if b.type == "rent"])
 
-        new_contract = leasing.renew_contract(self.session, contract, months=6)
+        renewed = leasing.renew_contract(self.session, contract, months=6)
         self.session.commit()
+        self.session.refresh(contract)
 
-        self.assertEqual(contract.status, "ended")
-        self.assertEqual(contract.end_reason, "续租")
-        self.assertEqual(new_contract.status, "pending")
-        self.assertEqual(new_contract.start_date, contract.end_date)
-        self.assertNotEqual(new_contract.contract_no, contract.contract_no)
+        self.assertIs(renewed, contract)
+        self.assertEqual(contract.status, "active")
+        self.assertEqual(contract.end_date, leasing.add_months(old_end, 6))
+        self.assertIsNone(contract.deposit_refund)                # 押金没被退
+        self.assertEqual(len([b for b in contract.bills if b.type == "rent"]), rent_bills + 6)
+        self.assertEqual(min(b.due_date for b in contract.bills
+                             if b.remark.startswith("续租")), old_end)
+        self.assertIn("续租补充条款", contract.content)
+        self.assertEqual(self.session.get(House, contract.house_id).status, "rented")
 
     def test_renew_requires_active(self):
         contract = self.sign()

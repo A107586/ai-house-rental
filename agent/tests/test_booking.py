@@ -236,5 +236,56 @@ class TestBookingAgent(unittest.TestCase):
         self.assertIn("预约提交失败", result["message"])
 
 
+class JsonProvider:
+    """只回固定 JSON 的假大模型，记下被调了几次。"""
+    available = True
+
+    def __init__(self, data, fail=False):
+        self.data, self.fail, self.calls = data, fail, 0
+
+    def complete_json(self, system, prompt, max_tokens=None):
+        self.calls += 1
+        if self.fail:
+            from app.llm.base import LLMUnavailable
+            raise LLMUnavailable("模拟故障")
+        return self.data
+
+
+class TestBookingWithModel(unittest.TestCase):
+    """规则读不出来的说法，由大模型换算；规则读得出的，不让大模型改。"""
+
+    def test_model_reads_what_rules_cannot(self):
+        backend = FakeBackend()
+        provider = JsonProvider({"date": "2026-09-07", "time": "17:00"})
+        result = agent.run("下礼拜头一天傍晚五点", house_no="F001", now=NOW,
+                           backend=backend, provider=provider)
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(backend.created["moment"], datetime(2026, 9, 7, 17, 0))
+
+    def test_rule_date_is_not_overridden(self):
+        provider = JsonProvider({"date": "2026-09-20", "time": "10:00"})
+        backend = FakeBackend()
+        agent.run("这周六", house_no="F001", now=NOW, backend=backend, provider=provider)
+        # 日期按规则（9 月 5 日），大模型只能补规则没读出的时刻
+        self.assertEqual(backend.created["moment"], datetime(2026, 9, 5, 10, 0))
+
+    def test_far_or_past_dates_are_dropped(self):
+        for bad in ("2025-01-01", "2027-12-31", "不是日期"):
+            result = agent.run("改天吧", house_no="F001", now=NOW, backend=FakeBackend(),
+                               provider=JsonProvider({"date": bad, "time": "10:00"}))
+            self.assertEqual(result["status"], "need_time", bad)
+
+    def test_rules_alone_when_model_fails(self):
+        result = agent.run("这周六下午两点", house_no="F001", now=NOW,
+                           backend=FakeBackend(), provider=JsonProvider({}, fail=True))
+        self.assertEqual(result["status"], "created")
+
+    def test_model_not_asked_when_rules_have_everything(self):
+        provider = JsonProvider({"date": "2026-09-20", "time": "10:00"})
+        agent.run("这周六下午两点", house_no="F001", now=NOW,
+                  backend=FakeBackend(), provider=provider)
+        self.assertEqual(provider.calls, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

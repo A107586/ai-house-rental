@@ -175,9 +175,6 @@ export default function RepairDataPanel() {
 
           <section className="rd-sec">
             <h5>报修最多的房源</h5>
-            <p className="rd-note">
-              同一套房反复报修，往往不是「又坏了一次」，而是上次没修好，或者房子本身有问题。
-            </p>
             {stats.top_houses.length === 0 ? (
               <div className="empty">暂无数据</div>
             ) : (

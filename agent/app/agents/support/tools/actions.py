@@ -603,10 +603,48 @@ def pick_option(text, options):
 
     compact = raw.strip("，。 ")
     for word, index in _ORDINALS.items():
-        if compact == word or compact.startswith(word):
+        if compact == word or _ordinal_prefix(compact, word):
             if index < len(options):
                 return options[index]["value"]
     return ""
+
+
+# 光秃秃的数字后面只认量词：「一个」「1号」「二套」是在挑，
+# 「一般」「一直」「一下」「10号」不是
+_MEASURE = "个条套项号笔场份种间"
+
+
+def _brief(text, limit=30):
+    """复述用的短句：超长时在分句处断开，不从字中间切。
+
+    原先 `content[:30]`，复述成了「……房东消息也不回，处。要拍张照片吗？」——
+    「处理一下」被切掉了后三个字。
+    """
+    text = (text or "").strip().rstrip("，,。.；;！!")
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = max(head.rfind(p) for p in "，,。；;")
+    if cut >= limit // 3:
+        return head[:cut]
+    return head + "…"
+
+
+def _ordinal_prefix(text, word):
+    """这句话是不是以序数开头。
+
+    **「第 X」开头照旧算；光一个「一」「1」不算，除非后面紧跟量词。**
+    原先 `startswith("一")`：报修追问「要拍张照片吗」时用户问
+    「一般多久能有人来修啊」——以「一」开头，被当成选了第一个选项
+    「跳过，直接提交」，问题没人答，卡片直接出来了。
+    """
+    if not text.startswith(word):
+        return False
+    if word.startswith("第"):
+        return True
+    rest = text[len(word):]
+    # 「一，就它」「1 吧」：后面是标点或空格也算在挑
+    return bool(rest) and (rest[0] in _MEASURE or rest[0] in "，,。、！! 吧")
 
 
 _LEADING_TIME = re.compile(r"\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?")
@@ -999,7 +1037,38 @@ def _image_urls(value):
 
 
 def _propose_submit_repair(text, token, backend, context):
-    house_no = (context or {}).get("house_no") or ""
+    """报修：先定「坏了什么」，再定「哪一套」，再问照片、出卡片。"""
+    context = context or {}
+
+    # 描述优先用已经存下来的那份。第一轮从这句话里推，之后原样取——
+    # 否则追问照片时会拿照片答案覆盖掉故障描述。
+    saved = context.get("content")
+    if saved and str(saved).strip():
+        content = str(saved).strip()
+    else:
+        # 把祈使语摘掉，只留故障描述本身。
+        # 不摘的话工单内容会变成「厨房水管漏水了帮我报修」——多出来的三个字
+        # 会跟着进 AI-04 的故障分类，也会显示在房东的工单列表里。
+        content = (text or "").strip()
+        # 长的在前：「需要报修」整个摘掉，不然只摘掉「报修」剩下半截「需要」——
+        # 实测复述成了「……踢脚线底部翘起脱落，需要。」
+        for word in ("需要报修处理", "需要报修", "需要维修", "需报修", "要报修",
+                     "帮我报修", "帮我报个修", "帮我叫维修", "帮我叫师傅",
+                     "提交报修", "报一下修", "帮我", "给我", "请", "报修",
+                     "报个修", "叫维修", "叫师傅"):
+            content = content.replace(word, "")
+        content = content.strip("，。,. ")
+        if len(content) < 4:
+            # 追问必须带 ask，否则用户答的那句「厨房水管漏水」会被当成一次
+            # 全新的提问，落到知识检索上——助手问了个自己听不懂的问题。
+            question = "哪里出问题了？描述一下，比如「厨房水管漏水」。"
+            return NEED_SLOT, question, None, _ask("content", question, [
+                _option("厨房水管漏水", "厨房水管漏水"),
+                _option("卫生间马桶堵了", "卫生间马桶堵了"),
+                _option("空调不制冷", "空调不制冷"),
+                _option("跳闸停电了", "跳闸停电了")])
+
+    house_no = context.get("house_no") or ""
     if not house_no:
         # 报修的对象一般是自己正在租的房子，从生效租约里取
         rows = _rows(backend.get("/api/contracts/mine", token=token))
@@ -1007,35 +1076,34 @@ def _propose_submit_repair(text, token, backend, context):
         if not active:
             return (NOT_APPLICABLE,
                     "你名下没有生效中的租约，报修要先有在租的房子。", None)
-        house_no = active[0].get("house_no") or ""
-
-    # 描述优先用已经存下来的那份。第一轮从这句话里推，之后原样取——
-    # 否则追问照片时会拿照片答案覆盖掉故障描述。
-    saved = (context or {}).get("content")
-    if saved and str(saved).strip():
-        content = str(saved).strip()
-        return _repair_after_content(content, house_no, context)
-
-    # 把祈使语摘掉，只留故障描述本身。
-    # 不摘的话工单内容会变成「厨房水管漏水了帮我报修」——多出来的三个字
-    # 会跟着进 AI-04 的故障分类，也会显示在房东的工单列表里。
-    content = (text or "").strip()
-    for word in ("帮我报修", "帮我报个修", "帮我叫维修", "帮我叫师傅",
-                 "提交报修", "报一下修", "帮我", "给我", "请", "报修",
-                 "报个修", "叫维修", "叫师傅"):
-        content = content.replace(word, "")
-    content = content.strip("，。,. ")
-    if len(content) < 4:
-        # 追问必须带 ask，否则用户答的那句「厨房水管漏水」会被当成一次
-        # 全新的提问，落到知识检索上——助手问了个自己听不懂的问题。
-        question = "哪里出问题了？描述一下，比如「厨房水管漏水」。"
-        return NEED_SLOT, question, None, _ask("content", question, [
-            _option("厨房水管漏水", "厨房水管漏水"),
-            _option("卫生间马桶堵了", "卫生间马桶堵了"),
-            _option("空调不制冷", "空调不制冷"),
-            _option("跳闸停电了", "跳闸停电了")])
+        house_no, asking = _repair_house(active, text, content)
+        if asking:
+            return asking
 
     return _repair_after_content(content, house_no, context)
+
+
+def _repair_house(active, text, content):
+    """在租的不止一套时，问是哪一套坏了。返回 ``(房源编号, 追问)``。
+
+    原先一律取第一份生效租约。实测租客在租 3 套，说「卫生间天花板滴水」，
+    工单直接挂到了列表里的第一套——房东收到一张不是自己那套的报修，
+    真正漏水的那套没人管。续租、退租早就会问（`_pick_contract`），报修没有。
+    """
+    from app.memory import house_no_in
+
+    if len(active) == 1:
+        return active[0].get("house_no") or "", None
+    typed = house_no_in(text)
+    named = [r for r in active if typed and r.get("house_no") == typed]
+    if len(named) == 1:
+        return typed, None
+    options = [_option(r.get("house_no"), "%s %s" % (r.get("house_no") or "",
+                                                     r.get("house_title") or ""))
+               for r in active[:5]]
+    question = "收到，%s。你在租的有 %d 套，是哪一套出的问题？" % (_brief(content), len(active))
+    return "", (NEED_SLOT, question, None,
+                _ask("house_no", question, options, carry={"content": content}))
 
 
 def _repair_after_content(content, house_no, context):
@@ -1053,7 +1121,7 @@ def _repair_after_content(content, house_no, context):
         # 拿到的第一句是一个不相干的问题——他不知道系统有没有听懂，
         # 也不知道这张照片是要拍什么。复述一句是最便宜的确认：
         # 听错了他当场就能纠正，而不是等卡片出来才发现报错了东西。
-        question = "收到，%s。要拍张照片吗？说不清的地方拍一张，师傅能提前备好工具。" % content[:30]
+        question = "收到，%s。要拍张照片吗？说不清的地方拍一张，师傅能提前备好工具。" % _brief(content)
         return NEED_SLOT, question, None, _ask(
             "images", question,
             [_option(SKIP_UPLOAD, "跳过，直接提交")], kind="upload",
@@ -1133,7 +1201,7 @@ def _propose_renew_contract(text, token, backend, context):
         {"contract_no": target.get("contract_no"), "months": months},
         detail={"contract_no": target.get("contract_no"), "months": months,
                 "end_date": target.get("end_date")},
-        warning="续租会生成新的合同与账单，租金以房东确认为准。")
+        warning="续租要房东确认。确认后租期在原合同上延长，按原租金排好新增的账单。")
 
 
 def _propose_end_contract(text, token, backend, context):
@@ -1147,11 +1215,11 @@ def _propose_end_contract(text, token, backend, context):
         return asking
     return CONFIRM, "", _card(
         "end_contract", "退租",
-        "发起租约 %s 的退租" % target.get("contract_no", ""), RISK_HIGH,
+        "申请租约 %s 退租" % target.get("contract_no", ""), RISK_HIGH,
         {"contract_no": target.get("contract_no"), "reason": "租客通过智能客服发起"},
         detail=target,
-        warning="退租不可撤销。提前解约需提前 30 日通知并支付一个月租金的"
-                "违约金，未到期账单会作废，押金在结清后 7 个工作日内退还。")
+        warning="退租要房东确认，确认前合同照常有效。提前解约需提前 30 日通知并支付"
+                "一个月租金的违约金；确认后未到期账单作废，押金在结清后 7 个工作日内退还。")
 
 
 def _house_options(rows, limit=5, label=None):
@@ -1512,8 +1580,12 @@ def _form_context(name, token, backend, slots):
 _EDIT_FIELDS = [("rent_price", ("月租", "租金", "房租")), ("deposit", ("押金",)),
                 ("title", ("标题",)), ("address", ("地址",)),
                 ("description", ("描述", "介绍"))]
+# 动词和数字之间允许夹几个字：「降到市场价约 4800」「调到大约 4500」。
+# 原先要求数字紧跟动词，实测模型写的就是「降到市场价约4800元/月」，
+# 一项都没认出来，回头再问用户「改成什么」——他刚说过「降到市场价」
 _EDIT_NUMBER = re.compile(
-    r"(?:改成|改为|改到|调成|调为|调到|降到|涨到|设为|设成|定为|定成)\s*"
+    r"(?:改成|改为|改到|调成|调为|调到|降到|涨到|设为|设成|定为|定成)"
+    r"[^0-9零一二两三四五六七八九十百千万，,。；;]{0,6}?"
     r"([0-9]+(?:\.[0-9]+)?|[零一二两三四五六七八九十百千万]+)\s*(?:块|元)?")
 
 
@@ -1750,13 +1822,19 @@ def _exec_submit_repair(params, token, backend):
 def _exec_renew_contract(params, token, backend):
     data = backend.post("/api/contracts/%s/renew" % params["contract_no"],
                         {"months": params["months"]}, token=token)
-    return "续租已发起。", data
+    # 对方已经提过续租，这一下就是确认；否则是我方的申请，要等对方点
+    if isinstance(data, dict) and data.get("renewed"):
+        end = (data.get("contract") or {}).get("end_date", "")
+        return "已续租，租期延长到 %s。" % end if end else "已续租。", data
+    return "续租申请已提交，等对方确认后生效。", data
 
 
 def _exec_end_contract(params, token, backend):
     data = backend.post("/api/contracts/%s/end" % params["contract_no"],
                         {"reason": params.get("reason", "")}, token=token)
-    return "退租已发起，接下来请结清账单并与房东验房。", data
+    if isinstance(data, dict) and data.get("requested"):
+        return "退租申请已提交，等房东确认。确认前合同照常有效，可以先约房东验房。", data
+    return "已退租。", data
 
 
 def _exec_favorite(params, token, backend):

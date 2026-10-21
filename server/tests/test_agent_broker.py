@@ -83,6 +83,18 @@ class TestDelegation(BrokerCase):
         row = next(d for d in body["list"] if d["id"] == did)
         self.assertEqual(row["status"], "active")
 
+    def test_house_detail_says_who_shows_the_flat(self):
+        """租客问「这套有中介带看吗」，助手要从房源详情里拿到答案，
+        而不是去翻平台规则答「没查到」。只有生效中的委托才算。"""
+        house = self.client.get("/api/houses/DL0001").json()
+        self.assertEqual((house["viewing_by"], house["viewing_agent"]), ("landlord", ""))
+        did = self.delegate(accept=False)
+        self.assertEqual(self.client.get("/api/houses/DL0001").json()["viewing_by"], "landlord")
+        self.client.patch("/api/delegations/%d" % did, headers=self.agent, json={"accept": True})
+        house = self.client.get("/api/houses/DL0001").json()
+        self.assertEqual(house["viewing_by"], "agent")
+        self.assertEqual(house["viewing_agent"], "中**")         # 「中介甲」只露姓
+
     def test_invitation_starts_pending(self):
         """**发起只到 pending。** 单方面就能建立委托，
         等于允许中介给自己派活。"""

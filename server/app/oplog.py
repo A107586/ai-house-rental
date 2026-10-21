@@ -24,49 +24,105 @@ from app.auth import decode_token
 SKIP_PATHS = ("/api/auth/login", "/api/chat-messages",
               "/api/support/logs", "/api/support/feedback")
 
+# 打开一条消息、点进一个会话时前端自动发的「标为已读」。不是人做的决定，
+# 每点一下就是一条，记进来会把真正的操作冲没
+SKIP_PATTERNS = tuple(re.compile(p) for p in (
+    r"^/api/messages/\d+/read$", r"^/api/conversations/\d+/read$"))
+
 WATCHED_METHODS = ("POST", "PATCH", "PUT", "DELETE")
 
 # 路径 → 业务动作名。日志要给人看，「PATCH /api/admin/houses/12」
 # 谁也读不出发生了什么，「审核房源」才是。
 # 元组为 (方法, 路径正则, 动作名)，按顺序匹配，先匹配到的胜出。
 ACTION_RULES = (
+    # 账号
     ("POST", r"^/api/auth/register$", "注册账号"),
-    ("PATCH", r"^/api/profile$", "修改个人资料"),
-    ("POST", r"^/api/password$", "修改密码"),
+    ("PUT", r"^/api/auth/profile$", "修改个人资料"),
+    ("POST", r"^/api/auth/password$", "修改密码"),
+    ("POST", r"^/api/auth/logout-all$", "退出所有设备"),
+    ("POST", r"^/api/auth/forgot$", "申请找回密码"),
+    ("POST", r"^/api/auth/reset$", "重置密码"),
+    ("POST", r"^/api/auth/become-landlord$", "升级为房东"),
+    ("POST", r"^/api/auth/revert-to-tenant$", "改回租客身份"),
 
+    # 房源。图片、核验这些带后缀的要排在「修改房源」前面——虽然那条锚了结尾，
+    # 顺序写清楚，以后有人去掉 $ 也不会把上传图片记成修改房源
     ("POST", r"^/api/houses$", "发布房源"),
     ("PATCH", r"^/api/houses/[^/]+/status$", "上下架房源"),
-    ("PATCH", r"^/api/houses/[^/]+$", "修改房源"),
-    ("DELETE", r"^/api/houses/[^/]+$", "删除房源"),
+    ("PATCH", r"^/api/houses/[^/]+/review$", "审核房源"),
+    ("POST", r"^/api/houses/[^/]+/verify-request$", "申请房源核验"),
+    ("PATCH", r"^/api/houses/[^/]+/verify$", "核验房源"),
+    ("POST", r"^/api/houses/[^/]+/images/\d+/cover$", "设置房源封面"),
+    ("POST", r"^/api/houses/[^/]+/images/\d+/caption$", "修改图片说明"),
+    ("POST", r"^/api/houses/[^/]+/images$", "上传房源图片"),
+    ("DELETE", r"^/api/houses/[^/]+/images/\d+$", "删除房源图片"),
+    ("PUT", r"^/api/houses/[^/]+$", "修改房源"),
+    ("POST", r"^/api/upload$", "上传图片"),
 
     ("POST", r"^/api/favorites", "收藏房源"),
     ("DELETE", r"^/api/favorites", "取消收藏"),
     ("DELETE", r"^/api/history$", "清空浏览足迹"),
+    ("POST", r"^/api/saved-searches$", "保存搜索条件"),
+    ("PATCH", r"^/api/saved-searches/", "修改保存的搜索"),
+    ("DELETE", r"^/api/saved-searches/", "删除保存的搜索"),
 
     ("POST", r"^/api/appointments$", "预约看房"),
     ("PATCH", r"^/api/appointments/", "处理看房预约"),
 
+    # 合同与账单
     ("POST", r"^/api/contracts$", "创建合同"),
     ("PATCH", r"^/api/contracts/[^/]+$", "修改合同条款"),
     ("POST", r"^/api/contracts/[^/]+/activate$", "确认合同生效"),
-    ("POST", r"^/api/contracts/[^/]+/end$", "办理退租"),
-    ("POST", r"^/api/contracts/[^/]+/renew$", "办理续租"),
+    ("POST", r"^/api/contracts/[^/]+/end$", "退租（租客为申请）"),
+    ("POST", r"^/api/contracts/[^/]+/renew$", "续租申请或确认"),
+    ("DELETE", r"^/api/contracts/[^/]+/request$", "撤回或拒绝退租续租申请"),
+    ("POST", r"^/api/contracts/[^/]+/review-result$", "保存合同审阅结果"),
 
     ("POST", r"^/api/bills/[^/]+/pay$", "缴纳账单"),
+    ("POST", r"^/api/payments/notify$", "支付结果回调"),
+    ("POST", r"^/api/payments/[^/]+/mock-pay$", "模拟支付"),
     ("POST", r"^/api/landlord/tenants/\d+/remind$", "催缴提醒租客"),
 
+    # 报修
     ("POST", r"^/api/repairs$", "提交报修"),
+    ("POST", r"^/api/repairs/\d+/images$", "上传报修图片"),
+    ("POST", r"^/api/repairs/\d+/record$", "登记维修结果"),
     ("PATCH", r"^/api/repairs/", "处理报修工单"),
+    ("POST", r"^/api/repair-workers$", "新增维修师傅"),
+    ("PATCH", r"^/api/repair-workers/", "修改维修师傅"),
+    ("POST", r"^/api/repair-items$", "新增维修物料"),
+    ("PATCH", r"^/api/repair-items/", "修改维修物料"),
 
     ("POST", r"^/api/reviews$", "发表评价"),
+
+    # 消息与会话
+    ("POST", r"^/api/messages/read-all$", "全部消息标为已读"),
+    # 下面两条现在不记日志（见 SKIP_PATTERNS），名字留给改规则之前写下的旧记录用
+    ("PATCH", r"^/api/messages/\d+/read$", "标记消息已读"),
+    ("POST", r"^/api/conversations/\d+/read$", "标记会话已读"),
+    ("POST", r"^/api/conversations$", "发起会话"),
+    ("POST", r"^/api/conversations/\d+/lines$", "发送会话消息"),
 
     ("POST", r"^/api/notices$", "发布公告"),
     ("PATCH", r"^/api/notices/", "上下架公告"),
 
-    ("PATCH", r"^/api/admin/houses/", "审核房源"),
+    # 中介
+    ("PUT", r"^/api/agent/profile$", "修改中介资料"),
+    ("POST", r"^/api/agent/license$", "提交中介资质"),
+    ("POST", r"^/api/delegations$", "发起房源委托"),
+    ("POST", r"^/api/delegations/\d+/end$", "解除房源委托"),
+    ("PATCH", r"^/api/delegations/", "处理委托邀请"),
+    ("POST", r"^/api/viewings$", "登记带看记录"),
+
+    # 管理员
     ("PATCH", r"^/api/admin/users/", "修改用户状态或角色"),
     # 签发重置码等于临时把账号交出去，必须留痕（B1）
     ("POST", r"^/api/admin/users/\d+/reset-code$", "签发密码重置码"),
+    ("POST", r"^/api/admin/role-requests/", "审核身份升级申请"),
+    ("POST", r"^/api/admin/agents$", "新建中介账号"),
+    ("PATCH", r"^/api/admin/agents/", "审核中介资质"),
+    ("PATCH", r"^/api/admin/flags/", "处理待审内容"),
+    ("PATCH", r"^/api/admin/config$", "修改系统配置"),
     # AI-03 智能客服
     ("POST", r"^/api/faqs$", "新增知识条目"),
     ("PUT", r"^/api/faqs/", "修改知识条目"),
@@ -96,7 +152,9 @@ def should_log(method, path):
         return False
     if not path.startswith("/api/"):
         return False
-    return not any(path.startswith(skip) for skip in SKIP_PATHS)
+    if any(path.startswith(skip) for skip in SKIP_PATHS):
+        return False
+    return not any(p.match(path) for p in SKIP_PATTERNS)
 
 
 def identify(authorization):

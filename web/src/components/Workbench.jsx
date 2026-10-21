@@ -4,6 +4,7 @@ import { appendLines, lastLineId } from '../chatLines'
 import ChatAvatar from './ChatAvatar'
 
 const MapFinder = lazy(() => import('./MapFinder'))
+const HouseDrawer = lazy(() => import('./HouseDrawer'))
 const LandlordPanel = lazy(() => import('./LandlordPanel'))
 const AgentPanel = lazy(() => import('./AgentPanel'))
 const AdminPanel = lazy(() => import('./AdminPanel'))
@@ -76,12 +77,13 @@ const ROLE_TITLE = {
 // 一起时，过滤会把面板那一栏挤掉，中介就再也看不到邀请了——
 // 实测就是这么丢的。房东面板没有对应栏目，所以由这里补上。
 const COMM_BY_ROLE = {
-  landlord: ['chat', 'appt', 'today', 'map'],
+  // 房东的地图并进了「我的房源」（列表 / 地图切换），不再单列一项
+  landlord: ['chat', 'appt', 'today'],
   agent: ['chat', 'map'],
   admin: [],
 }
 
-export default function Workbench({ user, onClose, onOpenHouse }) {
+export default function Workbench({ user, onClose }) {
   const isAdmin = user.role === 'admin'
   // 管理员没有「与租客沟通」这一路，直接从后台的第一栏开始
   const [nav, setNav] = useState(
@@ -100,6 +102,21 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
   const [ok, setOk] = useState('')
   const bottomRef = useRef(null)
   const lastIdRef = useRef(0)
+  // 在工作台里点房源：就地打开详情。原先跳到前台的房源页，
+  // 房东看完自己的房子一关，人在首页，工作台没了
+  const [preview, setPreview] = useState(null)
+  // 详情里点「编辑房源」：交给房东面板，在「我的房源」里打开编辑
+  const [editRequest, setEditRequest] = useState(null)
+
+  async function openHouse(target) {
+    if (!target) return
+    try {
+      const no = typeof target === 'string' ? target : target.house_no
+      setPreview(await api.getHouse(no))
+    } catch {
+      setError('这套房源已下架或不存在，看不到详情了。')
+    }
+  }
 
   const title = ROLE_TITLE[user.role] || '工作台'
 
@@ -120,6 +137,17 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
     // 拖垮——而会话恰恰是这个页面最重要的一栏
     api.myAppointments('landlord')
       .then((d) => setAppts(d.list || [])).catch(() => setAppts([]))
+    if (user.role === 'agent') {
+      // 中介没有名下房源，地图上画的是**在托的房源**。原先照样去调房东的接口，
+      // 每次进工作台都是两个 403，地图上永远「名下还没有房源」
+      api.brokerDashboard()
+        .then((d) => setHouses((d.delegations || [])
+          .filter((x) => x.status === 'active')
+          .map((x) => ({ house_no: x.house_no, title: x.house_title, district: x.district,
+                         rent_price: x.rent_price, status: 'available' }))))
+        .catch(() => setHouses([]))
+      return
+    }
     api.landlordHouses()
       .then((d) => setHouses(d.list || [])).catch(() => setHouses([]))
     api.landlordTenants()
@@ -243,14 +271,10 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
   // 「我要找的东西属于哪一块」才知道往哪看，而他并不关心这个分界。
   const commKeys = COMM_BY_ROLE[user.role] || []
   const ALL_COMM = {
-    chat: { key: 'chat', label: '会话', n: unread, hint: '与租客直接沟通',
-            group: '要做的事' },
-    appt: { key: 'appt', label: '看房预约', n: pending.length,
-            hint: '待我确认的申请', group: '要做的事' },
-    today: { key: 'today', label: '今日带看', n: today.length,
-             hint: '今天要去的场次', group: '要做的事' },
-    map: { key: 'map', label: '房源分布', hint: '在地图上按区域挑，位置和周边都看得见',
-           group: '要做的事' },
+    chat: { key: 'chat', label: '会话', n: unread, group: '要做的事' },
+    appt: { key: 'appt', label: '看房预约', n: pending.length, group: '要做的事' },
+    today: { key: 'today', label: '今日带看', n: today.length, group: '要做的事' },
+    map: { key: 'map', label: '房源分布', group: '要做的事' },
   }
   const COMM = commKeys.map((k) => ALL_COMM[k])
   const NAV = [...COMM, ...sections.filter((x) => !commKeys.includes(x.key))]
@@ -355,7 +379,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   <>
                     <div className="wb-thread-head">
                       <button className="link-title"
-                              onClick={() => onOpenHouse?.(active.house_no)}>
+                              onClick={() => openHouse(active.house_no)}>
                         {active.house_title || active.house_no}
                       </button>
                       <span className="muted-note">{active.house_no}</span>
@@ -406,7 +430,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                       </button>
                     </form>
                     <p className="muted-note">
-                      请在平台内沟通。交换微信、电话会被拦截——私下成交，平台无法提供保障。
+                      请在平台内沟通，私下交易平台无法提供保障。
                     </p>
                   </>
                 )}
@@ -424,7 +448,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
               busy={busy}
               onReply={reply}
               onTalk={talkTo}
-              onOpenHouse={onOpenHouse}
+              onOpenHouse={openHouse}
             />
           )}
 
@@ -442,16 +466,18 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   selected={district}
                   onPick={setDistrict}
                   rows={myDistricts}
-                  title="我的房源分布"
+                  title={user.role === 'agent' ? '在托房源分布' : '我的房源分布'}
                   hint={houses.length
                     ? '点击区域只看该区的房源'
-                    : '名下还没有房源'}
+                    : user.role === 'agent' ? '还没有在托的房源' : '名下还没有房源'}
                 />
               </Suspense>
 
               <ul className="record-list">
                 {houses.length === 0 && (
-                  <li className="wb-empty">名下还没有房源。</li>
+                  <li className="wb-empty">
+                    {user.role === 'agent' ? '还没有在托的房源。' : '名下还没有房源。'}
+                  </li>
                 )}
                 {houses
                   .filter((h) => !district || h.district === district)
@@ -459,7 +485,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                     <li key={h.house_no}>
                       <div className="record-head">
                         <button className="link-title"
-                                onClick={() => onOpenHouse?.(h.house_no)}>
+                                onClick={() => openHouse(h.house_no)}>
                           {h.title}
                         </button>
                         <span className="pill">{h.status === 'available' ? '在架'
@@ -485,10 +511,13 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
               {user.role === 'landlord' && (
                 <LandlordPanel
                   user={user} embedded
+                  editRequest={editRequest}
+                  onTalk={(houseNo, username) => talkTo({
+                    id: `tenant-${username}`, house_no: houseNo, tenant_username: username })}
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
-                  onOpenHouse={onOpenHouse}
+                  onOpenHouse={openHouse}
                   onClose={onClose}
                 />
               )}
@@ -498,7 +527,7 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
-                  onOpenHouse={onOpenHouse}
+                  onOpenHouse={openHouse}
                   onClose={onClose}
                 />
               )}
@@ -537,6 +566,23 @@ export default function Workbench({ user, onClose, onOpenHouse }) {
           )}
         </main>
       </div>
+
+      {preview && (
+        <Suspense fallback={null}>
+          <HouseDrawer
+            house={preview}
+            user={user}
+            owner={user.role === 'landlord'}
+            onEdit={(house) => {
+              setPreview(null)
+              setNav('houses')
+              setEditRequest({ house, at: Date.now() })
+            }}
+            onOpenHouse={(house) => openHouse(house)}
+            onClose={() => setPreview(null)}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }
@@ -587,7 +633,7 @@ function ApptList({ rows, emptyText, showActions, busy, onReply, onTalk,
                         onClick={() => onTalk(a)}
                         title={a.accept_contact === false
                           ? '该租客关闭了主动联系' : ''}>
-                  {busy === `t${a.id}` ? '打开中…' : '找他说'}
+                  {busy === `t${a.id}` ? '打开中…' : '发消息'}
                 </button>
               )}
             </div>

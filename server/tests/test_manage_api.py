@@ -129,6 +129,28 @@ class TestLandlordTenants(ManageCase):
         self.assertIn("DL0001", row["houses"])
         self.assertGreater(row["unpaid_total"], 0)
 
+    def test_overdue_total_counts_only_overdue_bills(self):
+        """unpaid_total 含还没到期的账单；拖欠了多少要看 overdue_total。
+
+        只给前者时，助手对房东说「林小雨一共欠 39650 元」，实际逾期只有 2 笔。
+        """
+        self.make_contract()
+        import app.db as db
+        from app.models import Bill
+        session = db.SessionLocal()
+        try:
+            first = session.query(Bill).order_by(Bill.due_date).first()
+            first.due_date = datetime.now() - timedelta(days=3)
+            amount = float(first.amount)
+            session.commit()
+        finally:
+            session.close()
+        row = self.client.get("/api/landlord/tenants",
+                              headers=self.landlord).json()["list"][0]
+        self.assertEqual(row["overdue_count"], 1)
+        self.assertEqual(row["overdue_total"], amount)
+        self.assertGreater(row["unpaid_total"], row["overdue_total"])
+
     def test_phone_masked(self):
         self.make_contract()
         response = self.client.get("/api/landlord/tenants", headers=self.landlord)

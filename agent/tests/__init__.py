@@ -44,3 +44,6 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError, OSError):
         pass
+
+# 测试里不打访问日志（app/tracing.py），不然几百条请求刷满屏幕
+os.environ.setdefault("ACCESS_LOG", "0")

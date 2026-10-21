@@ -3,6 +3,7 @@ import { api } from '../api'
 import AgentQueue from './AgentQueue'
 import AgentRoster from './AgentRoster'
 import ConfigPanel from './ConfigPanel'
+import ContractDetail from './ContractDetail'
 import FlagPanel from './FlagPanel'
 import FocusBar from './FocusBar'
 import HouseReportPanel from './HouseReportPanel'
@@ -10,6 +11,8 @@ import LandlordRoster from './LandlordRoster'
 import RepairDataPanel from './RepairDataPanel'
 import RoleRequestPanel from './RoleRequestPanel'
 import LogPanel from './LogPanel'
+import RecordDetail, { DetailToggle } from './RecordDetail'
+import UserOverview from './UserOverview'
 import ReportPanel from './ReportPanel'
 import SupportPanel from './SupportPanel'
 
@@ -39,6 +42,10 @@ export default function AdminPanel({ user, onClose, embedded,
   // 管理员签发的一次性重置码。**只放在内存里，不落 state 之外的任何地方**——
   // 它是一把临时钥匙，不该被写进 localStorage 或 URL
   const [resetCode, setResetCode] = useState(null)
+  // 详情：用户 / 户主 / 中介共用一个全貌抽屉，租约用合同档案，工单就地展开
+  const [overviewId, setOverviewId] = useState(0)
+  const [contractNo, setContractNo] = useState('')
+  const [openRepair, setOpenRepair] = useState(0)
   const [ownTab, setOwnTab] = useState('review')
   const tab = embedded && activeTab ? activeTab : ownTab
   const setTab = (key) => {
@@ -183,14 +190,11 @@ export default function AdminPanel({ user, onClose, embedded,
   // 正在等这个结果」。工单也有人等，但等的是维修师傅上门，
   // 不是等管理员点一下——放进来会稀释这条的含义
   const FOCUS = [
-    { key: 'review', label: '房源待审', n: pending.length, urgent: true,
-      hint: '房东发布后卡在这' },
-    { key: 'agentQueue', label: '资质待审', n: agentPending, urgent: true,
-      hint: '中介不能接单' },
-    { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true,
-      hint: '申请人还是租客权限' },
-    { key: 'flags', label: '内容待审', n: flagPending, hint: '命中敏感词的文本' },
-    { key: 'repairs', label: '未完成工单', n: openRepairs, hint: '含处理中' },
+    { key: 'review', label: '房源待审', n: pending.length, urgent: true },
+    { key: 'agentQueue', label: '中介资质待审', n: agentPending, urgent: true },
+    { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true },
+    { key: 'flags', label: '内容待审', n: flagPending },
+    { key: 'repairs', label: '未完成工单', n: openRepairs },
   ]
 
   // 把页签清单（含计数）报给外面的左栏。
@@ -224,8 +228,7 @@ export default function AdminPanel({ user, onClose, embedded,
           </>
         )}
 
-        <FocusBar items={FOCUS} onPick={setTab}
-                  hint="这几项都有人在等结果，请尽快处理。" />
+        <FocusBar items={FOCUS} onPick={setTab} />
 
         {!embedded && (
         <div className="tabs scroll grouped">
@@ -250,7 +253,7 @@ export default function AdminPanel({ user, onClose, embedded,
         {ok && <div className="reply created">{ok}</div>}
 
         {/* ---------------- 户主档案（F-02） ---------------- */}
-        {tab === 'landlords' && <LandlordRoster />}
+        {tab === 'landlords' && <LandlordRoster onOpenUser={setOverviewId} />}
 
         {/* ---------------- 中介治理（J-11） ---------------- */}
         {tab === 'agentQueue' && <AgentQueue onReviewed={load} />}
@@ -258,7 +261,7 @@ export default function AdminPanel({ user, onClose, embedded,
         {/* D1 身份升级申请。规则在后端，批准的地方在这里 */}
         {tab === 'roleRequests' && <RoleRequestPanel onReviewed={load} />}
 
-        {tab === 'agents' && <AgentRoster />}
+        {tab === 'agents' && <AgentRoster onOpenUser={setOverviewId} />}
 
         {/* ---------------- 内容审核（M-08） ---------------- */}
         {tab === 'support' && <SupportPanel />}
@@ -416,7 +419,9 @@ export default function AdminPanel({ user, onClose, embedded,
                   return (
                     <li key={c.contract_no}>
                       <div className="record-head">
-                        <strong>{c.house_no}</strong>
+                        <button className="link-title" onClick={() => setContractNo(c.contract_no)}>
+                          {c.house_title || c.house_no}
+                        </button>
                         <span className={`pill ${st.cls}`}>{st.label}</span>
                       </div>
                       <div className="record-body">
@@ -479,6 +484,27 @@ export default function AdminPanel({ user, onClose, embedded,
                     <div className="record-body">
                       {item.contact_name} {item.contact_phone} · {item.created_at}
                     </div>
+                    <DetailToggle open={openRepair === item.id}
+                                  onClick={() => setOpenRepair(openRepair === item.id ? 0 : item.id)} />
+                    {openRepair === item.id && (
+                      <RecordDetail rows={[
+                        ['工单号', `GD${String(item.id).padStart(6, '0')}`, { mono: true }],
+                        ['房源编号', item.house_no, { mono: true }],
+                        ['故障类别', item.category],
+                        ['紧急程度', item.urgency],
+                        ['提交时间', item.created_at],
+                        ['报修人', item.contact_name],
+                        ['联系电话', item.contact_phone],
+                        ['已等待', item.waited_hours !== undefined
+                          ? `${item.waited_hours} 小时${item.overdue ? '（已超时限）' : ''}` : ''],
+                        ['故障描述', item.content, { wide: true }],
+                        ['AI 初判', item.analysis, { wide: true }],
+                        ['建议派单', item.assignee],
+                        ['处理人', item.result && item.result.worker_name],
+                        ['完成时间', item.result && item.result.finished_at],
+                        ['处理说明', item.result && item.result.note, { wide: true }],
+                      ]} />
+                    )}
                   </li>
                 ))}
             </ul>
@@ -573,7 +599,9 @@ export default function AdminPanel({ user, onClose, embedded,
               {users.map((u) => (
                 <li key={u.id}>
                   <div className="record-head">
-                    <strong>{u.real_name || u.username}</strong>
+                    <button className="link-title" onClick={() => setOverviewId(u.id)}>
+                      {u.real_name || u.username}
+                    </button>
                     <span className={`pill ${u.status === 'active'
                       ? 'status-confirmed' : 'status-rejected'}`}>
                       {u.status === 'active' ? '正常' : '已禁用'}
@@ -662,6 +690,14 @@ export default function AdminPanel({ user, onClose, embedded,
           </>
         )}
       </div>
+
+      {overviewId > 0 && (
+        <UserOverview userId={overviewId} onClose={() => setOverviewId(0)}
+                      onOpenContract={(no) => { setOverviewId(0); setContractNo(no) }} />
+      )}
+      {contractNo && (
+        <ContractDetail contractNo={contractNo} onClose={() => setContractNo('')} />
+      )}
     </>
   )
 }

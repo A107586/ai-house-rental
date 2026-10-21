@@ -493,3 +493,35 @@ def _house_approved_at(connection, engine):
         connection.execute(text(
             "UPDATE houses SET approved_at = COALESCE(published_at, CURRENT_TIMESTAMP) "
             "WHERE approved_at IS NULL AND status IN ('available', 'rented')"))
+
+
+@step("0018", "合同表：退租 / 续租申请（一方提、另一方确认）")
+def _contract_requests(connection, engine):
+    _add_column(connection, engine, "contracts", "request_type",
+                "VARCHAR(10) NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "contracts", "request_by",
+                "VARCHAR(10) NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "contracts", "request_months",
+                "INTEGER NOT NULL DEFAULT 0")
+    _add_column(connection, engine, "contracts", "request_reason",
+                "VARCHAR(100) NOT NULL DEFAULT ''")
+    _add_column(connection, engine, "contracts", "requested_at", "DATETIME")
+
+
+@step("0019", "操作日志：给历史记录补上动作名")
+def _oplog_backfill_names(connection, engine):
+    """动作名是写日志那一刻算好存进去的。2026-10-20 之前有 40 多个接口没起名，
+    那时写下的记录存的是原始路径（「POST /api/delegations」），规则补全之后
+    这些旧记录在日志页上照样是一串路径。按现在的规则重算一遍；还是认不出的保持原样。"""
+    if not _table_exists(engine, "operation_logs"):
+        return
+    from app.oplog import action_of
+    rows = connection.execute(text(
+        "SELECT id, method, path FROM operation_logs "
+        "WHERE action LIKE 'POST %' OR action LIKE 'PUT %' "
+        "OR action LIKE 'PATCH %' OR action LIKE 'DELETE %'")).fetchall()
+    for row_id, method, path in rows:
+        name = action_of(method, path)
+        if not name.startswith(method + " "):
+            connection.execute(text("UPDATE operation_logs SET action = :a WHERE id = :i"),
+                               {"a": name, "i": row_id})

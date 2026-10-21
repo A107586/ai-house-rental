@@ -102,21 +102,6 @@ function toFilters(parsed) {
 // 解析来源。fused 是当前的正常路径：规则先解析一遍，结论作为参考
 // 交给大模型，由它给出最终结果——两者同时参与，不是二选一。
 //
-// **这张表只是兜底。** 正文优先用后端返回的 `source_label`：
-// 同一句话在两处各写一份，早晚会写得不一样——实测就是这么写岔的。
-// 前端这份把 `rules` 说成「未配置大模型」，而大模型明明配着
-// （gpt-5.5），只是规则已经足够确定、按 K-10 跳过了它。
-// 页面上于是出现「未配置大模型」，用户和评委都会以为接入失败了。
-const SOURCE_LABEL = {
-  rules: '规则解析，未使用大模型',
-  fused: '规则 + 大模型融合',
-  llm: '大模型解析',
-  rules_fallback: '大模型未返回可用结果，已使用规则结果',
-}
-
-const sourceLabel = (parsed) => (parsed?.source_label
-  || SOURCE_LABEL[parsed?.source] || '')
-
 const PAGE_SIZE = 12
 
 export default function App() {
@@ -452,7 +437,7 @@ export default function App() {
       // 反过来写的话，`loadPage` 成功时会顺手把 error 清成空串——
       // 于是降级悄悄发生了，用户完全不知道自己现在走的是哪条路。
       await byKeyword(content)
-      setError('当前智能体无连接，已使用关键词匹配搜索；也可用下方筛选条件找房。')
+      setError('智能找房暂时用不了，先按关键词帮你搜了；也可以用下面的筛选条件。')
     } finally {
       setBusy(false)
     }
@@ -662,7 +647,6 @@ export default function App() {
         <Workbench
           user={user}
           onClose={() => go('home', '', true)}
-          onOpenHouse={(no) => go('house', no)}
         />
       </Suspense>
     )
@@ -693,7 +677,7 @@ export default function App() {
             {site.site_name.slice(0, 2)}
             <span>{site.site_name.slice(2)}</span>
           </div>
-          <div className="tagline">AI 智能体租房平台</div>
+          <div className="tagline">AI 智能找房</div>
 
           <div className="topbar-right">
             {/* B1：服务状态和「退出」都收进个人中心了。
@@ -705,7 +689,7 @@ export default function App() {
                 服务未连接时是例外：这时它不再是状态，是一句**要立刻看见**
                 的警告，所以只在异常时留在顶栏。 */}
             {online === false && (
-              <span className="status-dot offline" title="后端接口连接不上">
+              <span className="status-dot offline" title="服务暂时连不上">
                 <span className="dot down" />
                 当前无连接
               </span>
@@ -1036,7 +1020,7 @@ export default function App() {
         ) : houses.length === 0 ? (
           <div className="empty">
             {error
-              ? '房源加载失败，请确认后端服务已启动。'
+              ? '房源加载失败，请稍后刷新再试。'
               : hasFilters
                 ? '没有符合条件的房源。'
                 : '暂时还没有房源'}
@@ -1247,7 +1231,7 @@ export default function App() {
               <span>{site.site_name.slice(2)}</span>
             </div>
             <p className="foot-slogan">
-              AI 智能找房
+              在大连找房、签约、交租、报修，一个地方办完。
             </p>
             <div className="foot-badges">
               <span>房源人工核验</span>
@@ -1263,7 +1247,7 @@ export default function App() {
                   用户是滚到页面最底下才看到这几个入口的，点完页面换了
                   但滚动位置没动，他看到的是新页面的底部——一片页脚，
                   而他刚点的是「全部房源」。第一反应是「没反应」。 */}
-              <button onClick={() => goTop('list', 'all')}>自己翻也行，用筛选和地图收窄更快</button>
+              <button onClick={() => goTop('list', 'all')}>全部房源</button>
               <button onClick={() => goTop('list', 'latest')}>最新发布</button>
               <button onClick={() => goTop('list', 'featured')}>优选好房</button>
             </div>
@@ -1285,21 +1269,22 @@ export default function App() {
               </button>
             </div>
             <div className="foot-col">
-              <h4>联系</h4>
+              <h4>联系我们</h4>
               {site.contact_phone
                 ? <span className="foot-phone">{site.contact_phone}</span>
                 : <span className="foot-muted">客服电话未配置</span>}
               <span className="foot-muted">工作日 9:00–18:00</span>
-              <span className="foot-muted">大连理工大学 实习实训</span>
             </div>
           </nav>
-        </div>
 
-        {/* **这句话必须有。** 站里的房源、评价、账单全是课程演示数据，
-            界面又做得像个真站；不写清楚，看到的人真按上面的号码打过去
-            就成了我们的问题。 */}
-        <div className="foot-bottom">
-          <span>© 2026 {site.site_name} · 课程设计作品，房源与交易数据均为演示用途，不构成任何真实租赁要约</span>
+          {/* **这句话必须有。** 站里的房源、评价、账单全是课程演示数据，
+              界面又做得像个真站；不写清楚，看到的人真按上面的号码打过去
+              就成了我们的问题。
+              放进 foot-inner 里：分割线和上面的内容一样宽，左右对齐。 */}
+          <div className="foot-bottom">
+            <span>© 2026 {site.site_name}</span>
+            <span>大连理工大学实习实训作品 · 房源与交易均为演示数据</span>
+          </div>
         </div>
       </footer>
 

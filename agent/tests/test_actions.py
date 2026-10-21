@@ -247,7 +247,8 @@ class TestCardContents(unittest.TestCase):
     def test_end_contract_warns_about_penalty(self):
         backend = RecordingBackend(ACTIVE_CONTRACT)
         _, _, card, _ = actions.propose("end_contract", "我要退租", "tok", backend)
-        self.assertIn("不可撤销", card["warning"])
+        # 租客点确认只是提申请，房东确认才生效——卡片不能说成「不可撤销」
+        self.assertIn("要房东确认", card["warning"])
         self.assertIn("违约金", card["warning"])
 
     def test_several_active_leases_ask_which_one(self):
@@ -282,6 +283,39 @@ class TestCardContents(unittest.TestCase):
             "submit_repair", "厨房水管漏水了帮我报修", "tok", backend,
             context={"images": actions.SKIP_UPLOAD})
         self.assertEqual(card["params"]["content"], "厨房水管漏水了")
+
+
+    def test_repair_asks_which_house_when_renting_several(self):
+        """在租多套时原先一律挂到第一份租约上——漏水的那套没人管。"""
+        leases = {"/api/contracts/mine": {"list": [
+            {"contract_no": "HT1", "house_no": "DL0001", "status": "active",
+             "house_title": "五惠路 一室"},
+            {"contract_no": "HT2", "house_no": "DL0007", "status": "active",
+             "house_title": "青泥洼桥 两室一厅"}]}}
+        status, question, _, ask = actions.propose(
+            "submit_repair", "卫生间天花板一直往下滴水", "tok", RecordingBackend(leases))
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertEqual(ask["slot"], "house_no")
+        self.assertEqual([o["value"] for o in ask["options"]], ["DL0001", "DL0007"])
+        self.assertIn("卫生间天花板", question)
+        # 描述带到下一轮，选完房不用再说一遍
+        self.assertEqual(ask["carry"]["content"], "卫生间天花板一直往下滴水")
+        # 点名了是哪一套就不问
+        status, _, _, ask = actions.propose(
+            "submit_repair", "DL0007 卫生间天花板滴水", "tok", RecordingBackend(leases))
+        self.assertEqual(ask["slot"], "images")
+
+    def test_needs_repair_is_stripped_whole(self):
+        """只摘「报修」会剩下半截「需要」：复述成「……翘起脱落，需要。」"""
+        _, _, card, _ = actions.propose(
+            "submit_repair", "客厅墙角有裂缝，踢脚线翘起脱落，需要报修", "tok",
+            RecordingBackend(ACTIVE_CONTRACT), context={"images": actions.SKIP_UPLOAD})
+        self.assertEqual(card["params"]["content"], "客厅墙角有裂缝，踢脚线翘起脱落")
+
+    def test_brief_cuts_at_a_clause(self):
+        said = "卫生间天花板一直往下滴水，应该是楼上漏水，房东消息也不回，处理一下"
+        self.assertEqual(actions._brief(said), "卫生间天花板一直往下滴水，应该是楼上漏水，房东消息也不回")
+        self.assertEqual(actions._brief("空调不制冷。"), "空调不制冷")
 
 
 class TestRepairPhotos(unittest.TestCase):

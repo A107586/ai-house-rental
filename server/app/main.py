@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app import gateway, house_query, leasing
 from app.console import force_utf8
 from app import prodcheck
+from app import tracing
 from app.auth import create_token, using_dev_secret
 from app import db as db_module
 from app.db import get_session, init_db
@@ -159,6 +160,13 @@ async def record_operation(request, call_next):
     finally:
         session.close()
     return response
+
+
+# 请求编号 + 结构化访问日志，见 app/tracing.py。
+# **注册在最后**：Starlette 里后注册的中间件在最外层，这样编号从请求一进来就有，
+# 上面的慢请求日志、操作日志里如果要用也拿得到，耗时也包住了整条链。
+tracing.setup()
+app.middleware("http")(tracing.trace_requests)
 
 
 # 按业务模块拆出去的路由，见 app/routers/__init__.py
@@ -625,7 +633,14 @@ def get_house(house_no: str, user: User = Depends(current_user),
             session.add(BrowsingHistory(user_id=user.id, house_id=house.id))
 
     session.commit()
-    return house.to_dict()
+    data = house.to_dict()
+    # 谁带看：有生效中的委托就是中介，否则房东自己带。租客常问「这套有中介带看吗」，
+    # 助手原先只能去翻平台规则，答「没查到」——这是这套房自己的事实，直接给出来。
+    delegation = session.scalar(select(HouseDelegation).where(
+        HouseDelegation.house_id == house.id, HouseDelegation.status == "active"))
+    data["viewing_by"] = "agent" if delegation else "landlord"
+    data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
+    return data
 
 
 @app.get("/api/houses/{house_no}/landlord")
@@ -1351,6 +1366,91 @@ def admin_users(keyword: str = "", role: str = "",
         stmt = stmt.where(User.username.like(like) | User.real_name.like(like))
     rows = session.scalars(stmt.order_by(User.created_at.desc())).all()
     return {"total": len(rows), "list": [u.to_dict() for u in rows]}
+
+
+@app.get("/api/admin/users/{user_id}/overview")
+def admin_user_overview(user_id: int, user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """管理员看一个人的全貌：作为租客、房东、中介各做过什么，最近的操作。
+
+    用户管理、户主档案、中介档案三处原先都只有一行摘要，点不开。
+    一个账号可以同时是租客和房东（K-13），所以三块都查，有数据才给。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    from app.models import AgentCommission, AgentProfile
+
+    def contract_row(c):
+        return {"contract_no": c.contract_no,
+                "house_no": c.house.house_no if c.house else "",
+                "house_title": c.house.title if c.house else "",
+                "start_date": c.start_date.strftime("%Y-%m-%d"),
+                "end_date": c.end_date.strftime("%Y-%m-%d"),
+                "rent": float(c.rent), "status": c.status}
+
+    out = {"user": dict(target.to_dict(),
+                        email=target.email,
+                        created_at=target.created_at.strftime("%Y-%m-%d")
+                        if target.created_at else "")}
+
+    rented = session.scalars(select(Contract).where(Contract.tenant_id == user_id)
+                             .order_by(Contract.start_date.desc())).all()
+    if rented:
+        unpaid = [b for c in rented for b in c.bills if b.status == "unpaid"]
+        out["as_tenant"] = {
+            "contracts": [contract_row(c) for c in rented[:10]],
+            "active": sum(1 for c in rented if c.status == "active"),
+            "overdue_count": sum(1 for b in unpaid if b.overdue),
+            "overdue_total": round(sum(float(b.amount) for b in unpaid if b.overdue), 2),
+            "repairs": session.scalar(select(func.count(Repair.id))
+                                      .where(Repair.tenant_id == user_id)) or 0,
+        }
+
+    houses = session.scalars(select(House).where(House.landlord_id == user_id)).all()
+    if houses:
+        let = session.scalars(select(Contract).where(Contract.landlord_id == user_id)).all()
+        by_status = {}
+        for h in houses:
+            by_status[h.status] = by_status.get(h.status, 0) + 1
+        open_repairs = session.scalar(select(func.count(Repair.id)).where(
+            Repair.house_id.in_([h.id for h in houses]), Repair.status != "done")) or 0
+        out["as_landlord"] = {
+            "houses": [{"house_no": h.house_no, "title": h.title, "status": h.status,
+                        "rent_price": float(h.rent_price)} for h in houses[:12]],
+            "house_count": len(houses),
+            "by_status": by_status,
+            "active_contracts": sum(1 for c in let if c.status == "active"),
+            "open_repairs": open_repairs,
+        }
+
+    profile = session.scalar(select(AgentProfile).where(AgentProfile.user_id == user_id))
+    if profile or target.role == "agent":
+        commissions = session.scalars(select(AgentCommission)
+                                      .where(AgentCommission.agent_id == user_id)).all()
+        out["as_agent"] = {
+            "license_status": profile.license_status if profile else "unsubmitted",
+            "license_no": profile.license_no if profile else "",
+            "service_districts": profile.service_districts if profile else "",
+            "accepting": bool(profile.accepting) if profile else False,
+            "delegations": session.scalar(select(func.count(HouseDelegation.id)).where(
+                HouseDelegation.agent_id == user_id,
+                HouseDelegation.status == "active")) or 0,
+            "viewings": session.scalar(select(func.count(ViewingRecord.id))
+                                       .where(ViewingRecord.agent_id == user_id)) or 0,
+            "deals": len(commissions),
+            "commission_total": round(sum(float(c.amount) for c in commissions
+                                          if c.status != "cancelled"), 2),
+        }
+
+    logs = session.scalars(select(OperationLog).where(OperationLog.user_id == user_id)
+                           .order_by(OperationLog.created_at.desc()).limit(10)).all()
+    out["recent_ops"] = [{"action": l.action, "status_code": l.status_code,
+                          "created_at": l.created_at.strftime("%Y-%m-%d %H:%M")
+                          if l.created_at else ""} for l in logs]
+    return out
 
 
 @app.get("/api/admin/landlords")
@@ -2114,6 +2214,7 @@ def landlord_tenants(user: User = Depends(require_staff),
     for contract in contracts:
         entry = profiles.setdefault(contract.tenant_id, {
             "contracts": [], "paid": 0.0, "unpaid": 0.0, "overdue": 0,
+            "overdue_amount": 0.0,
         })
         entry["contracts"].append(contract)
         for bill in contract.bills:
@@ -2123,6 +2224,7 @@ def landlord_tenants(user: User = Depends(require_staff),
                 entry["unpaid"] += float(bill.amount)
                 if bill.overdue:
                     entry["overdue"] += 1
+                    entry["overdue_amount"] += float(bill.amount)
 
     rows = []
     for tenant_id, entry in profiles.items():
@@ -2136,12 +2238,69 @@ def landlord_tenants(user: User = Depends(require_staff),
             "active_count": len(active),
             "houses": [c.house.house_no for c in active if c.house],
             "paid_total": round(entry["paid"], 2),
+            # unpaid_total 含合同里排好、还没到期的账单；真正拖欠的是 overdue_total。
+            # 只给前者时，助手把「待收 39650」说成了「欠了 39650」——实际逾期 2 笔
             "unpaid_total": round(entry["unpaid"], 2),
             "overdue_count": entry["overdue"],
+            "overdue_total": round(entry["overdue_amount"], 2),
         })
     # 有逾期的排前面，房东最需要先看到这些人
     rows.sort(key=lambda r: (-r["overdue_count"], -r["unpaid_total"]))
     return {"total": len(rows), "list": rows}
+
+
+@app.get("/api/landlord/tenants/{tenant_id}")
+def landlord_tenant_detail(tenant_id: int, user: User = Depends(require_staff),
+                           session: Session = Depends(get_session)):
+    """一位租客的详情：**只看他和我之间的事**——在我名下的合同、账单、报修。
+
+    原先租客列表点进去什么都没有，房东想知道「他哪笔没交」「上次报修修好没」
+    得去合同、工单两个栏目各翻一遍再自己对。别的房东和他之间的事不给看。
+    """
+    stmt = select(Contract).where(Contract.tenant_id == tenant_id)
+    if user.role != "admin":
+        stmt = stmt.where(Contract.landlord_id == user.id)
+    contracts = sorted(session.scalars(stmt).all(), key=lambda c: c.start_date, reverse=True)
+    if not contracts:
+        raise HTTPException(status_code=404, detail="这位租客没有在你名下签过合同")
+    tenant = session.get(User, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="租客不存在")
+
+    bills = sorted((b for c in contracts for b in c.bills if b.status != "cancelled"),
+                   key=lambda b: b.due_date)
+    house_ids = {c.house_id for c in contracts}
+    repairs = session.scalars(select(Repair).where(
+        Repair.tenant_id == tenant_id, Repair.house_id.in_(house_ids))
+        .order_by(Repair.created_at.desc()).limit(20)).all()
+
+    def bill_row(b):
+        return {"bill_no": b.bill_no, "type": b.type, "period": b.period,
+                "amount": float(b.amount), "status": b.status, "overdue": b.overdue,
+                "due_date": b.due_date.strftime("%Y-%m-%d"),
+                "house_no": b.contract.house.house_no if b.contract and b.contract.house else ""}
+
+    unpaid = [b for b in bills if b.status == "unpaid"]
+    profile = tenant.to_dict()
+    return {
+        "tenant": {k: profile.get(k) for k in ("id", "username", "real_name", "phone")},
+        "summary": {
+            "paid_total": round(sum(float(b.amount) for b in bills if b.status == "paid"), 2),
+            "unpaid_total": round(sum(float(b.amount) for b in unpaid), 2),
+            "overdue_count": sum(1 for b in unpaid if b.overdue),
+            "overdue_total": round(sum(float(b.amount) for b in unpaid if b.overdue), 2),
+        },
+        "contracts": [{k: c.to_dict()[k] for k in (
+            "contract_no", "house_no", "house_title", "start_date", "end_date", "rent",
+            "deposit", "status", "days_left", "request")} for c in contracts],
+        # 逾期的、最近要交的排前面；已交的只留最近几笔，够看出缴费习惯就行
+        "bills": ([bill_row(b) for b in unpaid][:12]
+                  + [bill_row(b) for b in bills if b.status == "paid"][-6:]),
+        "repairs": [{"id": r.id, "house_no": r.house.house_no if r.house else "",
+                     "category": r.category, "urgency": r.urgency, "status": r.status,
+                     "content": r.content[:60],
+                     "created_at": r.created_at.strftime("%Y-%m-%d")} for r in repairs],
+    }
 
 
 # 同一位租客一天只催一次。房东在对话框里连说几遍「提醒一下」，
@@ -2579,15 +2738,36 @@ def activate_contract(contract_no: str, user: User = Depends(require_login),
     return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
 
 
+def _contract_side(contract, user):
+    """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
+    if user.id == contract.tenant_id and user.role != "admin":
+        return "tenant"
+    return "landlord"
+
+
 @app.post("/api/contracts/{contract_no}/end")
 def end_contract(contract_no: str, payload: ContractEnd,
                  user: User = Depends(require_login),
                  session: Session = Depends(get_session)):
-    """退租或到期结束。押金扣款只有房东与管理员能填。"""
+    """退租。**租客点是提申请，房东点才是真的退。**
+
+    原先租客一点就退：押金全额退、房源重新上架，房东事后才收到一条消息，
+    想扣点损坏赔偿都没地方填。现在租客提出、房东确认时结算押金；
+    房东 / 管理员自己发起的退租照旧直接办（也就是确认租客申请的那一步）。
+    """
     contract = _visible_contract(session, contract_no, user)
-    is_staff = user.role == "admin" or user.id == contract.landlord_id
-    if payload.deduct and not is_staff:
-        raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+    side = _contract_side(contract, user)
+    if side == "tenant":
+        if payload.deduct:
+            raise HTTPException(status_code=403, detail="只有出租方可以扣除押金")
+        try:
+            leasing.request_change(session, contract, "end", "tenant",
+                                   reason=payload.reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        session.commit()
+        session.refresh(contract)
+        return {"ok": True, "requested": True, "contract": contract.to_dict()}
 
     try:
         result = leasing.end_contract(session, contract,
@@ -2604,17 +2784,39 @@ def end_contract(contract_no: str, payload: ContractEnd,
 def renew_contract(contract_no: str, payload: ContractRenew,
                    user: User = Depends(require_login),
                    session: Session = Depends(get_session)):
-    """续租：结束当前合同，生成一份新的待确认合同。"""
+    """续租。一方提出，**另一方**再点一次就是确认，租期在本合同上延长。
+
+    对方已经提了续租，这一下就是同意，按对方申请的月数办；
+    否则记成我方的申请，等对方确认。
+    """
     contract = _visible_contract(session, contract_no, user)
+    side = _contract_side(contract, user)
     try:
-        new_contract = leasing.renew_contract(session, contract,
-                                              months=payload.months)
+        if contract.request_type == "renew" and contract.request_by != side:
+            leasing.renew_contract(session, contract, months=contract.request_months)
+            session.commit()
+            session.refresh(contract)
+            return {"ok": True, "renewed": True, "contract": contract.to_dict()}
+        leasing.request_change(session, contract, "renew", side, months=payload.months)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-
     session.commit()
-    session.refresh(new_contract)
-    return {"ok": True, "contract": new_contract.to_dict()}
+    session.refresh(contract)
+    return {"ok": True, "requested": True, "contract": contract.to_dict()}
+
+
+@app.delete("/api/contracts/{contract_no}/request")
+def withdraw_contract_request(contract_no: str, user: User = Depends(require_login),
+                              session: Session = Depends(get_session)):
+    """撤回自己提的退租 / 续租申请，或拒绝对方提的。"""
+    contract = _visible_contract(session, contract_no, user)
+    try:
+        leasing.withdraw_request(session, contract, _contract_side(contract, user))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
 
 
 class ReviewResultIn(BaseModel):

@@ -225,6 +225,27 @@ def suggest(index, query, candidates, cover):
     return [p for p in picked if p][:3]
 
 
+def related(index, candidates, limit=2):
+    """闸门拒答时，把检索排在最前的条目**原文**带出去，交给上层的大模型自己判断。
+
+    闸门看的是词面规则，复合问句、短问句很吃亏：「这套有中介带看房吗，押金多少」
+    被拒了，猜你想问里明明就有「看房是谁带看？」；「看房是谁带」分词后挑不出
+    话题词，覆盖率直接记 0，可检索排第一的正是那一条。agent 那边只拿到标题，
+    只能对用户说「平台规则里没查到」。
+
+    **这里不再按覆盖率过滤。** `suggest()` 的门槛是给用户看的建议用的——
+    噪声推到用户眼前很难看；这份是给模型看的，它被要求先判断原文是不是在答
+    用户问的事，对不上就当没查到。规则负责召回，判断交给模型。
+    """
+    out = []
+    for cid in candidates[:limit]:
+        chunk = index.get(cid) or {}
+        body = (chunk.get("body") or "").replace("**", "").strip()
+        if chunk.get("title") and body:
+            out.append({"title": chunk["title"], "body": body[:400]})
+    return out
+
+
 def _citation(index, chunk_id):
     chunk = index.get(chunk_id)
     if not chunk:
@@ -905,6 +926,7 @@ def run(text, token="", history=None, provider=None, backend=None,
             "refused",
             _refusal(raw),
             alternatives=alternatives,
+            related=related(index, candidates),
             retrieval=retrieval,
             handoff={"question": raw, "reason": verdict["reason"]})
 
@@ -919,6 +941,7 @@ def run(text, token="", history=None, provider=None, backend=None,
         return shaped("refused", _refusal(raw),
                       alternatives=suggest(index, query, candidates,
                                            verdict["cover"]),
+                      related=related(index, candidates),
                       retrieval=retrieval,
                       handoff={"question": raw, "reason": note})
 

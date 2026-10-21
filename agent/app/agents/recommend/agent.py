@@ -74,3 +74,59 @@ def run(token=None, limit=6, backend=None):
         "items": items,
         "message": "为你挑了 %d 套匹配度较高的房源。%s" % (len(items), describe(profile)),
     }
+
+
+# ---------------------------------------------------------------- 大模型讲理由
+
+_EXPLAIN_SYSTEM = "你是租房平台的推荐助手，只输出 JSON。"
+_EXPLAIN_PROMPT = """用户的浏览偏好：{profile}
+给他推荐了这几套：
+{items}
+
+用一两句口语化的话（不超过 60 个字）告诉他为什么推荐这几套、各自适合什么样的需求。
+只能用上面给出的信息，不要编造数字、配套和距离。
+输出：{{"text": "……"}}"""
+
+
+def explain(result, provider):
+    """给「为你推荐」写一句人话的推荐理由。
+
+    推荐的打分和挑选仍然是规则算的（可解释、可复现）；原先页面上的理由也是规则
+    拼的一串「常看 中山区、甘井子区，两室一厅，租金多在 850–3950 元」。
+    用户反馈「不要只靠规则」——这里让大模型基于同一份数据写一句话。
+    **只认数据里有的数字**：话里出现的数字在素材里找不到，整句作废，
+    退回规则那句。
+    """
+    import re
+
+    from app.llm.base import LLMUnavailable
+
+    if not result.get("ok") or provider is None or not getattr(provider, "available", False):
+        return ""
+    lines = []
+    for i, h in enumerate(result.get("items", [])[:4], 1):
+        lines.append("%d. %s，%s，%s 元/月，匹配理由：%s" % (
+            i, h.get("title", ""), h.get("district", ""), _num(h.get("rent_price")),
+            "；".join(h.get("match_reasons") or []) or "无"))
+    material = "%s\n%s" % (result.get("reason", ""), "\n".join(lines))
+    try:
+        data = provider.complete_json(_EXPLAIN_SYSTEM, _EXPLAIN_PROMPT.format(
+            profile=result.get("reason", ""), items="\n".join(lines)))
+    except LLMUnavailable:
+        return ""
+    text = str((data or {}).get("text") or "").replace("**", "").strip() if isinstance(data, dict) else ""
+    if not text or len(text) > 90:
+        return ""
+    # 按整数比，不按子串：「5 分钟」里的 5 是 3950 的一部分，子串比会放过它
+    known = set(re.findall(r"\d+", material))
+    if any(n not in known for n in re.findall(r"\d+", text)):
+        return ""
+    return text
+
+
+def _num(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return str(value or "")
+    return str(int(value)) if value == int(value) else str(value)

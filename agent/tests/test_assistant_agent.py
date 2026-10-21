@@ -149,6 +149,35 @@ class TestLoop(unittest.TestCase):
         self.assertEqual(first[0]["type"], "image_url")
         self.assertEqual(first[-1]["text"], "这是哪")
 
+    def test_say_answers_the_question_before_the_card(self):
+        """写工具一调这一轮就结束——用户另问的「要紧吗」由 say 先答。"""
+        llm = ScriptedLLM({"tool": "submit_repair", "params": {"request": "排风扇周围发霉"},
+                           "say": "发霉长期吸入对呼吸道不好，建议尽快处理。"})
+        out = run(llm, "排风扇周围黑了一片，要紧吗？")
+        self.assertTrue(out["message"].startswith("发霉长期吸入"))
+        self.assertIn("要我帮你缴纳", out["message"])
+        self.assertEqual(out["stopped_by"], "submit_repair")
+
+    def test_say_never_claims_it_is_already_done(self):
+        """实测：「我帮你提交了报修，你点确认就行。」——下一句却在问是哪一套。"""
+        llm = ScriptedLLM({"tool": "submit_repair", "params": {"request": "墙面裂缝"},
+                           "say": "照片里墙面确实有裂缝，建议报修。我帮你提交了报修，你点确认就行。"})
+        out = run(llm, "这个要报修吗")
+        self.assertIn("建议报修", out["message"])
+        self.assertNotIn("提交了", out["message"])
+        self.assertNotIn("点确认就行", out["message"])
+
+    def test_markdown_bold_is_stripped(self):
+        """聊天框是纯文本，加粗会原样显示成星号。"""
+        out = run(ScriptedLLM({"answer": "**推荐第 5 套**：楼层最低"}))
+        self.assertEqual(out["message"], "推荐第 5 套：楼层最低")
+
+    def test_today_comes_with_the_weekday(self):
+        import datetime
+        llm = ScriptedLLM({"answer": "好"})
+        loop.run("这周六能看吗", [], llm, Toolkit(deps()), today=datetime.date(2026, 10, 15))
+        self.assertIn("2026-10-15（星期四）", llm.calls[0]["system"])
+
     def test_dialogue_and_context_reach_the_model(self):
         llm = ScriptedLLM({"answer": "嗯"})
         loop.run("那第二套呢", [], llm, Toolkit(deps()),
@@ -207,6 +236,100 @@ class TestToolkit(unittest.TestCase):
     def test_out_of_range_ordinal_is_explained(self):
         kit = Toolkit(deps(run_read=lambda *a: {"_out_of_range": True}))
         self.assertIn("一共只有 2 套", kit.call("house_detail", {"ordinal": 9}).observation)
+
+    def test_house_rows_keep_the_fields_people_ask_about(self):
+        """电梯、配套、评分排在房源字段的第 13 位之后，按顺序截就全丢了。"""
+        house = {"id": 1, "house_no": "DL0085", "title": "旅顺口区龙王塘 三室一厅 92平",
+                 "district": "旅顺口区", "community": "龙王塘", "address": "龙王塘巷43号",
+                 "rent_price": "2750.0", "deposit": "0.0", "area": "92.0", "layout": "三室一厅",
+                 "rent_type": "整租", "floor": "3/13层", "orientation": "南",
+                 "tags": ["近学校", "可养宠物"], "cover_image": "/static/a.jpg",
+                 "rating": 4.6, "review_count": 3, "elevator": True, "decoration": "精装"}
+        kit = Toolkit(deps(run_read=lambda *a: {"items": [house], "total": 1}))
+        row = kit.call("search_houses", {}).observation["房源"][0]
+        self.assertEqual(row["序号"], 1)
+        self.assertEqual(row["电梯"], "有")
+        self.assertEqual(row["配套"], "近学校、可养宠物")
+        self.assertEqual(row["租金"], "2750 元/月")
+        self.assertEqual(row["评分"], "4.6")
+        self.assertNotIn("cover_image", json.dumps(row, ensure_ascii=False))
+
+    def test_truncated_list_is_not_summed_and_upstream_split_passes_through(self):
+        """卡片只带前 5 条时，拿这 5 条算合计就是错的；全量汇总由上游算好交过来。"""
+        shown = [{"bill_no": "A%d" % i, "amount": 750, "overdue": True} for i in range(5)]
+        split = {"已逾期": {"笔数": 5, "合计": 3750}, "还没到期": {"笔数": 31, "合计": 58650}}
+        kit = Toolkit(deps(run_read=lambda *a: {"account": {"tool": "bill", "data": {
+            "unpaid": shown, "total": 36, "待缴拆分": split}}}))
+        obs = kit.call("my_bills", {}).observation
+        self.assertNotIn("unpaid_合计", obs)
+        self.assertIn("共 36 条", obs["unpaid_条数"])
+        self.assertEqual(obs["待缴拆分"]["还没到期"]["笔数"], 31)
+
+    def test_ambiguous_money_fields_get_explained(self):
+        tenants = [{"real_name": "林小雨", "unpaid_total": 39650, "overdue_count": 2,
+                    "overdue_total": 6100}]
+        kit = Toolkit(deps(role="landlord",
+                           run_read=lambda *a: {"account": {"tool": "landlord_tenants",
+                                                            "data": {"list": tenants}}}))
+        row = kit.call("landlord_tenants", {}).observation["list"][0]
+        self.assertEqual(row["待缴合计（含还没到期的）"], "39650")
+        self.assertEqual(row["逾期未缴合计"], "6100")
+
+    def test_two_searches_in_one_turn_share_the_screen(self):
+        """第二次找房接在第一次后面上屏，模型看到的序号就是屏幕上的序号。"""
+        batches = iter([
+            {"items": [{"house_no": "A1"}, {"house_no": "A2"}], "total": 2},
+            {"items": [{"house_no": "A2"}, {"house_no": "B1"}], "total": 2},
+        ])
+        kit = Toolkit(deps(run_read=lambda *a: next(batches)))
+        kit.call("search_houses", {"district": "甘井子区"})
+        second = kit.call("search_houses", {"district": "金州区"})
+        self.assertEqual([h["house_no"] for h in second.artifacts["items"]], ["A1", "A2", "B1"])
+        self.assertEqual([r["序号"] for r in second.observation["房源"]], [3])
+        self.assertEqual(second.observation["房源"][0]["编号"], "B1")
+
+    def test_contract_review_is_a_tool(self):
+        """合同照片问「合理吗」：交给 AI-02 合同审阅，风险条款原样回到模型手里。"""
+        seen = {}
+
+        def review(text):
+            seen["text"] = text
+            return {"ok": True, "message": "共识别出 1 处需关注的条款",
+                    "risks": [{"level": "high", "title": "押金不退条款",
+                               "advice": "写清扣除条件", "quote": "押金不予退还", "id": "x"}],
+                    "missing": ["租期"]}
+
+        kit = Toolkit(deps(review=review))
+        self.assertIn("review_contract", {t["name"] for t in kit.tools()})
+        obs = kit.call("review_contract", {"text": "第六条 提前退租的，押金不予退还"}).observation
+        self.assertEqual(seen["text"], "第六条 提前退租的，押金不予退还")
+        self.assertEqual(obs["风险条款"][0]["title"], "押金不退条款")
+        self.assertNotIn("id", obs["风险条款"][0])
+        self.assertEqual(obs["缺少的条款"], ["租期"])
+        # 没接审阅的环境里就没有这个工具，不会调到一个空函数
+        self.assertNotIn("review_contract", {t["name"] for t in Toolkit(deps()).tools()})
+
+    def test_compare_table_reaches_the_model_whole(self):
+        """原先对比表被截成 80 个字，模型拿屏幕上另一套的面积补了半张表。"""
+        compare = {"houses": [{"house_no": "DL0044"}, {"house_no": "DL0053"}],
+                   "rows": [{"label": "面积", "values": ["66.2 平米", "122.9 平米"], "best": 1},
+                            {"label": "月租", "values": ["2950 元", "2550 元"], "best": 1},
+                            {"label": "评分", "values": ["5 分", "3 分"], "best": 0}]}
+        kit = Toolkit(deps(run_read=lambda *a: {"message": "DL0053 占优", "compare": compare}))
+        obs = kit.call("compare_houses", {"house_nos": ["DL0044", "DL0053"]}).observation
+        self.assertEqual(obs["对比"]["DL0044"]["面积"], "66.2 平米")
+        self.assertEqual(obs["对比"]["DL0053"]["面积"], "122.9 平米")
+        self.assertEqual(obs["对比"]["DL0044"]["占优的项"], ["评分"])
+
+    def test_single_house_detail_is_handed_over_whole(self):
+        house = {"house_no": "DL0040", "title": "星海广场 一室一厅", "rent_price": 1200,
+                 "area": 58.9, "layout": "一室一厅", "address": "沙河口区星海广场巷73号楼",
+                 "business_area": "星海广场", "tags": ["地铁"]}
+        kit = Toolkit(deps(run_read=lambda *a: {"message": "", "house_no": "DL0040",
+                                                "house": house}))
+        obs = kit.call("house_detail", {"house_no": "DL0040"}).observation
+        self.assertEqual(obs["房源资料"]["商圈"], "星海广场")
+        self.assertIn("星海广场巷", obs["房源资料"]["地址"])
 
 
 def request(**kw):
@@ -287,6 +410,28 @@ class TestMainWiring(unittest.TestCase):
             main._agent_propose(payload, "submit_repair",
                                 {"request": "厨房水龙头滴水", "house_no": "DL0001", "ordinal": 1}, "", [])
         self.assertNotIn("house_no", prop.call_args.args[4])
+
+    def test_own_rental_number_is_kept_when_it_is_really_rented(self):
+        """「那套续一年」：模型给的 DL0007 正是他在租的那套，就别丢了再问一遍。"""
+        payload = request(text="那套续一年", token="t")
+        contracts = {"list": [{"house_no": "DL0007", "status": "active"},
+                              {"house_no": "DL0010", "status": "ended"}]}
+        result = (main.support_actions.CONFIRM, "", {"summary": "续租", "risk": "high"}, None)
+        with mock.patch.object(main.backend_client, "get", return_value=contracts), \
+                mock.patch.object(main.support_actions, "propose", return_value=result) as prop:
+            main._agent_propose(payload, "renew_contract",
+                                {"request": "续一年", "house_no": "DL0007"}, "", [])
+            self.assertEqual(prop.call_args.args[4]["house_no"], "DL0007")
+            # 已经结束的那份租约不算他「在租」
+            main._agent_propose(payload, "renew_contract",
+                                {"request": "续一年", "house_no": "DL0010"}, "", [])
+            self.assertNotIn("house_no", prop.call_args.args[4])
+
+    def test_anonymous_write_attempt_is_told_to_ask_for_login(self):
+        kit = Toolkit(deps(logged_in=False, role=""))
+        hint = kit.why_unavailable("book_viewing")
+        self.assertIn("还没登录", hint)
+        self.assertIn("不要说做不了", hint)
 
     def test_propose_ignores_made_up_house_numbers(self):
         payload = request(text="约 DL9999", token="t", last_house_nos=["DL0007"])

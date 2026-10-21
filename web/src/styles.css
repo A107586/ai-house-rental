@@ -2551,17 +2551,8 @@ textarea {
   min-width: 200px;
 }
 
-/* 页脚。客服电话来自系统配置，管理员改了立刻反映到这里 */
-.site-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 22px;
-  padding: 26px 20px 90px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
-}
+/* 页脚样式统一在 theme.css「E1. 页脚」。这里原先有一套老的居中 flex 规则，
+   会把新页脚的品牌栏挤到中间、分割线缩成一截，已删除。 */
 
 
 /* ============================================================
@@ -3055,11 +3046,6 @@ td.accent {
   /* 地图的侧栏在 720px 断点已经移到下方，这里只收紧内边距 */
   .mapfinder {
     padding: 14px 12px;
-  }
-
-  .site-foot {
-    padding: 20px 14px 100px;
-    gap: 6px;
   }
 }
 
@@ -4917,4 +4903,15 @@ button.account-row:last-child { border-bottom: none; }
   color: var(--ok);
   font-weight: 600;
   background: var(--ok-soft);
+}
+
+/* 流式输出：回答还在生成时末尾带一个闪烁的光标，写完换成正式的消息 */
+.bubble-text.streaming::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--brand);
+  animation: stream-caret 1s steps(1) infinite;
+}
+@keyframes stream-caret {
+  50% { opacity: 0; }
 }

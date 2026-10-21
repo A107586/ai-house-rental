@@ -10,8 +10,8 @@ import { api } from '../api'
  * 是纯规则生成的，还是大模型润色过的。
  */
 const SOURCE_LABEL = {
-  rules: '规则生成，未调用大模型',
-  llm_polished: '规则生成数字，大模型润色措辞（数字已校验未被改动）',
+  rules: '',
+  llm_polished: 'AI 撰写',
 }
 
 export default function ReportPanel() {
@@ -51,8 +51,8 @@ export default function ReportPanel() {
         <div>
           <h4>经营分析报告</h4>
           <div className="loc">
-            由经营分析智能体生成 · 数据来自平台统计接口
-            {data?.source ? ` · ${SOURCE_LABEL[data.source] || data.source}` : ''}
+            根据平台经营数据自动生成
+            {SOURCE_LABEL[data?.source] ? ` · ${SOURCE_LABEL[data.source]}` : ''}
           </div>
         </div>
         <div className="report-acts">
@@ -69,7 +69,7 @@ export default function ReportPanel() {
 
       {error && <div className="reply failed">{error}</div>}
 
-      {busy && !data && <div className="empty">智能体正在分析经营数据…</div>}
+      {busy && !data && <div className="empty">正在分析经营数据…</div>}
 
       {data && data.status !== 'ok' && (
         <div className="reply failed">{data.message}</div>
@@ -106,7 +106,7 @@ export default function ReportPanel() {
           ))}
 
           <div className="report-foot">
-            报告中的每个数字都来自上方「依据数字」，可与数据看板逐项核对。大模型不参与计算，只调整措辞；润色后数字如有出入，系统回退到规则原文。
+            报告里的数字都来自上方「依据数字」，可以和数据看板对照。
           </div>
         </>
       )}

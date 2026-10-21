@@ -62,10 +62,8 @@ function loadSessionId(user) {
 const OPENING = {
   role: 'assistant',
   content: '你好，我是租房助手。找房可以一句一句补条件，我都记得住；'
-    + '平台规则也可以直接问我，比如「押金怎么退」——'
-    + '我只按知识库回答，查不到就直说，不瞎编。'
-    + '也可以让我帮你办事——交房租、约看房、报修都行，'
-    + '我会先把要办的事列出来，你点确认，我才动手。',
+    + '押金怎么退、退租要提前多久这类平台规定也可以问我，查不到的我会直说。'
+    + '交房租、约看房、报修也能帮你办，办之前会先让你确认。',
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
@@ -464,6 +462,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [thinkIntent, setThinkIntent] = useState('default')
+  // 流式接口推来的：此刻真实在做的那一步（「在查你的账单」）和已经生成的那部分回答
+  const [streamStep, setStreamStep] = useState('')
+  const [streamText, setStreamText] = useState('')
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
@@ -682,9 +683,29 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setError('')
 
     try {
-      const res = await api.agentChat(content, sessionId, history, houseNos,
-                                     pending,
-                                     { seen: houseNos.length, houseNo: focus || houseNo, images })
+      const extra = { seen: houseNos.length, houseNo: focus || houseNo, images }
+      let res
+      try {
+        // 流式：「在查你的账单」这类真实进度先出来，回答一个字一个字显示在等待气泡里；
+        // 收到最终结果后照原样处理，等待气泡换成正式的那条消息。
+        // 一开始就给一句真实的话：不给的话 Thinking 会轮播固定清单，跑到「组织回答」
+        // 时真实的「在查平台规则」「在看查到的结果」才到，看着像先答后查
+        setStreamStep('在理解你的问题')
+        res = await api.agentChatStream(content, sessionId, history, houseNos, pending, extra,
+          (event) => {
+            if (event.type === 'step') setStreamStep(event.label || '')
+            else if (event.type === 'delta') setStreamText((cur) => cur + event.text)
+            else if (event.type === 'reset') setStreamText('')
+          })
+      } catch (err) {
+        // 只有「流式接口用不了」才退回普通接口；模型答错、服务报错照常往外抛
+        if (!err.streamUnsupported) throw err
+        setStreamStep('')
+        res = await api.agentChat(content, sessionId, history, houseNos, pending, extra)
+      } finally {
+        setStreamText('')
+        setStreamStep('')
+      }
       setContext(res.context_text || '')
       // 助手还在等一个答案就留着，否则清掉——不清会让下一句无关的话
       // 被硬塞进上一轮的槽位里
@@ -780,9 +801,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 这句话组员看了两次都没看出问题在哪，所以把排查方向直接写进去。
         // 「联系不上」最常见的原因不是网络，是 8000 端口那个服务压根没起来——
         // 智能体有自己的 requirements.txt，只装后端依赖的话它启动即退出。
-        content: '当前智能体无连接，聊天暂不可用。'
-          + '如果是在本地跑：确认 8000 端口的智能体窗口还开着，'
-          + '它的依赖要单独装（pip install -r agent/requirements.txt）。',
+        content: '助手暂时连不上，请稍后再试。',
         ok: false,
       }])
     } finally {
@@ -893,8 +912,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         </button>
         <h3>租房助手</h3>
         <div className="loc">
-          多轮对话 · 会记住你已经说过的条件
-          {user ? '' : ' · 登录后，换设备也能接着聊'}
+          找房、问规定、办事都可以问我
         </div>
 
         {context && (
@@ -1061,7 +1079,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
                     转人工
                   </button>
                   <span className="muted small">
-                    我答不上来的，可以交给管理员
+                    交给管理员处理，回复会发到站内消息
                   </span>
                 </div>
               )}
@@ -1122,7 +1140,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           {busy && (
             <div className="bubble assistant thinking-bubble">
               <ChatAvatar kind="ai" />
-              <Thinking intent={thinkIntent} />
+              {streamText
+                ? <div className="bubble-text streaming">{streamText}</div>
+                : <Thinking intent={thinkIntent} label={streamStep} />}
             </div>
           )}
           <div ref={bottomRef} />

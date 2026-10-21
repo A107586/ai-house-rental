@@ -60,6 +60,19 @@ class LLMProvider(object):
             kwargs["deadline"] = deadline
         return self.complete(system_prompt, "\n".join(lines), **kwargs)
 
+    def chat_stream(self, system_prompt, messages, max_tokens=None,
+                    deadline=None, temperature=0.0):
+        """`chat` 的流式版本：边生成边一段段吐出正文（生成器）。
+
+        默认实现不流式——调一次 `chat`，把整段当作唯一的一段吐出来。
+        这样不支持流式的厂商、测试里的假 provider 都能直接用，调用方
+        不用分两套写法；只是用户要等整段生成完才看到字。
+        """
+        kwargs = {"max_tokens": max_tokens, "temperature": temperature}
+        if deadline is not None:
+            kwargs["deadline"] = deadline
+        yield self.chat(system_prompt, messages, **kwargs)
+
     def complete_json(self, system_prompt, user_prompt, max_tokens=None,
                       deadline=None):
         """要求模型输出 JSON，并解析为 dict。

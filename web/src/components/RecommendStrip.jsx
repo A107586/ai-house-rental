@@ -23,6 +23,8 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
   // **刻意不重新请求**：推荐的依据是浏览足迹，两次点击之间足迹没变，
   // 再请求一次拿回来的还是同一批，白等一趟网络往返。
   const [group, setGroup] = useState(0)
+  // 大模型写的推荐理由。列表是规则算的、先出；这句话后到，到了就换上
+  const [aiReason, setAiReason] = useState('')
 
   useEffect(() => {
     if (!user) {
@@ -33,7 +35,16 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
     setBusy(true)
     api
       .agentRecommend(12)
-      .then((res) => { if (alive) setData(res) })
+      .then((res) => {
+        if (!alive) return
+        setData(res)
+        setAiReason('')
+        if (res?.ok) {
+          api.agentRecommendExplain(12)
+            .then((r) => { if (alive && r?.text) setAiReason(r.text) })
+            .catch(() => {})
+        }
+      })
       // 推荐是锦上添花，拿不到就安静地不显示，不能打断主流程
       .catch(() => { if (alive) setData(null) })
       .finally(() => { if (alive) setBusy(false) })
@@ -50,7 +61,7 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
         <div className="home-sec-head">
           <div>
             <h2 className="home-sec-title">为你推荐</h2>
-            <p className="home-sec-desc">智能体正在分析你的浏览偏好…</p>
+            <p className="home-sec-desc">正在根据你的浏览记录挑选…</p>
           </div>
         </div>
       </section>
@@ -77,9 +88,11 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
         <div>
           <h2 className="home-sec-title">
             为你推荐
-            <span className="rec-badge">AI 智能体</span>
+            <span className="rec-badge">AI</span>
           </h2>
-          <p className="home-sec-desc">{data.reason}</p>
+          <p className="home-sec-desc">
+            {aiReason || data.reason}
+          </p>
         </div>
         <div className="rec-actions">
           <button className="home-sec-more ghosty" onClick={() => setWhy(!why)}>
@@ -100,8 +113,8 @@ export default function RecommendStrip({ user, favorites, onToggleFavorite,
 
       {why && (
         <div className="rec-why">
-          推荐基于你的浏览足迹与收藏，按区域 30 分、租金 25 分、户型 20 分、标签 15 分、出租方式 10 分给候选房源打分；看过的房源会降权，低于 15 分的不推荐。
-          <b>全过程由规则计算，不调用大模型</b>——推荐理由必须对得上真实数据。
+          根据你看过和收藏的房子，从区域、租金、户型、配套、整租/合租几方面挑相似的；
+          已经看过的往后排，不太像的就不推了。
         </div>
       )}
 

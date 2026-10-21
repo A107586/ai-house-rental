@@ -19,6 +19,7 @@ import random
 import urllib.error
 import urllib.request
 
+from app import tracing
 from app.llm.base import LLMProvider, LLMUnavailable, NullProvider
 
 
@@ -115,6 +116,23 @@ class OpenAICompatibleProvider(LLMProvider):
         }
 
     def _post_with_retry(self, request, deadline=None):
+        """`_post_with_retry_raw` 外面包一层：每次调用记一行耗时日志（app/tracing.py）。
+
+        「助手慢」时第一个要回答的就是「慢在模型还是慢在别处」，
+        这行日志带着请求编号，和访问日志、agent 每一步的计时对得上。
+        """
+        started = time.perf_counter()
+        try:
+            body = self._post_with_retry_raw(request, deadline=deadline)
+        except LLMUnavailable as exc:
+            tracing.log("llm_call", mode="chat", ok=False, error=str(exc)[:120],
+                        ms=round((time.perf_counter() - started) * 1000, 1))
+            raise
+        tracing.log("llm_call", mode="chat", ok=True,
+                    ms=round((time.perf_counter() - started) * 1000, 1))
+        return body
+
+    def _post_with_retry_raw(self, request, deadline=None):
         """发请求，遇到瞬时故障时重试。
 
         原先任何一次失败都直接降级到纯规则。但**超时与限流是可重试的
@@ -301,6 +319,112 @@ class OpenAICompatibleProvider(LLMProvider):
             return body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
             raise LLMUnavailable("大模型返回结构异常")
+
+
+    def chat_stream(self, system_prompt, messages, max_tokens=None,
+                    deadline=None, temperature=0.0):
+        """流式调用的计时外壳：记首段正文多久到（用户多久开始看到字）和总耗时。"""
+        started = time.perf_counter()
+        first_ms = None
+        try:
+            for piece in self._chat_stream_raw(system_prompt, messages, max_tokens=max_tokens,
+                                               deadline=deadline, temperature=temperature):
+                if first_ms is None:
+                    first_ms = round((time.perf_counter() - started) * 1000, 1)
+                yield piece
+        except LLMUnavailable as exc:
+            tracing.log("llm_call", mode="stream", ok=False, error=str(exc)[:120],
+                        first_ms=first_ms, ms=round((time.perf_counter() - started) * 1000, 1))
+            raise
+        tracing.log("llm_call", mode="stream", ok=True, first_ms=first_ms,
+                    ms=round((time.perf_counter() - started) * 1000, 1))
+
+    def _chat_stream_raw(self, system_prompt, messages, max_tokens=None,
+                         deadline=None, temperature=0.0):
+        """`chat` 的流式版本（OpenAI 协议的 `stream: true`），边生成边吐正文。
+
+        和 `_post_with_retry` 共用熔断与统计，但**不重试**：已经吐给用户一半的话
+        没法悄悄重来一遍。调用方（agent 循环）在一个字都还没收到时失败，
+        会退回带重试的 `chat`；已经开始吐字才断，就照实报错。
+
+        思考模型先吐 `reasoning_content`（思考过程），再吐 `content`（正文），
+        这里只要正文。
+        """
+        if time.time() < self._circuit_until:
+            self._short_circuited += 1
+            raise LLMUnavailable(
+                "大模型连续超时，已暂时熔断（%.0f 秒后重试）"
+                % (self._circuit_until - time.time()))
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "system", "content": system_prompt}]
+                        + list(messages),
+            "temperature": temperature,
+            "max_tokens": self._budget(max_tokens),
+            "stream": True,
+        }
+        request = urllib.request.Request(
+            self._base_url + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self._api_key,
+                "Accept": "text/event-stream",
+            },
+            method="POST",
+        )
+        self._calls += 1
+        own = time.time() + self._total_budget
+        deadline = min(own, deadline) if deadline else own
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            self._fail("大模型调用超出总时限（%.0fs）" % self._total_budget)
+        try:
+            # 这里的 timeout 是「两次收到数据之间」最多等多久，不是整次调用的总时长
+            response = urllib.request.urlopen(
+                request, timeout=max(min(self._timeout, remaining), 0.5))
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            self._fail("大模型接口返回 HTTP %s" % exc.code)
+        except socket.timeout:
+            self._timed_out()
+        except urllib.error.URLError as exc:
+            self._fail("大模型接口连接失败：%s" % type(exc.reason).__name__)
+
+        try:
+            with response:
+                for raw in response:
+                    if time.time() > deadline:
+                        raise socket.timeout()
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    choices = json.loads(data).get("choices") or [{}]
+                    piece = (choices[0].get("delta") or {}).get("content")
+                    if piece:
+                        yield piece
+        except socket.timeout:
+            self._timed_out()
+        except LLMUnavailable:
+            raise
+        except Exception as exc:
+            self._fail("大模型流式返回解析失败：%s" % type(exc).__name__)
+        self._consecutive_timeouts = 0
+        self._circuit_until = 0.0
+
+    def _fail(self, message):
+        self._failures += 1
+        self._last_error = message
+        raise LLMUnavailable(message)
+
+    def _timed_out(self):
+        self._consecutive_timeouts += 1
+        if self._consecutive_timeouts >= self.CIRCUIT_AFTER:
+            self._circuit_until = time.time() + self.CIRCUIT_SECONDS
+        self._fail("大模型接口超时")
 
 
 def build_provider(settings):

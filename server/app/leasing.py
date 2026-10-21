@@ -410,18 +410,26 @@ def generate_bills(session, contract):
         ))
 
     total_months = months_between(contract.start_date, contract.end_date)
+    bills += _rent_bills(contract, contract.start_date, total_months, "第 %d 期租金")
+
+    session.add_all(bills)
+    session.flush()
+    return bills
+
+
+def _rent_bills(contract, start, total_months, remark):
+    """从 start 起排 total_months 个月的租金账单，按付款周期合并成期。续租也用它。"""
+    bills = []
     pay_months = max(contract.pay_months, 1)
     rent = Decimal(str(contract.rent))
-
     index = 0
     while index < total_months:
         # 最后一期可能不足一个完整付款周期，按实际月数收
         span = min(pay_months, total_months - index)
-        due = add_months(contract.start_date, index)
+        due = add_months(start, index)
         start_label = due.strftime("%Y-%m")
-        end_label = add_months(contract.start_date, index + span - 1).strftime("%Y-%m")
+        end_label = add_months(start, index + span - 1).strftime("%Y-%m")
         period = start_label if span == 1 else "%s ~ %s" % (start_label, end_label)
-
         bills.append(Bill(
             bill_no=_serial("ZD"),
             contract_id=contract.id,
@@ -429,12 +437,9 @@ def generate_bills(session, contract):
             period=period,
             amount=rent * span,
             due_date=due,
-            remark="第 %d 期租金" % (index // pay_months + 1),
+            remark=remark % (index // pay_months + 1),
         ))
         index += span
-
-    session.add_all(bills)
-    session.flush()
     return bills
 
 
@@ -616,6 +621,7 @@ def end_contract(session, contract, reason="", deduct=0):
     contract.status = "ended"
     contract.ended_at = today
     contract.end_reason = reason
+    _clear_request(contract)
     contract.deposit_refund = deposit - deduct
 
     # 押金退款：**只有真的收到过押金才生成退款记录**。
@@ -667,25 +673,98 @@ def end_contract(session, contract, reason="", deduct=0):
 
 
 def renew_contract(session, contract, months=12):
-    """续租：结束旧合同，基于同一房源生成新的待确认合同。"""
+    """续租：**在本合同上延长租期**，按原租金补排新增月份的账单。
+
+    原先是「结束旧合同、另起一份待确认的新合同」。结束旧合同走的是退租那一套：
+    押金当场全额退、后面几个月的租金账单作废、房源重新上架——人还住着，
+    房子已经能被别人约看、签约了；新合同还要租客再点一次确认。
+    延长本合同，押金、房源状态都不动。
+    """
     if contract.status != "active":
         raise ValueError("只有生效中的合同可以续租")
+    months = int(months or 12)
+    if months < 1:
+        raise ValueError("续租至少 1 个月")
 
-    house = session.get(House, contract.house_id)
-    tenant_id = contract.tenant_id
+    old_end = contract.end_date
+    contract.end_date = add_months(old_end, months)
+    bills = _rent_bills(contract, old_end, months, "续租第 %d 期租金")
+    session.add_all(bills)
+    contract.content = (contract.content or "") + (
+        "\n\n【续租补充条款】双方同意续租 %d 个月，租期延长至 %s，"
+        "月租金 %s 元，其余条款不变。（%s）" % (
+            months, contract.end_date.strftime("%Y年%m月%d日"),
+            _money(contract.rent), datetime.now().strftime("%Y-%m-%d")))
+    _clear_request(contract)
+    for user_id in (contract.tenant_id, contract.landlord_id):
+        notify(session, user_id, "contract", "已续租",
+               "合同 %s 已续租 %d 个月，租期至 %s，新增 %d 期租金账单。" % (
+                   contract.contract_no, months,
+                   contract.end_date.strftime("%Y-%m-%d"), len(bills)),
+               contract.contract_no)
+    session.flush()
+    return contract
 
-    # 先结束旧合同，房源才会放回 available，新合同才签得出来
-    end_contract(session, contract, reason="续租")
 
-    from app.models import User
-    tenant = session.get(User, tenant_id)
-    # 押金不写死一个月：续租的押金该和这套房现在挂着的押金一致，
-    # 否则续一次租押金就变了一个数（K-02）
-    new_contract = create_contract(
-        session, house, tenant,
-        start_date=contract.end_date, months=months,
-        pay_months=contract.pay_months)
-    return new_contract
+_REQUEST_LABEL = {"end": "退租", "renew": "续租"}
+_SIDE_LABEL = {"tenant": "租客", "landlord": "房东"}
+
+
+def request_change(session, contract, kind, by, months=0, reason=""):
+    """一方提出退租 / 续租，等另一方确认。"""
+    if contract.status != "active":
+        raise ValueError("只有生效中的合同可以申请%s" % _REQUEST_LABEL[kind])
+    if contract.request_type and contract.request_type != kind:
+        raise ValueError("这份合同已有一个%s申请在等处理，先处理或撤回它"
+                         % _REQUEST_LABEL[contract.request_type])
+    contract.request_type = kind
+    contract.request_by = by
+    contract.request_months = int(months or 12) if kind == "renew" else 0
+    contract.request_reason = (reason or "")[:100]
+    contract.requested_at = datetime.now()
+
+    other = contract.landlord_id if by == "tenant" else contract.tenant_id
+    what = "续租 %d 个月" % contract.request_months if kind == "renew" else "退租"
+    detail = "，原因：%s" % reason if reason and kind == "end" else ""
+    notify(session, other, "contract", "%s申请%s" % (_SIDE_LABEL[by], _REQUEST_LABEL[kind]),
+           "合同 %s：%s申请%s%s。请到合同里确认或拒绝。" % (
+               contract.contract_no, _SIDE_LABEL[by], what, detail),
+           contract.contract_no)
+    session.flush()
+    return contract
+
+
+def withdraw_request(session, contract, side):
+    """撤回（提出方）或拒绝（另一方）待处理的申请。"""
+    if not contract.request_type:
+        raise ValueError("没有待处理的申请")
+    kind, by = contract.request_type, contract.request_by
+    _clear_request(contract)
+    if side == by:
+        other = contract.landlord_id if by == "tenant" else contract.tenant_id
+        title, verb = "%s撤回了%s申请" % (_SIDE_LABEL[by], _REQUEST_LABEL[kind]), "已撤回"
+    else:
+        other = contract.tenant_id if by == "tenant" else contract.landlord_id
+        title, verb = "%s申请未通过" % _REQUEST_LABEL[kind], "对方没有同意"
+    notify(session, other, "contract", title,
+           "合同 %s 的%s申请%s，合同照常履行。" % (contract.contract_no,
+                                            _REQUEST_LABEL[kind], verb),
+           contract.contract_no)
+    session.flush()
+    return contract
+
+
+def _clear_request(contract):
+    contract.request_type = ""
+    contract.request_by = ""
+    contract.request_months = 0
+    contract.request_reason = ""
+    contract.requested_at = None
+
+
+def _money(value):
+    value = Decimal(str(value or 0))
+    return str(int(value)) if value == value.to_integral() else str(value)
 
 
 # ---------------------------------------------------------------- 消息

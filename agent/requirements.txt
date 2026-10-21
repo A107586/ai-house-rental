@@ -9,3 +9,6 @@ python-dotenv>=1.0,<2.0
 # 这件事只有词典做得到，没有它 AI-03 的有依据正确率会从 85% 掉回 80%。
 # 纯 Python、无二进制依赖，装起来不挑环境。
 jieba>=0.42,<1.0
+# FastAPI/Starlette TestClient 的测试运行依赖（tests/test_parse_endpoint.py 要用）。
+# 本机环境里恰好装着，CI 的干净环境里没有，导入就失败——和后端保持一致写进来
+httpx2>=2.12,<3.0
