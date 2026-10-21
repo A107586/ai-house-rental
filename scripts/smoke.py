@@ -177,6 +177,9 @@ check("换一个 X-Forwarded-For 不能重置计数", code == 429,
 
 print()
 print("=" * 78)
+# 头注释里写了，但跑完紧接着去网页上点登录的人不会回去看头注释——
+# 2026-10-21 就是这样：冒烟全绿，紧接着演示账号登录 429，像是坏了
+print("注意：这台机器的登录次数已被用满，约 5 分钟内登录都会返回 429。")
 print("通过 %d 条，失败 %d 条" % (len(passed), len(failed)))
 for name in failed:
     print("  ✗ %s" % name)

@@ -771,11 +771,20 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        # 先把请求体读完再决定要不要拒：没读的数据还留在 socket 里时就关连接，
+        # Windows 会发 RST，对方收到的是「连接被中止」而不是 403（测试里时有时无）
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            n = -1
+        if not 0 <= n <= 1_000_000:
+            self.close_connection = True
+            return self._send(413, {"error": "body too large"})
+        raw = self.rfile.read(n)
         if not self._trusted(post=True):
             return self._send(403, {"error": "forbidden"})
-        n = int(self.headers.get("Content-Length", 0))
         try:
-            body = json.loads(self.rfile.read(n) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             return self._send(400, {"error": "bad json"})
         if not isinstance(body, dict):

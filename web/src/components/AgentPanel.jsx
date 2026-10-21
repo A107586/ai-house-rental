@@ -25,14 +25,6 @@ const LICENSE = {
   rejected: { label: '未通过', cls: 'status-rejected' },
 }
 
-// 预约状态。工作台只会看到 confirmed 的那些（未确认的预约不该出现在
-// 「今天要带看」里），但把四个状态都写全，免得后端将来加了别的状态
-// 这里直接漏出英文
-const APPOINTMENT_STATUS = {
-  pending: '待确认', confirmed: '已确认',
-  rejected: '已拒绝', cancelled: '已取消',
-}
-
 export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                             onSections, activeTab, onTabChange }) {
   // 嵌入整页工作台时当前页签由左栏说了算；独立抽屉时自己管。

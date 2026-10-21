@@ -562,7 +562,6 @@ export default function App() {
     setUser(null)
     setFavorites([])
     setShowMine(false)
-    setShowWork(false)
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))

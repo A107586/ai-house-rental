@@ -58,7 +58,6 @@ const INTERVAL = 5000
 
 export default function HeroBanner({ stats, children }) {
   const [index, setIndex] = useState(0)
-  const [reduced, setReduced] = useState(false)
   const rootRef = useRef(null)
   const timerRef = useRef(null)
 
@@ -93,7 +92,6 @@ export default function HeroBanner({ stats, children }) {
           setIndex((cur) => (cur + 1) % SLIDES.length)
         }, INTERVAL)
       }
-      setReduced(media.matches)
     }
 
     const onEnter = () => { hovering = true; sync() }
