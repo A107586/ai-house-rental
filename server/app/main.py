@@ -47,7 +47,7 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         mask_name)
 from app import (config_store, idcard, moderation, oplog,
                  pricing,
-                 ratelimit,
+                 ratelimit, reminders,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          ContractUpdate,
@@ -212,6 +212,9 @@ def _startup():
         config_store.ensure_defaults(session)
     finally:
         session.close()
+    # 到期 / 逾期 / 租约快到期的定时提醒（app/reminders.py）。内存库是测试，不起
+    if db_module.DATABASE_URL != "sqlite://" and not db_module.DATABASE_URL.endswith(":memory:"):
+        reminders.start_background(db_module.SessionLocal)
 
 
 # ------------------------------------------------------------------ 通用
@@ -2573,6 +2576,18 @@ def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
                    link_no=first.bill_no)
     session.commit()
     return {"ok": True, "count": len(late), "amount": total}
+
+
+@app.post("/api/admin/reminders/run")
+def run_reminders(user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """立刻跑一轮定时提醒。平时后台每几小时自己跑；演示和排查时不想等就点这个。
+    跑几次都一样——每条提醒按「谁、什么事、哪张单」去重。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    counts = reminders.run(session)
+    session.commit()
+    return {"ok": True, "sent": counts, "total": sum(counts.values())}
 
 
 @app.get("/api/admin/contracts")

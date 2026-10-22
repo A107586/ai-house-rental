@@ -287,6 +287,8 @@ export const api = {
   waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
   // 房东在生效中的合同上加一笔水电燃气 / 其它费用
   addExtraBill: (contractNo, payload) => post(`/api/contracts/${contractNo}/bills`, payload),
+  // 立刻跑一轮到期 / 逾期 / 租约快到期提醒（平时后台每几小时自己跑，重复跑不会重复发）
+  runReminders: () => post('/api/admin/reminders/run', {}),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>

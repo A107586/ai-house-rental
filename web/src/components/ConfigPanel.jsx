@@ -127,6 +127,38 @@ export default function ConfigPanel() {
           有一项填错时，本次修改都不会保存。
         </span>
       </div>
+
+      {/* 定时提醒（2026-10-23）：账单到期前 3 天、逾期、租约到期前 30 天、到期未退租。
+          后台每 6 小时自己跑一轮，这里是「不想等」的入口 */}
+      <section className="cfg-group">
+        <h5>定时提醒</h5>
+        <div className="cfg-row">
+          <div className="cfg-meta">
+            <div className="cfg-label">到期与逾期提醒</div>
+            <div className="cfg-desc">
+              账单到期前 3 天、逾期后、租约到期前 30 天、到期还没退租时，自动发站内信（绑了邮箱的同时发邮件）。
+              后台每 6 小时跑一轮；同一件事只提醒一次，多点几次也不会重复发。
+            </div>
+          </div>
+          <div className="cfg-input">
+            <button className="btn ghost small" disabled={busy} onClick={async () => {
+              setBusy(true)
+              setError('')
+              setOk('')
+              try {
+                const r = await api.runReminders()
+                setOk(r.total ? `这一轮发了 ${r.total} 条提醒。` : '这一轮没有需要提醒的。')
+              } catch (err) {
+                setError(err.message)
+              } finally {
+                setBusy(false)
+              }
+            }}>
+              现在跑一轮
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
