@@ -66,7 +66,7 @@ class TestCancelPendingContract(LifecycleCase):
                              json={"reason": "价格再想想"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["contract"]["status"], "cancelled")
-        self.assertIn("租客未接受合同", self.inbox("landlord1"))
+        self.assertIn("租客没有签这份合同", self.inbox("landlord1"))
         timeline = self.client.get("/api/contracts/%s/detail" % no,
                                    headers=self.t1).json()["timeline"]
         self.assertIn("合同已取消", [t["title"] for t in timeline])
@@ -76,21 +76,21 @@ class TestCancelPendingContract(LifecycleCase):
 
     def test_landlord_can_withdraw(self):
         no = self.sign()["contract_no"]
-        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord)
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord, json={})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["contract"]["end_reason"], "房东撤回")
-        self.assertIn("合同已撤回", self.inbox("tenant1"))
+        self.assertIn("房东撤回了合同", self.inbox("tenant1"))
 
     def test_active_contract_cannot_be_cancelled(self):
         no = self.sign()["contract_no"]
         self.client.post("/api/contracts/%s/activate" % no, headers=self.t1)
-        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.t1)
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.t1, json={})
         self.assertEqual(r.status_code, 409)
         self.assertEqual(self.contract(no)["status"], "active")
 
     def test_outsider_cannot_cancel(self):
         no = self.sign()["contract_no"]
-        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.t2)
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.t2, json={})
         self.assertEqual(r.status_code, 403)
         self.assertEqual(self.contract(no)["status"], "pending")
 
@@ -101,7 +101,7 @@ class TestCancelPendingContract(LifecycleCase):
         r = self.client.post("/api/auth/revert-to-tenant", headers=self.landlord)
         self.assertEqual(r.status_code, 400)
         self.assertIn("合同尚未结束", r.json()["detail"])
-        self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord)
+        self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord, json={})
         r = self.client.post("/api/auth/revert-to-tenant", headers=self.landlord)
         self.assertEqual(r.status_code, 200, r.text)
 
@@ -117,7 +117,7 @@ class TestCompetingContracts(LifecycleCase):
         got = self.contract(b, self.t2)
         self.assertEqual(got["status"], "cancelled")
         self.assertIn("已与其他租客签约", got["end_reason"])
-        self.assertIn("合同已取消", self.inbox("tenant2"))
+        self.assertIn("合同已失效", self.inbox("tenant2"))
 
     def test_same_tenant_same_house_only_one_pending(self):
         first = self.sign()["contract_no"]
@@ -127,7 +127,7 @@ class TestCompetingContracts(LifecycleCase):
         self.assertEqual(r.status_code, 409)
         self.assertIn(first, r.json()["detail"])
         # 撤回之后可以重开
-        self.client.post("/api/contracts/%s/cancel" % first, headers=self.landlord)
+        self.client.post("/api/contracts/%s/cancel" % first, headers=self.landlord, json={})
         self.sign(months=6)
 
 
@@ -277,7 +277,7 @@ class TestContactNeedsARealLease(LifecycleCase):
 
     def test_declined_contract_does_not_unlock_contact(self):
         no = self.sign("tenant2")["contract_no"]
-        self.client.post("/api/contracts/%s/cancel" % no, headers=self.t2)
+        self.client.post("/api/contracts/%s/cancel" % no, headers=self.t2, json={})
         self.assertEqual(self.contact().status_code, 403)
 
     def test_current_tenant_can_be_contacted_despite_do_not_disturb(self):

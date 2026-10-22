@@ -154,6 +154,12 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         </div>
       )}
 
+      {contract.status === 'cancelled' && (
+        <div className="record-body muted-note">
+          没有生效{contract.end_reason ? ` · ${contract.end_reason}` : ''}
+        </div>
+      )}
+
       {/* deposit_refund 是实际退还的押金；押金没收到过（或免押）就是空的，不能写成「已退还」。
           空的时候不写押金这一句：演示库里的历史合同也没有账单，猜「未缴」同样会说错 */}
       {contract.status === 'ended' && (contract.deposit_refund !== null || contract.end_reason) && (
@@ -168,9 +174,6 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
           )}
           {contract.end_reason}
         </div>
-      )}
-      {contract.status === 'cancelled' && contract.end_reason && (
-        <div className="record-body">{contract.end_reason}</div>
       )}
 
       {error && <div className="reply failed">{error}</div>}
@@ -204,24 +207,14 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         )}
 
         {contract.status === 'pending' && isTenant && (
-          <>
-            <button
-              className="btn small"
-              disabled={busy}
-              onClick={() => act(() => api.activateContract(contract.contract_no,
-                                                            contract.terms_digest))}
-            >
-              {busy ? '处理中' : '确认签约'}
-            </button>
-            <button
-              className="btn ghost small"
-              disabled={busy}
-              onClick={() => window.confirm('不接受这份合同？房东会收到通知，合同随即作废。')
-                && act(() => api.cancelContract(contract.contract_no))}
-            >
-              拒签
-            </button>
-          </>
+          <button
+            className="btn small"
+            disabled={busy}
+            onClick={() => act(() => api.activateContract(contract.contract_no,
+                                                          contract.terms_digest))}
+          >
+            {busy ? '处理中' : '确认签约'}
+          </button>
         )}
 
         {contract.status === 'pending' && isStaff && (
@@ -229,16 +222,25 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
             <button className="btn ghost small" onClick={() => setEditing(true)}>
               修改条款
             </button>
-            <button
-              className="btn ghost small"
-              disabled={busy}
-              onClick={() => window.confirm('撤回这份合同？租客会收到通知，合同随即作废。')
-                && act(() => api.cancelContract(contract.contract_no))}
-            >
-              撤回
-            </button>
             <span className="own">等待租客确认</span>
           </>
+        )}
+
+        {/* 待确认的合同原先结束不了：发错了人、租客不想签，它就一直挂着（2026-10-23） */}
+        {contract.status === 'pending' && (isTenant || isStaff) && (
+          <button
+            className="btn ghost small"
+            disabled={busy}
+            onClick={() => {
+              const why = window.prompt(isTenant
+                ? '不签这份合同？跟房东说一句原因（可以不填）：'
+                : '撤回这份合同？跟租客说一句原因（可以不填）：', '')
+              if (why === null) return
+              act(() => api.cancelContract(contract.contract_no, why.trim()))
+            }}
+          >
+            {isTenant ? '不签了' : '撤回'}
+          </button>
         )}
 
         {/* 退租 / 续租：一方提，另一方确认。没有待处理的申请时两边都能发起 */}

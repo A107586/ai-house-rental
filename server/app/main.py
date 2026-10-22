@@ -3124,16 +3124,6 @@ def activate_contract(contract_no: str,
             and terms_digest != contract.terms_digest):
         raise HTTPException(status_code=409,
                             detail="房东刚刚修改了合同条款，请重新查看后再确认")
-    if contract.status == "pending":
-        # 起租日的范围原先只在发起和修改时查。合同放了两个月才确认，起租日就到了
-        # 九十天前，一生效就是一串逾期账单——正是「最多往前补 30 天」要挡的那种（2026-10-23）
-        try:
-            leasing.check_start_date(contract.start_date)
-        except ValueError:
-            raise HTTPException(
-                status_code=409,
-                detail="这份合同的起租日（%s）已经过去太久，请联系房东改一下起租日再确认"
-                       % contract.start_date.strftime("%Y-%m-%d"))
 
     try:
         bills = leasing.activate_contract(session, contract)
@@ -3145,30 +3135,33 @@ def activate_contract(contract_no: str,
     return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
 
 
-def _contract_side(contract, user):
-    """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
-    if user.id == contract.tenant_id and user.role != "admin":
-        return "tenant"
-    return "landlord"
+class ContractCancel(BaseModel):
+    reason: str = Field(default="", max_length=100)
 
 
 @app.post("/api/contracts/{contract_no}/cancel")
-def cancel_contract(contract_no: str,
-                    reason: str = Body(default="", embed=True),
+def cancel_contract(contract_no: str, payload: ContractCancel,
                     user: User = Depends(require_login),
                     session: Session = Depends(get_session)):
-    """取消一份还没生效的合同：租客点是**拒签**，房东点是**撤回**，管理员按房东算。
-
-    已经生效的不走这里——那要退租结算，见 end_contract。
-    """
+    """待确认的合同不签了：出租方撤回、承租方拒签。生效了的走退租。"""
     contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id not in (contract.tenant_id, contract.landlord_id):
+        raise HTTPException(status_code=403, detail="只有合同双方可以操作")
+    side = _contract_side(contract, user)
     try:
-        leasing.cancel_contract(session, contract, _contract_side(contract, user), reason)
+        leasing.cancel_contract(session, contract, side, payload.reason)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}
+
+
+def _contract_side(contract, user):
+    """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
+    if user.id == contract.tenant_id and user.role != "admin":
+        return "tenant"
+    return "landlord"
 
 
 @app.post("/api/contracts/{contract_no}/end")

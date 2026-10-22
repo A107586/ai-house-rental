@@ -73,7 +73,7 @@ ACTION_RULES = (
     ("POST", r"^/api/contracts$", "创建合同"),
     ("PATCH", r"^/api/contracts/[^/]+$", "修改合同条款"),
     ("POST", r"^/api/contracts/[^/]+/activate$", "确认合同生效"),
-    ("POST", r"^/api/contracts/[^/]+/cancel$", "拒签或撤回合同"),
+    ("POST", r"^/api/contracts/[^/]+/cancel$", "撤回或拒签待确认合同"),
     ("POST", r"^/api/contracts/[^/]+/commission$", "中介答复佣金调整"),
     ("POST", r"^/api/contracts/[^/]+/end$", "退租（租客为申请）"),
     ("POST", r"^/api/contracts/[^/]+/renew$", "续租申请或确认"),

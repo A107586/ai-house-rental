@@ -5,6 +5,7 @@
 带看纪要挂着别的房子的预约。
 """
 
+import calendar
 from datetime import datetime, timedelta
 
 import app.db as db
@@ -90,37 +91,40 @@ class TestLeaseEndClosesPayments(IntegrityCase):
 
 
 class TestRenewalDates(ApiTestCase):
+    """起租日按今天推算：确认签约时会查「最多往前补 30 天、往后一年」，写死的日子过几周就红。"""
+
+    def _sign_and_activate(self, start, months):
+        session = db.SessionLocal()
+        house = session.query(House).filter_by(house_no="DL0002").one()
+        tenant = session.query(User).filter_by(username="tenant1").one()
+        contract = leasing.create_contract(session, house, tenant, start, months=months)
+        leasing.activate_contract(session, contract)
+        return session, contract
 
     def test_month_end_lease_renews_on_the_same_day(self):
-        """8 月 31 日起租 6 个月，到期日是 2 月 28 日；续租原先从这天往后推，每月都成了 28 日。"""
-        session = db.SessionLocal()
+        """8 月 31 日起租 6 个月，到期日是 2 月 28（29）日；续租原先从这天往后推，每月都成了 28 日。"""
+        today = datetime.now()
+        year = today.year if (today.month, today.day) <= (8, 31) else today.year + 1
+        session, contract = self._sign_and_activate(datetime(year, 8, 31), 6)
         try:
-            house = session.query(House).filter_by(house_no="DL0002").one()
-            tenant = session.query(User).filter_by(username="tenant1").one()
-            contract = leasing.create_contract(session, house, tenant,
-                                               datetime(2026, 8, 31), months=6)
-            leasing.activate_contract(session, contract)
             leasing.renew_contract(session, contract, months=3)
+            feb = calendar.monthrange(year + 1, 2)[1]
             dues = sorted(b.due_date.date().isoformat()
                           for b in contract.bills if b.type == "rent")
-            # 续租第一期从旧到期日（2 月 28 日）起，之后回到每月最后一天
-            self.assertEqual(dues[-3:], ["2027-02-28", "2027-03-31", "2027-04-30"])
-            self.assertEqual(contract.end_date.date().isoformat(), "2027-05-31")
-            # 各期首尾相接：续租的第一期从旧到期日那一期接上，不重不漏
+            # 续租第一期从旧到期日（2 月最后一天）起，之后回到每月最后一天
+            self.assertEqual(dues[-3:], ["%d-02-%02d" % (year + 1, feb),
+                                         "%d-03-31" % (year + 1), "%d-04-30" % (year + 1)])
+            self.assertEqual(contract.end_date.date().isoformat(), "%d-05-31" % (year + 1))
             self.assertEqual(len(dues), len(set(dues)))
         finally:
             session.close()
 
     def test_ordinary_renewal_unchanged(self):
-        session = db.SessionLocal()
+        start = _day(3)
+        session, contract = self._sign_and_activate(start, 12)
         try:
-            house = session.query(House).filter_by(house_no="DL0002").one()
-            tenant = session.query(User).filter_by(username="tenant1").one()
-            contract = leasing.create_contract(session, house, tenant,
-                                               datetime(2026, 3, 10), months=12)
-            leasing.activate_contract(session, contract)
             leasing.renew_contract(session, contract, months=12)
-            self.assertEqual(contract.end_date.date().isoformat(), "2028-03-10")
+            self.assertEqual(contract.end_date, leasing.add_months(start, 24))
             rents = [b for b in contract.bills if b.type == "rent"]
             self.assertEqual(len(rents), 24)
         finally:

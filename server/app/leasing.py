@@ -573,6 +573,33 @@ def owner_can_list(owner):
     return ""
 
 
+def cancel_contract(session, contract, by, reason=""):
+    """待确认的合同不签了：房东撤回、租客拒签，或者房子已经租给了别人（by="system"）。
+
+    原先没有任何一条路能让待确认的合同结束——发错了人、租客不想签，它就一直挂着：
+    租客的「我的租约」里一直有一份「待确认」，房东也因此永远退不回租客身份
+    （待确认的合同算没结束的）（2026-10-23）。还没生效，所以没有账单要处理。
+    """
+    if contract.status != "pending":
+        raise ValueError("只有待确认的合同可以%s" % ("拒签" if by == "tenant" else "撤回"))
+    reason = (reason or "").strip()[:100]
+    contract.status = "cancelled"
+    contract.ended_at = datetime.now()
+    contract.end_reason = reason or {"tenant": "租客拒签", "landlord": "房东撤回"}.get(by, "已取消")
+    _clear_request(contract)
+    tail = "：%s" % reason if reason else ""
+    if by == "tenant":
+        notify(session, contract.landlord_id, "contract", "租客没有签这份合同",
+               "合同 %s 租客拒签%s。" % (contract.contract_no, tail), contract.contract_no)
+    elif by == "landlord":
+        notify(session, contract.tenant_id, "contract", "房东撤回了合同",
+               "合同 %s 房东已撤回%s。" % (contract.contract_no, tail), contract.contract_no)
+    else:
+        notify(session, contract.tenant_id, "contract", "合同已失效",
+               "合同 %s 已失效%s。" % (contract.contract_no, tail), contract.contract_no)
+    return contract
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":
@@ -589,13 +616,20 @@ def activate_contract(session, contract):
                           "pending": "这套房源正在重新审核，审核通过后才能确认签约",
                           }.get(house.status, "该房源当前不可签约"))
 
+    # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
+    # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）
+    try:
+        check_start_date(contract.start_date)
+    except ValueError:
+        raise ValueError("这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
+                         % contract.start_date.strftime("%Y-%m-%d"))
+
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
     close_open_viewings(session, house, "这套房已经租出去了")
-    # 同一套房上发给别人的待确认合同已经不可能生效（确认会 409「已被占用」）。
-    # 原先一直挂着「待确认」：那位租客等不到结果，房东名下也一直算着
-    # 「合同尚未结束」，退回租客永远过不去（2026-10-23）
+    # 同一套房上发给别人的待确认合同：房子已经租出去了，它们不可能再生效。
+    # 原先一直挂在对方的「我的租约」里，点确认才被告知「已被占用」
     others = session.scalars(select(Contract).where(
         Contract.house_id == house.id, Contract.status == "pending",
         Contract.id != contract.id)).all()
@@ -616,42 +650,6 @@ def activate_contract(session, contract):
            % (house.house_no, contract.end_date.strftime("%Y-%m-%d")),
            contract.contract_no)
     return bills
-
-
-def cancel_contract(session, contract, by, reason=""):
-    """取消一份**还没生效**的合同：租客拒签、房东撤回，或另一份合同抢先生效。
-
-    模型上的状态图一直画着「pending ──任一方取消──► cancelled」，
-    改条款接口的注释也说「换人签就取消这份重开一份」——可这一步从来没有实现：
-    签错了人、租客不想签，合同就永远「待确认」，还算在房东的「合同尚未结束」里，
-    退回租客永远过不去（2026-10-23）。
-
-    `by`：tenant 拒签 / landlord 撤回（管理员按房东算）/ system 自动取消，
-    通知发给另一方；自动取消只通知租客。
-    """
-    if contract.status != "pending":
-        raise ValueError("只有待确认的合同可以取消")
-    reason = (reason or "").strip()[:100]
-    contract.status = "cancelled"
-    contract.ended_at = datetime.now()
-    contract.end_reason = reason or {"tenant": "租客拒签",
-                                     "landlord": "房东撤回"}.get(by, "已取消")
-    house = contract.house or session.get(House, contract.house_id)
-    house_no = house.house_no if house else ""
-    detail = "：%s" % reason if reason else ""
-    if by == "tenant":
-        notify(session, contract.landlord_id, "contract", "租客未接受合同",
-               "房源 %s 的合同 %s 租客没有接受%s。" % (house_no, contract.contract_no, detail),
-               contract.contract_no)
-    else:
-        title = "合同已撤回" if by == "landlord" else "合同已取消"
-        notify(session, contract.tenant_id, "contract", title,
-               "房源 %s 的合同 %s 已%s%s。" % (
-                   house_no, contract.contract_no,
-                   "由房东撤回" if by == "landlord" else "取消", detail),
-               contract.contract_no)
-    session.flush()
-    return contract
 
 
 # ---------------------------------------------------------------- 账单
