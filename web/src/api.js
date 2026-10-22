@@ -285,6 +285,8 @@ export const api = {
   // 房东确认线下收到了这笔钱 / 减免这一笔（原因必填，会通知租客）
   settleBillOffline: (billNo, note = '') => post(`/api/bills/${billNo}/offline`, { note }),
   waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
+  // 房东在生效中的合同上加一笔水电燃气 / 其它费用
+  addExtraBill: (contractNo, payload) => post(`/api/contracts/${contractNo}/bills`, payload),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>

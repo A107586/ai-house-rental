@@ -74,6 +74,7 @@ ACTION_RULES = (
     ("PATCH", r"^/api/contracts/[^/]+$", "修改合同条款"),
     ("POST", r"^/api/contracts/[^/]+/activate$", "确认合同生效"),
     ("POST", r"^/api/contracts/[^/]+/cancel$", "撤回或拒签待确认合同"),
+    ("POST", r"^/api/contracts/[^/]+/bills$", "加收水电等费用"),
     ("POST", r"^/api/contracts/[^/]+/end$", "退租（租客为申请）"),
     ("POST", r"^/api/contracts/[^/]+/renew$", "续租申请或确认"),
     ("DELETE", r"^/api/contracts/[^/]+/request$", "撤回或拒绝退租续租申请"),

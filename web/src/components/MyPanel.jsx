@@ -330,6 +330,9 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                       <strong>
                         {BILL_TYPE[bill.type] || bill.type}
                         {bill.period && ` · ${bill.period}`}
+                        {/* 房东加收的水电、物业：说明写在备注里，不摆出来就只剩一个「水电 186.5 元」 */}
+                        {(bill.type === 'utility' || bill.type === 'other') && bill.remark
+                          && ` · ${bill.remark}`}
                       </strong>
                       <span
                         className={`pill ${

@@ -368,5 +368,44 @@ class TestOfflineSettlement(SettlementCase):
         self.assertEqual(states, ["closed", "succeeded"])
 
 
+class TestExtraCharges(SettlementCase):
+    """水电、物业这类房租以外的费用。表里和页面上都有「水电」「其它」这两个类型，
+    原先却没有任何一条路能建出来（2026-10-23）。"""
+
+    def _add(self, no, headers=None, **body):
+        payload = {"type": "utility", "amount": 186.5, "title": "9 月水电"}
+        payload.update(body)
+        return self.client.post("/api/contracts/%s/bills" % no,
+                                headers=headers or self.landlord, json=payload)
+
+    def test_landlord_adds_and_tenant_pays(self):
+        no = self.lease(datetime.now(), months=3)
+        made = self._add(no)
+        self.assertEqual(made.status_code, 200, made.text)
+        bill = made.json()["bill"]
+        self.assertEqual((bill["type"], bill["remark"], bill["status"]),
+                         ("utility", "9 月水电", "unpaid"))
+        titles = [m["title"] for m in self.client.get("/api/messages", headers=self.tenant)
+                  .json()["list"]]
+        self.assertIn("房东加了一笔水电燃气", titles)
+        settle(self.client, bill["bill_no"], self.tenant)
+        paid = [b for b in self.bills(no) if b["bill_no"] == bill["bill_no"]][0]
+        self.assertEqual(paid["status"], "paid")
+
+    def test_only_the_landlord_of_an_active_contract(self):
+        no = self.lease(datetime.now(), months=3)
+        self.assertEqual(self._add(no, headers=self.tenant).status_code, 403)
+        end_lease(self.client, no, self.landlord, self.tenant)
+        self.assertEqual(self._add(no).status_code, 422)
+
+    def test_needs_a_description_and_a_sane_amount(self):
+        no = self.lease(datetime.now(), months=3)
+        self.assertEqual(self._add(no, title="").status_code, 422)
+        self.assertEqual(self._add(no, amount=0).status_code, 422)
+        self.assertEqual(self._add(no, amount=500000).status_code, 422)
+        far = (datetime.now() + timedelta(days=200)).isoformat()
+        self.assertEqual(self._add(no, due_date=far).status_code, 422)
+
+
 if __name__ == "__main__":
     unittest.main()

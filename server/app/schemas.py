@@ -76,6 +76,16 @@ class AppointmentCreate(BaseModel):
     _viewing_time_local = field_validator("viewing_time")(_local_naive)
 
 
+class ExtraBillIn(BaseModel):
+    """房东在生效中的合同上加收一笔水电燃气 / 其它费用。"""
+    type: Literal["utility", "other"] = "utility"
+    amount: float = Field(gt=0, le=100000)
+    title: str = Field(default="", max_length=60)
+    due_date: datetime | None = None
+
+    _due_date_local = field_validator("due_date")(_local_naive)
+
+
 class AppointmentUpdate(BaseModel):
     status: str
     reply: str = ""
