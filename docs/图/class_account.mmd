@@ -1,10 +1,11 @@
 classDiagram
     direction LR
-    class Api["账号与权限 · HTTP 接口（13 个）"] {
+    class Api["账号与权限 · HTTP 接口（14 个）"] {
         <<router>>
         +list_role_requests() GET
         +review_role_request() POST
         +become_landlord() POST
+        +deactivate_account(DeactivateRequest) POST
         +forgot_password(ForgotRequest) POST
         +landlord_eligibility() GET
         +login(LoginRequest) POST
@@ -58,6 +59,7 @@ classDiagram
     Api ..> m_security
     class m_shared["借用其他模块的服务"] {
         <<service>>
+        +leasing.cancel_tenant_viewings()
         +leasing.wind_down_delegations()
         +leasing.landlord_blockers()
         +leasing.notify()

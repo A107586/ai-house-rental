@@ -31,16 +31,21 @@
 不是审批。这一条会在接口里明确告诉用户还差哪几套。
 """
 
+import secrets
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import require_login
-from app.leasing import landlord_blockers, notify, wind_down_delegations
-from app.models import House, RoleRequest, User
+from app.leasing import (cancel_tenant_viewings, landlord_blockers, notify,
+                         wind_down_delegations)
+from app.models import (AgentCommission, AgentProfile, Bill, BrowsingHistory, ChatMessage,
+                        Contract, Favorite, House, RoleRequest, SavedSearch, User)
+from app.security import hash_password, verify_password
 
 router = APIRouter()
 
@@ -232,3 +237,87 @@ def landlord_eligibility(user: User = Depends(require_login),
                 House.landlord_id == user.id)).all()),
         },
     }
+
+
+# ---------------------------------------------------------------- 注销账号
+
+class DeactivateRequest(BaseModel):
+    password: str = Field(default="", max_length=64)
+
+
+def deactivation_blockers(session, user):
+    """注销之前还没了结的事。**钱和合同没了结的不能注销**：注销之后对方就找不到人了。"""
+    from sqlalchemy import func, or_
+
+    blockers = []
+    open_contracts = session.scalar(select(func.count()).select_from(Contract).where(
+        or_(Contract.tenant_id == user.id, Contract.landlord_id == user.id),
+        Contract.status.in_(("pending", "active"))))
+    if open_contracts:
+        blockers.append("%d 份合同还没结束（待确认的可以撤回 / 拒签，生效中的先退租）" % open_contracts)
+    unpaid = session.scalar(select(func.count()).select_from(Bill).join(
+        Contract, Bill.contract_id == Contract.id).where(
+        Contract.tenant_id == user.id, Bill.status == "unpaid"))
+    if unpaid:
+        blockers.append("%d 笔账单还没结清" % unpaid)
+    listed = session.scalar(select(func.count()).select_from(House).where(
+        House.landlord_id == user.id, House.status.in_(("available", "rented", "pending"))))
+    if listed:
+        blockers.append("%d 套房源还在架或审核中" % listed)
+    owed = session.scalar(select(func.count()).select_from(AgentCommission).join(
+        Contract, AgentCommission.contract_id == Contract.id).where(
+        AgentCommission.status == "pending",
+        or_(AgentCommission.agent_id == user.id, Contract.landlord_id == user.id)))
+    if owed:
+        blockers.append("%d 笔中介佣金还没结算" % owed)
+    return blockers
+
+
+@router.post("/api/auth/deactivate")
+def deactivate_account(payload: DeactivateRequest,
+                       user: User = Depends(require_login),
+                       session: Session = Depends(get_session)):
+    """注销自己的账号（2026-10-23 补）。
+
+    个人信息保护法第 47 条：用户注销账号，平台应当删除其个人信息。原先只有管理员能「停用」，
+    用户自己没有任何办法让平台忘掉他。
+
+    - **要输一次密码**：令牌可能被别人拿到，注销不可逆，不能凭一个令牌就办；
+    - **合同、账单、佣金没了结的不让注销**，并列出还差什么——对方还要找他；
+    - 注销之后：姓名、手机、邮箱、身份证摘要清空，用户名改成 deleted_编号（原来那个可以被重新注册），
+      收藏、足迹、保存的搜索、聊天记录删除，未到的看房取消、委托收尾，所有设备登出；
+    - **合同与收支流水保留**：那是双方的交易凭证，不是他一个人的数据，合同正文里的姓名也不改。
+    """
+    if user.role == "admin":
+        raise HTTPException(status_code=400, detail="管理员账号不能自助注销，请由其他管理员停用")
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=403, detail="密码不正确")
+    blockers = deactivation_blockers(session, user)
+    if blockers:
+        raise HTTPException(status_code=409,
+                            detail="注销前需要先处理：" + "；".join(blockers) + "。")
+
+    cancel_tenant_viewings(session, user, "租客已注销账号")
+    wind_down_delegations(session, "对方已注销账号", landlord_id=user.id)
+    wind_down_delegations(session, "对方已注销账号", agent_id=user.id)
+    for model in (Favorite, BrowsingHistory, SavedSearch, ChatMessage):
+        for row in session.scalars(select(model).where(model.user_id == user.id)).all():
+            session.delete(row)
+    profile = session.scalar(select(AgentProfile).where(AgentProfile.user_id == user.id))
+    if profile:
+        profile.accepting = False
+        profile.intro = ""
+        profile.license_images = ""
+
+    user.status = "deleted"
+    user.username = "deleted_%d" % user.id
+    user.real_name = "已注销用户"
+    user.phone = ""
+    user.email = ""
+    user.id_card_hash = ""
+    user.id_card_masked = ""
+    user.accept_contact = False
+    user.password_hash = hash_password(secrets.token_urlsafe(32))
+    user.token_valid_after = datetime.now()
+    session.commit()
+    return {"ok": True, "message": "账号已注销。合同与缴费记录作为交易凭证保留，其余个人信息已删除。"}

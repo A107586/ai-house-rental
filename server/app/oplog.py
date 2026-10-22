@@ -44,6 +44,7 @@ ACTION_RULES = (
     ("POST", r"^/api/auth/reset$", "重置密码"),
     ("POST", r"^/api/auth/become-landlord$", "升级为房东"),
     ("POST", r"^/api/auth/revert-to-tenant$", "改回租客身份"),
+    ("POST", r"^/api/auth/deactivate$", "注销账号"),
 
     # 房源。图片、核验这些带后缀的要排在「修改房源」前面——虽然那条锚了结尾，
     # 顺序写清楚，以后有人去掉 $ 也不会把上传图片记成修改房源

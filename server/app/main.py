@@ -1629,6 +1629,9 @@ def admin_update_user(user_id: int, payload: UserUpdate,
     if target.id == user.id:
         # 管理员把自己禁用或降级会直接锁死后台，必须挡住
         raise HTTPException(status_code=409, detail="不能修改自己的账号状态")
+    if target.status == "deleted":
+        # 用户自己注销的：个人信息已经删了，再「启用」只会得到一个没有主人的空账号
+        raise HTTPException(status_code=409, detail="这个账号已由本人注销，不能再修改")
 
     # 禁用账号与调整角色都要吊销对方已签发的令牌（B-2）。
     #

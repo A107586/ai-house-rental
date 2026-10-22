@@ -666,14 +666,18 @@ export default function AdminPanel({ user, onClose, embedded,
                       {u.real_name || u.username}
                     </button>
                     <span className={`pill ${u.status === 'active'
-                      ? 'status-confirmed' : 'status-rejected'}`}>
-                      {u.status === 'active' ? '正常' : '已禁用'}
+                      ? 'status-confirmed' : u.status === 'deleted' ? 'status-cancelled' : 'status-rejected'}`}>
+                      {{ active: '正常', disabled: '已禁用', deleted: '已注销' }[u.status] || u.status}
                     </span>
                   </div>
                   <div className="record-body">
                     {u.username} · {ROLE_LABEL[u.role] || u.role} · {u.phone}
                   </div>
-                  {u.id !== user.id ? (
+                  {u.status === 'deleted' ? (
+                    <div className="own" style={{ marginTop: 8 }}>
+                      本人已注销，个人信息已删除；合同与缴费记录作为交易凭证保留
+                    </div>
+                  ) : u.id !== user.id ? (
                     <div className="record-actions">
                       <button
                         className="btn ghost small"

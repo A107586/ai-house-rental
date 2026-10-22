@@ -222,6 +222,8 @@ export const api = {
     request('/api/auth/profile', { method: 'PUT', body: JSON.stringify(payload) }),
   // 退出所有设备：把令牌失效基线推到当前，之前签发的一律作废
   logoutAll: () => request('/api/auth/logout-all', { method: 'POST' }),
+  // 注销账号：要输密码；合同、账单、佣金没了结的会被拦下并列出还差什么
+  deactivateAccount: (password) => post('/api/auth/deactivate', { password }),
 
   changePassword: (oldPassword, newPassword) =>
     post('/api/auth/password', {
