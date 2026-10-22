@@ -56,8 +56,9 @@ class UsageIn(BaseModel):
 
 class RecordCreate(BaseModel):
     worker_id: int | None = None
-    hours: float = Field(default=0, ge=0)
-    labor_cost: float = Field(default=0, ge=0)
+    # 有上限：一张工单填 1e9 小时或 1e9 元，维修统计里的总成本就全被它占了
+    hours: float = Field(default=0, ge=0, le=1000)
+    labor_cost: float = Field(default=0, ge=0, le=1000000)
     note: str = Field(default="", max_length=500)
     items: list[UsageIn] = []
 
@@ -168,6 +169,8 @@ def create_record(repair_id: int, payload: RecordCreate,
     if not _can_handle_repair(user, repair):
         raise HTTPException(status_code=403, detail="只能处理自己房源的工单")
 
+    if repair.status == "done":
+        raise HTTPException(status_code=409, detail="该工单已经结案了")
     exists = session.scalar(
         select(RepairRecord).where(RepairRecord.repair_id == repair.id))
     if exists:
@@ -299,12 +302,15 @@ def repair_stats(user: User = Depends(require_login),
         row["count"] += 1
 
     total_cost = sum(record.total_cost for record in records)
+    # 均价只除「登记了费用的」：直接标完成的工单也有一条记录（为了人员与数量统计对得上），
+    # 但它没有费用数据，算进分母会把均价往 0 拉
+    costed = [record for record in records if record.total_cost > 0]
     return {
         "repair_total": len(repairs),
         "record_total": len(records),
         "pending": len([r for r in repairs if r.status != "done"]),
         "total_cost": round(total_cost, 2),
-        "avg_cost": round(total_cost / len(records), 2) if records else 0,
+        "avg_cost": round(total_cost / len(costed), 2) if costed else 0,
         "by_item": sorted(
             [dict(row, amount=round(row["amount"], 2))
              for row in by_item.values()],
