@@ -2167,6 +2167,11 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
                  "cancelled": "取消"}[payload.status]))
     if payload.status == "confirmed" and appointment.viewing_time <= datetime.now():
         raise HTTPException(status_code=409, detail="看房时间已经过了，不能再确认")
+    if (payload.status == "cancelled" and appointment.status == "confirmed"
+            and appointment.viewing_time <= datetime.now()):
+        # 已经确认、时间也过了的，是一次发生过（或爽约）的看房。原先还能「取消」，
+        # 带看记录挂在一条已取消的预约上，看房历史就对不上了
+        raise HTTPException(status_code=409, detail="看房时间已经过了，这条预约不能再取消")
 
     appointment.status = payload.status
     appointment.reply = payload.reply

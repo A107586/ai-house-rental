@@ -23,6 +23,13 @@ def future(days=7):
         hour=0, minute=0, second=0, microsecond=0)
 
 
+def slot(days=1):
+    """几天后上午 10 点。看房只能约 9:00–18:00，用「现在 + N 天」的话
+    傍晚和清早跑测试会落在时段外面，按时钟变脸。"""
+    return (datetime.now() + timedelta(days=days)).replace(
+        hour=10, minute=0, second=0, microsecond=0)
+
+
 class BrokerCase(ApiTestCase):
     """一个已核验的中介 + 房东 + 租客 + 管理员。"""
 
@@ -626,7 +633,7 @@ class TestAgentRole(BrokerCase):
 class TestDashboardTodo(BrokerCase):
     """工作台首屏那几个数字的口径。"""
 
-    def _appoint(self, house_no="DL0001", at_hour=12):
+    def _appoint(self, house_no="DL0001", at_hour=12, confirm=False):
         """建一条预约，并把看房时间钉在**今天的某个整点**上。
 
         为什么要钉：接口要求 `viewing_time > now`，所以只能传一个未来时间；
@@ -638,7 +645,7 @@ class TestDashboardTodo(BrokerCase):
         所以：先用一个必然合法的未来时间把记录建出来，
         再直接改库把时间挪到今天的整点。
         """
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         created = self.client.post("/api/appointments", headers=self.tenant,
                                    json={"house_no": house_no,
                                          "viewing_time": when.isoformat(),
@@ -647,6 +654,12 @@ class TestDashboardTodo(BrokerCase):
         assert created.status_code == 200, created.text
         body = created.json()
         aid = body["appointment"]["id"]
+        if confirm:
+            # 先确认再挪：钉到今天的整点之后，下午跑的话那个点已经过了，不能再确认
+            replied = self.client.patch(
+                "/api/appointments/%d" % aid, headers=self.landlord,
+                json={"status": "confirmed", "reply": "到时候见"})
+            assert replied.status_code == 200, replied.text
 
         session = db.SessionLocal()
         try:
@@ -675,13 +688,7 @@ class TestDashboardTodo(BrokerCase):
 
     def test_confirmed_appointment_shows_up(self):
         self.delegate("DL0001")
-        appointment = self._appoint("DL0001")
-        aid = appointment["appointment"]["id"] if "appointment" in appointment \
-            else appointment["id"]
-        replied = self.client.patch(
-            "/api/appointments/%d" % aid, headers=self.landlord,
-            json={"status": "confirmed", "reply": "到时候见"})
-        self.assertEqual(replied.status_code, 200, replied.text)
+        self._appoint("DL0001", confirm=True)
 
         todo = self.client.get("/api/agent/dashboard",
                                headers=self.agent).json()["todo"]
@@ -771,7 +778,7 @@ class TestWorkActuallyMoves(BrokerCase):
 
     def test_appointment_notifies_agent_and_copies_landlord(self):
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when,
@@ -790,7 +797,7 @@ class TestWorkActuallyMoves(BrokerCase):
     def test_agent_can_confirm_appointment(self):
         """委托他去带看，却不让他确认预约，等于只转了权没转活。"""
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when,
@@ -804,7 +811,7 @@ class TestWorkActuallyMoves(BrokerCase):
 
     def test_agent_cannot_confirm_appointment_elsewhere(self):
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0002",
                                       "viewing_time": when,
@@ -840,7 +847,7 @@ class TestAppointmentReceipt(BrokerCase):
     """
 
     def _appoint(self, house_no="DL0001"):
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         created = self.client.post("/api/appointments", headers=self.tenant,
                                    json={"house_no": house_no,
                                          "viewing_time": when.isoformat(),
@@ -1057,7 +1064,7 @@ class TestAppointmentSlotsAreNotAnAddressBook(BrokerCase):
 
     def setUp(self):
         super().setUp()
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1196,7 +1203,7 @@ class TestContactWindow(BrokerCase):
     """
 
     def _appoint(self, days=0, hour=12, confirm=True):
-        when = datetime.now() + timedelta(days=3)
+        when = slot(3)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1265,7 +1272,7 @@ class TestDoNotDisturb(BrokerCase):
     """免打扰（J-07 第三条）。"""
 
     def _appoint(self):
-        when = datetime.now() + timedelta(days=2)
+        when = slot(2)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1464,7 +1471,7 @@ class TestDemandSummaryHandoff(BrokerCase):
     def test_a_manager_cannot_forge_a_demand_summary(self):
         """摘要是租客的需求。中介发起会话时带一段，不该被当成租客说的。"""
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=2)).isoformat()
+        when = slot(2).isoformat()
         self.client.post("/api/appointments", headers=self.tenant,
                          json={"house_no": "DL0001", "viewing_time": when,
                                "contact_name": "林小雨",

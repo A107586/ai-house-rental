@@ -255,6 +255,22 @@ class TestAppointments(ApiTestCase):
         self.assertEqual(self._set(landlord, appointment, "rejected").status_code, 409)
         self.assertEqual(self._set(self.headers, appointment, "cancelled").status_code, 200)
 
+    def test_a_viewing_that_already_happened_cannot_be_cancelled(self):
+        """确认过、时间也过了的是一次发生过的看房，带看记录挂在它上面。"""
+        import app.db as db
+        from app.models import Appointment
+        landlord = auth_header(self.client, "landlord1", "test123")
+        appointment = self._book(self.headers, self._future())
+        self._set(landlord, appointment, "confirmed")
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, appointment).viewing_time = \
+                datetime.now() - timedelta(hours=2)
+            session.commit()
+        finally:
+            session.close()
+        self.assertEqual(self._set(self.headers, appointment, "cancelled").status_code, 409)
+
     def test_double_click_is_harmless(self):
         landlord = auth_header(self.client, "landlord1", "test123")
         appointment = self._book(self.headers, self._future())

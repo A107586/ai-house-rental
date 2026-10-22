@@ -742,7 +742,18 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
 # ---------------------------------------------------------------- 退租
 
 def _bill_period(bill, contract):
-    """一张租金账单覆盖的区间 [起, 止)。押一付三的一张覆盖三个月。"""
+    """一张租金账单覆盖的区间 [起, 止)。押一付三的一张覆盖三个月。
+
+    期末取**下一张租金账单的起始日**，最后一张取合同到期日。原先用「起始日 + 几个月」：
+    1 月 31 日起租的，账单排在 1-31、2-28、3-31，2 月那期被算成 2-28 ~ 3-28，
+    3-28 到 3-31 哪一期都不算——这几天退租，住了也不用付钱（2026-10-22）。
+    """
+    later = [b.due_date for b in contract.bills
+             if b.type == "rent" and b.due_date > bill.due_date]
+    if later:
+        return bill.due_date, min(later)
+    if contract.end_date and contract.end_date > bill.due_date:
+        return bill.due_date, contract.end_date
     rent = Decimal(str(contract.rent or 0))
     span = 1
     if rent > 0:

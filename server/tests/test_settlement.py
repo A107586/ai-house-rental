@@ -248,5 +248,59 @@ class TestMigration0021(unittest.TestCase):
         self.assertEqual(backfilled, ("deposit", 7), "已有的押金退款补上对应的押金账单")
 
 
+
+class TestMonthEndPeriods(unittest.TestCase):
+    """月末起租的账单区间。**钉死日期、直接调结算**，不走「今天」。
+
+    1 月 31 日起租，账单排在 1-31、2-28、3-31。原先每期的期末按「起始日 + 几个月」算，
+    2 月那期成了 2-28 ~ 3-28，3-28 到 3-31 哪一期都不算：这几天退租，住了也不用付钱。
+    服务端的用例没法整体挪日期（见 scripts/run_at_dates.py 的说明），月末只能这样钉着测。
+    """
+
+    def _contract(self, start, months=12, pay_months=1, rent=3100):
+        from decimal import Decimal
+        from app import leasing
+        contract = Contract(contract_no="HTMONTHEND", rent=Decimal(rent), deposit=Decimal(0),
+                            pay_months=pay_months, start_date=start,
+                            end_date=leasing.add_months(start, months))
+        for bill in leasing._rent_bills(contract, start, months, "第 %d 期租金"):
+            bill.status = "paid"
+            contract.bills.append(bill)
+        return contract
+
+    def test_periods_tile_the_whole_lease(self):
+        """每一天恰好落在一期里：不漏、不重。"""
+        from app import leasing
+        for start in (datetime(2027, 1, 31), datetime(2027, 1, 30), datetime(2027, 8, 31),
+                      datetime(2028, 2, 29), datetime(2026, 10, 22)):
+            for pay_months in (1, 3):
+                contract = self._contract(start, pay_months=pay_months)
+                periods = sorted(leasing._bill_period(b, contract) for b in contract.bills)
+                self.assertEqual(periods[0][0], contract.start_date)
+                self.assertEqual(periods[-1][1], contract.end_date)
+                for (_, end), (nxt, _) in zip(periods, periods[1:]):
+                    self.assertEqual(end, nxt, "%s 起租、付%d：%s 与 %s 之间有缝"
+                                     % (start.date(), pay_months, end.date(), nxt.date()))
+
+    def test_leaving_in_the_days_after_feb_28_is_charged(self):
+        from app import leasing
+        contract = self._contract(datetime(2027, 1, 31))
+        plan = leasing.plan_settlement(contract, now=datetime(2027, 3, 30, 12))
+        feb = next(r for r in plan["rent_refunds"]
+                   if r["bill"].due_date == datetime(2027, 2, 28))
+        # 2-28 ~ 3-31 共 31 天，住了 30 天，退 1 天
+        self.assertEqual((feb["lived"], feb["total"]), (30, 31))
+        self.assertEqual(str(feb["refund"]), "100.00")
+
+    def test_leap_february(self):
+        from app import leasing
+        contract = self._contract(datetime(2028, 1, 31))
+        plan = leasing.plan_settlement(contract, now=datetime(2028, 3, 1, 9))
+        feb = next(r for r in plan["rent_refunds"]
+                   if r["bill"].due_date == datetime(2028, 2, 29))
+        self.assertEqual((feb["lived"], feb["total"]), (1, 31))
+        self.assertEqual(str(feb["refund"]), "3000.00")
+
+
 if __name__ == "__main__":
     unittest.main()
