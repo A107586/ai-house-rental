@@ -229,6 +229,28 @@ class TestHouseImages(UploadCase):
                            headers=self.landlord)
         self.assertFalse(os.path.isfile(path))
 
+    def test_cannot_hang_an_image_already_in_an_album(self):
+        """房源页上的图片地址是公开的。原先能挂到自己房源上再删掉，
+        磁盘上那一份没了，人家房源上的图跟着裂。"""
+        url = self.attach().json()["image"]["url"]
+        again = self.attach(house_no="DL0002", url=url)
+        self.assertEqual(again.status_code, 409)
+
+    def test_delete_keeps_a_file_used_elsewhere(self):
+        """同一个地址可能挂在举报证据、评价配图上，删相册记录不能连文件一起删。"""
+        from app.main import STATIC_DIR
+        url = self.upload(headers=self.tenant).json()["url"]
+        reported = self.client.post("/api/reports", headers=self.tenant, json={
+            "house_no": "DL0002", "kind": "fake", "description": "图不对",
+            "evidence": [url]})
+        self.assertEqual(reported.status_code, 200, reported.text)
+
+        image = self.attach(url=url).json()["image"]
+        self.client.delete("/api/houses/DL0001/images/%d" % image["id"],
+                           headers=self.landlord)
+        path = os.path.join(STATIC_DIR, url[len("/static/"):].replace("/", os.sep))
+        self.assertTrue(os.path.isfile(path), "举报证据还指着这张图")
+
     def test_delete_never_touches_seed_images(self):
         """种子演示图不在 uploads 目录下，不能被误删。"""
         from app.main import STATIC_DIR

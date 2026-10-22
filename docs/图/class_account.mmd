@@ -58,6 +58,8 @@ classDiagram
     Api ..> m_security
     class m_shared["借用其他模块的服务"] {
         <<service>>
+        +leasing.wind_down_delegations()
+        +leasing.landlord_blockers()
         +leasing.notify()
         +netaddr.client_ip()
         +notifier.notify_external()

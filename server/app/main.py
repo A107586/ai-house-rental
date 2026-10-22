@@ -40,7 +40,7 @@ from app.permissions import (can_manage_house,
                              responsible_user_id)
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         ContentFlag, Contract, Favorite, House,
-                        HouseDelegation, HouseImage,
+                        AgentProfile, HouseDelegation, HouseImage, HouseReport,
                         Message, Notice, OperationLog, Payment, Refund, Repair,
                         RepairImage, RepairRecord, Review, User,
                         ViewingRecord,
@@ -931,6 +931,11 @@ def update_house_status(house_no: str, status: str,
             # 被驳回的、或改过内容待重审的：上架等于提交审核
             status = "pending"
             message = "这套房源的当前内容还没通过审核，已提交审核，通过后会自动上架。"
+    if status in ("available", "pending"):
+        # 房主停用了或已不是房东，上架了也签不了约。受托中介原先能把这种房子重新挂出去
+        problem = leasing.owner_can_list(session.get(User, house.landlord_id))
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
 
     house.status = status
     if status == "offline":
@@ -1057,8 +1062,7 @@ def update_house(house_no: str, payload: HouseUpdate,
     # 房东连改租金都改不了。
     checked = {name: fields[key] for key, name in
                (("title", "标题"), ("description", "描述")) if key in fields}
-    if checked:
-        moderate(checked, scene="house")
+    verdict = moderate(checked, scene="house") if checked else None
 
     # 核验认的是「这个地址、这么大的一套房」的产权凭证。改了这几项还挂着「已核验」，
     # 公开的核验编号就在为一套没核验过的房子背书（2026-10-22 补）。管理员改的不算
@@ -1117,6 +1121,10 @@ def update_house(house_no: str, payload: HouseUpdate,
             house.approved_at = None
             if house.status == "available":
                 house.status = "pending"
+    if verdict is not None:
+        # 「需人工复核」那一档原先只在发布时落待办，编辑时判出来就丢了——
+        # 先发干净的、再改成擦边的，复核队列里永远看不到
+        record_flag(session, verdict, checked, "house", user, house.id, house.house_no)
 
     session.commit()
     session.refresh(house)
@@ -1261,6 +1269,15 @@ def review_house(house_no: str, payload: HouseReview,
         raise HTTPException(status_code=409, detail="该房源当前无需审核")
 
     if payload.approved:
+        if house.status == "offline":
+            # 下架的房子只有「被驳回过」的那种还能直接通过。房东自己下架的点通过，
+            # 等于管理员替房东把房子重新挂了出去
+            if house.approved_at:
+                raise HTTPException(status_code=409,
+                                    detail="这套房是房东自己下架的，不在审核范围内")
+        problem = leasing.owner_can_list(session.get(User, house.landlord_id))
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
         house.status = "available"
         house.approved_at = datetime.now()
         title, content = "房源审核通过", "房源 %s 已通过审核并上架。" % house.house_no
@@ -1601,12 +1618,32 @@ def admin_update_user(user_id: int, payload: UserUpdate,
                 house.status = "offline"
                 leasing.close_open_viewings(session, house, "房东账号已停用")
                 offlined += 1
+            # 他作为租客约的看房、作为房东或中介挂着的委托，也都没人能接着办了
+            leasing.cancel_tenant_viewings(session, target, "租客账号已停用")
+            if target.role == "agent":
+                leasing.wind_down_delegations(session, "中介账号已停用", agent_id=target.id)
+            else:
+                leasing.wind_down_delegations(session, "房东账号已停用", landlord_id=target.id)
         target.status = payload.status
     if payload.role is not None:
         if payload.role not in ("tenant", "landlord", "admin"):
             raise HTTPException(status_code=400, detail="角色值不合法")
         if target.role != payload.role:
             revoke = True
+            if target.role == "landlord" and payload.role == "tenant":
+                # 和房东自己点「退回租客」一样的前置，原先管理员这条路什么都不查
+                blockers = leasing.landlord_blockers(session, target)
+                if blockers:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="改成租客前需要先处理：" + "；".join(blockers))
+                leasing.wind_down_delegations(session, "房东已改为租客身份",
+                                              landlord_id=target.id)
+            if target.role == "agent":
+                # 中介的管房权来自 role == agent，角色一改委托就名存实亡，
+                # 可预约和会话还在按委托派给他
+                leasing.wind_down_delegations(session, "中介已不再是经纪人身份",
+                                              agent_id=target.id)
         target.role = payload.role
 
     if revoke:
@@ -3628,17 +3665,36 @@ def handle_flag(flag_id: int, action: str,
         if flag.scene == "house":
             house = session.get(House, flag.target_id)
             if house:
-                house.status = "offline"
+                # 审核记录一并作废：不然房东点一下「上架」就原样回来了。
+                # 出租中的不动状态——合同还在走，租约结束时会因为没有审核记录回到待审
+                house.approved_at = None
+                if house.status == "rented":
+                    tail = "租约结束后需要修改内容、重新审核才能再上架。"
+                else:
+                    house.status = "offline"
+                    leasing.close_open_viewings(session, house, "房源内容不合规，已被平台下架")
+                    tail = "修改相关内容后可以重新提交审核。"
+                # 原先房子一声不响就不见了，房东不知道是哪句话出的问题
+                leasing.notify(session, house.landlord_id, "system", "房源内容未通过复核",
+                               "房源 %s 的「%s」未通过平台复核，已下架。%s"
+                               % (house.house_no, flag.excerpt[:40], tail), house.house_no)
         elif flag.scene == "notice":
             notice = session.get(Notice, flag.target_id)
             if notice:
-                notice.published = False
+                # 原先写的是 notice.published——模型上没有这一列，赋值不报错也不落库，
+                # 「下架」点完公告照常挂在首页（2026-10-22）
+                notice.is_published = False
         elif flag.scene == "review":
             review = session.get(Review, flag.target_id)
             if review:
                 # 软删除而非真删（C-5）。审核会误判，误判之后要能恢复；
                 # 用户申诉时也得拿得出原文。前台查询已经过滤掉了。
                 review.deleted_at = datetime.now()
+                reviewed = session.get(House, review.house_id)
+                house_no = reviewed.house_no if reviewed else ""
+                leasing.notify(session, review.tenant_id, "system", "评价未通过复核",
+                               "你对房源 %s 的评价未通过平台复核，已不再公开展示。" % house_no,
+                               house_no)
 
     flag.status = "approved" if action == "approve" else "removed"
     flag.handled_by = user.real_name or user.username
@@ -3728,6 +3784,10 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
     _require_house_owner(session, user, house)
     if not uploads.is_managed(url):
         raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+    if session.scalar(select(HouseImage.id).where(HouseImage.url == url).limit(1)):
+        # 别的房源页上的图片地址是公开的。原先照样能挂到自己房源上，再从自己这边
+        # 删掉——磁盘上那一份就没了，人家房源上的图跟着裂（2026-10-22）
+        raise HTTPException(status_code=409, detail="这张图已经用在房源相册里了，请重新上传")
 
     has_cover = session.scalar(select(HouseImage).where(
         HouseImage.house_id == house.id, HouseImage.is_cover.is_(True)))
@@ -3773,8 +3833,25 @@ def delete_house_image(house_no: str, image_id: int,
         if nxt:
             nxt.is_cover = True
     session.commit()
-    uploads.remove(STATIC_DIR, url)
+    if not _upload_still_used(session, url):
+        uploads.remove(STATIC_DIR, url)
     return {"ok": True}
+
+
+def _upload_still_used(session, url):
+    """这张上传的图还有没有别处在用：相册、报修照片、评价配图、举报证据、中介资质。
+
+    删一条相册记录不等于能删磁盘上的文件——同一个地址可能是从别处挂过来的。
+    """
+    if session.scalar(select(HouseImage.id).where(HouseImage.url == url).limit(1)):
+        return True
+    if session.scalar(select(RepairImage.id).where(RepairImage.url == url).limit(1)):
+        return True
+    for model, column in ((Review, Review.images), (HouseReport, HouseReport.evidence),
+                          (AgentProfile, AgentProfile.license_images)):
+        if session.scalar(select(model.id).where(column.contains(url)).limit(1)):
+            return True
+    return False
 
 
 @app.post("/api/houses/{house_no}/images/{image_id}/cover")

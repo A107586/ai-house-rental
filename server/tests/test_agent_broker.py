@@ -1486,3 +1486,83 @@ class TestDemandSummaryHandoff(BrokerCase):
         lines = self.client.get("/api/conversations/%d/lines" % cid,
                                 headers=self.tenant).json()["list"]
         self.assertEqual(lines, [])
+
+
+class TestDelegationEndsWithTheParty(BrokerCase):
+    """房东不再是房东、中介不再能接待时，委托跟着收尾（2026-10-22）。
+
+    原先委托一直挂着「生效中」：中介能替一个已经退回租客的人把房子重新上架，
+    看房预约也照样派给一个已经被停用的中介。
+    """
+
+    def _status(self, did):
+        session = db.SessionLocal()
+        try:
+            return session.get(HouseDelegation, did).status
+        finally:
+            session.close()
+
+    def _owner_with_an_offline_house(self):
+        """一个名下只有一套已下架房源的房东——这样才退得回租客。"""
+        self.client.post("/api/auth/register", json={
+            "username": "owner2", "password": "test123",
+            "real_name": "房东乙", "phone": "13800002222"})
+        session = db.SessionLocal()
+        try:
+            owner = session.query(User).filter_by(username="owner2").one()
+            owner.role = "landlord"
+            session.add(House(house_no="DL0099", title="下架的一套", landlord_id=owner.id,
+                              district="中山区", community="港湾", rent_price=2500, area=60,
+                              layout="一室一厅", rent_type="整租", status="offline",
+                              approved_at=datetime.now()))
+            session.commit()
+        finally:
+            session.close()
+        owner = auth_header(self.client, "owner2", "test123")
+        created = self.client.post("/api/delegations", headers=owner, json={
+            "house_no": "DL0099", "agent_username": "agent1"})
+        did = created.json()["delegation"]["id"]
+        self.client.patch("/api/delegations/%d" % did, headers=self.agent,
+                          json={"accept": True})
+        return owner, did
+
+    def test_reverting_to_tenant_ends_the_delegation(self):
+        owner, did = self._owner_with_an_offline_house()
+        self.assertEqual(self._status(did), "active")
+
+        self.assertEqual(self.client.post("/api/auth/revert-to-tenant",
+                                          headers=owner).status_code, 200)
+        self.assertEqual(self._status(did), "ended")
+        relist = self.client.patch("/api/houses/DL0099/status?status=available",
+                                   headers=self.agent)
+        self.assertEqual(relist.status_code, 403)
+
+    def test_disabling_the_agent_ends_his_delegations(self):
+        did = self.delegate("DL0001")
+        pending = self.delegate("DL0002", accept=False)
+        self.client.patch("/api/admin/users/%d" % self._uid("agent1"),
+                          headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(self._status(did), "ended")
+        self.assertEqual(self._status(pending), "rejected")
+        titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.landlord).json()["list"]]
+        self.assertIn("委托已结束", titles)
+
+    def test_demoting_the_agent_ends_his_delegations(self):
+        did = self.delegate("DL0001")
+        self.client.patch("/api/admin/users/%d" % self._uid("agent1"),
+                          headers=self.admin, json={"role": "tenant"})
+        self.assertEqual(self._status(did), "ended")
+
+    def test_disabling_the_landlord_ends_delegations_on_his_houses(self):
+        did = self.delegate("DL0001")
+        self.client.patch("/api/admin/users/%d" % self._uid("landlord1"),
+                          headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(self._status(did), "ended")
+
+    def _uid(self, username):
+        session = db.SessionLocal()
+        try:
+            return session.query(User).filter_by(username=username).one().id
+        finally:
+            session.close()

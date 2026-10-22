@@ -398,6 +398,95 @@ def close_open_viewings(session, house, reason):
     return len(rows)
 
 
+def cancel_tenant_viewings(session, tenant, reason):
+    """这个人约的、还没到时间的看房一并取消，告诉接待的那一方。
+
+    停用租客账号时用：原先他约的看房照常挂在房东的待办里，房东确认了、
+    按点到楼下，等的是一个已经登不上来的人（2026-10-22）。
+    """
+    from app.models import Appointment
+    from app.permissions import responsible_user_id
+
+    rows = session.scalars(select(Appointment).where(
+        Appointment.tenant_id == tenant.id,
+        Appointment.status.in_(("pending", "confirmed")),
+        Appointment.viewing_time > datetime.now())).all()
+    for appointment in rows:
+        appointment.status = "cancelled"
+        appointment.reply = reason
+        house = session.get(House, appointment.house_id)
+        if house:
+            notify(session, responsible_user_id(session, house), "system", "看房预约已取消",
+                   "%s %s 的看房已取消：%s。" % (
+                       house.house_no, appointment.viewing_time.strftime("%m-%d %H:%M"), reason),
+                   house.house_no)
+    return len(rows)
+
+
+def wind_down_delegations(session, reason, landlord_id=None, agent_id=None):
+    """某个房东或中介不再能履约时，把他名下的委托收尾。
+
+    生效中的结束、待确认的驳回，并通知另一方。用在：房东退回租客、
+    账号被停用、中介被管理员改成别的角色。原先这几种情况委托都还挂着
+    「生效中」——中介仍然能把一个已经不是房东的人的房子重新上架，
+    看房预约也照样派给一个已经登不上来的中介（2026-10-22）。
+    """
+    from app.models import HouseDelegation
+
+    stmt = select(HouseDelegation).where(
+        HouseDelegation.status.in_(("pending", "active")))
+    if landlord_id is not None:
+        stmt = stmt.where(HouseDelegation.landlord_id == landlord_id)
+    if agent_id is not None:
+        stmt = stmt.where(HouseDelegation.agent_id == agent_id)
+    rows = session.scalars(stmt).all()
+    for row in rows:
+        row.status = "ended" if row.status == "active" else "rejected"
+        row.end_at = datetime.now()
+        row.end_reason = reason[:100]
+        other = row.agent_id if landlord_id is not None else row.landlord_id
+        house_no = row.house.house_no if row.house else ""
+        notify(session, other, "system", "委托已结束",
+               "房源 %s 的带看委托已结束：%s。" % (house_no, reason), house_no)
+    return len(rows)
+
+
+def landlord_blockers(session, user):
+    """房东身份收回之前还没处理完的东西：在架或待审的房源、没结束的合同。
+
+    退回租客（自己点）和管理员把房东改成租客走的是同一个判断——原先后者
+    什么都不查，合同的甲方一下子就成了没有房东权限的账号，收租、报修都找不到人。
+    """
+    from sqlalchemy import func
+
+    listed = session.scalars(select(House).where(
+        House.landlord_id == user.id,
+        House.status.in_(("available", "rented", "pending")))).all()
+    active = session.scalar(select(func.count()).select_from(Contract).where(
+        Contract.landlord_id == user.id,
+        Contract.status.in_(("pending", "active"))))
+    blockers = []
+    if listed:
+        blockers.append("%d 套房源仍在架（%s）"
+                        % (len(listed),
+                           "、".join(h.house_no for h in listed[:5])
+                           + ("…" if len(listed) > 5 else "")))
+    if active:
+        blockers.append("%d 份合同尚未结束" % active)
+    return blockers
+
+
+def owner_can_list(owner):
+    """房主现在能不能让房子上架：账号在用，而且还是房东（或管理员）。"""
+    if not owner:
+        return "房源没有房东"
+    if getattr(owner, "status", "active") != "active":
+        return "房东账号已停用，这套房暂时不能上架"
+    if owner.role not in ("landlord", "admin"):
+        return "房主已不是房东身份，这套房不能上架"
+    return ""
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":

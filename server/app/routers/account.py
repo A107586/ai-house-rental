@@ -34,13 +34,13 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import require_login
-from app.leasing import notify
-from app.models import Contract, House, RoleRequest, User
+from app.leasing import landlord_blockers, notify, wind_down_delegations
+from app.models import House, RoleRequest, User
 
 router = APIRouter()
 
@@ -117,22 +117,7 @@ def revert_to_tenant(user: User = Depends(require_login),
     if user.role != "landlord":
         raise HTTPException(status_code=400, detail="当前账号不是房东")
 
-    listed = session.scalars(select(House).where(
-        House.landlord_id == user.id,
-        House.status.in_(("available", "rented", "pending")))).all()
-    active = session.scalar(select(func.count()).select_from(Contract).where(
-        Contract.landlord_id == user.id,
-        Contract.status.in_(("pending", "active"))))
-
-    blockers = []
-    if listed:
-        blockers.append("%d 套房源仍在架（%s）"
-                        % (len(listed),
-                           "、".join(h.house_no for h in listed[:5])
-                           + ("…" if len(listed) > 5 else "")))
-    if active:
-        blockers.append("%d 份合同尚未结束" % active)
-
+    blockers = landlord_blockers(session, user)
     if blockers:
         raise HTTPException(
             status_code=400,
@@ -140,6 +125,8 @@ def revert_to_tenant(user: User = Depends(require_login),
                    + "。下架房源、结清合同之后再来即可。")
 
     user.role = "tenant"
+    # 下架的房子还托在中介手上的话，中介能替一个已经不是房东的人重新上架
+    wind_down_delegations(session, "房东已退回租客身份", landlord_id=user.id)
     session.commit()
     session.refresh(user)
     return {"ok": True, "user": user.to_dict(),
