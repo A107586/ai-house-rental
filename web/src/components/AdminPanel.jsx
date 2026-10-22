@@ -13,6 +13,7 @@ import RepairDataPanel from './RepairDataPanel'
 import RoleRequestPanel from './RoleRequestPanel'
 import LogPanel from './LogPanel'
 import RecordDetail, { DetailToggle } from './RecordDetail'
+import RepairContact from './RepairContact'
 import UserOverview from './UserOverview'
 import ReportPanel from './ReportPanel'
 import SupportPanel from './SupportPanel'
@@ -33,7 +34,7 @@ const APPOINTMENT_STATUS = {
   rejected: '已拒绝', cancelled: '已取消',
 }
 
-export default function AdminPanel({ user, onClose, embedded,
+export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
                                     onSections, activeTab, onTabChange }) {
   // 嵌入整页后台时当前页签由左栏说了算；独立抽屉时自己管。
   // **两套状态不能并存**——并存会出现「左栏高亮 A、正文显示 B」，
@@ -563,6 +564,10 @@ export default function AdminPanel({ user, onClose, embedded,
                         ['完成时间', item.result && item.result.finished_at],
                         ['处理说明', item.result && item.result.note, { wide: true }],
                       ]} />
+                    )}
+                    {openRepair === item.id && (
+                      <RepairContact repair={item} viewer="admin" me={user}
+                                     onOpenHouse={onOpenHouse} />
                     )}
                   </li>
                 ))}

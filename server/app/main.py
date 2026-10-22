@@ -56,7 +56,7 @@ from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          HouseCreate, HouseReview, HouseUpdate,
                          LoginRequest, NoticeCreate, PasswordChange,
                          PayRequest, ProfileUpdate, RegisterRequest,
-                         RepairCreate, RepairUpdate, ReviewCreate,
+                         RepairCreate, RepairMessage, RepairUpdate, ReviewCreate,
                          UserUpdate)
 from app.routers import (account, agent, conversation, password_reset,
                          repair_data, reports, saved_search, support)
@@ -2304,6 +2304,36 @@ def update_repair(repair_id: int, payload: RepairUpdate,
                        "你提交的报修（%s）已处理完成。" % repair.content[:20])
     session.commit()
     return {"ok": True, "repair": repair.to_dict()}
+
+
+@app.post("/api/admin/repairs/{repair_id}/message")
+def message_about_repair(repair_id: int, payload: RepairMessage,
+                         user: User = Depends(require_login),
+                         session: Session = Depends(get_session)):
+    """管理员就一张工单给房东或报修人发站内消息。
+
+    原先管理员在工单总览里只能看：紧急工单挂了一天没人管，
+    想催房东、想问租客现场情况，都得自己去翻用户列表找人。
+    消息里带工单号，对方要回话就在工单详情里点「联系平台」，进转人工队列。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    repair = session.get(Repair, repair_id)
+    if not repair:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+    house = repair.house or session.get(House, repair.house_id)
+    target = house.landlord_id if payload.to == "landlord" else repair.tenant_id
+    if not target:
+        raise HTTPException(status_code=409, detail="这张工单没有关联报修人账号")
+    no = "GD%06d" % repair.id
+    leasing.notify(session, target, "system", "平台就工单 %s 联系你" % no,
+                   "%s\n（房源 %s · %s）要回复请在工单详情里点「联系平台」。"
+                   % (content, house.house_no, repair.content[:20]), no)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/landlord/tenants")

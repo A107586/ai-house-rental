@@ -538,6 +538,8 @@ class Repair(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     house: Mapped["House"] = relationship(lazy="selectin")
+    # 报修人。房东要从工单直接联系他，得知道是哪个账号
+    tenant: Mapped["User"] = relationship(foreign_keys=[tenant_id], lazy="selectin")
     # 结案登记。uselist=False 是因为 repair_id 上有唯一约束——
     # 一张工单只能结案一次
     record: Mapped["RepairRecord | None"] = relationship(back_populates="repair", uselist=False, lazy="selectin")
@@ -554,11 +556,15 @@ class Repair(Base):
         连同「他家卧室门锁坏过」，一起摆在下一位看房人面前。
         """
         contact = {"contact_name": self.contact_name,
-                   "contact_phone": mask_phone(self.contact_phone)}             if with_contact else {}
+                   "contact_phone": mask_phone(self.contact_phone),
+                   # 报修人账号：工单详情里「联系报修人」要用它开会话
+                   "tenant_id": self.tenant_id,
+                   "tenant_username": self.tenant.username if self.tenant else ""}             if with_contact else {}
         return {
             "id": self.id,
             "house_id": self.house_id,
             "house_no": self.house.house_no if self.house else "",
+            "house_title": self.house.title if self.house else "",
             **contact,
             "content": self.content,
             "category": self.category,

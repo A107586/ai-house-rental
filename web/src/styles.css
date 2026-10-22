@@ -3585,6 +3585,18 @@ td.accent {
 
 .support-panel .reply-box { margin-top: 8px; }
 
+/* 工单详情底下的联系入口（RepairContact） */
+.repair-contact { margin-top: 8px; }
+.repair-compose { margin-top: 8px; }
+.repair-compose textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d5d9e0;
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
 .support-panel .reply-box textarea {
   width: 100%;
   padding: 6px 8px;

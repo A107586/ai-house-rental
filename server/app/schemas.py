@@ -78,6 +78,12 @@ class RepairUpdate(BaseModel):
     status: str
 
 
+class RepairMessage(BaseModel):
+    """管理员就一张工单联系房东或报修人。"""
+    to: Literal["landlord", "tenant"]
+    content: str = Field(min_length=1, max_length=500)
+
+
 # 可选枚举。**空串一律合法**——表示房东没填，不是填错了。
 # 把「没填」当成非法值会逼着房东为了发布而瞎选一个，那比留空更糟。
 DECORATIONS = ("", "精装", "简装", "毛坯")

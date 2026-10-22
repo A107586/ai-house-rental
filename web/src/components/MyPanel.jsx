@@ -5,6 +5,7 @@ import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
 import ProfileForm from './ProfileForm'
 import RecordDetail, { DetailToggle } from './RecordDetail'
+import RepairContact from './RepairContact'
 import ReviewForm from './ReviewForm'
 import SavedSearchPanel from './SavedSearchPanel'
 
@@ -50,7 +51,7 @@ const MSG_TYPE = {
   bill: '账单', repair: '报修', chat: '会话',
 }
 
-export default function MyPanel({ user, online, onClose, onOpenHouse,
+export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                                  onUserUpdated, onLogout, onApplySearch }) {
   // 管理员只做平台管理、中介只做经纪业务：个人中心只留「消息」和「账号设置」，
   // 租约、账单、预约、收藏这些租客的事都不给（2026-10-22 定，后端同样拦）
@@ -730,6 +731,11 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                       ]} note={item.analysis
                         ? '「AI 初判」是根据故障描述做的推测，以师傅上门检查为准。'
                         : ''} />
+                    )}
+                    {isOpen(`r${item.id}`) && (
+                      <RepairContact repair={item} viewer="tenant" me={user}
+                                     onOpenHouse={(no) => onOpenHouse({ house_no: no })}
+                                     onTalk={onTalk} />
                     )}
                   </li>
                 )

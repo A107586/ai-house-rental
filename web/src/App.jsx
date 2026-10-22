@@ -1449,6 +1449,13 @@ export default function App() {
           setFilters(conditions)
           loadPage(1, true, conditions)
           }}
+          onTalk={(id) => {
+          // 从工单「联系房东」打开会话，关掉会话回到个人中心
+          setCameFrom('mine')
+          setShowMine(false)
+          setTalkId(id)
+          setShowTalk(true)
+          }}
           onOpenHouse={(house) => {
           // 记住是从个人中心进来的。**自己不关**——关了的话
           // 用户关掉详情就回到首页，而他是从收藏列表点进来的

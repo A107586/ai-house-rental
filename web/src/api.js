@@ -339,6 +339,9 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
+  // 管理员就一张工单给房东（to=landlord）或报修人（to=tenant）发站内消息
+  adminRepairMessage: (id, to, content) =>
+    post(`/api/admin/repairs/${id}/message`, { to, content }),
   createHouse: (payload) => post('/api/houses', payload),
   updateHouse: (houseNo, payload) =>
     request(`/api/houses/${houseNo}`, {

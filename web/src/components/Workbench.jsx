@@ -534,6 +534,7 @@ export default function Workbench({ user, onClose }) {
               {user.role === 'admin' && (
                 <AdminPanel
                   user={user} embedded
+                  onOpenHouse={openHouse}
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}
