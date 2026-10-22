@@ -42,6 +42,7 @@ classDiagram
     class m_permissions["permissions.py"] {
         <<service>>
         +active_delegation(session, house_id, agent_id)
+        +tenant_side_block(session, user, house)
         +can_manage_house(session, user, house)
         +can_report_repair(session, user, house)
         +require_can_manage_house(session, user, house)

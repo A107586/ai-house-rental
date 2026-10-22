@@ -31,6 +31,10 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
   // 「报修」只给正住在这套房的租客和管房的人（后端 can_report_repair）。
   // 原先所有人都看得到、匿名也能提交，任何人都能往别人的房源上写一条维修记录
   const [canRepair, setCanRepair] = useState(false)
+  // 能不能以租客身份对这套房做事（后端 tenant_side_block）。房东看自己的房、
+  // 中介、管理员都不行：不给收藏 / 咨询 / 预约，换成一句说明
+  const [tenantBlock, setTenantBlock] = useState('')
+  const [mine, setMine] = useState(false)
   const tabs = TABS.filter((item) => item.key !== 'repair' || canRepair)
   useEffect(() => {
     if (tab === 'repair' && !canRepair) setTab('booking')
@@ -71,7 +75,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     // 而 AI-07 房源推荐正是靠足迹工作的。
     // 失败不影响抽屉展示，所以单独 catch。
     api.getHouse(house.house_no)
-      .then((detail) => setCanRepair(!!detail?.can_report_repair))
+      .then((detail) => {
+        setCanRepair(!!detail?.can_report_repair)
+        setTenantBlock(detail?.tenant_block || '')
+        setMine(!!detail?.mine)
+      })
       .catch(() => setCanRepair(false))
 
     // 这两块失败就静默略过——房东概要拉不到不该让整个详情页报错
@@ -259,7 +267,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </div>
         )}
 
-        {!owner && (
+        {!owner && tenantBlock && (
+          <div className="record-actions">
+            <span className="own">{mine ? '这是你管理的房源' : tenantBlock}</span>
+          </div>
+        )}
+
+        {!owner && !tenantBlock && (
         <div className="record-actions">
           <button
             className={`btn ghost small ${favorited ? 'active' : ''}`}
@@ -557,13 +571,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </>
         )}
 
-        {!owner && (
+        {!owner && !(tab === 'booking' && tenantBlock) && (
         <div className="section-title">
           {tab === 'booking' ? '智能预约看房' : '智能报修'}
         </div>
         )}
 
-        {!owner && (
+        {!owner && !(tab === 'booking' && tenantBlock) && (
         <form onSubmit={submit}>
           <div className="field">
             <input
@@ -633,6 +647,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </div>
         )}
 
+        {!owner && !(tab === 'booking' && tenantBlock) && (
         <div className="examples">
           <span>试试：</span>
           {samples.map((s) => (
@@ -641,6 +656,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             </button>
           ))}
         </div>
+        )}
 
         {reply && (
           <div className={`reply ${REPLY_STYLE[reply.status] || 'failed'}`}>

@@ -33,7 +33,7 @@ from app import db as db_module
 from app.db import get_session, init_db
 from app.deps import (current_user, require_house_manager,
                       require_login, require_staff)
-from app.permissions import (can_manage_house,
+from app.permissions import (can_manage_house, tenant_side_block,
                              can_report_repair,
                              can_see_tenant_contact,
                              require_can_manage_house,
@@ -652,6 +652,10 @@ def get_house(house_no: str, user: User = Depends(current_user),
     data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
     # 页面靠它决定给不给「报修」——判断与 POST /api/repairs 同一处，界面和接口不会各说各的
     data["can_report_repair"] = can_report_repair(session, user, house)
+    # 同一个思路：能不能以租客身份对这套房做事，不能就给原因。前端据此收起预约 / 咨询 / 收藏，
+    # 真正的边界在各个接口里（tenant_side_block）
+    data["tenant_block"] = tenant_side_block(session, user, house) or ""
+    data["mine"] = bool(user) and user.role != "admin" and can_manage_house(session, user, house)
     return data
 
 
@@ -1797,6 +1801,9 @@ def add_favorite(house_no: str, user: User = Depends(require_login),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    blocked = tenant_side_block(session, user, house)
+    if blocked:
+        raise HTTPException(status_code=403, detail=blocked.replace("预约、咨询或签约", "收藏"))
 
     exists = session.scalar(select(Favorite).where(
         Favorite.user_id == user.id, Favorite.house_id == house.id))
@@ -1946,6 +1953,9 @@ def create_appointment(payload: AppointmentCreate,
     house = session.scalar(select(House).where(House.house_no == payload.house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    blocked = tenant_side_block(session, user, house)
+    if blocked:
+        raise HTTPException(status_code=403, detail=blocked)
     if house.status != "available":
         raise HTTPException(status_code=409, detail="该房源当前不可预约")
     if payload.viewing_time <= datetime.now():
@@ -2720,6 +2730,9 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         select(User).where(User.username == payload.tenant_username))
     if not tenant:
         raise HTTPException(status_code=404, detail="租客不存在")
+    if tenant_side_block(session, tenant, house):
+        raise HTTPException(status_code=400,
+                            detail="乙方不能是房东本人、这套房的受托中介或管理员账号")
 
     try:
         contract = leasing.create_contract(

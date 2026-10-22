@@ -60,6 +60,7 @@ classDiagram
         +config_store.get_int()
         +deps.require_login()
         +deps.require_staff()
+        +permissions.tenant_side_block()
     }
     Api ..> m_shared
     class MockGateway["MockGateway（gateway.py）"] {

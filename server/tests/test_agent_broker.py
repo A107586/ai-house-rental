@@ -626,7 +626,7 @@ class TestAgentRole(BrokerCase):
 class TestDashboardTodo(BrokerCase):
     """工作台首屏那几个数字的口径。"""
 
-    def _appoint(self, house_no="DL0001", at_hour=12):
+    def _appoint(self, house_no="DL0001", at_hour=12, pin=True):
         """建一条预约，并把看房时间钉在**今天的某个整点**上。
 
         为什么要钉：接口要求 `viewing_time > now`，所以只能传一个未来时间；
@@ -637,6 +637,10 @@ class TestDashboardTodo(BrokerCase):
 
         所以：先用一个必然合法的未来时间把记录建出来，
         再直接改库把时间挪到今天的整点。
+
+        要先确认再挪的，传 `pin=False`，确认完再调 `_pin_today`：
+        「过时的预约不能确认」上线后，钉在 12 点的约到了下午就确认不了，
+        这条用例又变成了上午绿、下午红（2026-10-22 15:38 撞上）。
         """
         when = datetime.now() + timedelta(days=1)
         created = self.client.post("/api/appointments", headers=self.tenant,
@@ -646,8 +650,11 @@ class TestDashboardTodo(BrokerCase):
                                          "contact_phone": "13800000001"})
         assert created.status_code == 200, created.text
         body = created.json()
-        aid = body["appointment"]["id"]
+        if pin:
+            self._pin_today(body["appointment"]["id"], at_hour)
+        return body
 
+    def _pin_today(self, aid, at_hour=12):
         session = db.SessionLocal()
         try:
             row = session.get(Appointment, aid)
@@ -656,7 +663,6 @@ class TestDashboardTodo(BrokerCase):
             session.commit()
         finally:
             session.close()
-        return body
 
     def test_today_viewings_only_counts_confirmed(self):
         """**未确认的预约不算「今日带看」。**
@@ -675,13 +681,14 @@ class TestDashboardTodo(BrokerCase):
 
     def test_confirmed_appointment_shows_up(self):
         self.delegate("DL0001")
-        appointment = self._appoint("DL0001")
+        appointment = self._appoint("DL0001", pin=False)
         aid = appointment["appointment"]["id"] if "appointment" in appointment \
             else appointment["id"]
         replied = self.client.patch(
             "/api/appointments/%d" % aid, headers=self.landlord,
             json={"status": "confirmed", "reply": "到时候见"})
         self.assertEqual(replied.status_code, 200, replied.text)
+        self._pin_today(aid)
 
         todo = self.client.get("/api/agent/dashboard",
                                headers=self.agent).json()["todo"]

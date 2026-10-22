@@ -52,7 +52,10 @@ const MSG_TYPE = {
 
 export default function MyPanel({ user, online, onClose, onOpenHouse,
                                  onUserUpdated, onLogout, onApplySearch }) {
-  const [tab, setTab] = useState('contracts')
+  // 管理员只做平台管理、中介只做经纪业务：个人中心只留「消息」和「账号设置」，
+  // 租约、账单、预约、收藏这些租客的事都不给（2026-10-22 定，后端同样拦）
+  const staffOnly = ['admin', 'agent'].includes(user?.role)
+  const [tab, setTab] = useState(staffOnly ? 'messages' : 'contracts')
   const [appointments, setAppointments] = useState([])
   const [contracts, setContracts] = useState([])
   const [bills, setBills] = useState({ list: [], unpaid_count: 0, unpaid_amount: 0, overdue_count: 0 })
@@ -211,7 +214,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
   const toggle = (key) => setOpen((cur) => (cur === key ? '' : key))
   const isOpen = (key) => open === key
 
-  const TABS = [
+  const ALL_TABS = [
     { key: 'contracts', label: '我的租约', n: contracts.length },
     { key: 'bills', label: '我的账单', n: bills.unpaid_count },
     { key: 'appointments', label: '我的预约', n: appointments.length },
@@ -226,6 +229,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
     { key: 'reviews', label: '待评价', n: pending.length },
     { key: 'profile', label: '账号设置' },
   ]
+  const TABS = staffOnly ? ALL_TABS.filter((t) => ['messages', 'profile'].includes(t.key)) : ALL_TABS
 
   return (
     <>

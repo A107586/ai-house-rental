@@ -18,7 +18,8 @@ from app.deps import require_login
 from app.models import (Appointment, ChatLine, ContentFlag, Conversation,
                         House, HouseDelegation, User, ViewingRecord,
                         mask_name)
-from app.permissions import active_delegation, can_manage_house, responsible_user_id
+from app.permissions import (active_delegation, can_manage_house, responsible_user_id,
+                             tenant_side_block)
 
 router = APIRouter()
 
@@ -178,8 +179,9 @@ def start_conversation(payload: ConversationStart,
                 detail="对方已设置不接受主动联系。你可以等他先来问，"
                        "预约与带看的通知照常送达")
         tenant_id = tenant.id
-    elif house.landlord_id == user.id:
-        raise HTTPException(status_code=400, detail="不能和自己的房源发起咨询")
+    elif tenant_side_block(session, user, house):
+        # 房东本人、受托中介、管理员都不能以租客身份咨询这套房（原先只拦了房东本人）
+        raise HTTPException(status_code=400, detail=tenant_side_block(session, user, house))
     elif house.status not in ("available", "rented") and not can_manage_house(session, user, house):
         # 待审、已下架的房源对外不可见；知道房源编号也不该能从这里绕进去问
         raise HTTPException(status_code=404, detail="房源不存在")
