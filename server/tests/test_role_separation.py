@@ -43,12 +43,14 @@ class TestBooking(RoleCase):
 
     def test_landlord_cannot_book_own_house(self):
         r = self.book(self.landlord)
-        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.status_code, 400)
         self.assertIn("自己的房源", r.json()["detail"])
 
     def test_agent_and_admin_cannot_book(self):
-        self.assertEqual(self.book(self.agent).status_code, 403)
-        self.assertEqual(self.book(self.admin).status_code, 403)
+        self.assertIn("中介", self.book(self.agent).json()["detail"])
+        self.assertIn("管理员", self.book(self.admin).json()["detail"])
+        self.assertEqual(self.book(self.agent).status_code, 400)
+        self.assertEqual(self.book(self.admin).status_code, 400)
 
     def test_landlord_can_still_rent_someone_elses_house(self):
         # 单账号双身份：landlord2 去约 landlord1 的房，照常可以
@@ -79,9 +81,12 @@ class TestSigning(RoleCase):
             "start_date": slot(3), "months": 12})
 
     def test_cannot_sign_with_self_agent_or_admin(self):
-        for name in ("landlord1", "agent9", "root"):
+        own = self.sign("landlord1")
+        self.assertEqual(own.status_code, 409)
+        self.assertIn("自己", own.json()["detail"])
+        for name in ("agent9", "root"):
             r = self.sign(name)
-            self.assertEqual(r.status_code, 400, name)
+            self.assertEqual(r.status_code, 409, name)
             self.assertIn("乙方不能是", r.json()["detail"])
         self.assertEqual(self.sign("tenant1").status_code, 200)
 
@@ -90,13 +95,16 @@ class TestHouseDetailFlags(RoleCase):
 
     def test_detail_tells_the_page_what_to_hide(self):
         own = self.client.get("/api/houses/DL0001", headers=self.landlord).json()
-        self.assertTrue(own["mine"])
+        self.assertTrue(own["can_manage"])
         self.assertIn("自己的房源", own["tenant_block"])
         other = self.client.get("/api/houses/DL0001", headers=self.tenant).json()
-        self.assertFalse(other["mine"])
+        self.assertFalse(other["can_manage"])
         self.assertEqual(other["tenant_block"], "")
+        # 中介看一套不归他管的房：管不了，也不能以租客身份做事——页面靠 tenant_block 收起按钮
+        agent = self.client.get("/api/houses/DL0001", headers=self.agent).json()
+        self.assertFalse(agent["can_manage"])
+        self.assertIn("中介", agent["tenant_block"])
         admin = self.client.get("/api/houses/DL0001", headers=self.admin).json()
-        self.assertFalse(admin["mine"])
         self.assertIn("管理员", admin["tenant_block"])
         anon = self.client.get("/api/houses/DL0001").json()
-        self.assertEqual((anon["mine"], anon["tenant_block"]), (False, ""))
+        self.assertEqual((anon["can_manage"], anon["tenant_block"]), (False, ""))

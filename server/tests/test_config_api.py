@@ -131,6 +131,13 @@ class TestConfigTakesEffect(ConfigCase):
                                       "contact_name": "租客甲",
                                       "contact_phone": "13900005678"})
 
+    def someone(self, n):
+        """又一个租客。同一个人对同一套房只能留一条待看的预约，测时段要换人。"""
+        name = "seeker%d" % n
+        self.client.post("/api/auth/register", json={
+            "username": name, "password": "test123", "real_name": "看房人"})
+        return auth_header(self.client, name, "test123")
+
     def test_viewing_window_widens(self):
         """把时段调长后，原本不冲突的两个时间点会开始互相冲突。"""
         self.set_config(viewing_minutes=30, appointment_daily_limit=20)
@@ -138,23 +145,26 @@ class TestConfigTakesEffect(ConfigCase):
         self.assertEqual(self.book(base).status_code, 200)
         # 相隔 45 分钟，30 分钟窗口下不冲突
         self.assertEqual(
-            self.book(base + timedelta(minutes=45)).status_code, 200)
+            self.book(base + timedelta(minutes=45), self.someone(1)).status_code, 200)
 
         self.set_config(viewing_minutes=120)
         # 同样相隔 45 分钟，两小时窗口下就冲突了
         self.assertEqual(
-            self.book(base + timedelta(days=1)).status_code, 200)
+            self.book(base + timedelta(days=1), self.someone(2)).status_code, 200)
         self.assertEqual(
-            self.book(base + timedelta(days=1, minutes=45)).status_code, 409)
+            self.book(base + timedelta(days=1, minutes=45),
+                      self.someone(3)).status_code, 409)
 
     def test_daily_limit_blocks_further_bookings(self):
-        self.set_config(appointment_daily_limit=2, viewing_minutes=30)
+        # 上限按人算、不分房源；同一套房本来就只能留一条，所以换着房子约
+        self.set_config(appointment_daily_limit=1, viewing_minutes=30)
         base = future(4, 9)
         self.assertEqual(self.book(base).status_code, 200)
-        self.assertEqual(self.book(base + timedelta(hours=2)).status_code, 200)
-        third = self.book(base + timedelta(hours=4))
-        self.assertEqual(third.status_code, 429)
-        self.assertIn("上限", third.json()["detail"])
+        second = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0002", "viewing_time": (base + timedelta(hours=2)).isoformat(),
+            "contact_name": "租客甲", "contact_phone": "13900005678"})
+        self.assertEqual(second.status_code, 429)
+        self.assertIn("上限", second.json()["detail"])
 
     def test_auto_approve_publishes_directly(self):
         payload = {"title": "免审房源", "district": "中山区", "rent_price": 3000,

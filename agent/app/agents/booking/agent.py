@@ -14,6 +14,7 @@
 from datetime import datetime, timedelta
 
 from app.agents.booking.tools.parse_datetime import default_slots, parse_datetime
+from app.backend import BackendError
 from app.llm.base import LLMUnavailable
 from app.agents.booking.tools.slots import (
     check_slot, format_slot, slots_in_range, suggest_alternatives)
@@ -169,6 +170,13 @@ def _create(moment, house_no, applicant, backend, token=None):
             applicant=applicant,
             token=token,
         )
+    except BackendError as exc:
+        reason = str(exc)
+        if reason.startswith(("无法连接", "测试模式", "后端返回 HTTP 5")):
+            return _fail("预约提交失败，请稍后再试。")
+        # 后端拒收的原因原样给用户（「你已经约过这套房……」「看房时间需在 9:00–18:00 之间」），
+        # 一句「稍后再试」会让他一遍遍重试一件注定不成的事
+        return _fail("预约没能提交：%s" % reason)
     except Exception:
         return _fail("预约提交失败，请稍后再试。")
 

@@ -13,12 +13,17 @@ import { api } from '../api'
  * 看房人看到一个专为某人谈的价。不改就按原样走——押金这一项出过
  * 详情页显示 800、合同签出另一个数的问题（K-02），所以「按房源」仍是默认。
  */
-// 按本地日期取「今天」。原先是 toISOString().slice(0, 10)——那是 UTC 日期，
-// 东八区早上 8 点前打开，默认起租日就成了昨天
-function today() {
+/** 本地日期 YYYY-MM-DD。**不能用 toISOString**：那是 UTC，北京时间零点会变成前一天
+ *  16:00，起租日默认值因此一直是「昨天」（2026-10-22） */
+function localDay(offsetDays = 0) {
   const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function today() {
+  return localDay(0)
 }
 
 function monthsBetween(start, end) {
@@ -135,8 +140,8 @@ export default function SignContractDialog({ houses, contract, onDone, onClose }
     setError('')
     try {
       const body = {
-        // 不带时区发。原先转成 ISO（UTC）：东八区的 22 日零点是 21 日 16:00Z，
-        // 后端照字面存，合同起租日就早了一天
+        // 原样传本地零点。原先转成 ISO（UTC）再发：选 10-25 签出来的合同从 10-24 16:00 起，
+        // 账单都排在每月 24 号——和默认值的问题叠在一起，默认签出来的合同早了两天
         start_date: `${start}T00:00:00`,
         months: Number(months) || 12,
         pay_months: Number(payMonths) || 1,
@@ -247,7 +252,8 @@ export default function SignContractDialog({ houses, contract, onDone, onClose }
             <div className="fld-row">
               <label className="fld">
                 <span>起租日</span>
-                <input type="date" value={start}
+                {/* 和后端同一个范围：最多往前补 30 天、往后一年 */}
+                <input type="date" value={start} min={localDay(-30)} max={localDay(365)}
                        onChange={(e) => setStart(e.target.value)} />
               </label>
               <label className="fld">

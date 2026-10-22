@@ -23,6 +23,13 @@ def future(days=7):
         hour=0, minute=0, second=0, microsecond=0)
 
 
+def slot(days=1):
+    """几天后上午 10 点。看房只能约 9:00–18:00，用「现在 + N 天」的话
+    傍晚和清早跑测试会落在时段外面，按时钟变脸。"""
+    return (datetime.now() + timedelta(days=days)).replace(
+        hour=10, minute=0, second=0, microsecond=0)
+
+
 class BrokerCase(ApiTestCase):
     """一个已核验的中介 + 房东 + 租客 + 管理员。"""
 
@@ -626,7 +633,7 @@ class TestAgentRole(BrokerCase):
 class TestDashboardTodo(BrokerCase):
     """工作台首屏那几个数字的口径。"""
 
-    def _appoint(self, house_no="DL0001", at_hour=12, pin=True):
+    def _appoint(self, house_no="DL0001", at_hour=12, confirm=False):
         """建一条预约，并把看房时间钉在**今天的某个整点**上。
 
         为什么要钉：接口要求 `viewing_time > now`，所以只能传一个未来时间；
@@ -637,12 +644,8 @@ class TestDashboardTodo(BrokerCase):
 
         所以：先用一个必然合法的未来时间把记录建出来，
         再直接改库把时间挪到今天的整点。
-
-        要先确认再挪的，传 `pin=False`，确认完再调 `_pin_today`：
-        「过时的预约不能确认」上线后，钉在 12 点的约到了下午就确认不了，
-        这条用例又变成了上午绿、下午红（2026-10-22 15:38 撞上）。
         """
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         created = self.client.post("/api/appointments", headers=self.tenant,
                                    json={"house_no": house_no,
                                          "viewing_time": when.isoformat(),
@@ -650,11 +653,14 @@ class TestDashboardTodo(BrokerCase):
                                          "contact_phone": "13800000001"})
         assert created.status_code == 200, created.text
         body = created.json()
-        if pin:
-            self._pin_today(body["appointment"]["id"], at_hour)
-        return body
+        aid = body["appointment"]["id"]
+        if confirm:
+            # 先确认再挪：钉到今天的整点之后，下午跑的话那个点已经过了，不能再确认
+            replied = self.client.patch(
+                "/api/appointments/%d" % aid, headers=self.landlord,
+                json={"status": "confirmed", "reply": "到时候见"})
+            assert replied.status_code == 200, replied.text
 
-    def _pin_today(self, aid, at_hour=12):
         session = db.SessionLocal()
         try:
             row = session.get(Appointment, aid)
@@ -663,6 +669,7 @@ class TestDashboardTodo(BrokerCase):
             session.commit()
         finally:
             session.close()
+        return body
 
     def test_today_viewings_only_counts_confirmed(self):
         """**未确认的预约不算「今日带看」。**
@@ -671,7 +678,18 @@ class TestDashboardTodo(BrokerCase):
         到了地方才发现这场约根本没成立。
         """
         self.delegate("DL0001")
-        self._appoint("DL0001")          # 停在 pending
+        # 停在 pending，时间是**今天、还没到**：过了点的待确认已经确认不了，不算待办。
+        # 钉在今天 12 点的话，下午跑就成了「已过点」——又一条按时钟变脸的用例
+        soon = datetime.now() + timedelta(minutes=5)
+        if soon.date() != datetime.now().date():
+            self.skipTest("离午夜不到 5 分钟，凑不出「今天还没到」的时刻")
+        aid = self._appoint("DL0001")["appointment"]["id"]
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, aid).viewing_time = soon
+            session.commit()
+        finally:
+            session.close()
 
         todo = self.client.get("/api/agent/dashboard",
                                headers=self.agent).json()["todo"]
@@ -681,14 +699,7 @@ class TestDashboardTodo(BrokerCase):
 
     def test_confirmed_appointment_shows_up(self):
         self.delegate("DL0001")
-        appointment = self._appoint("DL0001", pin=False)
-        aid = appointment["appointment"]["id"] if "appointment" in appointment \
-            else appointment["id"]
-        replied = self.client.patch(
-            "/api/appointments/%d" % aid, headers=self.landlord,
-            json={"status": "confirmed", "reply": "到时候见"})
-        self.assertEqual(replied.status_code, 200, replied.text)
-        self._pin_today(aid)
+        self._appoint("DL0001", confirm=True)
 
         todo = self.client.get("/api/agent/dashboard",
                                headers=self.agent).json()["todo"]
@@ -778,7 +789,7 @@ class TestWorkActuallyMoves(BrokerCase):
 
     def test_appointment_notifies_agent_and_copies_landlord(self):
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when,
@@ -797,7 +808,7 @@ class TestWorkActuallyMoves(BrokerCase):
     def test_agent_can_confirm_appointment(self):
         """委托他去带看，却不让他确认预约，等于只转了权没转活。"""
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when,
@@ -811,7 +822,7 @@ class TestWorkActuallyMoves(BrokerCase):
 
     def test_agent_cannot_confirm_appointment_elsewhere(self):
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=1)).isoformat()
+        when = slot(1).isoformat()
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0002",
                                       "viewing_time": when,
@@ -847,7 +858,7 @@ class TestAppointmentReceipt(BrokerCase):
     """
 
     def _appoint(self, house_no="DL0001"):
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         created = self.client.post("/api/appointments", headers=self.tenant,
                                    json={"house_no": house_no,
                                          "viewing_time": when.isoformat(),
@@ -1064,7 +1075,7 @@ class TestAppointmentSlotsAreNotAnAddressBook(BrokerCase):
 
     def setUp(self):
         super().setUp()
-        when = datetime.now() + timedelta(days=1)
+        when = slot(1)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1203,7 +1214,7 @@ class TestContactWindow(BrokerCase):
     """
 
     def _appoint(self, days=0, hour=12, confirm=True):
-        when = datetime.now() + timedelta(days=3)
+        when = slot(3)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1272,7 +1283,7 @@ class TestDoNotDisturb(BrokerCase):
     """免打扰（J-07 第三条）。"""
 
     def _appoint(self):
-        when = datetime.now() + timedelta(days=2)
+        when = slot(2)
         made = self.client.post("/api/appointments", headers=self.tenant,
                                 json={"house_no": "DL0001",
                                       "viewing_time": when.isoformat(),
@@ -1471,7 +1482,7 @@ class TestDemandSummaryHandoff(BrokerCase):
     def test_a_manager_cannot_forge_a_demand_summary(self):
         """摘要是租客的需求。中介发起会话时带一段，不该被当成租客说的。"""
         self.delegate("DL0001")
-        when = (datetime.now() + timedelta(days=2)).isoformat()
+        when = slot(2).isoformat()
         self.client.post("/api/appointments", headers=self.tenant,
                          json={"house_no": "DL0001", "viewing_time": when,
                                "contact_name": "林小雨",
@@ -1493,3 +1504,99 @@ class TestDemandSummaryHandoff(BrokerCase):
         lines = self.client.get("/api/conversations/%d/lines" % cid,
                                 headers=self.tenant).json()["list"]
         self.assertEqual(lines, [])
+
+
+class TestDelegationEndsWithTheParty(BrokerCase):
+    """房东不再是房东、中介不再能接待时，委托跟着收尾（2026-10-22）。
+
+    原先委托一直挂着「生效中」：中介能替一个已经退回租客的人把房子重新上架，
+    看房预约也照样派给一个已经被停用的中介。
+    """
+
+    def _status(self, did):
+        session = db.SessionLocal()
+        try:
+            return session.get(HouseDelegation, did).status
+        finally:
+            session.close()
+
+    def _owner_with_an_offline_house(self):
+        """一个名下只有一套已下架房源的房东——这样才退得回租客。"""
+        self.client.post("/api/auth/register", json={
+            "username": "owner2", "password": "test123",
+            "real_name": "房东乙", "phone": "13800002222"})
+        session = db.SessionLocal()
+        try:
+            owner = session.query(User).filter_by(username="owner2").one()
+            owner.role = "landlord"
+            session.add(House(house_no="DL0099", title="下架的一套", landlord_id=owner.id,
+                              district="中山区", community="港湾", rent_price=2500, area=60,
+                              layout="一室一厅", rent_type="整租", status="offline",
+                              approved_at=datetime.now()))
+            session.commit()
+        finally:
+            session.close()
+        owner = auth_header(self.client, "owner2", "test123")
+        created = self.client.post("/api/delegations", headers=owner, json={
+            "house_no": "DL0099", "agent_username": "agent1"})
+        did = created.json()["delegation"]["id"]
+        self.client.patch("/api/delegations/%d" % did, headers=self.agent,
+                          json={"accept": True})
+        return owner, did
+
+    def test_reverting_to_tenant_ends_the_delegation(self):
+        owner, did = self._owner_with_an_offline_house()
+        self.assertEqual(self._status(did), "active")
+
+        self.assertEqual(self.client.post("/api/auth/revert-to-tenant",
+                                          headers=owner).status_code, 200)
+        self.assertEqual(self._status(did), "ended")
+        relist = self.client.patch("/api/houses/DL0099/status?status=available",
+                                   headers=self.agent)
+        self.assertEqual(relist.status_code, 403)
+
+    def test_disabling_the_agent_ends_his_delegations(self):
+        did = self.delegate("DL0001")
+        pending = self.delegate("DL0002", accept=False)
+        self.client.patch("/api/admin/users/%d" % self._uid("agent1"),
+                          headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(self._status(did), "ended")
+        self.assertEqual(self._status(pending), "rejected")
+        titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.landlord).json()["list"]]
+        self.assertIn("委托已结束", titles)
+
+    def test_demoting_the_agent_ends_his_delegations(self):
+        did = self.delegate("DL0001")
+        self.client.patch("/api/admin/users/%d" % self._uid("agent1"),
+                          headers=self.admin, json={"role": "tenant"})
+        self.assertEqual(self._status(did), "ended")
+
+    def test_disabling_the_landlord_ends_delegations_on_his_houses(self):
+        did = self.delegate("DL0001")
+        self.client.patch("/api/admin/users/%d" % self._uid("landlord1"),
+                          headers=self.admin, json={"status": "disabled"})
+        self.assertEqual(self._status(did), "ended")
+
+    def _uid(self, username):
+        session = db.SessionLocal()
+        try:
+            return session.query(User).filter_by(username=username).one().id
+        finally:
+            session.close()
+
+
+class TestCannotInviteADisabledAgent(BrokerCase):
+    """名录里不列停用的中介，但手填用户名原先照样能邀请——对方登不上来，邀请永远没人确认。"""
+
+    def test_invite_is_refused(self):
+        session = db.SessionLocal()
+        try:
+            session.query(User).filter_by(username="agent1").one().status = "disabled"
+            session.commit()
+        finally:
+            session.close()
+        response = self.client.post("/api/delegations", headers=self.landlord,
+                                    json={"house_no": "DL0001", "agent_username": "agent1"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("停用", response.json()["detail"])

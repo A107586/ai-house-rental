@@ -117,6 +117,11 @@ def create_contract(session, house, tenant, start_date, months=12,
         raise ValueError("该房源当前不可签约")
     if months < 1:
         raise ValueError("租期至少一个月")
+    # 和自己签约：房源显示已出租、统计跟着变，退租后他还成了能给自己房子写评价的「租客」
+    if tenant.id == house.landlord_id:
+        raise ValueError("不能和自己签约")
+    if getattr(tenant, "status", "active") != "active":
+        raise ValueError("该租客账号已停用，无法签约")
 
     # 合同是法律文本，甲乙双方必须是真实姓名。租客没实名就签，
     # 正文里的承租方会写成 `tenant1` 这种登录名（K-03）。
@@ -193,6 +198,24 @@ def check_commission_rate(session, house, commission_rate):
 
 _CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
            13: "十三", 14: "十四", 15: "十五"}
+
+
+# 起租日能往前补多少天、往后排多远。往前补是常见的（先搬进去、后补签），
+# 但补几个月的话，确认那一刻起前面每一期都已经逾期；往后排太远的合同也不是真合同
+START_BACK_DAYS = 30
+START_AHEAD_DAYS = 365
+
+
+def check_start_date(start, today=None):
+    """起租日的合理范围。**在接口层调用**，不放进 create_contract——
+    单元测试直接调 create_contract 用的是固定日期，放进去它们会随日子过去而红。"""
+    today = (today or datetime.now()).date()
+    day = start.date() if hasattr(start, "date") else start
+    if (today - day).days > START_BACK_DAYS:
+        raise ValueError("起租日最多只能往前补 %d 天；更早的租期请按实际情况重新约定"
+                         % START_BACK_DAYS)
+    if (day - today).days > START_AHEAD_DAYS:
+        raise ValueError("起租日不能晚于一年以后")
 
 
 def house_specific_clauses(house, deposit, pay_months):
@@ -423,6 +446,95 @@ def close_open_viewings(session, house, reason):
                    house.house_no, appointment.viewing_time.strftime("%m-%d %H:%M"), reason),
                house.house_no)
     return len(rows)
+
+
+def cancel_tenant_viewings(session, tenant, reason):
+    """这个人约的、还没到时间的看房一并取消，告诉接待的那一方。
+
+    停用租客账号时用：原先他约的看房照常挂在房东的待办里，房东确认了、
+    按点到楼下，等的是一个已经登不上来的人（2026-10-22）。
+    """
+    from app.models import Appointment
+    from app.permissions import responsible_user_id
+
+    rows = session.scalars(select(Appointment).where(
+        Appointment.tenant_id == tenant.id,
+        Appointment.status.in_(("pending", "confirmed")),
+        Appointment.viewing_time > datetime.now())).all()
+    for appointment in rows:
+        appointment.status = "cancelled"
+        appointment.reply = reason
+        house = session.get(House, appointment.house_id)
+        if house:
+            notify(session, responsible_user_id(session, house), "system", "看房预约已取消",
+                   "%s %s 的看房已取消：%s。" % (
+                       house.house_no, appointment.viewing_time.strftime("%m-%d %H:%M"), reason),
+                   house.house_no)
+    return len(rows)
+
+
+def wind_down_delegations(session, reason, landlord_id=None, agent_id=None):
+    """某个房东或中介不再能履约时，把他名下的委托收尾。
+
+    生效中的结束、待确认的驳回，并通知另一方。用在：房东退回租客、
+    账号被停用、中介被管理员改成别的角色。原先这几种情况委托都还挂着
+    「生效中」——中介仍然能把一个已经不是房东的人的房子重新上架，
+    看房预约也照样派给一个已经登不上来的中介（2026-10-22）。
+    """
+    from app.models import HouseDelegation
+
+    stmt = select(HouseDelegation).where(
+        HouseDelegation.status.in_(("pending", "active")))
+    if landlord_id is not None:
+        stmt = stmt.where(HouseDelegation.landlord_id == landlord_id)
+    if agent_id is not None:
+        stmt = stmt.where(HouseDelegation.agent_id == agent_id)
+    rows = session.scalars(stmt).all()
+    for row in rows:
+        row.status = "ended" if row.status == "active" else "rejected"
+        row.end_at = datetime.now()
+        row.end_reason = reason[:100]
+        other = row.agent_id if landlord_id is not None else row.landlord_id
+        house_no = row.house.house_no if row.house else ""
+        notify(session, other, "system", "委托已结束",
+               "房源 %s 的带看委托已结束：%s。" % (house_no, reason), house_no)
+    return len(rows)
+
+
+def landlord_blockers(session, user):
+    """房东身份收回之前还没处理完的东西：在架或待审的房源、没结束的合同。
+
+    退回租客（自己点）和管理员把房东改成租客走的是同一个判断——原先后者
+    什么都不查，合同的甲方一下子就成了没有房东权限的账号，收租、报修都找不到人。
+    """
+    from sqlalchemy import func
+
+    listed = session.scalars(select(House).where(
+        House.landlord_id == user.id,
+        House.status.in_(("available", "rented", "pending")))).all()
+    active = session.scalar(select(func.count()).select_from(Contract).where(
+        Contract.landlord_id == user.id,
+        Contract.status.in_(("pending", "active"))))
+    blockers = []
+    if listed:
+        blockers.append("%d 套房源仍在架（%s）"
+                        % (len(listed),
+                           "、".join(h.house_no for h in listed[:5])
+                           + ("…" if len(listed) > 5 else "")))
+    if active:
+        blockers.append("%d 份合同尚未结束" % active)
+    return blockers
+
+
+def owner_can_list(owner):
+    """房主现在能不能让房子上架：账号在用，而且还是房东（或管理员）。"""
+    if not owner:
+        return "房源没有房东"
+    if getattr(owner, "status", "active") != "active":
+        return "房东账号已停用，这套房暂时不能上架"
+    if owner.role not in ("landlord", "admin"):
+        return "房主已不是房东身份，这套房不能上架"
+    return ""
 
 
 def activate_contract(session, contract):
@@ -680,7 +792,18 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
 # ---------------------------------------------------------------- 退租
 
 def _bill_period(bill, contract):
-    """一张租金账单覆盖的区间 [起, 止)。押一付三的一张覆盖三个月。"""
+    """一张租金账单覆盖的区间 [起, 止)。押一付三的一张覆盖三个月。
+
+    期末取**下一张租金账单的起始日**，最后一张取合同到期日。原先用「起始日 + 几个月」：
+    1 月 31 日起租的，账单排在 1-31、2-28、3-31，2 月那期被算成 2-28 ~ 3-28，
+    3-28 到 3-31 哪一期都不算——这几天退租，住了也不用付钱（2026-10-22）。
+    """
+    later = [b.due_date for b in contract.bills
+             if b.type == "rent" and b.due_date > bill.due_date]
+    if later:
+        return bill.due_date, min(later)
+    if contract.end_date and contract.end_date > bill.due_date:
+        return bill.due_date, contract.end_date
     rent = Decimal(str(contract.rent or 0))
     span = 1
     if rent > 0:
@@ -851,6 +974,10 @@ def end_contract(session, contract, reason="", deduct=0):
     if house and house.status == "rented":
         # 出租期间改过房源内容的，审核记录已经清掉——回到待审，不直接上架
         house.status = "available" if house.approved_at else "pending"
+        if house.status == "available":
+            # 退租后房子空出来，对按条件等房的人来说就是一套新房
+            from app.routers import saved_search
+            saved_search.notify_new_house(session, house)
 
     # 通知文案要与实际资金流动一致。押金从没收到过却告诉租客
     # 「退还押金 3000 元」，会直接引出「钱退哪去了」的质问。

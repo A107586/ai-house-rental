@@ -216,9 +216,14 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
   const isOpen = (key) => open === key
 
   const ALL_TABS = [
-    { key: 'contracts', label: '我的租约', n: contracts.length },
+    // 角标是「还在进行的」，不是「一共有几条」——账单数的是待缴、报修数的是未完成，
+    // 这两个原先却把已取消的预约、已结束的租约也数进去，角标永远亮着
+    { key: 'contracts', label: '我的租约',
+      n: contracts.filter((c) => c.status === 'pending' || c.status === 'active').length },
     { key: 'bills', label: '我的账单', n: bills.unpaid_count },
-    { key: 'appointments', label: '我的预约', n: appointments.length },
+    { key: 'appointments', label: '我的预约',
+      n: appointments.filter((a) => (a.status === 'pending' || a.status === 'confirmed')
+        && new Date(a.viewing_time.replace(' ', 'T')) > new Date()).length },
     { key: 'messages', label: '消息', n: messages.unread },
     { key: 'favorites', label: '收藏', n: favorites.length },
     // 订阅的搜索条件（K-09）：有新房上架发站内消息。9-10 撤「保存这组条件」按钮时
@@ -293,7 +298,9 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                   onOpenDetail={setDetailNo}
                   key={contract.contract_no}
                   contract={contract}
-                  role={user.role}
+                  // 个人中心只列「我作为租客」的合同，这里的身份就是租客。原先传账号角色：
+                  // 房东自己也租房时，在自己那份租约上看到的是「等待租客确认」「提前退租」
+                  role="tenant"
                   onChanged={load}
                 />
               ))}
@@ -333,6 +340,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                         className={`pill ${
                           bill.status === 'paid'
                             ? 'status-confirmed'
+                            : bill.status === 'cancelled'
+                            ? 'status-cancelled'
                             : bill.overdue
                             ? 'status-rejected'
                             : 'status-pending'
@@ -594,6 +603,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                   <li key={h.house_no}>
                     <div className="record-head">
                       <strong>{h.title}</strong>
+                      <ListingState status={h.status} />
                       <span className="pill">{Math.round(h.rent_price)} 元</span>
                     </div>
                     <div className="record-body">
@@ -603,7 +613,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                       {h.viewed_at} 看过{h.my_view_count > 1 && ` · 共 ${h.my_view_count} 次`}
                     </div>
                     <div className="record-actions">
-                      <button className="btn small" onClick={() => onOpenHouse(h)}>
+                      {/* 先取一次详情：足迹里的是当时的样子，房子可能已经下架了 */}
+                      <button className="btn small" onClick={() => openHouseByNo(h.house_no)}>
                         再看看
                       </button>
                     </div>
@@ -770,13 +781,14 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                 <li key={house.house_no}>
                   <div className="record-head">
                     <strong>{house.title}</strong>
+                    <ListingState status={house.status} />
                     <span className="pill">{Math.round(house.rent_price)} 元</span>
                   </div>
                   <div className="record-body">
                     {house.district} · {house.layout} · {Math.round(house.area)} 平米
                   </div>
                   <div className="record-actions">
-                    <button className="btn small" onClick={() => onOpenHouse(house)}>
+                    <button className="btn small" onClick={() => openHouseByNo(house.house_no)}>
                       查看
                     </button>
                     <button
@@ -849,15 +861,21 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
         <div className="modal-mask payment-mask" onClick={() => setReceipt(null)}>
           <div className="dialog payment-dialog receipt" onClick={(e) => e.stopPropagation()}>
             <h3>缴费凭证</h3>
-            <div className="receipt-ok">✓ 支付成功</div>
+            {/* 第二段（确认到账）失败时 payment 还是 pending。原先不看状态一律写「支付成功」，
+                回到列表账单却还是待缴——比不弹凭证更让人糊涂 */}
+            {receipt.payment?.status === 'succeeded'
+              ? <div className="receipt-ok">✓ 支付成功</div>
+              : <div className="reply pending">已发起支付，还没确认到账。稍后在账单里点「查看缴费凭证」再看一次。</div>}
+            {receipt.payment && (
             <div className="payment-summary">
               <div><span>交易号</span><strong>{receipt.payment.trade_no}</strong></div>
               <div><span>账单号</span><strong>{receipt.bill.bill_no}</strong></div>
               <div><span>房源</span><strong>{receipt.bill.house_no}</strong></div>
               <div><span>支付方式</span><strong>{{ alipay: '支付宝', wechat: '微信支付', bank: '银行卡' }[receipt.payment.method] || receipt.payment.method}</strong></div>
               <div><span>支付时间</span><strong>{receipt.payment.paid_at}</strong></div>
-              <div><span>实付金额</span><strong className="amount">¥ {Number(receipt.payment.amount).toFixed(2)}</strong></div>
+              <div><span>{receipt.payment.status === 'succeeded' ? '实付金额' : '应付金额'}</span><strong className="amount">¥ {Number(receipt.payment.amount).toFixed(2)}</strong></div>
             </div>
+            )}
             <div className="dialog-foot">
               <button className="btn" onClick={() => setReceipt(null)}>完成</button>
             </div>
@@ -878,4 +896,12 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
       )}
     </>
   )
+}
+
+
+/** 收藏、足迹里的房子现在还在不在架。只在**不是可租**时出现，正常的不打扰 */
+function ListingState({ status }) {
+  if (!status || status === 'available') return null
+  const label = { rented: '已出租', offline: '已下架', pending: '审核中' }[status] || status
+  return <span className="pill status-cancelled">{label}</span>
 }

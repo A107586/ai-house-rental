@@ -7,6 +7,7 @@
 import unittest
 from datetime import datetime, timedelta
 
+from app import leasing
 from tests.base import ApiTestCase, auth_header, make_admin, settle, end_lease
 
 
@@ -843,6 +844,10 @@ class TestContractUpdate(ApiTestCase):
         super().setUp()
         self.landlord = auth_header(self.client, "landlord1", "test123")
         self.tenant = auth_header(self.client, "tenant1", "test123")
+        # 相对日期：起租日最多往前补 30 天，写死 2026-10-01 的话过几周就红
+        self.start = (datetime.now() + timedelta(days=10)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        self.moved = self.start + timedelta(days=45)
 
     def _make(self):
         houses = self.client.get("/api/landlord/houses",
@@ -850,21 +855,62 @@ class TestContractUpdate(ApiTestCase):
         house = next(h for h in houses if h["status"] == "available")
         r = self.client.post("/api/contracts", headers=self.landlord, json={
             "house_no": house["house_no"], "tenant_username": "tenant1",
-            "start_date": "2026-10-01T00:00:00", "months": 12,
+            "start_date": self.start.isoformat(), "months": 12,
             "pay_months": 1})
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()["contract"]
+
+    def _sign(self, **overrides):
+        body = {"house_no": "DL0001", "tenant_username": "tenant1",
+                "start_date": self.start.isoformat(), "months": 12}
+        body.update(overrides)
+        return self.client.post("/api/contracts", headers=self.landlord, json=body)
+
+    def test_landlord_cannot_sign_with_himself(self):
+        """和自己签约：房源显示已出租，退租后他还成了能给自己房子写评价的「租客」。"""
+        r = self._sign(tenant_username="landlord1")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("自己", r.json()["detail"])
+
+    def test_start_date_has_a_sane_range(self):
+        """往前补几个月：确认那一刻起前面每一期都逾期；往后一年多也不是真合同。"""
+        long_ago = (datetime.now() - timedelta(days=60)).isoformat()
+        far_away = (datetime.now() + timedelta(days=400)).isoformat()
+        self.assertEqual(self._sign(start_date=long_ago).status_code, 409)
+        self.assertEqual(self._sign(start_date=far_away).status_code, 409)
+        a_week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        self.assertEqual(self._sign(start_date=a_week_ago).status_code, 200,
+                         "先搬进去后补签很常见，往前补一周要允许")
+
+    def test_editing_cannot_backdate_either(self):
+        contract = self._make()
+        r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
+                              headers=self.landlord,
+                              json={"start_date": (datetime.now() - timedelta(days=90)).isoformat()})
+        self.assertEqual(r.status_code, 409)
+
+    def test_disabled_tenant_cannot_be_signed(self):
+        from app import db
+        from app.models import User
+        session = db.SessionLocal()
+        try:
+            session.query(User).filter_by(username="tenant1").one().status = "disabled"
+            session.commit()
+        finally:
+            session.close()
+        self.assertEqual(self._sign().status_code, 409)
 
     def test_landlord_can_fix_the_dates(self):
         contract = self._make()
         r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
                               headers=self.landlord,
-                              json={"start_date": "2026-11-15T00:00:00",
+                              json={"start_date": self.moved.isoformat(),
                                     "months": 6})
         self.assertEqual(r.status_code, 200, r.text)
         got = r.json()["contract"]
-        self.assertTrue(got["start_date"].startswith("2026-11-15"))
-        self.assertTrue(got["end_date"].startswith("2027-05-15"))
+        self.assertTrue(got["start_date"].startswith(self.moved.strftime("%Y-%m-%d")))
+        self.assertTrue(got["end_date"].startswith(
+            leasing.add_months(self.moved, 6).strftime("%Y-%m-%d")))
 
     def test_body_text_is_re_rendered(self):
         """**只改字段不重渲染正文，页面上显示的还是旧条款。**
@@ -875,12 +921,12 @@ class TestContractUpdate(ApiTestCase):
         contract = self._make()
         r = self.client.patch("/api/contracts/%s" % contract["contract_no"],
                               headers=self.landlord,
-                              json={"start_date": "2026-11-15T00:00:00",
+                              json={"start_date": self.moved.isoformat(),
                                     "months": 6, "pay_months": 3})
         body = r.json()["contract"]["content"]
-        self.assertIn("2026 年 11 月 15 日", body)
+        self.assertIn(self.moved.strftime("%Y 年 %m 月 %d 日"), body)
         self.assertIn("每 3 个月支付一次", body)
-        self.assertNotIn("2026 年 10 月 01 日", body)
+        self.assertNotIn(self.start.strftime("%Y 年 %m 月 %d 日"), body)
 
     def test_deposit_months_recomputes_the_amount(self):
         contract = self._make()

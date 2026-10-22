@@ -102,3 +102,27 @@ class TestFeedbackReachesAnalytics(ApiTestCase):
                                headers=admin).json()
         questions = [r["question"] for r in data["disliked"]]
         self.assertIn("到期退租有哪些步骤", questions)
+
+
+class TestHandoffIsNotAFloodGate(ApiTestCase):
+    """转人工每一条都给全体管理员发站内信。原先不设限：同一句话点十次就是十张工单。"""
+
+    def _handoff(self, headers, question="押金一直没退怎么办"):
+        return self.client.post("/api/support/handoff", headers=headers,
+                                json={"question": question, "reason": "助手答不上"})
+
+    def test_same_question_is_not_queued_twice(self):
+        headers = auth_header(self.client)
+        admin = make_admin(self.client)
+        first = self._handoff(headers).json()["handoff"]["handoff_no"]
+        again = self._handoff(headers).json()
+        self.assertEqual(again["handoff"]["handoff_no"], first)
+        self.assertTrue(again["duplicate"])
+        queued = self.client.get("/api/admin/handoffs", headers=admin).json()
+        self.assertEqual(queued["total"], 1)
+
+    def test_open_questions_are_capped(self):
+        headers = auth_header(self.client)
+        for i in range(5):
+            self.assertEqual(self._handoff(headers, "第 %d 个问题" % i).status_code, 200)
+        self.assertEqual(self._handoff(headers, "第 6 个问题").status_code, 429)

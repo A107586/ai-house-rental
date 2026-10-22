@@ -931,31 +931,23 @@ def _propose_reschedule_viewing(text, token, backend, context):
         {"appointment_id": target.get("id"), "house_no": target.get("house_no"),
          "viewing_time": when},
         detail=dict(target, new_time=when),
-        warning="会先按新时间约一条，成功之后再把原来那条退掉；"
+        warning="新时间约上的同时原来那条自动取消；新时间约不上，原来那条照旧保留。"
                 "新的一条同样要等房东确认。"), None
 
 
 def _exec_reschedule_viewing(params, token, backend):
-    """**先建新的，再退旧的。**
+    """**新的一条和退掉旧的一条在后端一个事务里完成**（`replaces`）。
 
-    反过来写的话，新时段一旦建不出来（时段冲突、房源已下架），
-    用户就从「有一条看房」变成了「一条都没有」——而他要的只是换个时间。
+    原先是先建新的、再退旧的：反过来写的话，新时段一旦建不出来（时段冲突、
+    房源已下架），用户就从「有一条看房」变成了「一条都没有」。2026-10-22
+    后端规定同一套房只能留一条待看的预约，先建新的会被挡住，于是把两步并进
+    同一个请求——新的约不上，旧的原样留着；约上了，旧的同时取消。
     """
     created = backend.post("/api/appointments", {
         "house_no": params["house_no"],
         "viewing_time": params["viewing_time"],
+        "replaces": params["appointment_id"],
     }, token=token)
-
-    try:
-        backend._request("PATCH", "/api/appointments/%s" % params["appointment_id"],
-                         payload={"status": "cancelled"}, token=token)
-    except Exception as exc:                                  # noqa: BLE001
-        # 新的已经约上了，旧的没退掉。**必须说出来**——不说的话他以为
-        # 只剩一条，到时候房东那边收到两次带看请求。
-        return ("新时间已经约上了（%s），但原来那条没能取消（%s）。"
-                "麻烦到「我的预约」里手动取消一下。"
-                % (params["viewing_time"], str(exc)[:40]), created)
-
     return ("已经改到 %s，原来那条已取消。新的一条要等房东确认。"
             % params["viewing_time"], created)
 

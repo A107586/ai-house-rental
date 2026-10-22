@@ -1182,11 +1182,12 @@ class TestRescheduleViewing(unittest.TestCase):
         self.assertNotEqual(card["params"]["viewing_time"],
                             "2026-09-12 10:00")
 
-    def test_execute_books_the_new_slot_before_dropping_the_old(self):
-        """**顺序不能反。**
+    def test_execute_swaps_in_one_request(self):
+        """**新的和旧的在后端一个事务里换。**
 
-        先取消的话，新时段一旦建不出来（时段冲突、房源下架），
-        用户就从「有一条看房」变成了「一条都没有」——而他只是想换个时间。
+        原先先约新的、再退旧的；2026-10-22 后端规定同一套房只能留一条待看的预约，
+        先约新的会被挡住。反过来先退旧的也不行——新时段约不上时用户就一条都没有了。
+        所以只发一个 POST，带上 `replaces`，不再单独 PATCH。
         """
         backend = RecordingBackend(self.ROWS)
         actions.execute("reschedule_viewing",
@@ -1194,28 +1195,8 @@ class TestRescheduleViewing(unittest.TestCase):
                          "viewing_time": "2026-09-13 15:00"}, "tok", backend)
         wrote = [c for c in backend.writes
                  if c[0] in ("POST", "PATCH") and "appointment" in c[1]]
-        self.assertEqual(wrote[0][0], "POST", "应当先约新的")
-        self.assertEqual(wrote[1][0], "PATCH", "再退旧的")
-
-    def test_says_so_when_the_old_one_could_not_be_cancelled(self):
-        """新的约上了、旧的没退掉——**必须说出来**。
-
-        不说的话用户以为只剩一条，房东那边却收到了两次带看请求。
-        """
-        class HalfBroken(RecordingBackend):
-            def _request(self, method, path, params=None, payload=None,
-                         token=None):
-                if method == "PATCH":
-                    raise RuntimeError("接口挂了")
-                return super()._request(method, path, params, payload, token)
-
-        backend = HalfBroken(self.ROWS)
-        ok, message, _ = actions.execute(
-            "reschedule_viewing",
-            {"appointment_id": 11, "house_no": "DL0007",
-             "viewing_time": "2026-09-13 15:00"}, "tok", backend)
-        self.assertIn("没能取消", message)
-        self.assertIn("手动", message)
+        self.assertEqual([c[0] for c in wrote], ["POST"])
+        self.assertEqual(wrote[0][2]["replaces"], 11)
 
 
 class TestCancelNarrowsByTime(unittest.TestCase):

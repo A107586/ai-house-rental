@@ -188,6 +188,10 @@ def create_delegation(payload: DelegationCreate,
             select(User).where(User.username == payload.agent_username.strip()))
         if not target or target.role != "agent":
             raise HTTPException(status_code=404, detail="中介不存在")
+        if target.status != "active":
+            # 名录里早就不列停用的中介了，手填用户名却照样能邀请——对方登不上来，
+            # 这条邀请永远等不到确认
+            raise HTTPException(status_code=400, detail="该中介账号已停用，不能委托")
         profile = _profile(session, target.id)
         if not profile or not profile.can_take_orders:
             raise HTTPException(status_code=400,
@@ -675,7 +679,8 @@ def dashboard(user: User = Depends(require_agent),
     pending_appointments = session.scalars(select(Appointment).where(
         Appointment.house_id.in_(house_ids),
         Appointment.status == "pending",
-        Appointment.viewing_time >= day_start).order_by(
+        # 今天早上那条已经过了点，确认不了了，不再算待办
+        Appointment.viewing_time > datetime.now()).order_by(
             Appointment.viewing_time).limit(20)).all()
 
     return {

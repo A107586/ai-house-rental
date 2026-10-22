@@ -9,12 +9,18 @@
 这里测的是**同一个值在不同地方是否一致**，关注点不一样。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tests.base import ApiTestCase, auth_header
 import app.db as db
 from app import leasing
 from app.models import House, User
+
+
+def _soon():
+    """走接口签约用相对日期：接口限制起租日最多往前补 30 天，写死的日子过几周就红"""
+    return (datetime.now() + timedelta(days=7)).replace(hour=0, minute=0, second=0,
+                                                        microsecond=0)
 
 
 class TermsCase(ApiTestCase):
@@ -124,7 +130,7 @@ class TestDepositThroughApi(ApiTestCase):
         payload = {
             "house_no": "DL0001",
             "tenant_username": "tenant1",
-            "start_date": datetime(2026, 10, 1).isoformat(),
+            "start_date": _soon().isoformat(),
             "months": 12,
         }
         payload.update(extra)
@@ -222,9 +228,30 @@ class TestUnnamedTenantRejectedByApi(ApiTestCase):
         response = self.client.post("/api/contracts", headers=self.landlord, json={
             "house_no": "DL0001",
             "tenant_username": "tenant1",
-            "start_date": datetime(2026, 10, 1).isoformat(),
+            "start_date": _soon().isoformat(),
             "months": 12,
         })
         self.assertEqual(response.status_code, 409)
         # 提示要能告诉房东「去哪儿改」，只说「未实名」是没法照着做的
         self.assertIn("编辑资料", response.json()["detail"])
+
+
+class TestStartDateIsTheDayPicked(ApiTestCase):
+    """起租日是房东在日历上点的那一天，不受时区换算影响。
+
+    前端原先把本地零点 toISOString() 成 UTC 再发：北京时间选 10-25，
+    到后端是 10-24T16:00Z，原样存下去合同就从 10-24 起、账单排在每月 24 号；
+    表单的默认值也是这么算的，默认签出来的合同早两天（2026-10-22）。
+    """
+
+    def test_utc_instant_lands_on_the_local_day(self):
+        from datetime import timezone
+        landlord = auth_header(self.client, "landlord1", "test123")
+        picked = _soon()                                   # 本地零点
+        as_utc = picked.astimezone(timezone.utc)           # 前端原先发的样子
+        response = self.client.post("/api/contracts", headers=landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant1",
+            "start_date": as_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "months": 12})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["contract"]["start_date"],
+                         picked.strftime("%Y-%m-%d"))

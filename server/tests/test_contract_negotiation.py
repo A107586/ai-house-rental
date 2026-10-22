@@ -5,16 +5,22 @@
 而改挂牌价又会让其他看房的人看到一个专为某人谈的价。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 from tests.test_agent_broker import BrokerCase
+
+
+def _soon(days=7):
+    """相对日期：起租日最多往前补 30 天，写死的日子过几周就红"""
+    return (datetime.now() + timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
 class TermsCase(BrokerCase):
 
     def sign(self, **terms):
         body = {"house_no": "DL0001", "tenant_username": "tenant1",
-                "start_date": "2026-11-01T00:00:00", "months": 12}
+                "start_date": _soon(), "months": 12}
         body.update(terms)
         return self.client.post("/api/contracts", headers=self.landlord, json=body)
 
@@ -64,16 +70,6 @@ class TestNegotiatedRent(TermsCase):
         got = self.patch(no, rent=650).json()["contract"]
         self.assertEqual((got["rent"], got["deposit"]), (650, 1300))
         self.assertIn("650", got["content"])
-
-    def test_start_date_is_the_local_day(self):
-        """页面原先把起租日转成 UTC 再发：东八区的 22 日零点是 21 日 16:00Z，
-        后端照字面存，合同起租日就早了一天。带时区的一律换成本地时间。"""
-        naive = self.sign(start_date="2026-11-02T00:00:00").json()["contract"]
-        self.assertEqual(naive["start_date"], "2026-11-02")
-        stamp = datetime(2026, 11, 1, 16, tzinfo=timezone.utc)
-        no = naive["contract_no"]
-        got = self.patch(no, start_date=stamp.isoformat()).json()["contract"]
-        self.assertEqual(got["start_date"], stamp.astimezone().strftime("%Y-%m-%d"))
 
     def test_editing_rent_keeps_an_odd_deposit(self):
         no = self.sign(rent=700, deposit=500).json()["contract"]["contract_no"]

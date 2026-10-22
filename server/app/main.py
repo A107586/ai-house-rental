@@ -11,7 +11,7 @@ import time
 import uuid
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, time as dtime, timedelta
 from decimal import Decimal
 from typing import Literal
 
@@ -41,7 +41,7 @@ from app.permissions import (can_manage_house, tenant_side_block,
                              responsible_user_id)
 from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         ContentFlag, Contract, Favorite, House,
-                        HouseDelegation, HouseImage,
+                        AgentProfile, HouseDelegation, HouseImage, HouseReport,
                         Message, Notice, OperationLog, Payment, Refund, Repair,
                         RepairImage, RepairRecord, Review, User,
                         ViewingRecord,
@@ -185,6 +185,10 @@ app.include_router(agent.router)
 # 一次看房占用多久由系统配置决定（M-09），这里只是配置缺失时的兜底。
 # 智能体端的默认值与此保持一致。
 VIEWING_MINUTES = 60
+# 可预约的看房时段，与智能体 booking/tools/parse_datetime.py 的 BUSINESS_START/END 一致
+VIEWING_OPEN = dtime(9, 0)
+VIEWING_CLOSE = dtime(18, 0)
+VIEWING_AHEAD_DAYS = 30
 
 # 看房预约的状态只能往前走：待确认的可以确认、拒绝、取消；已确认的只能取消；
 # 拒绝与取消是终点——要再看就重新约一次，重新约会重新查时段冲突。
@@ -413,7 +417,8 @@ def change_password(payload: PasswordChange, user: User = Depends(require_login)
 # ------------------------------------------------------------------ 房源相册
 
 @app.get("/api/houses/{house_no}/images")
-def list_house_images(house_no: str, session: Session = Depends(get_session)):
+def list_house_images(house_no: str, user: User | None = Depends(current_user),
+                      session: Session = Depends(get_session)):
     """房源相册的完整信息。
 
     房源详情里的 images 只有 URL 字符串，够列表页展示；房东要管理相册
@@ -422,6 +427,9 @@ def list_house_images(house_no: str, session: Session = Depends(get_session)):
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 和详情同一道门。被复核下架的房源，违规的往往正是图（比如拍了个电话号码）
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
     rows = session.scalars(
         select(HouseImage).where(HouseImage.house_id == house.id)
         .order_by(HouseImage.is_cover.desc(), HouseImage.sort_order)).all()
@@ -615,6 +623,10 @@ def get_house(house_no: str, user: User = Depends(current_user),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 待审、已下架的不对外。列表接口早就这么做了，详情这里原先没拦：
+        # 被复核下架的违规房源，知道编号的人照样打得开（2026-10-22）
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
     # **加一这件事交给数据库做，不要读出来加完再写回去。**
     #
     # `house.view_count += 1` 是「读-改-写」：两个请求同时读到 563，
@@ -653,11 +665,23 @@ def get_house(house_no: str, user: User = Depends(current_user),
     data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
     # 页面靠它决定给不给「报修」——判断与 POST /api/repairs 同一处，界面和接口不会各说各的
     data["can_report_repair"] = can_report_repair(session, user, house)
-    # 同一个思路：能不能以租客身份对这套房做事，不能就给原因。前端据此收起预约 / 咨询 / 收藏，
-    # 真正的边界在各个接口里（tenant_side_block）
+    # 管得了这套房的人（房东、受托中介、管理员）在详情页上不该看到收藏、咨询、预约看房
+    data["can_manage"] = can_manage_house(session, user, house)
+    data["is_owner"] = bool(user and house.landlord_id == user.id)
+    # 管不了、但也不能以租客身份做事的（中介、管理员看别人的房）：给出原因，
+    # 前端据此收起预约 / 咨询 / 收藏。真正的边界在各个接口里（tenant_side_block）
     data["tenant_block"] = tenant_side_block(session, user, house) or ""
-    data["mine"] = bool(user) and user.role != "admin" and can_manage_house(session, user, house)
     return data
+
+
+def _may_see_unlisted(session, user, house):
+    """没上架的房源谁还能看：管房的人，以及在这套房上签过合同的租客（合同里要链过来）。"""
+    if not user:
+        return False
+    if can_manage_house(session, user, house):
+        return True
+    return session.scalar(select(Contract.id).where(
+        Contract.house_id == house.id, Contract.tenant_id == user.id).limit(1)) is not None
 
 
 @app.get("/api/houses/{house_no}/landlord")
@@ -936,11 +960,21 @@ def update_house_status(house_no: str, status: str,
             # 被驳回的、或改过内容待重审的：上架等于提交审核
             status = "pending"
             message = "这套房源的当前内容还没通过审核，已提交审核，通过后会自动上架。"
+    if status in ("available", "pending"):
+        # 房主停用了或已不是房东，上架了也签不了约。受托中介原先能把这种房子重新挂出去
+        problem = leasing.owner_can_list(session.get(User, house.landlord_id))
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
 
+    was = house.status
     house.status = status
     if status == "offline":
         # 下架了，还没到时间的看房也就没意义了——同签约生效时的处理
         leasing.close_open_viewings(session, house, "房东已下架这套房")
+    if status == "available" and was != "available":
+        # 重新上架也是「有新房」。原先只有首次审核通过才提醒，下架过的房子回来没人知道；
+        # 同一条搜索对同一套房只提醒一次，反复上下架不会刷屏
+        saved_search.notify_new_house(session, house)
     session.commit()
     out = {"ok": True, "house": house.to_dict()}
     if message:
@@ -1062,8 +1096,7 @@ def update_house(house_no: str, payload: HouseUpdate,
     # 房东连改租金都改不了。
     checked = {name: fields[key] for key, name in
                (("title", "标题"), ("description", "描述")) if key in fields}
-    if checked:
-        moderate(checked, scene="house")
+    verdict = moderate(checked, scene="house") if checked else None
 
     # 核验认的是「这个地址、这么大的一套房」的产权凭证。改了这几项还挂着「已核验」，
     # 公开的核验编号就在为一套没核验过的房子背书（2026-10-22 补）。管理员改的不算
@@ -1122,6 +1155,10 @@ def update_house(house_no: str, payload: HouseUpdate,
             house.approved_at = None
             if house.status == "available":
                 house.status = "pending"
+    if verdict is not None:
+        # 「需人工复核」那一档原先只在发布时落待办，编辑时判出来就丢了——
+        # 先发干净的、再改成擦边的，复核队列里永远看不到
+        record_flag(session, verdict, checked, "house", user, house.id, house.house_no)
 
     session.commit()
     session.refresh(house)
@@ -1161,9 +1198,11 @@ def landlord_dashboard(user: User = Depends(require_staff),
     month_income = sum(b.net_amount for b in paid
                        if b.paid_at and b.paid_at.strftime("%Y-%m") == this_month)
 
+    # 只数还没到点的：过了时间的已经确认不了（后端会拒），算进待办就是一个永远消不掉的数
     pending_appointments = session.scalars(
         select(Appointment).where(Appointment.house_id.in_(house_ids),
-                                  Appointment.status == "pending")).all()
+                                  Appointment.status == "pending",
+                                  Appointment.viewing_time > datetime.now())).all()
     open_repairs = session.scalars(
         select(Repair).where(Repair.house_id.in_(house_ids),
                              Repair.status != "done")).all()
@@ -1266,6 +1305,15 @@ def review_house(house_no: str, payload: HouseReview,
         raise HTTPException(status_code=409, detail="该房源当前无需审核")
 
     if payload.approved:
+        if house.status == "offline":
+            # 下架的房子只有「被驳回过」的那种还能直接通过。房东自己下架的点通过，
+            # 等于管理员替房东把房子重新挂了出去
+            if house.approved_at:
+                raise HTTPException(status_code=409,
+                                    detail="这套房是房东自己下架的，不在审核范围内")
+        problem = leasing.owner_can_list(session.get(User, house.landlord_id))
+        if problem:
+            raise HTTPException(status_code=409, detail=problem)
         house.status = "available"
         house.approved_at = datetime.now()
         title, content = "房源审核通过", "房源 %s 已通过审核并上架。" % house.house_no
@@ -1606,12 +1654,32 @@ def admin_update_user(user_id: int, payload: UserUpdate,
                 house.status = "offline"
                 leasing.close_open_viewings(session, house, "房东账号已停用")
                 offlined += 1
+            # 他作为租客约的看房、作为房东或中介挂着的委托，也都没人能接着办了
+            leasing.cancel_tenant_viewings(session, target, "租客账号已停用")
+            if target.role == "agent":
+                leasing.wind_down_delegations(session, "中介账号已停用", agent_id=target.id)
+            else:
+                leasing.wind_down_delegations(session, "房东账号已停用", landlord_id=target.id)
         target.status = payload.status
     if payload.role is not None:
         if payload.role not in ("tenant", "landlord", "admin"):
             raise HTTPException(status_code=400, detail="角色值不合法")
         if target.role != payload.role:
             revoke = True
+            if target.role == "landlord" and payload.role == "tenant":
+                # 和房东自己点「退回租客」一样的前置，原先管理员这条路什么都不查
+                blockers = leasing.landlord_blockers(session, target)
+                if blockers:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="改成租客前需要先处理：" + "；".join(blockers))
+                leasing.wind_down_delegations(session, "房东已改为租客身份",
+                                              landlord_id=target.id)
+            if target.role == "agent":
+                # 中介的管房权来自 role == agent，角色一改委托就名存实亡，
+                # 可预约和会话还在按委托派给他
+                leasing.wind_down_delegations(session, "中介已不再是经纪人身份",
+                                              agent_id=target.id)
         target.role = payload.role
 
     if revoke:
@@ -1802,6 +1870,10 @@ def add_favorite(house_no: str, user: User = Depends(require_login),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 和详情同一道门：收藏列表返回的是整套房源资料，待审 / 下架的从这里收进来，
+        # 等于绕过详情页把内容读走
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
     blocked = tenant_side_block(session, user, house)
     if blocked:
         raise HTTPException(status_code=403, detail=blocked.replace("预约、咨询或签约", "收藏"))
@@ -1865,7 +1937,10 @@ def list_appointments(
     if not house:
         return {"total": 0, "list": []}
 
-    stmt = select(Appointment).where(Appointment.house_id == house.id)
+    # 只给还没到的。过去的时段既不会再冲突，摆在详情页「已约时段」里也只是噪音——
+    # 一条上周的「待确认」看着像房东一直没理人
+    stmt = select(Appointment).where(Appointment.house_id == house.id,
+                                     Appointment.viewing_time > datetime.now())
     if status:
         stmt = stmt.where(Appointment.status == status)
     else:
@@ -1954,13 +2029,44 @@ def create_appointment(payload: AppointmentCreate,
     house = session.scalar(select(House).where(House.house_no == payload.house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    # 自己约自己原先只有智能体那一侧在守（它不会替房东约自己的房），直接调接口照样落库。
+    # 管这套房的人、中介、管理员都不以租客身份预约（2026-10-22）
     blocked = tenant_side_block(session, user, house)
     if blocked:
-        raise HTTPException(status_code=403, detail=blocked)
+        raise HTTPException(status_code=400, detail=blocked)
     if house.status != "available":
         raise HTTPException(status_code=409, detail="该房源当前不可预约")
     if payload.viewing_time <= datetime.now():
         raise HTTPException(status_code=400, detail="看房时间必须晚于当前时间")
+    # 下面两条同样原先只有智能体那一侧在守：它只给 9:00–18:00、30 天以内的时段。
+    # 绕开智能体直接调接口，凌晨三点、三年以后都能落库（2026-10-22）
+    clock = payload.viewing_time.time()
+    if not (VIEWING_OPEN <= clock <= VIEWING_CLOSE):
+        raise HTTPException(status_code=400, detail="看房时间需在 %s–%s 之间" % (
+            VIEWING_OPEN.strftime("%H:%M"), VIEWING_CLOSE.strftime("%H:%M")))
+    if payload.viewing_time > datetime.now() + timedelta(days=VIEWING_AHEAD_DAYS):
+        raise HTTPException(status_code=400,
+                            detail="只能预约 %d 天以内的看房" % VIEWING_AHEAD_DAYS)
+    replaced = None
+    if payload.replaces is not None:
+        replaced = session.get(Appointment, payload.replaces)
+        if (not replaced or replaced.tenant_id != user.id
+                or replaced.house_id != house.id
+                or replaced.status not in ("pending", "confirmed")):
+            raise HTTPException(status_code=409, detail="要改期的那条预约不存在或已经结束")
+    skip = [replaced.id] if replaced else [-1]
+    # 同一套房同时只留一条待看的。原先能连占几个时段，别人约不进来，
+    # 房东的待办里也是同一个人的好几条
+    held = session.scalar(select(Appointment).where(
+        Appointment.house_id == house.id, Appointment.tenant_id == user.id,
+        Appointment.status.in_(["pending", "confirmed"]),
+        Appointment.viewing_time > datetime.now(),
+        Appointment.id.not_in(skip)))
+    if held:
+        raise HTTPException(
+            status_code=409,
+            detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
+                   % held.viewing_time.strftime("%m-%d %H:%M"))
 
     contact_phone = (payload.contact_phone or user.phone or "").strip()
     if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
@@ -1973,7 +2079,7 @@ def create_appointment(payload: AppointmentCreate,
         Appointment.tenant_id == user.id,
         Appointment.created_at >= today,
         Appointment.status.in_(["pending", "confirmed"]))).all())
-    if used >= daily_limit:
+    if used >= daily_limit and replaced is None:     # 改期是换一条，不是多约一条
         raise HTTPException(
             status_code=429,
             detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
@@ -2003,6 +2109,7 @@ def create_appointment(payload: AppointmentCreate,
             Appointment.status.in_(["pending", "confirmed"]),
             Appointment.viewing_time > payload.viewing_time - window,
             Appointment.viewing_time < payload.viewing_time + window,
+            Appointment.id.not_in(skip),     # 改期挪半小时，不算和自己冲突
         ))
     if clash:
         raise HTTPException(status_code=409, detail="该时段已被预约")
@@ -2018,6 +2125,9 @@ def create_appointment(payload: AppointmentCreate,
     )
     session.add(appointment)
     session.flush()
+    if replaced is not None:
+        replaced.status = "cancelled"
+        replaced.reply = "租客改约到 %s" % payload.viewing_time.strftime("%m-%d %H:%M")
 
     # 通知当前负责这套房的人（J-05）。
     #
@@ -2030,9 +2140,11 @@ def create_appointment(payload: AppointmentCreate,
     # 逼着人先回答「活到底有没有人接到」。
     responsible = responsible_user_id(session, house)
     when = payload.viewing_time.strftime("%m-%d %H:%M")
+    moved = ("（由 %s 改约）" % replaced.viewing_time.strftime("%m-%d %H:%M")
+             if replaced is not None else "")
     leasing.notify(
         session, responsible, "system", "新的看房预约",
-        "%s 有一条 %s 的看房预约待确认。" % (house.house_no, when),
+        "%s 有一条 %s 的看房预约待确认%s。" % (house.house_no, when, moved),
         house.house_no)
     if responsible != house.landlord_id:
         leasing.notify(
@@ -2095,6 +2207,11 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate,
                  "cancelled": "取消"}[payload.status]))
     if payload.status == "confirmed" and appointment.viewing_time <= datetime.now():
         raise HTTPException(status_code=409, detail="看房时间已经过了，不能再确认")
+    if (payload.status == "cancelled" and appointment.status == "confirmed"
+            and appointment.viewing_time <= datetime.now()):
+        # 已经确认、时间也过了的，是一次发生过（或爽约）的看房。原先还能「取消」，
+        # 带看记录挂在一条已取消的预约上，看房历史就对不上了
+        raise HTTPException(status_code=409, detail="看房时间已经过了，这条预约不能再取消")
 
     appointment.status = payload.status
     appointment.reply = payload.reply
@@ -2761,11 +2878,14 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         select(User).where(User.username == payload.tenant_username))
     if not tenant:
         raise HTTPException(status_code=404, detail="租客不存在")
-    if tenant_side_block(session, tenant, house):
-        raise HTTPException(status_code=400,
-                            detail="乙方不能是房东本人、这套房的受托中介或管理员账号")
+    # 和房东本人签约的由 leasing.create_contract 拦（「不能和自己签约」）；
+    # 中介、管理员账号和这套房的受托人也不能当乙方
+    if tenant.id != house.landlord_id and tenant_side_block(session, tenant, house):
+        raise HTTPException(status_code=409,
+                            detail="乙方不能是中介、管理员账号或这套房的受托人")
 
     try:
+        leasing.check_start_date(payload.start_date)
         contract = leasing.create_contract(
             session, house, tenant, payload.start_date,
             months=payload.months,
@@ -2863,6 +2983,11 @@ def update_contract(contract_no: str, payload: ContractUpdate,
         raise HTTPException(status_code=409, detail="房源或租客已不存在")
 
     start = payload.start_date or contract.start_date
+    if payload.start_date:
+        try:
+            leasing.check_start_date(start)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
     months = payload.months
     if months is None:
         # 没传月数就沿用原来的跨度，**按月算而不是按天**——
@@ -3721,17 +3846,36 @@ def handle_flag(flag_id: int, action: str,
         if flag.scene == "house":
             house = session.get(House, flag.target_id)
             if house:
-                house.status = "offline"
+                # 审核记录一并作废：不然房东点一下「上架」就原样回来了。
+                # 出租中的不动状态——合同还在走，租约结束时会因为没有审核记录回到待审
+                house.approved_at = None
+                if house.status == "rented":
+                    tail = "租约结束后需要修改内容、重新审核才能再上架。"
+                else:
+                    house.status = "offline"
+                    leasing.close_open_viewings(session, house, "房源内容不合规，已被平台下架")
+                    tail = "修改相关内容后可以重新提交审核。"
+                # 原先房子一声不响就不见了，房东不知道是哪句话出的问题
+                leasing.notify(session, house.landlord_id, "system", "房源内容未通过复核",
+                               "房源 %s 的「%s」未通过平台复核，已下架。%s"
+                               % (house.house_no, flag.excerpt[:40], tail), house.house_no)
         elif flag.scene == "notice":
             notice = session.get(Notice, flag.target_id)
             if notice:
-                notice.published = False
+                # 原先写的是 notice.published——模型上没有这一列，赋值不报错也不落库，
+                # 「下架」点完公告照常挂在首页（2026-10-22）
+                notice.is_published = False
         elif flag.scene == "review":
             review = session.get(Review, flag.target_id)
             if review:
                 # 软删除而非真删（C-5）。审核会误判，误判之后要能恢复；
                 # 用户申诉时也得拿得出原文。前台查询已经过滤掉了。
                 review.deleted_at = datetime.now()
+                reviewed = session.get(House, review.house_id)
+                house_no = reviewed.house_no if reviewed else ""
+                leasing.notify(session, review.tenant_id, "system", "评价未通过复核",
+                               "你对房源 %s 的评价未通过平台复核，已不再公开展示。" % house_no,
+                               house_no)
 
     flag.status = "approved" if action == "approve" else "removed"
     flag.handled_by = user.real_name or user.username
@@ -3821,6 +3965,10 @@ def add_house_image(house_no: str, url: str = Body(embed=True),
     _require_house_owner(session, user, house)
     if not uploads.is_managed(url):
         raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+    if session.scalar(select(HouseImage.id).where(HouseImage.url == url).limit(1)):
+        # 别的房源页上的图片地址是公开的。原先照样能挂到自己房源上，再从自己这边
+        # 删掉——磁盘上那一份就没了，人家房源上的图跟着裂（2026-10-22）
+        raise HTTPException(status_code=409, detail="这张图已经用在房源相册里了，请重新上传")
 
     has_cover = session.scalar(select(HouseImage).where(
         HouseImage.house_id == house.id, HouseImage.is_cover.is_(True)))
@@ -3866,8 +4014,25 @@ def delete_house_image(house_no: str, image_id: int,
         if nxt:
             nxt.is_cover = True
     session.commit()
-    uploads.remove(STATIC_DIR, url)
+    if not _upload_still_used(session, url):
+        uploads.remove(STATIC_DIR, url)
     return {"ok": True}
+
+
+def _upload_still_used(session, url):
+    """这张上传的图还有没有别处在用：相册、报修照片、评价配图、举报证据、中介资质。
+
+    删一条相册记录不等于能删磁盘上的文件——同一个地址可能是从别处挂过来的。
+    """
+    if session.scalar(select(HouseImage.id).where(HouseImage.url == url).limit(1)):
+        return True
+    if session.scalar(select(RepairImage.id).where(RepairImage.url == url).limit(1)):
+        return True
+    for model, column in ((Review, Review.images), (HouseReport, HouseReport.evidence),
+                          (AgentProfile, AgentProfile.license_images)):
+        if session.scalar(select(model.id).where(column.contains(url)).limit(1)):
+            return True
+    return False
 
 
 @app.post("/api/houses/{house_no}/images/{image_id}/cover")

@@ -508,6 +508,8 @@ export const api = {
   // ---------------- K-13 身份升级 ----------------
   landlordEligibility: () => request('/api/auth/landlord-eligibility'),
   becomeLandlord: () => post('/api/auth/become-landlord', {}),
+  // 退回租客：名下还有在架房源或没结束的合同时后端会列出来拦下
+  revertToTenant: () => post('/api/auth/revert-to-tenant', {}),
 
   // ---------------- K-11 找回密码 ----------------
   forgotPassword: (username) => post('/api/auth/forgot', { username }),

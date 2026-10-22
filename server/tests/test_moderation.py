@@ -187,7 +187,8 @@ class TestFlagHandling(ModerationApiCase):
                               headers=self.admin, params={"action": "approve"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["flag"]["status"], "approved")
-        detail = self.client.get("/api/houses/%s" % house_no)
+        # 房源本身还在待审（复核管的是文字，上架另走审核），房东自己看得到
+        detail = self.client.get("/api/houses/%s" % house_no, headers=self.landlord)
         self.assertEqual(detail.status_code, 200)
 
     def test_remove_takes_house_offline(self):
@@ -232,6 +233,48 @@ class TestFlagHandling(ModerationApiCase):
                               headers=self.landlord,
                               params={"action": "approve"})
         self.assertEqual(r.status_code, 403)
+
+
+    def test_remove_tells_the_landlord_and_voids_the_approval(self):
+        """原先房子一声不响就不见了；审核记录也还在，房东点一下上架就原样回来。"""
+        house_no, flag_id = self._flagged_house()
+        self.client.patch("/api/admin/flags/%d" % flag_id,
+                          headers=self.admin, params={"action": "remove"})
+        titles = [m["title"] for m in self.client.get(
+            "/api/messages", headers=self.landlord).json()["list"]]
+        self.assertIn("房源内容未通过复核", titles)
+        back = self.client.patch("/api/houses/%s/status?status=available" % house_no,
+                                 headers=self.landlord)
+        self.assertEqual(back.json()["house"]["status"], "pending")
+
+    def test_removing_a_flagged_notice_unpublishes_it(self):
+        """原先写成了 notice.published——模型上没有这一列，点完「下架」公告照常挂着。"""
+        from app.models import ContentFlag
+        created = self.client.post("/api/notices", headers=self.admin, json={
+            "title": "端午放假安排", "content": "端午节期间客服暂停。"})
+        notice_id = created.json()["notice"]["id"]
+        session = db.SessionLocal()
+        try:
+            flag = ContentFlag(scene="notice", target_id=notice_id,
+                               target_key="端午放假安排", excerpt="端午节期间客服暂停。")
+            session.add(flag)
+            session.commit()
+            flag_id = flag.id
+        finally:
+            session.close()
+        self.client.patch("/api/admin/flags/%d" % flag_id,
+                          headers=self.admin, params={"action": "remove"})
+        shown = [n["id"] for n in self.client.get("/api/notices").json()["list"]]
+        self.assertNotIn(notice_id, shown)
+
+    def test_borderline_edit_lands_in_the_queue(self):
+        """「需人工复核」那一档原先只在发布时落待办。先发干净的、再改成擦边的，
+        复核队列里永远看不到。"""
+        res = self.client.put("/api/houses/DL0001", headers=self.landlord,
+                              json={"title": "全网最低价 中山区两室"})
+        self.assertEqual(res.status_code, 200, res.text)
+        queued = self.flags()["list"]
+        self.assertEqual([f["target_key"] for f in queued], ["DL0001"])
 
 
 class TestModerationInNotices(ModerationApiCase):

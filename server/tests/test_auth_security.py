@@ -146,10 +146,15 @@ class TestTokenRevocation(RateLimitCase):
         """**角色写在令牌里**。不吊销的话，一个刚被降为租客的人拿着旧令牌
         还能以房东身份操作满七天——这才是更危险的那一半。"""
         admin = make_admin(self.client)
-        landlord = self.header(self.token("landlord1", "test123"))
         users = self.client.get("/api/admin/users", headers=admin).json()
         uid = next(u["id"] for u in users["list"]
-                   if u["username"] == "landlord1")
+                   if u["username"] == "tenant1")
+        # 用一个名下什么都没有的房东：landlord1 还有生效合同，降级会被拦下
+        self.client.patch("/api/admin/users/%d" % uid, headers=admin,
+                          json={"role": "landlord"})
+        landlord = self.header(self.token("tenant1", "test123"))
+        self.assertEqual(self.client.get("/api/auth/me", headers=landlord)
+                         .json()["role"], "landlord")
 
         self.client.patch("/api/admin/users/%d" % uid, headers=admin,
                           json={"role": "tenant"})

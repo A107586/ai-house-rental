@@ -5,6 +5,8 @@
 管理员看到紧急工单挂了一天，想催房东也只能自己去翻用户列表找人。
 """
 
+from datetime import datetime, timedelta
+
 from app import db
 from app.models import User
 from tests.base import ApiTestCase, auth_header, make_admin
@@ -19,7 +21,9 @@ class RepairContactCase(ApiTestCase):
         self.admin = make_admin(self.client)
         signed = self.client.post("/api/contracts", headers=self.landlord, json={
             "house_no": "DL0001", "tenant_username": "tenant1",
-            "start_date": "2026-11-01T00:00:00", "months": 12})
+            "start_date": (datetime.now() + timedelta(days=3)).replace(
+                hour=0, minute=0, second=0, microsecond=0).isoformat(),
+            "months": 12})
         assert signed.status_code == 200, signed.text
         no = signed.json()["contract"]["contract_no"]
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)

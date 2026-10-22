@@ -12,8 +12,9 @@ from tests.base import ApiTestCase, auth_header, make_resident, settle
 
 
 def future(days=7):
+    # 看房只能约 9:00–18:00
     return (datetime.now() + timedelta(days=days)).replace(
-        hour=0, minute=0, second=0, microsecond=0)
+        hour=10, minute=0, second=0, microsecond=0)
 
 
 class AdminCase(ApiTestCase):
@@ -60,6 +61,37 @@ class TestHouseVisibility(AdminCase):
         data = self.client.get("/api/houses", params={"status": "offline"},
                                headers=self.tenant).json()
         self.assertTrue(all(h["status"] == "available" for h in data["list"]))
+
+    def test_detail_of_an_unlisted_house_is_not_public(self):
+        """列表早就拦了，详情原先没拦：被复核下架的违规房源，知道编号照样打得开。"""
+        house_no = self.publish()
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no).status_code, 404)
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no,
+                                         headers=self.tenant).status_code, 404)
+        mine = self.client.get("/api/houses/%s" % house_no, headers=self.landlord)
+        self.assertEqual(mine.status_code, 200)
+        self.assertTrue(mine.json()["can_manage"])
+        self.assertTrue(mine.json()["is_owner"])
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no,
+                                         headers=self.admin).status_code, 200)
+        # 相册同一道门
+        self.assertEqual(self.client.get("/api/houses/%s/images" % house_no).status_code, 404)
+        self.assertEqual(self.client.get("/api/houses/%s/images" % house_no,
+                                         headers=self.landlord).status_code, 200)
+
+    def test_unlisted_house_cannot_be_favorited_by_number(self):
+        """收藏列表返回整套房源资料，从这里收进来就绕过了详情那道门。"""
+        house_no = self.publish()
+        response = self.client.post("/api/favorites/%s" % house_no, headers=self.tenant)
+        self.assertEqual(response.status_code, 404)
+
+    def test_tenant_who_signed_can_still_open_it(self):
+        """合同详情要链到这套房，下架了也得打得开。"""
+        make_resident("tenant1", "DL0001")
+        self.client.patch("/api/houses/DL0001/status?status=offline", headers=self.landlord)
+        detail = self.client.get("/api/houses/DL0001", headers=self.tenant)
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.json()["can_manage"])
 
     def test_rented_is_public(self):
         """已租是公开信息，用于展示出租率，不需要拦。"""
@@ -186,6 +218,22 @@ class TestLandlordDashboard(AdminCase):
         self.assertEqual(data["todo"]["appointments"], 1)
         self.assertGreaterEqual(data["todo"]["total"], 1)
 
+    def test_past_pending_viewing_is_not_a_todo(self):
+        """过了点的待确认已经确认不了（后端会拒），算进待办就是一个永远消不掉的数。"""
+        import app.db as db
+        from app.models import Appointment
+        booked = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0001", "viewing_time": future().isoformat()})
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, booked.json()["appointment"]["id"]).viewing_time = \
+                datetime.now() - timedelta(hours=3)
+            session.commit()
+        finally:
+            session.close()
+        data = self.client.get("/api/landlord/dashboard", headers=self.landlord).json()
+        self.assertEqual(data["todo"]["appointments"], 0)
+
     def test_todo_counts_open_repairs(self):
         make_resident("tenant1", "DL0001")   # 报修只收在住租客
         self.client.post("/api/repairs", headers=auth_header(self.client), json={
@@ -271,6 +319,56 @@ class TestUserManagement(AdminCase):
         self.assertNotIn("DL0001", [h["house_no"] for h in listed])
         mine = self.client.get("/api/appointments/mine", headers=self.tenant).json()["list"]
         self.assertEqual(mine[0]["status"], "cancelled")
+
+    def test_disabling_a_tenant_cancels_his_viewings(self):
+        """他约的看房原先照常挂在房东待办里，房东确认了、按点到楼下，等一个登不上来的人。"""
+        moment = (datetime.now() + timedelta(days=3)).replace(hour=15, minute=0, second=0,
+                                                               microsecond=0)
+        booked = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0001", "viewing_time": moment.isoformat(),
+            "contact_phone": "13900005678"})
+        self.assertEqual(booked.status_code, 200, booked.text)
+
+        self.client.patch("/api/admin/users/%d" % self._user_id("tenant1"),
+                          headers=self.admin, json={"status": "disabled"})
+        rows = self.client.get("/api/appointments/mine?side=landlord",
+                               headers=self.landlord).json()["list"]
+        self.assertEqual(rows[0]["status"], "cancelled")
+        self.assertIn("停用", rows[0]["reply"])
+
+    def test_cannot_demote_a_landlord_with_live_business(self):
+        """和房东自己点「退回租客」同一道前置。原先管理员这条路什么都不查，
+        合同的甲方一下子成了没有房东权限的账号。"""
+        response = self.client.patch("/api/admin/users/%d" % self._user_id("landlord1"),
+                                     headers=self.admin, json={"role": "tenant"})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("仍在架", response.json()["detail"])
+        self.assertEqual(self.client.get("/api/auth/me", headers=self.landlord)
+                         .json()["role"], "landlord")
+
+    def test_approve_cannot_relist_a_house_the_landlord_took_down(self):
+        """审核只管待审和被驳回的；房东自己下架的点「通过」等于替他重新挂出去。"""
+        import app.db as db
+        from app.models import House
+        session = db.SessionLocal()
+        try:      # 装置里的房源没有审核时间，补上才是「审过、上过架」的那种
+            session.query(House).filter_by(house_no="DL0001").one().approved_at = datetime.now()
+            session.commit()
+        finally:
+            session.close()
+        self.client.patch("/api/houses/DL0001/status?status=offline", headers=self.landlord)
+        response = self.client.patch("/api/houses/DL0001/review", headers=self.admin,
+                                     json={"approved": True})
+        self.assertEqual(response.status_code, 409)
+
+    def test_house_of_a_disabled_landlord_cannot_go_back_up(self):
+        """上架了也签不了约——签约要房东本人点。管理员也不例外。"""
+        self.client.patch("/api/admin/users/%d" % self._user_id("landlord1"),
+                          headers=self.admin, json={"status": "disabled"})
+        response = self.client.patch("/api/houses/DL0001/status?status=available",
+                                     headers=self.admin)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("停用", response.json()["detail"])
 
     def test_change_role(self):
         user_id = self._user_id("tenant1")
