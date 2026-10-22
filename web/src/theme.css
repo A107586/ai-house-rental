@@ -963,6 +963,46 @@
 .bubble.assistant { border-top-left-radius: 3px; }
 .bubble.user { border-top-right-radius: 3px; }
 
+/* ---------- 气泡进场 / 思考气泡退场 ----------
+ *
+ * 气泡原来没有任何进场动画：全站最该有进场的地方反而是直接闪现。
+ * 位移只给 6px，而且从说话人那一侧的方向过来——比纯淡入多一点
+ * 「是谁在说」的信息，又不至于像在滑动。
+ *
+ * 历史消息不播：翻出上一轮对话时一次挂上来十几条，
+ * 全播一遍就是满屏一起闪，那是 .grid > .card 犯过的同一个错。 */
+.bubble {
+  animation: bubbleIn var(--dur) var(--ease-out) both;
+}
+
+.bubble.history { animation: none; }
+
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 思考气泡的退场，是这次改动里最该做的一处。
+ *
+ * ChatPanel 里它是 `{busy && <thinking-bubble>}`：busy 一转 false
+ * 就从 DOM 里消失，而正式回答同一时刻在它上方出现——
+ * 一帧之内「转圈的没了、答案冒出来了」，是整个应用里最硬的一次切。
+ * 偏偏这是答辩时被盯得最久的一帧。
+ *
+ * 退场和 .bubble 的进场都取 0.16s 上下：两个一叠，读起来是
+ * 思考气泡原地变成了回答，不是消失再出现。
+ * is-closing 由 useExitTransition 挂，时长要和那边的 EXIT_MS 对齐。 */
+.thinking-bubble.is-closing {
+  animation: bubbleOut 0.16s var(--ease) both;
+  /* 退场期间别再响应点击——此时它已经是个影子了 */
+  pointer-events: none;
+}
+
+@keyframes bubbleOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-4px); }
+}
+
 /* 面板里其余的框跟全局走小圆角 */
 .chat-log,
 .chat-quick,
@@ -1194,6 +1234,16 @@
   border-radius: 0;
   box-shadow: none;
   border-top: 1px solid var(--line);
+  /* 勾选第一套房时这条底栏是凭空出现的（CompareBar 里 items 为空直接
+     return null）。从下滑进来，顺着它贴底的方向，比闪现更像「它升上来了」。
+     只做进场：退场要延迟 unmount，得改 CompareBar 的渲染，
+     那个组件此刻没人在动，但收益不值一次改动，留到有人碰它时一起做。 */
+  animation: barUp var(--dur) var(--ease-out) both;
+}
+
+@keyframes barUp {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* 这几处的投影去掉，改描边。都浮起来等于都没浮起来。 */
@@ -1277,6 +1327,24 @@
   to   { opacity: 1; transform: none; }
 }
 
+/* 筛选 / 翻页 / 排序之后的重排，掐掉上面那段错开。
+ *
+ * 为什么首次加载要错开、重排不要：错开 8 张是 280ms 延迟叠 360ms 动画，
+ * 接近 0.65 秒。首次加载时没有参照物，这 0.65 秒读起来是「内容正在到位」；
+ * 但调价格区间那种操作是连着做好几次的，**每次都要等 0.65 秒重排完
+ * 才能看清结果，就没法把改之前和改之后放在一起比**——
+ * 那恰好是筛选唯一的用途。
+ *
+ * 默认（不带这个 class）保持原样，所以首页那三栏预览、推荐位
+ * 都不受影响；只有房源列表在重排时由 App 挂上 grid-reflow。
+ *
+ * 必须排在 nth-child 那一组后面：两边特异性相同，靠顺序取胜。
+ * 挪到前面去就不生效了，别重排这段的位置。 */
+.grid.grid-reflow > .card {
+  animation-duration: var(--dur-fast);
+  animation-delay: 0s;
+}
+
 /* 焦点环统一。别去掉——键盘用户全靠它知道自己在哪。 */
 :focus-visible {
   outline: 2px solid var(--brand);
@@ -1286,14 +1354,16 @@
 
 .hero :focus-visible { outline-color: #fff; }
 
-/* 关掉动效的用户，一律直接给最终状态，不是放慢 */
+/* 关掉动效的用户，一律直接给最终状态，不是放慢。
+ *
+ * 全站那条 `*` 兜底已经搬到 styles.css 末尾了——它不能住在这一层，
+ * 因为这一层的设计就是「出问题把 main.jsx 那行 import 注释掉」，
+ * 一注释无障碍保护就跟着没了。搬过去的理由写在那边。
+ *
+ * 这里只留本层自己加出来的两个**位移终态**。
+ * 时长压到 0.001ms 不会把 transform 收回去——它只是让位移瞬间完成，
+ * 终点还是那个放大后的位置。所以这两条必须显式写 none。 */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
   .hero-slide.on img { transform: none; }
   .card:hover .card-photo img { transform: none; }
 }
@@ -2763,6 +2833,10 @@
   border-radius: var(--radius);
   background: var(--surface-2);
   border: 1px solid var(--line);
+  /* 待办为空时这块不渲染，有待办了才出现。它在页面流里（不是吸底），
+     所以用抬 4px 的淡入，不用上面那种 100% 位移——
+     在流里做大位移会把下面的内容一起带着晃。 */
+  animation: reply-in var(--dur) var(--ease-out) both;
 }
 
 /* 有紧急项时左边亮一条。整块变色会盖过里面每一格自己的状态，

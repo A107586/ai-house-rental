@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { api, getToken, setToken } from './api'
 import useHashRoute from './useHashRoute'
+import { useEntranceStagger } from './useMotion'
 import useScrollLock from './useScrollLock'
 import useSearchHistory from './useSearchHistory'
 import { whoami } from './storage'
@@ -193,6 +194,12 @@ export default function App() {
 
   const isList = bg.name === 'list'
   const listKind = isList ? (bg.param || 'all') : ''
+
+  // 只决定房源卡片的进场动画，不参与任何业务判断。
+  // 刚进一个列表视图的 700ms 内保留 40ms 逐个错开，之后筛选/翻页换来的
+  // 批次改成整体快淡入；换列表（listKind 变了）重开一个窗口。
+  // 为什么按时间窗而不是数批次，写在 useMotion.js 里。
+  const listStagger = useEntranceStagger(listKind)
 
   /** 列表页要不要摆筛选与地图。**四种 kind 都要**——
    * 它们本来就是「进来之后再收窄」的工具，进了列表页就该有。 */
@@ -1112,7 +1119,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            <div className="grid">
+            <div className={`grid${listStagger ? '' : ' grid-reflow'}`}>
               {houses.map((house) => (
                 <HouseCard
                   key={house.house_no}

@@ -41,8 +41,16 @@
      不一致的缓动会让页面显得"每块是不同人做的"。 */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 0.14s;
   --dur: 0.22s;
   --dur-slow: 0.5s;
+
+  /* 时长跟位移走，不是随手拍一个数：
+       --dur-fast  只变颜色/透明度，位置不动（hover 变色、提示条淡入）
+       --dur       小位移，8px 以内（按钮按下、卡片抬起）
+       --dur-slow  面板级，12px 以上或尺寸变化（抽屉、图片放大）
+     首屏大图那几个 0.62s / 0.9s / 6s 故意不在这套刻度里——
+     那是「看风景」不是「等界面响应」，见 theme.css 第一节。 */
 }
 
 * {
@@ -201,6 +209,56 @@ textarea {
   cursor: not-allowed;
 }
 
+/* 慢请求的按钮转圈。
+ *
+ * `disabled` 只说明「现在点不了」，不说明「它在干活」——按钮因为没填完
+ * 也会灰掉，两种灰长得一样。智能体那一路要跑检索加一趟大模型，十几秒里
+ * 用户盯着的就是这个按钮，所以让它自己说一句「在转」。
+ *
+ * **要靠 is-busy 这个 class 显式开，不要挂在 :disabled 上。**
+ * 挂在 :disabled 上会让所有「条件不满足」的灰按钮一起转圈，
+ * 那是在报告一件没发生的事。
+ *
+ * 什么时候加这个 class 由 useDelayedFlag 决定（默认忙过 400ms 才加），
+ * 原因写在 useMotion.js 里：闪一下的转圈比不转更让人心慌。
+ *
+ * ## 圈盖在原位，按钮尺寸一像素都不变
+ *
+ * 第一版是「圈 + 文字」并排（inline-flex + gap），实测发送按钮
+ * 从 75px 撑到 94px，**旁边的输入框被挤窄 19px**——用户正盯着的地方
+ * 在动，比不转圈还糟。
+ *
+ * 现在的做法：文字用 -webkit-text-fill-color 隐身（不是 color: transparent——
+ * 那样 currentColor 也跟着透明，圈就没颜色了），圈用 inset:0 + margin:auto
+ * 居中盖在按钮正中。按钮的盒子没有任何变化。
+ * 按钮这时本来就是 disabled 的，「发送」两个字此刻不承载任何可操作的信息；
+ * 读屏用户那边，思考气泡自带 role=status 会播报。
+ *
+ * ⚠️ 这里会把按钮设成 position: relative。目前只有聊天面板的发送按钮用它；
+ * 以后要挂到一个本身是 absolute / fixed 的按钮上，先确认不会被这条顶掉。 */
+.btn.is-busy {
+  position: relative;
+  -webkit-text-fill-color: transparent;
+}
+
+.btn.is-busy::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  /* 只留一段弧，整圈都有色就看不出在转了 */
+  border-top-color: transparent;
+  animation: btn-spin 0.72s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 .btn.ghost {
   background: transparent;
   color: var(--ink-2);
@@ -330,7 +388,12 @@ textarea {
   border-radius: var(--radius);
   padding: 17px 18px;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  /* 带位移（hover 抬起）所以走 --dur，不是 --dur-fast。
+     theme.css 那层本来就把这条覆盖成 --dur 了，这里跟它对齐，
+     免得「把皮去掉之后卡片手感变快了」。 */
+  transition: border-color var(--dur) var(--ease),
+              transform var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
 }
 
 .card:hover {
@@ -546,12 +609,28 @@ textarea {
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
+/* 办理结果条。
+ *
+ * 原来它是瞬间出现的——操作一完成，一块带颜色的东西直接闪在那里。
+ * 淡入 + 抬 4px 之后，眼睛能跟上「这是刚出来的」。
+ *
+ * ⚠️ **这里只解决了「突然」，没解决「顶走下面的内容」。**
+ * 它一出现仍然会把下方按钮往下推（聊天面板里会推走快捷问句那一排）。
+ * 要连推挤一起解决，得给每处用到 .reply 的地方套一个预留高度的外层
+ * ——全站 20 多处，改动面远大于收益，留着。
+ * 真要做的话：外层 display:grid，grid-template-rows 从 0fr 过渡到 1fr。 */
 .reply {
   margin-top: 13px;
   padding: 12px 14px;
   border-radius: 8px;
   font-size: 13.5px;
   border-left: 3px solid;
+  animation: reply-in var(--dur) var(--ease-out) both;
+}
+
+@keyframes reply-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 
 .reply.created {
@@ -1226,7 +1305,8 @@ textarea {
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.35s ease;
+  /* 与 theme.css 里图片 hover 的那条对齐，免得「去掉皮之后手感变了」 */
+  transition: transform var(--dur-slow) var(--ease);
 }
 
 .card:hover .card-photo img {
@@ -2185,7 +2265,7 @@ textarea {
 .map-area path {
   stroke: #ffffff;
   stroke-width: 1.5;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 .map-area:hover path {
@@ -3736,7 +3816,7 @@ td.accent {
   display: block;
   height: 100%;
   background: var(--brand);
-  transition: width 0.25s ease;
+  transition: width var(--dur) var(--ease);
 }
 
 .form-filled { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -4914,4 +4994,30 @@ button.account-row:last-child { border-bottom: none; }
 }
 @keyframes stream-caret {
   50% { opacity: 0; }
+}
+
+/* ============================================================
+   减少动态效果：全站兜底
+   ============================================================
+   这一段原来在 theme.css 里。搬过来是因为那一层按它自己的头注释
+   就是「出问题把 main.jsx 里那行 import 注释掉」——一注释，
+   全站的无障碍兜底就跟着没了，只剩下面骨架屏那一个局部块。
+   **兜底不能住在一个随时会被摘掉的层里。**
+
+   破例用 !important：这是唯一能盖住各处 animation / transition
+   简写的写法，而简写里的时长无法用非 !important 的声明单独覆盖。
+   theme.css 头注释里「不用 !important」那条规则在这里不适用——
+   那条规则是为了「后面的人还能覆盖回去」，而这一段的本意恰恰是
+   不许任何人覆盖回去。下一个人路过时不要按那条规则把它删了。
+
+   用 0.001ms 而不是 none：动画仍然「播完」，transitionend /
+   animationend 还会照常触发。改成 none 会让等这些事件的代码永远等不到
+   ——退场延迟那套就是这么挂的。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

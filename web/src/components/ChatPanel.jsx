@@ -3,6 +3,7 @@ import { api, getToken } from '../api'
 import {
   readJSON, readText, remove, scopedKey, writeJSON, writeText,
 } from '../storage'
+import { useDelayedFlag, useExitTransition } from '../useMotion'
 import ChatAvatar from './ChatAvatar'
 import Thinking, { guessIntent } from './Thinking'
 
@@ -465,6 +466,28 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 流式接口推来的：此刻真实在做的那一步（「在查你的账单」）和已经生成的那部分回答
   const [streamStep, setStreamStep] = useState('')
   const [streamText, setStreamText] = useState('')
+
+  // ---- 以下三个只管动效，不参与任何业务判断 ----
+  //
+  // 思考气泡的退场。原来是 `{busy && <thinking-bubble>}`，busy 一转 false
+  // 气泡就从 DOM 里消失，而正式回答同一刻在它上方出现——一帧之内
+  // 「转圈的没了、答案冒出来了」。延迟 160ms 卸载，配合气泡自己的进场，
+  // 读起来是思考气泡原地变成了回答。
+  const { mounted: thinkingOn, closing: thinkingClosing } = useExitTransition(busy)
+
+  // 退场那 160ms 里 busy 已经 false、streamText 也被 send 的 finally 清空了，
+  // 照原样渲染会**闪回转圈再淡出**。所以退场期间改用这份快照。
+  //
+  // 只在 busy 期间跟踪、不在退场期间更新：busy 还是 true 的时候一律用真实的
+  // streamText。auto_confirm 那条路上流式文字清空后还要 await 一次执行接口，
+  // 那段时间界面该继续转圈（它确实还在办），不能被冻住的文字盖住。
+  const exitSnapshot = useRef('')
+  if (busy) exitSnapshot.current = streamText
+  const thinkingText = thinkingClosing ? exitSnapshot.current : streamText
+
+  // 发送按钮的转圈。忙过 400ms 才显示，原因见 useMotion.js：
+  // 快请求闪一下的转圈比完全不转更让人心慌。
+  const sendBusy = useDelayedFlag(busy)
   const [context, setContext] = useState('')
   // 未完成的代办：助手问了哪个槽、已经填了什么、或者已经摆出的确认卡片。
   // 服务端不存会话态，这份状态由前端带着走。
@@ -1137,11 +1160,11 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
             )
           ))}
 
-          {busy && (
-            <div className="bubble assistant thinking-bubble">
+          {thinkingOn && (
+            <div className={`bubble assistant thinking-bubble${thinkingClosing ? ' is-closing' : ''}`}>
               <ChatAvatar kind="ai" />
-              {streamText
-                ? <div className="bubble-text streaming">{streamText}</div>
+              {thinkingText
+                ? <div className="bubble-text streaming">{thinkingText}</div>
                 : <Thinking intent={thinkIntent} label={streamStep} />}
             </div>
           )}
@@ -1205,7 +1228,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
             onPaste={onPaste}
           />
           <button
-            className="btn"
+            className={`btn${sendBusy ? ' is-busy' : ''}`}
             type="submit"
             disabled={busy || uploading || (!text.trim() && !attachments.length)}
           >
