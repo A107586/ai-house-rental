@@ -497,6 +497,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 跟固定的 QUICK 不是一回事，所以单独存一份。
   const [chips, setChips] = useState([])
   const bottomRef = useRef(null)
+  const logRef = useRef(null)
+  // 用户自己往上翻在看历史时，新内容不把他拽回底部；他回到底部附近，就接着跟随
+  const stickRef = useRef(true)
   // 随下一句话一起发的照片。选中就先传到业务后端换成地址，这里只存地址——
   // 智能体只认本系统上传的 /static/ 路径，不收二进制，也不收外链。
   const [attachments, setAttachments] = useState([])
@@ -574,9 +577,38 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     return () => { alive = false }
   }, [sessionId, user])
 
+  // 跟随最新内容。原先只在 messages / busy 变化时滚一次：
+  // 流式回答一个字一个字变长、房源卡片和图片后加载撑高、思考气泡出现，
+  // 都不会再滚，最新那几行落在可视区下面，看着像「不会自动上翻」。
+  // 现在内容区高度一变就跟到底（ResizeObserver），除非用户自己翻上去了。
+  function scrollToEnd() {
+    const el = logRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages, busy])
+    // 自己刚发了一句：无论之前翻到哪，都回到底部看回复
+    const last = messages[messages.length - 1]
+    if (last?.role === 'user') stickRef.current = true
+    scrollToEnd()
+  }, [messages, busy, streamText, streamStep, thinkingOn])
+
+  useEffect(() => {
+    const el = logRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const onScroll = () => {
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    const observer = new ResizeObserver(() => scrollToEnd())
+    Array.from(el.children).forEach((child) => observer.observe(child))
+    const mo = new MutationObserver(() => {
+      Array.from(el.children).forEach((child) => observer.observe(child))
+      scrollToEnd()
+    })
+    mo.observe(el, { childList: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => { observer.disconnect(); mo.disconnect(); el.removeEventListener('scroll', onScroll) }
+  }, [])
 
   // 消息或待办一变就落盘。抽屉关掉、页面刷新、甚至换个标签页回来，
   // 都还在上次那个位置。
@@ -948,7 +980,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           </div>
         )}
 
-        <div className="chat-log">
+        <div className="chat-log" ref={logRef}>
           {messages.map((message, index) => (
             message.kind === 'divider' ? (
               <div className="chat-divider" key={index}>{message.content}</div>
