@@ -188,6 +188,10 @@ def create_delegation(payload: DelegationCreate,
             select(User).where(User.username == payload.agent_username.strip()))
         if not target or target.role != "agent":
             raise HTTPException(status_code=404, detail="中介不存在")
+        if target.status != "active":
+            # 名录里早就不列停用的中介了，手填用户名却照样能邀请——对方登不上来，
+            # 这条邀请永远等不到确认
+            raise HTTPException(status_code=400, detail="该中介账号已停用，不能委托")
         profile = _profile(session, target.id)
         if not profile or not profile.can_take_orders:
             raise HTTPException(status_code=400,

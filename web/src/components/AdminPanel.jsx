@@ -144,8 +144,9 @@ export default function AdminPanel({ user, onClose, embedded,
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  /** 返回成没成。发公告的表单要据此决定清不清 */
   async function run(key, fn, message = '') {
-    if (busy) return
+    if (busy) return false
     setBusy(key)
     setError('')
     setOk('')
@@ -153,8 +154,10 @@ export default function AdminPanel({ user, onClose, embedded,
       await fn()
       if (message) setOk(message)
       await load()
+      return true
     } catch (err) {
       setError(err.message)
+      return false
     } finally {
       setBusy('')
     }
@@ -579,8 +582,9 @@ export default function AdminPanel({ user, onClose, embedded,
                   setError('标题和正文都要填')
                   return
                 }
+                // 发布成功才清：正文被内容审核拦下时，原先写好的公告整段没了
                 run('notice', () => api.createNotice(draft), '公告已发布。')
-                  .then(() => setDraft({ title: '', content: '', category: '公告' }))
+                  .then((done) => done && setDraft({ title: '', content: '', category: '公告' }))
               }}
             >
               <label className="fld">
@@ -674,9 +678,28 @@ export default function AdminPanel({ user, onClose, embedded,
                       <button
                         className="btn ghost small"
                         disabled={busy === `u${u.id}`}
-                        onClick={() => run(`u${u.id}`, () => api.updateUser(u.id, {
-                          status: u.status === 'active' ? 'disabled' : 'active',
-                        }))}
+                        onClick={() => {
+                          const name = u.real_name || u.username
+                          // 禁用不只是「登不上」：后端会把他在架的房源下架、未到时间的看房取消、
+                          // 委托结束，重新启用也不会恢复。原先一点就生效，连个确认都没有
+                          if (u.status === 'active' && !window.confirm([
+                            `禁用 ${name}？`,
+                            '',
+                            '· 立即登出，之后登录不上',
+                            '· 名下在架的房源全部下架，还没到时间的看房全部取消',
+                            '· 作为房东或中介的委托一并结束',
+                            '',
+                            '重新启用不会自动恢复这些。',
+                          ].join('\n'))) return
+                          run(`u${u.id}`, async () => {
+                            const r = await api.updateUser(u.id, {
+                              status: u.status === 'active' ? 'disabled' : 'active',
+                            })
+                            setOk(u.status === 'active'
+                              ? `已禁用 ${name}${r?.houses_offlined ? `，下架了 ${r.houses_offlined} 套房源` : ''}。`
+                              : `已启用 ${name}。之前下架的房源需要房东自己重新上架。`)
+                          })
+                        }}
                       >
                         {u.status === 'active' ? '禁用' : '启用'}
                       </button>
@@ -684,9 +707,18 @@ export default function AdminPanel({ user, onClose, embedded,
                         <button
                           className="btn ghost small"
                           disabled={busy === `u${u.id}`}
-                          onClick={() => run(`u${u.id}`, () => api.updateUser(u.id, {
-                            role: u.role === 'tenant' ? 'landlord' : 'tenant',
-                          }))}
+                          onClick={() => {
+                            const to = u.role === 'tenant' ? 'landlord' : 'tenant'
+                            const name = u.real_name || u.username
+                            const what = to === 'landlord'
+                              ? `把 ${name} 直接转为房东？（不走房东申请审核）`
+                              : u.role === 'agent'
+                                ? `把经纪人 ${name} 转为租客？他手上的委托会全部结束。`
+                                : `把 ${name} 转为租客？名下还有在架房源或没结束的合同时会被拦下。`
+                            if (!window.confirm(what)) return
+                            run(`u${u.id}`, () => api.updateUser(u.id, { role: to }),
+                                `已把 ${name} 转为${to === 'landlord' ? '房东' : '租客'}。`)
+                          }}
                         >
                           转为{u.role === 'tenant' ? '房东' : '租客'}
                         </button>

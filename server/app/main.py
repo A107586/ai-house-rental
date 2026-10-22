@@ -416,7 +416,8 @@ def change_password(payload: PasswordChange, user: User = Depends(require_login)
 # ------------------------------------------------------------------ 房源相册
 
 @app.get("/api/houses/{house_no}/images")
-def list_house_images(house_no: str, session: Session = Depends(get_session)):
+def list_house_images(house_no: str, user: User | None = Depends(current_user),
+                      session: Session = Depends(get_session)):
     """房源相册的完整信息。
 
     房源详情里的 images 只有 URL 字符串，够列表页展示；房东要管理相册
@@ -425,6 +426,9 @@ def list_house_images(house_no: str, session: Session = Depends(get_session)):
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 和详情同一道门。被复核下架的房源，违规的往往正是图（比如拍了个电话号码）
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
     rows = session.scalars(
         select(HouseImage).where(HouseImage.house_id == house.id)
         .order_by(HouseImage.is_cover.desc(), HouseImage.sort_order)).all()
@@ -1862,6 +1866,10 @@ def add_favorite(house_no: str, user: User = Depends(require_login),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 和详情同一道门：收藏列表返回的是整套房源资料，待审 / 下架的从这里收进来，
+        # 等于绕过详情页把内容读走
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
 
     exists = session.scalar(select(Favorite).where(
         Favorite.user_id == user.id, Favorite.house_id == house.id))

@@ -1584,3 +1584,19 @@ class TestDelegationEndsWithTheParty(BrokerCase):
             return session.query(User).filter_by(username=username).one().id
         finally:
             session.close()
+
+
+class TestCannotInviteADisabledAgent(BrokerCase):
+    """名录里不列停用的中介，但手填用户名原先照样能邀请——对方登不上来，邀请永远没人确认。"""
+
+    def test_invite_is_refused(self):
+        session = db.SessionLocal()
+        try:
+            session.query(User).filter_by(username="agent1").one().status = "disabled"
+            session.commit()
+        finally:
+            session.close()
+        response = self.client.post("/api/delegations", headers=self.landlord,
+                                    json={"house_no": "DL0001", "agent_username": "agent1"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("停用", response.json()["detail"])

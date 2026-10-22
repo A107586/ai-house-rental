@@ -74,6 +74,16 @@ class TestHouseVisibility(AdminCase):
         self.assertTrue(mine.json()["is_owner"])
         self.assertEqual(self.client.get("/api/houses/%s" % house_no,
                                          headers=self.admin).status_code, 200)
+        # 相册同一道门
+        self.assertEqual(self.client.get("/api/houses/%s/images" % house_no).status_code, 404)
+        self.assertEqual(self.client.get("/api/houses/%s/images" % house_no,
+                                         headers=self.landlord).status_code, 200)
+
+    def test_unlisted_house_cannot_be_favorited_by_number(self):
+        """收藏列表返回整套房源资料，从这里收进来就绕过了详情那道门。"""
+        house_no = self.publish()
+        response = self.client.post("/api/favorites/%s" % house_no, headers=self.tenant)
+        self.assertEqual(response.status_code, 404)
 
     def test_tenant_who_signed_can_still_open_it(self):
         """合同详情要链到这套房，下架了也得打得开。"""

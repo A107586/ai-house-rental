@@ -96,8 +96,9 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, openList.length, viewings.length, commissions])
 
+  /** 返回成没成。表单要据此决定清不清——原先失败了也照样清 */
   async function run(key, fn, message = '') {
-    if (busy) return
+    if (busy) return false
     setBusy(key)
     setError('')
     setOk('')
@@ -114,6 +115,7 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
       setOpenList([])
       setViewings([])
       setCommissions(null)
+      return true
     } catch (err) {
       setError(err.message)
     } finally {
@@ -478,9 +480,13 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                   intention: draft.intention,
                   concerns: draft.concerns,
                   feedback: draft.feedback,
-                }), '纪要已提交，房东会收到一条通知。')
-                setNote({ house_no: '', tenant_username: '', text: '' })
-                setDraft(null)
+                }), '纪要已提交，房东会收到一条通知。').then((done) => {
+                  // 提交成功才清。原先发出请求就清：租客用户名打错一个字母，
+                  // 口述和整理好的纪要一起没了，只能从头再写
+                  if (!done) return
+                  setNote({ house_no: '', tenant_username: '', text: '' })
+                  setDraft(null)
+                })
               }}
             >
               <div className="fld-row">
