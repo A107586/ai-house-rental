@@ -34,9 +34,12 @@ function billState(bill) {
   return { label: '待缴', cls: 'status-pending' }
 }
 
-export default function ContractDetail({ contractNo, onClose, onOpenHouse }) {
+// asPayee：从房东工作台或管理端打开（收款方），账单上给「已线下收款」
+export default function ContractDetail({ contractNo, onClose, onOpenHouse, asPayee = false }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -45,7 +48,22 @@ export default function ContractDetail({ contractNo, onClose, onOpenHouse }) {
       .then((body) => { if (alive) setData(body) })
       .catch((err) => { if (alive) setError(err.message) })
     return () => { alive = false }
-  }, [contractNo])
+  }, [contractNo, reload])
+
+  async function markReceived(bill) {
+    if (busy) return
+    if (!window.confirm(`确认已线下收到这笔 ${money(bill.amount)} 元？确认后账单记为已缴，租客会收到通知。`)) return
+    setBusy(bill.bill_no)
+    setError('')
+    try {
+      await api.offlineReceipt(bill.bill_no)
+      setReload((n) => n + 1)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
@@ -149,6 +167,13 @@ export default function ContractDetail({ contractNo, onClose, onOpenHouse }) {
                                   {bill.paid_at}
                                 </div>
                               </>
+                            ) : asPayee && bill.status === 'unpaid'
+                                && ['active', 'ended'].includes(contract.status) ? (
+                              // 合同结束后的欠款线上付不了，只能线下结；结清了要有地方记下来
+                              <button className="btn ghost small" disabled={!!busy}
+                                      onClick={() => markReceived(bill)}>
+                                {busy === bill.bill_no ? '登记中' : '已线下收款'}
+                              </button>
                             ) : <span className="muted-note">—</span>}
                           </td>
                         </tr>

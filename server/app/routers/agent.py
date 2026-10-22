@@ -467,6 +467,55 @@ def my_commissions(status: str = "",
             "list": [r.to_dict() for r in rows]}
 
 
+@router.get("/api/agent/commission-proposals")
+def commission_proposals(user: User = Depends(require_agent),
+                         session: Session = Depends(get_session)):
+    """等我表态的佣金调低：受托房源上、还没生效、比例比委托时低的合同。
+
+    中介不是合同一方，看不到合同本身（_visible_contract 只放当事双方），
+    所以这里把表态需要的几样直接带出来。
+    """
+    rows = session.scalars(
+        select(Contract).join(HouseDelegation, HouseDelegation.house_id == Contract.house_id)
+        .where(HouseDelegation.agent_id == user.id, HouseDelegation.status == "active",
+               Contract.status == "pending", Contract.commission_state == "pending")
+        .order_by(Contract.created_at.desc())).all()
+    out = []
+    for c in rows:
+        delegation = active_delegation(session, c.house_id)
+        out.append({
+            "contract_no": c.contract_no,
+            "house_no": c.house.house_no if c.house else "",
+            "house_title": c.house.title if c.house else "",
+            "rent": float(c.rent),
+            "proposed_rate": float(c.commission_rate),
+            "delegation_rate": float(delegation.commission_rate) if delegation else None,
+            "landlord_name": mask_name(session.get(User, c.landlord_id)),
+            "created_at": c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
+        })
+    return {"total": len(out), "list": out}
+
+
+@router.post("/api/contracts/{contract_no}/commission")
+def respond_commission(contract_no: str,
+                       accept: bool = Body(embed=True),
+                       user: User = Depends(require_agent),
+                       session: Session = Depends(get_session)):
+    """受托中介同意或不同意房东调低的佣金比例（2026-10-23 定）。"""
+    contract = session.scalar(select(Contract).where(Contract.contract_no == contract_no))
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    try:
+        leasing.respond_commission(session, contract, user, accept)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    return {"ok": True, "contract_no": contract.contract_no,
+            "commission_state": contract.commission_state}
+
+
 @router.get("/api/landlord/commissions")
 def owed_commissions(status: str = "",
                      user: User = Depends(require_login),
@@ -697,6 +746,8 @@ def dashboard(user: User = Depends(require_agent),
                 for a in today],
             "pending_appointments": [
                 a.to_dict(show_contact=False) for a in pending_appointments],
+            # 房东调低了佣金比例、等我表态的合同（2026-10-23）
+            "commission_proposals": commission_proposals(user, session)["list"],
         },
         "delegations": [d.to_dict() for d in active_rows[:20]],
     }

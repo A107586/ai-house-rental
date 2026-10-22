@@ -1,7 +1,8 @@
 classDiagram
     direction LR
-    class Api["中介 · HTTP 接口（14 个）"] {
+    class Api["中介 · HTTP 接口（15 个）"] {
         <<router>>
+        +commission_proposals() GET
         +my_commissions() GET
         +dashboard() GET
         +submit_license(LicenseSubmit) POST

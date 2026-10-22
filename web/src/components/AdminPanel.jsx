@@ -792,7 +792,7 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
                       onOpenContract={(no) => { setOverviewId(0); setContractNo(no) }} />
       )}
       {contractNo && (
-        <ContractDetail contractNo={contractNo} onClose={() => setContractNo('')} />
+        <ContractDetail contractNo={contractNo} asPayee onClose={() => setContractNo('')} />
       )}
     </>
   )

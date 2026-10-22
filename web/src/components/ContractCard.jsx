@@ -10,6 +10,13 @@ const STATUS = {
   cancelled: { label: '已取消', cls: 'status-rejected' },
 }
 
+// 调低的佣金比例要受托中介同意，没同意的按委托时的比例结算（2026-10-23）
+const COMMISSION_NOTE = {
+  pending: '（待中介确认，未同意按委托比例结算）',
+  rejected: '（中介不同意，按委托比例结算）',
+  agreed: '（中介已同意）',
+}
+
 export default function ContractCard({ contract, role, onChanged, onOpenHouse,
                                       onOpenDetail }) {
   const [showText, setShowText] = useState(false)
@@ -131,7 +138,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         {contract.pay_months > 1 && ` · 每 ${contract.pay_months} 个月一付`}
         {/* 佣金是房东和中介之间的事，租客那边不显示 */}
         {isStaff && contract.commission_rate != null &&
-          ` · 约定佣金 ${contract.commission_rate}%`}
+          ` · 约定佣金 ${contract.commission_rate}%${COMMISSION_NOTE[contract.commission_state] || ''}`}
       </div>
 
       {contract.status === 'active' && !expired && (
@@ -147,17 +154,19 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         </div>
       )}
 
-      {/* deposit_refund 是实际退还的押金；押金没收到过就是空的，不能写成「已退还」 */}
-      {contract.status === 'ended' && (
+      {/* deposit_refund 是实际退还的押金；押金没收到过（或免押）就是空的，不能写成「已退还」。
+          空的时候不写押金这一句：演示库里的历史合同也没有账单，猜「未缴」同样会说错 */}
+      {contract.status === 'ended' && (contract.deposit_refund !== null || contract.end_reason) && (
         <div className="record-body">
-          {contract.deposit_refund !== null ? (
+          {contract.deposit_refund !== null && (
             <>
               已退还押金 {contract.deposit_refund} 元
               {contract.deposit - contract.deposit_refund > 0 &&
                 `（扣款 ${(contract.deposit - contract.deposit_refund).toFixed(0)} 元）`}
+              {contract.end_reason && ' · '}
             </>
-          ) : contract.deposit > 0 ? '押金未缴纳，无需退还' : '免押'}
-          {contract.end_reason && ` · ${contract.end_reason}`}
+          )}
+          {contract.end_reason}
         </div>
       )}
       {contract.status === 'cancelled' && contract.end_reason && (

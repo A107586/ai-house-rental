@@ -681,6 +681,11 @@ class Contract(Base):
     # 签约时约定的佣金比例（月租的百分比）。空表示按委托上的比例算。
     # 中介费常在签约时才谈定，委托时写的 50% 不一定是最后成交的数（2026-10-22）
     commission_rate: Mapped[float] = mapped_column(Numeric(5, 2), nullable=True)
+    # 调低比例要中介点头（2026-10-23 定）：佣金是房东付给中介的，付钱的一方
+    # 不能单方面定自己欠多少。空串 = 不需要同意（没另谈，或谈高了）；
+    # pending 等中介；agreed 同意；rejected 不同意。只有空串与 agreed 时按约定比例结算，
+    # 其余按委托上的比例
+    commission_state: Mapped[str] = mapped_column(String(10), default="")
 
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -788,6 +793,7 @@ class Contract(Base):
             "pay_months": self.pay_months,
             "commission_rate": (float(self.commission_rate)
                                 if self.commission_rate is not None else None),
+            "commission_state": self.commission_state or "",
             "status": self.status,
             "content": self.content,
             "days_left": self.days_left,

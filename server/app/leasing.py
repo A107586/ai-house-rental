@@ -196,6 +196,40 @@ def check_commission_rate(session, house, commission_rate):
     return delegation
 
 
+def commission_state_for(delegation, commission_rate):
+    """约定比例要不要中介同意：**比委托时低才要**。谈高了是房东多付，不用问。"""
+    if commission_rate is None or delegation is None:
+        return ""
+    if Decimal(str(commission_rate)) < Decimal(str(delegation.commission_rate)):
+        return "pending"
+    return ""
+
+
+def respond_commission(session, contract, agent, accept):
+    """中介对调低的佣金比例表态。只在合同还没生效时有意义——生效那一刻就按当时的结论结算了。"""
+    from app.permissions import active_delegation
+    if contract.status != "pending":
+        raise ValueError("合同已经%s，佣金按当时的约定结算，不能再改"
+                         % {"active": "生效", "ended": "结束", "cancelled": "取消"}.get(
+                             contract.status, "处理"))
+    delegation = active_delegation(session, contract.house_id)
+    if not delegation or delegation.agent_id != agent.id:
+        raise PermissionError("只有这套房的受托中介可以确认佣金比例")
+    if contract.commission_state != "pending":
+        raise ValueError("这份合同没有等你确认的佣金调整")
+    contract.commission_state = "agreed" if accept else "rejected"
+    house_no = contract.house.house_no if contract.house else ""
+    notify(session, contract.landlord_id, "system",
+           "中介%s调整佣金比例" % ("同意" if accept else "不同意"),
+           "房源 %s 的合同 %s：中介%s把佣金调为月租的 %s%%%s。" % (
+               house_no, contract.contract_no, "同意" if accept else "不同意",
+               _money(contract.commission_rate),
+               "" if accept else "，成交时按委托时的 %s%% 结算" % _money(delegation.commission_rate)),
+           contract.contract_no)
+    session.flush()
+    return contract
+
+
 _CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
            13: "十三", 14: "十四", 15: "十五"}
 
@@ -403,10 +437,12 @@ def settle_delegation(session, contract, house):
         return None
 
     contract.agent_id = delegation.agent_id
-    # 签约时另谈了比例就按谈定的算，没谈就按委托上的
-    rate = Decimal(str(delegation.commission_rate
-                       if contract.commission_rate is None
-                       else contract.commission_rate))
+    # 签约时另谈了比例就按谈定的算，没谈就按委托上的。
+    # 调低的比例中介没点头（还在等、或不同意），也按委托上的——付钱的一方不能单方面压价
+    agreed = (contract.commission_rate is not None
+              and (contract.commission_state or "") in ("", "agreed"))
+    rate = Decimal(str(contract.commission_rate if agreed
+                       else delegation.commission_rate))
     base = Decimal(str(contract.rent))
     commission = AgentCommission(
         contract_id=contract.id, delegation_id=delegation.id,
@@ -830,6 +866,52 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
     """
     payment = start_payment(session, bill, user, method, idempotency_key)
     payment, _ = confirm_payment(session, payment, None, "success")
+    return payment
+
+
+def record_offline_receipt(session, bill, user):
+    """收款方确认「这笔钱线下收到了」：房东（或管理员）登记，账单置已缴并留一条 offline 流水。
+
+    合同结束后 `_guard_payable` 拒收任何缴费——那条规矩是对的，已终止的合同不该
+    再走缴费通道。可退租时「住过期间没交的租金」原样留成欠款，让双方线下结；
+    线下结清了，系统里却没有任何一处能记下来：租客的「待缴」、房东的「待收」
+    永远挂着（2026-10-23 定：给收款方一个确认入口）。
+
+    只有收钱的一方能点：付款方说「我付了」不算数，收款方确认收到才算。
+    """
+    if bill.status == "paid":
+        raise ValueError("该账单已缴清")
+    if bill.status == "cancelled":
+        raise ValueError("该账单已作废")
+    contract = bill.contract
+    if not contract or contract.status not in ("active", "ended"):
+        raise ValueError("只有生效中或已结束的合同上的账单可以登记线下收款")
+    now = datetime.now()
+    for payment in list(bill.payments):
+        if payment.status != "pending":
+            continue
+        if payment.expire_at and payment.expire_at <= now:
+            close_payment(session, payment, "超时未支付，自动关单")
+        else:
+            # 租客那边的收银台还开着：这时登记线下收款，他接着付成功就是收了两遍
+            raise ValueError("租客正在线上支付这张账单，等这次支付结束后再登记")
+
+    payment = Payment(
+        trade_no=_serial("LS"), bill_id=bill.id, user_id=user.id if user else None,
+        amount=bill.amount, method="offline", status="succeeded", gateway="offline",
+        paid_at=now)
+    session.add(payment)
+    bill.payments.append(payment)
+    bill.status = "paid"
+    bill.paid_at = now
+    bill.remark = (bill.remark + " · 线下收款，%s确认" % (
+        "平台" if user and user.role == "admin" else "房东")).strip(" ·")
+    notify(session, contract.tenant_id, "bill", "账单已确认收款",
+           "账单 %s（%s 元）已由%s确认线下收到。" % (
+               bill.bill_no, _money(bill.amount),
+               "平台" if user and user.role == "admin" else "房东"),
+           bill.bill_no)
+    session.flush()
     return payment
 
 

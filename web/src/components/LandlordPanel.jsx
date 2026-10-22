@@ -917,6 +917,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       {detailNo && (
         <ContractDetail
           contractNo={detailNo}
+          asPayee
           onClose={() => setDetailNo('')}
           onOpenHouse={(no) => {
             setDetailNo('')

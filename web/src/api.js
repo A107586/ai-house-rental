@@ -304,6 +304,8 @@ export const api = {
   // ---------------- 账单 ----------------
   // side：tenant 我要交的 / landlord 我该收的（D3）。不传就是两份混在一起
   myBills: (status = '', side = '') => request(`/api/bills/mine?${toQuery({ status, side })}`),
+  // 房东确认这笔钱线下收到了（合同结束后的欠款只能这样结清）
+  offlineReceipt: (billNo) => post(`/api/bills/${billNo}/offline-receipt`, {}),
   payBill: (no, method = 'alipay', idempotencyKey = '') =>
     post(`/api/bills/${no}/pay`, {
       method,
@@ -774,6 +776,9 @@ export const api = {
   // accept 走请求体而不是查询串：服务端是 `Body(embed=True)`。
   // 拒绝不带理由——那个接口不收，与其在这里编一个参数送过去被忽略，
   // 不如让签名如实反映它能做什么
+  // 房东调低了佣金比例，受托中介同意或不同意
+  respondCommission: (contractNo, accept) =>
+    post(`/api/contracts/${contractNo}/commission`, { accept }),
   respondDelegation: (id, accept) =>
     request(`/api/delegations/${id}`, {
       method: 'PATCH',

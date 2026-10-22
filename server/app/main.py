@@ -199,6 +199,10 @@ APPOINTMENT_NEXT = {
 APPOINTMENT_STATUS_TEXT = {"pending": "还在待确认", "confirmed": "已经确认",
                            "rejected": "已经被拒绝", "cancelled": "已经取消"}
 
+# 工单只往前走：待处理 → 处理中 → 已完成，已完成是终点（2026-10-23 定）。
+# 原先任意改：「已完成」能改回「待处理」，登记过维修记录的再点「完成并登记」就 409
+REPAIR_NEXT = {"pending": ("processing", "done"), "processing": ("done",)}
+
 # 允许匿名与普通用户查询的房源状态。pending 待审、offline 已下架不对外。
 PUBLIC_HOUSE_STATUS = ("available", "rented")
 
@@ -2418,6 +2422,15 @@ def update_repair(repair_id: int, payload: RepairUpdate,
         if not house or house.landlord_id != user.id:
             raise HTTPException(status_code=403, detail="只能处理自己房源的工单")
 
+    if payload.status == repair.status:
+        # 重复点：什么都不改，也不再给报修人发一遍「已处理完成」
+        return {"ok": True, "repair": repair.to_dict()}
+    if payload.status not in REPAIR_NEXT.get(repair.status, ()):
+        raise HTTPException(
+            status_code=409,
+            detail="这张工单已经完成，不能再改回去；没修好请让报修人重新报修"
+            if repair.status == "done" else "工单状态只能往前推进")
+
     repair.status = payload.status
     if payload.status == "done" and repair.tenant_id:
         leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
@@ -2925,25 +2938,37 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
 
 
 def _notify_commission_change(session, house, contract):
-    """签约时改了佣金比例，告诉受托中介一声。
+    """签约时改了佣金比例，告诉受托中介一声；**调低的要他同意**（2026-10-23 定）。
 
     佣金是中介的钱，比例变了他却要等成交那条「佣金已入账」才发现，
-    那时合同已经生效、改不回来了。
+    那时合同已经生效、改不回来了。原先调成 0 也只是通知一声「有异议请联系房东」，
+    付钱的一方单方面定了自己欠多少。现在调低的记为待中介确认，没同意就按委托比例结算。
     """
     if contract.commission_rate is None:
+        contract.commission_state = ""
         return
     delegation = leasing.check_commission_rate(session, house,
                                                contract.commission_rate)
+    contract.commission_state = leasing.commission_state_for(
+        delegation, contract.commission_rate)
     agreed = Decimal(str(delegation.commission_rate))
     rate = Decimal(str(contract.commission_rate))
     if rate == agreed:
         return
+    amount = "按月租 %d 元计 %d 元" % (int(contract.rent),
+                                    int(Decimal(str(contract.rent)) * rate / 100))
+    if contract.commission_state == "pending":
+        leasing.notify(session, delegation.agent_id, "system", "佣金比例调低，请确认",
+                       "房源 %s 的合同 %s 提议佣金为月租的 %s%%（委托时为 %s%%），%s。"
+                       "请在工作台同意或不同意；合同生效前没有同意的，按委托时的比例结算。"
+                       % (house.house_no, contract.contract_no, _pct(rate),
+                          _pct(agreed), amount),
+                       contract.contract_no)
+        return
     leasing.notify(session, delegation.agent_id, "system", "签约佣金比例有调整",
-                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），"
-                   "按月租 %d 元计 %d 元。有异议请在合同生效前联系房东。"
+                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），%s。"
                    % (house.house_no, contract.contract_no, _pct(rate),
-                      _pct(agreed), int(contract.rent),
-                      int(Decimal(str(contract.rent)) * rate / 100)),
+                      _pct(agreed), amount),
                    contract.contract_no)
 
 
@@ -3442,6 +3467,28 @@ def pay_bill(bill_no: str, payload: PayRequest,
         result["pay_url"] = "/#/pay/%s" % payment.trade_no
         result["next"] = "waiting_notify"
     return result
+
+
+@app.post("/api/bills/{bill_no}/offline-receipt")
+def offline_receipt(bill_no: str, user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """房东确认线下收到这笔钱（管理员可代为登记）。见 leasing.record_offline_receipt。
+
+    和上面的缴费接口方向相反：那条只给付款的租客，这条只给收款的房东。
+    """
+    bill = session.scalar(select(Bill).where(Bill.bill_no == bill_no))
+    if not bill:
+        raise HTTPException(status_code=404, detail="账单不存在")
+    contract = bill.contract
+    if user.role != "admin" and (not contract or user.id != contract.landlord_id):
+        raise HTTPException(status_code=403, detail="只有收款的房东可以确认线下收款")
+    try:
+        payment = leasing.record_offline_receipt(session, bill, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict(), "payment": payment.to_dict()}
 
 
 @app.post("/api/payments/notify")
