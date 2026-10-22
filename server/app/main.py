@@ -48,7 +48,7 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         mask_name)
 from app import (config_store, idcard, moderation, oplog,
                  pricing,
-                 ratelimit,
+                 ratelimit, reminders,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          ContractUpdate,
@@ -217,6 +217,9 @@ def _startup():
         config_store.ensure_defaults(session)
     finally:
         session.close()
+    # 到期 / 逾期 / 租约快到期的定时提醒（app/reminders.py）。内存库是测试，不起
+    if db_module.DATABASE_URL != "sqlite://" and not db_module.DATABASE_URL.endswith(":memory:"):
+        reminders.start_background(db_module.SessionLocal)
 
 
 # ------------------------------------------------------------------ 通用
@@ -1648,6 +1651,9 @@ def admin_update_user(user_id: int, payload: UserUpdate,
     if target.id == user.id:
         # 管理员把自己禁用或降级会直接锁死后台，必须挡住
         raise HTTPException(status_code=409, detail="不能修改自己的账号状态")
+    if target.status == "deleted":
+        # 用户自己注销的：个人信息已经删了，再「启用」只会得到一个没有主人的空账号
+        raise HTTPException(status_code=409, detail="这个账号已由本人注销，不能再修改")
 
     # 禁用账号与调整角色都要吊销对方已签发的令牌（B-2）。
     #
@@ -2086,7 +2092,9 @@ def create_appointment(payload: AppointmentCreate,
             detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
                    % held.viewing_time.strftime("%m-%d %H:%M"))
 
-    contact_phone = (payload.contact_phone or user.phone or "").strip()
+    # 改期没带联系人就沿用原来那条的——页面上拿到的是掩码号码，传不回来
+    contact_phone = (payload.contact_phone or (replaced.contact_phone if replaced else "")
+                     or user.phone or "").strip()
     if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
         raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
 
@@ -2135,7 +2143,8 @@ def create_appointment(payload: AppointmentCreate,
     appointment = Appointment(
         house_id=house.id,
         tenant_id=user.id,
-        contact_name=payload.contact_name or user.real_name,
+        contact_name=(payload.contact_name or (replaced.contact_name if replaced else "")
+                      or user.real_name),
         contact_phone=contact_phone,
         viewing_time=payload.viewing_time,
         remark=payload.remark,
@@ -2640,6 +2649,18 @@ def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
                    link_no=first.bill_no)
     session.commit()
     return {"ok": True, "count": len(late), "amount": total}
+
+
+@app.post("/api/admin/reminders/run")
+def run_reminders(user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """立刻跑一轮定时提醒。平时后台每几小时自己跑；演示和排查时不想等就点这个。
+    跑几次都一样——每条提醒按「谁、什么事、哪张单」去重。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    counts = reminders.run(session)
+    session.commit()
+    return {"ok": True, "sent": counts, "total": sum(counts.values())}
 
 
 @app.get("/api/admin/contracts")

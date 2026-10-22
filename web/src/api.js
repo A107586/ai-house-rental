@@ -224,6 +224,8 @@ export const api = {
     request('/api/auth/profile', { method: 'PUT', body: JSON.stringify(payload) }),
   // 退出所有设备：把令牌失效基线推到当前，之前签发的一律作废
   logoutAll: () => request('/api/auth/logout-all', { method: 'POST' }),
+  // 注销账号：要输密码；合同、账单、佣金没了结的会被拦下并列出还差什么
+  deactivateAccount: (password) => post('/api/auth/deactivate', { password }),
 
   changePassword: (oldPassword, newPassword) =>
     post('/api/auth/password', {
@@ -257,6 +259,9 @@ export const api = {
     request(`/api/appointments?${toQuery({ house_no: houseNo })}`),
   myAppointments: (side = '') =>
     request(`/api/appointments/mine?${toQuery({ side })}`),
+  // 改期：新的一条约上时旧的同时取消（后端一个事务）；新时间约不上，旧的原样保留
+  rescheduleAppointment: (houseNo, viewingTime, replaces) =>
+    post('/api/appointments', { house_no: houseNo, viewing_time: viewingTime, replaces }),
   updateAppointment: (id, status, reply = '') =>
     request(`/api/appointments/${id}`, {
       method: 'PATCH',
@@ -298,6 +303,8 @@ export const api = {
   waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
   // 房东在生效中的合同上加一笔水电燃气 / 其它费用
   addExtraBill: (contractNo, payload) => post(`/api/contracts/${contractNo}/bills`, payload),
+  // 立刻跑一轮到期 / 逾期 / 租约快到期提醒（平时后台每几小时自己跑，重复跑不会重复发）
+  runReminders: () => post('/api/admin/reminders/run', {}),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>
