@@ -616,14 +616,6 @@ def activate_contract(session, contract):
                           "pending": "这套房源正在重新审核，审核通过后才能确认签约",
                           }.get(house.status, "该房源当前不可签约"))
 
-    # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
-    # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）
-    try:
-        check_start_date(contract.start_date)
-    except ValueError:
-        raise ValueError("这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
-                         % contract.start_date.strftime("%Y-%m-%d"))
-
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"

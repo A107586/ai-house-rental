@@ -3124,6 +3124,18 @@ def activate_contract(contract_no: str,
             and terms_digest != contract.terms_digest):
         raise HTTPException(status_code=409,
                             detail="房东刚刚修改了合同条款，请重新查看后再确认")
+    if contract.status == "pending":
+        # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
+        # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）。
+        # **放在接口层，不放进 leasing.activate_contract**（同 check_start_date 的说明）：
+        # seed.py 要生成「几个月前起租」的演示租约，放进去之后播种直接失败，CI 的端到端测试跟着红
+        try:
+            leasing.check_start_date(contract.start_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=409,
+                detail="这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
+                       % contract.start_date.strftime("%Y-%m-%d"))
 
     try:
         bills = leasing.activate_contract(session, contract)
