@@ -1,6 +1,6 @@
 classDiagram
     direction LR
-    class Api["合同与账单 · HTTP 接口（22 个）"] {
+    class Api["合同与账单 · HTTP 接口（23 个）"] {
         <<router>>
         +my_bills() GET
         +settle_bill_offline(BillSettleOffline) POST
@@ -11,6 +11,7 @@ classDiagram
         +get_contract() GET
         +update_contract(ContractUpdate) PATCH
         +activate_contract() POST
+        +add_extra_bill(ExtraBillIn) POST
         +cancel_contract(ContractCancel) POST
         +respond_commission() POST
         +contract_detail() GET
@@ -57,6 +58,7 @@ classDiagram
         +generate_bills(session, contract)
         +start_payment(session, bill, user, method, idempotency_key)
         +confirm_payment(session, payment, payload, result)
+        +add_extra_bill(session, contract, type_, amount, title, due_date)
         +record_offline_payment(session, bill, note)
         +waive_bill(session, bill, reason)
         +close_payment(session, payment, reason)

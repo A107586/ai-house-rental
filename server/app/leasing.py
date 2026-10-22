@@ -18,7 +18,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
@@ -830,6 +830,42 @@ def confirm_payment(session, payment, payload=None, result="success"):
                "收到租金", "账单 %s 已缴纳，金额 %d 元。"
                % (bill.bill_no, int(bill.amount)), bill.bill_no)
     return payment, True
+
+
+EXTRA_BILL_TYPES = {"utility": "水电燃气", "other": "其它费用"}
+
+
+def add_extra_bill(session, contract, type_, amount, title, due_date=None):
+    """房东在生效中的合同上加一笔房租以外的费用：水电燃气、物业、网费等。
+
+    原先账单只有押金和房租两种是系统排的，表里和页面上都有「水电」「其它」这两个类型，
+    却没有任何一条路能建出来——房东代收的水电只能线下要（2026-10-23）。
+    走的是同一张账单表，租客在「我的账单」里照常缴，收支流水、收入统计都算得到。
+    """
+    if contract.status != "active":
+        raise ValueError("只有生效中的合同可以加收费用")
+    if type_ not in EXTRA_BILL_TYPES:
+        raise ValueError("费用类型只能是水电燃气或其它费用")
+    amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    if amount <= 0 or amount > Decimal("100000"):
+        raise ValueError("金额要在 0 到 10 万元之间")
+    title = (title or "").strip()[:60]
+    if not title:
+        raise ValueError("写一句这是什么费用，比如「9 月水电」，租客要看得懂")
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    due = (due_date or today + timedelta(days=7)).replace(hour=0, minute=0, second=0,
+                                                         microsecond=0)
+    if due < today or due > today + timedelta(days=60):
+        raise ValueError("缴费期限要在今天到 60 天以内")
+    bill = Bill(bill_no=_serial("ZD"), contract_id=contract.id, type=type_,
+                period="", amount=amount, due_date=due, remark=title)
+    session.add(bill)
+    contract.bills.append(bill)
+    notify(session, contract.tenant_id, "bill", "房东加了一笔%s" % EXTRA_BILL_TYPES[type_],
+           "%s，%s 元，请在 %s 前缴纳。" % (title, _money(amount), due.strftime("%m-%d")),
+           bill.bill_no)
+    session.flush()
+    return bill
 
 
 def _close_open_attempts(bill, reason):

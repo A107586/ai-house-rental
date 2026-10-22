@@ -52,7 +52,7 @@ from app import (config_store, idcard, moderation, oplog,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          ContractUpdate,
-                         ContractCreate, ContractEnd, ContractRenew,
+                         ContractCreate, ContractEnd, ContractRenew, ExtraBillIn,
                          HouseCreate, HouseReview, HouseUpdate,
                          LoginRequest, NoticeCreate, PasswordChange,
                          PayRequest, ProfileUpdate, RegisterRequest,
@@ -3424,6 +3424,24 @@ def my_bills(status: str = "", contract_no: str = "",
         "overdue_count": sum(1 for b in unpaid if b.overdue),
         "list": [b.to_dict() for b in rows],
     }
+
+
+@app.post("/api/contracts/{contract_no}/bills")
+def add_extra_bill(contract_no: str, payload: ExtraBillIn,
+                   user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """出租方在生效中的合同上加一笔水电燃气或其它费用。"""
+    contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id != contract.landlord_id:
+        raise HTTPException(status_code=403, detail="只有出租方可以加收费用")
+    try:
+        bill = leasing.add_extra_bill(session, contract, payload.type, payload.amount,
+                                      payload.title, payload.due_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
 
 
 class BillSettleOffline(BaseModel):
