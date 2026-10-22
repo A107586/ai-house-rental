@@ -59,7 +59,8 @@ classDiagram
     class tb_catalog["toolbox/catalog.py"] {
         <<toolbox>>
         +TOOLS 42 个工具（写操作 13 个）
-        +visible_tools(logged_in, role)
+        +resolve_identity(role, asked)
+        +visible_tools(logged_in, identity)
         +render_catalog(tools)
     }
     class tb_planner["toolbox/planner.py"] {

@@ -61,6 +61,8 @@ function chatBody(text, sessionId, history, lastHouseNos, pending, extra) {
     pending,
     // 随这句话发的照片，已传到本系统的地址（/static/uploads/...）
     images: extra.images || [],
+    // 以什么身份办事。房东账号在助手顶部切「房东 / 租客」；智能体按账号角色核对
+    identity: extra.identity || '',
   }
 }
 
@@ -689,9 +691,9 @@ export const api = {
   supportActions: () => request(agentUrl('/agent/support/actions')),
 
   // 会话开场白。带上令牌看这个人有什么没办完，带上房源编号则围绕那套房开场。
-  supportGreeting: (houseNo = '') =>
+  supportGreeting: (houseNo = '', identity = '') =>
     post(agentUrl('/agent/support/greeting'), {
-      token: getToken(), house_no: houseNo,
+      token: getToken(), house_no: houseNo, identity,
     }),
 
   // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单

@@ -209,6 +209,9 @@ class ChatRequest(BaseModel):
     # 用户随这句话发的照片。只认本系统上传的地址（/static/...），
     # 前端先传到业务后端换地址再发过来，见 `_with_photos`。
     images: list[str] = []
+    # 这一轮以什么身份办事（tenant / landlord / agent / admin）。房东账号在助手顶部
+    # 切「租客 / 房东」；账号没有的身份不作数，见 catalog.resolve_identity
+    identity: str = ""
 
 
 class SupportRequest(BaseModel):
@@ -564,6 +567,8 @@ class GreetingRequest(BaseModel):
     # 第一句就能是关于这套房的，用户不必再把编号打一遍。
     house_no: str = ""
     name: str = ""
+    # 助手当前的身份（房东账号可切「房东 / 租客」），开场白跟着换
+    identity: str = ""
 
 
 @app.post("/agent/support/greeting")
@@ -585,8 +590,11 @@ def support_greeting(payload: GreetingRequest):
             house = None
 
     try:
+        who = _whoami(payload.token)
+        identity = _identity_of(who, payload)
         return greeting.build(backend_client, payload.token,
-                              house=house, name=payload.name)
+                              house=house, name=payload.name,
+                              identity="" if identity == "tenant" else identity)
     except Exception:
         # 开场白挂掉绝不能让面板打不开
         return {"message": greeting.FALLBACK,
@@ -762,6 +770,7 @@ def _agent_turn(payload, on_event=None):
     turn = llm_budget.for_turn(provider, settings.agent_turn_budget)
     _turn_llm.set(turn)
     who = _whoami(payload.token)
+    who = dict(who, identity=_identity_of(who, payload))
     runner_ctx = {
         "text": payload.text, "token": payload.token, "provider": turn,
         "backend": backend_client, "property_finder": property_finder,
@@ -773,7 +782,8 @@ def _agent_turn(payload, on_event=None):
         "agent": True,
     }
     deps = SimpleNamespace(
-        logged_in=who["logged_in"], role=who["role"], runner_ctx=runner_ctx,
+        logged_in=who["logged_in"], role=who["role"], identity=who["identity"],
+        runner_ctx=runner_ctx,
         run_read=tool_runner.run_read,
         knowledge=lambda question: _agent_knowledge(payload, past, question),
         recommend=lambda: recommend.run(token=payload.token, limit=6, backend=backend_client),
@@ -825,11 +835,37 @@ def _agent_reply(message, artifacts, trace, slots, feats, status="answered", ok=
     return result
 
 
+def _identity_of(who, payload):
+    """这一轮的身份。没登录是空串；登录了按账号角色核对前端要的身份。"""
+    if not who.get("logged_in"):
+        return ""
+    return tool_catalog.resolve_identity(who.get("role") or "tenant",
+                                         getattr(payload, "identity", "") or "")
+
+
+_IDENTITY_NOTE = {
+    "landlord": "当前以**房东**身份使用助手：管理自己的房源、处理看房预约、发起签约、看租客与收入。"
+                "他要找房、约看房、交房租这类租客的事，请他在助手顶部切到「租客」。",
+    "tenant_of_landlord": "这是房东账号，当前切在**租客**身份：找房、约看房、交房租、报修都按租客办，"
+                          "只能租别人的房。要管自己的房源、签约，请他在助手顶部切到「房东」。",
+    # 中介、管理员没有租客身份。不写明的话，模型在工具表里找不到缴费，
+    # 实测会编一句「缴费要先登录」——他明明登录着
+    "agent": "这是中介账号，只做经纪业务：在托房源、带看、佣金。中介不以租客身份办事——"
+             "约看房、交房租、报修、签约这类租客的事都办不了，照实告诉他是账号身份的原因。",
+    "admin": "这是管理员账号，只做平台管理：待审房源、转人工、举报、平台规则。管理员不以租客身份办事——"
+             "约看房、交房租、报修、签约这类租客的事都办不了，照实告诉他是账号身份的原因。",
+}
+
+
 def _agent_context(payload, who, slots, feats, pending):
     """「当前情况」那一段：身份、屏幕上有什么、记住了什么、有没有办到一半的事。"""
-    lines = ["用户身份：%s。" % ({"tenant": "租客", "landlord": "房东", "agent": "中介",
-                                 "admin": "管理员"}.get(who["role"], "已登录用户")
+    identity = who.get("identity") or who.get("role")
+    lines = ["用户身份：%s。" % (tool_catalog.IDENTITY_LABEL.get(identity, "已登录用户")
                                 if who["logged_in"] else "未登录（查个人数据、办事都要先登录）")]
+    if who["logged_in"] and who.get("role") == "landlord":
+        lines.append(_IDENTITY_NOTE["landlord" if identity == "landlord" else "tenant_of_landlord"])
+    elif who["logged_in"] and identity in ("agent", "admin"):
+        lines.append(_IDENTITY_NOTE[identity])
     if payload.house_no:
         lines.append("用户正打开着房源 %s 的详情页，「这套」指它。" % payload.house_no)
     listed = [n for n in (payload.last_house_nos or []) if n]
@@ -1897,7 +1933,7 @@ def _try_toolbox(payload, routed, slots, feats, decision_cache):
     who = _whoami(payload.token)
     plan = tool_planner.plan(
         payload.text, picker,
-        logged_in=who["logged_in"], role=who["role"],
+        logged_in=who["logged_in"], role=_identity_of(who, payload),
         house_no=payload.house_no,
         last_house_nos=list(payload.last_house_nos or []),
         context_text=memory.describe(slots, feats),

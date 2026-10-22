@@ -2032,6 +2032,34 @@ textarea {
 
 /* 「当前记住了什么」必须一直可见——多轮对话最容易让人失去掌控感的
    就是不知道系统到底记了什么，出错时也无从纠正。 */
+/* 助手身份切换（房东账号：房东 / 租客） */
+.chat-identity {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+}
+.chat-identity-k { color: var(--muted); padding: 0 6px 0 8px; }
+.chat-identity button,
+.chat-identity .on {
+  border: 0;
+  background: transparent;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.chat-identity .on,
+.chat-identity button.on { background: var(--brand); color: #fff; }
+.chat-identity.single .on { cursor: default; }
+.chat-identity button:disabled { cursor: not-allowed; }
+
 .chat-context {
   display: flex;
   align-items: center;

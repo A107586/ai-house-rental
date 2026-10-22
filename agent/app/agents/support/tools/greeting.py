@@ -37,6 +37,18 @@ FALLBACK = ("你好，我是租房助手。找房可以一句一句地补充条�
 
 GUEST_CHIPS = ["中山区两室一厅", "三千以内的", "押金怎么退", "水电费怎么算"]
 
+# 房东、中介、管理员身份的开场白（2026-10-22 起助手分身份）。
+# 原先谁打开都是租客那一套：房东点开看到「交最近一笔房租」「查我的预约进度」
+STAFF_OPENING = {
+    "landlord": ("你好，我是租房助手，现在按房东身份帮你：谁约了你的房、确认预约、"
+                 "发起签约、租客和收入都可以问。要办的事我会先列给你看，你点确认才动手。",
+                 ["谁约了我的房", "帮我发起签约", "我的房源", "这个月收了多少租"]),
+    "agent": ("你好，我是租房助手，现在按中介身份帮你：在托的房源、带看安排、佣金都可以问。",
+              ["我在托哪些房", "我的带看记录", "我的佣金", "押金怎么退"]),
+    "admin": ("你好，我是租房助手，现在按管理员身份帮你：平台待办、房源和规则都可以问。",
+              ["平台有哪些待办", "押金怎么退", "水电费怎么算"]),
+}
+
 
 def _rows(data):
     if isinstance(data, dict):
@@ -134,7 +146,28 @@ def compose(items, name=""):
         "你现在有 %s。要我帮你办哪件？" % body
 
 
-def build(backend, token, house=None, name=""):
+def collect_landlord(backend, token):
+    """房东身份手头没办完的事：别人约我的看房、名下房源没修完的工单、未读消息。"""
+    items = []
+    waiting = [a for a in _rows(_safe(backend, "/api/appointments/mine", token,
+                                      {"side": "landlord"}))
+               if a.get("status") in ("pending", "待审核")]
+    if waiting:
+        items.append({"text": "%d 条看房预约等你确认" % len(waiting),
+                      "chip": "谁约了我的房", "detail": ""})
+    repairs = [r for r in _rows(_safe(backend, "/api/repairs", token, {"side": "landlord"}))
+               if r.get("status") not in ("done", "已完成", "closed")]
+    if repairs:
+        items.append({"text": "%d 张工单还没处理完" % len(repairs),
+                      "chip": "我的房源有哪些报修", "detail": ""})
+    unread = _safe(backend, "/api/messages", token)
+    count = unread.get("unread", 0) if isinstance(unread, dict) else 0
+    if count:
+        items.append({"text": "%d 条未读消息" % count, "chip": "我有未读消息吗", "detail": ""})
+    return items
+
+
+def build(backend, token, house=None, name="", identity=""):
     """生成开场白。返回 ``{"message", "chips", "personalised"}``。
 
     `house` 是用户此刻正在看的那套房。**从房源详情页点进来的会话，
@@ -159,6 +192,15 @@ def build(backend, token, house=None, name=""):
     if not token:
         return {"message": FALLBACK, "chips": list(GUEST_CHIPS),
                 "personalised": False}
+
+    if identity in STAFF_OPENING:
+        message, chips = STAFF_OPENING[identity]
+        items = collect_landlord(backend, token) if identity == "landlord" else []
+        if items:
+            message += compose(items, name)   # 气泡不渲染换行，直接接在后面
+            chips = list(dict.fromkeys([i["chip"] for i in items[:2]] + chips))[:4]
+        return {"message": message, "chips": list(chips), "personalised": bool(items),
+                "items": items}
 
     items = collect(backend, token)
     if not items:
