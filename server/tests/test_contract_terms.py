@@ -234,3 +234,24 @@ class TestUnnamedTenantRejectedByApi(ApiTestCase):
         self.assertEqual(response.status_code, 409)
         # 提示要能告诉房东「去哪儿改」，只说「未实名」是没法照着做的
         self.assertIn("编辑资料", response.json()["detail"])
+
+
+class TestStartDateIsTheDayPicked(ApiTestCase):
+    """起租日是房东在日历上点的那一天，不受时区换算影响。
+
+    前端原先把本地零点 toISOString() 成 UTC 再发：北京时间选 10-25，
+    到后端是 10-24T16:00Z，原样存下去合同就从 10-24 起、账单排在每月 24 号；
+    表单的默认值也是这么算的，默认签出来的合同早两天（2026-10-22）。
+    """
+
+    def test_utc_instant_lands_on_the_local_day(self):
+        from datetime import timezone
+        landlord = auth_header(self.client, "landlord1", "test123")
+        picked = _soon()                                   # 本地零点
+        as_utc = picked.astimezone(timezone.utc)           # 前端原先发的样子
+        response = self.client.post("/api/contracts", headers=landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant1",
+            "start_date": as_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "months": 12})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["contract"]["start_date"],
+                         picked.strftime("%Y-%m-%d"))

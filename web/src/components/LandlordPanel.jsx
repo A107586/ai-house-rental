@@ -83,6 +83,8 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
   const [repairs, setRepairs] = useState([])
   const [tenants, setTenants] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
+  // 编辑时押金一栏的原值，用来判断房东动没动过它
+  const [editingDeposit, setEditingDeposit] = useState(null)
   const [editing, setEditing] = useState('')
   // 「我的房源」一页里切列表 / 地图。原先地图是左栏单独一项「房源分布」，
   // 编辑又是另一项「编辑房源」，同一批房子散在三个地方
@@ -150,17 +152,23 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  /** 返回成没成。调用方要据此决定下一步——原先失败也照样往下走 */
   async function run(key, fn, message = '') {
-    if (busy) return
+    if (busy) return false
     setBusy(key)
     setError('')
     setOk('')
     try {
-      await fn()
-      if (message) setOk(message)
+      const result = await fn()
+      // 没有写死的提示就用后端那句：比如「上架」一套没审过的房，后端转成待审并说明了原因，
+      // 原先这句话被丢掉，房东只看到状态变成「待审核」，不知道为什么
+      const note = message || result?.message
+      if (note) setOk(note)
       await load()
+      return true
     } catch (err) {
       setError(err.message)
+      return false
     } finally {
       setBusy('')
     }
@@ -179,6 +187,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
 
   function startEdit(house) {
     setEditing(house.house_no)
+    setEditingDeposit(house.deposit)
     setForm({
       title: house.title, district: house.district, community: house.community,
       address: house.address, rent_price: house.rent_price,
@@ -235,7 +244,10 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       // 一个我们本来就能替他填好的字段
       title: (form.title || '').trim() || autoTitle(form),
       rent_price: Number(form.rent_price),
-      deposit: Number(form.deposit || form.rent_price),
+      // **押金只在房东真的动过时才传。**编辑时这一栏预填的是库里那个数，原样传回去，
+      // 后端会当成「手填」：只改租金，押金停在旧数、押付标签被清空（K-02 那个 bug，
+      // 后端修过，表单这边又把它带回来了）。新发布留空也不传，后端按一个月租金算
+      deposit: depositOf(form.deposit, editing ? editingDeposit : null),
       area: Number(form.area),
       // 空字符串要转成 undefined 而不是 0：0 层不是一个合法楼层，
       // 传 0 上去会被 schema 的 ge=1 拒掉，而房东只是没填
@@ -251,14 +263,16 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       return
     }
 
+    // 只有保存成功才清表单。原先 run 吞掉了错误，.then 照样执行——
+    // 审核没过（比如描述里留了微信）时，房东填了半天的整张表一下子全没了
     if (editing) {
       run('form', () => api.updateHouse(editing, payload),
         '已保存。修改关键信息后房源需要重新审核。')
-        .then(() => { setEditing(''); setForm(EMPTY_FORM) })
+        .then((done) => { if (done) { setEditing(''); setForm(EMPTY_FORM) } })
     } else {
       run('form', () => api.createHouse(payload),
         '已提交，等待管理员审核通过后上架。')
-        .then(() => setForm(EMPTY_FORM))
+        .then((done) => { if (done) setForm(EMPTY_FORM) })
     }
   }
 
@@ -933,4 +947,13 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
       )}
     </>
   )
+}
+
+
+/** 表单里的押金 → 请求里的押金。空着、或和编辑前一样，就不传（undefined） */
+function depositOf(typed, original) {
+  if (typed === '' || typed === null || typed === undefined) return undefined
+  const value = Number(typed)
+  if (original !== null && original !== undefined && value === Number(original)) return undefined
+  return value
 }

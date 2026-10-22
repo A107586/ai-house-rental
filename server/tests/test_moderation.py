@@ -187,7 +187,8 @@ class TestFlagHandling(ModerationApiCase):
                               headers=self.admin, params={"action": "approve"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["flag"]["status"], "approved")
-        detail = self.client.get("/api/houses/%s" % house_no)
+        # 房源本身还在待审（复核管的是文字，上架另走审核），房东自己看得到
+        detail = self.client.get("/api/houses/%s" % house_no, headers=self.landlord)
         self.assertEqual(detail.status_code, 200)
 
     def test_remove_takes_house_offline(self):

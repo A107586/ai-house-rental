@@ -62,6 +62,27 @@ class TestHouseVisibility(AdminCase):
                                headers=self.tenant).json()
         self.assertTrue(all(h["status"] == "available" for h in data["list"]))
 
+    def test_detail_of_an_unlisted_house_is_not_public(self):
+        """列表早就拦了，详情原先没拦：被复核下架的违规房源，知道编号照样打得开。"""
+        house_no = self.publish()
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no).status_code, 404)
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no,
+                                         headers=self.tenant).status_code, 404)
+        mine = self.client.get("/api/houses/%s" % house_no, headers=self.landlord)
+        self.assertEqual(mine.status_code, 200)
+        self.assertTrue(mine.json()["can_manage"])
+        self.assertTrue(mine.json()["is_owner"])
+        self.assertEqual(self.client.get("/api/houses/%s" % house_no,
+                                         headers=self.admin).status_code, 200)
+
+    def test_tenant_who_signed_can_still_open_it(self):
+        """合同详情要链到这套房，下架了也得打得开。"""
+        make_resident("tenant1", "DL0001")
+        self.client.patch("/api/houses/DL0001/status?status=offline", headers=self.landlord)
+        detail = self.client.get("/api/houses/DL0001", headers=self.tenant)
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.json()["can_manage"])
+
     def test_rented_is_public(self):
         """已租是公开信息，用于展示出租率，不需要拦。"""
         data = self.client.get("/api/houses", params={"status": "rented"}).json()
@@ -186,6 +207,22 @@ class TestLandlordDashboard(AdminCase):
                                headers=self.landlord).json()
         self.assertEqual(data["todo"]["appointments"], 1)
         self.assertGreaterEqual(data["todo"]["total"], 1)
+
+    def test_past_pending_viewing_is_not_a_todo(self):
+        """过了点的待确认已经确认不了（后端会拒），算进待办就是一个永远消不掉的数。"""
+        import app.db as db
+        from app.models import Appointment
+        booked = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0001", "viewing_time": future().isoformat()})
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, booked.json()["appointment"]["id"]).viewing_time = \
+                datetime.now() - timedelta(hours=3)
+            session.commit()
+        finally:
+            session.close()
+        data = self.client.get("/api/landlord/dashboard", headers=self.landlord).json()
+        self.assertEqual(data["todo"]["appointments"], 0)
 
     def test_todo_counts_open_repairs(self):
         make_resident("tenant1", "DL0001")   # 报修只收在住租客

@@ -224,11 +224,18 @@ export default function Workbench({ user, onClose }) {
 
   async function reply(appt, status) {
     if (busy) return
+    // 拒绝要能说一句为什么，租客收到的通知里带着这句话（J-25）。原先没有地方填，
+    // 租客那边永远是「房东未说明原因」。点「取消」就是不拒了
+    let why = ''
+    if (status === 'rejected') {
+      why = window.prompt('拒绝这次看房，跟租客说一句原因（可以不填）：', '')
+      if (why === null) return
+    }
     setBusy(`a${appt.id}`)
     setError('')
     setOk('')
     try {
-      await api.updateAppointment(appt.id, status)
+      await api.updateAppointment(appt.id, status, why.trim())
       setOk(status === 'confirmed'
         ? `已确认 ${appt.house_no} 的看房，租客会收到通知。`
         : `已拒绝 ${appt.house_no} 的看房申请。`)
@@ -261,7 +268,9 @@ export default function Workbench({ user, onClose }) {
   }
 
   const unread = convs.reduce((n, c) => n + (c.unread || 0), 0)
-  const pending = appts.filter((a) => a.status === 'pending')
+  // 只算还没到点的：过了时间的待确认点「确认」后端会拒，留在待办里只是一个永远消不掉的数
+  const pending = appts.filter((a) => a.status === 'pending'
+    && new Date(a.viewing_time.replace(' ', 'T')) > new Date())
   const today = appts.filter(
     (a) => a.status === 'confirmed' && isToday(a.viewing_time))
 

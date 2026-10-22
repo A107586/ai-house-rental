@@ -206,6 +206,22 @@ class TestAppointments(ApiTestCase):
             "viewing_time": self._future(hour=15).isoformat()})
         self.assertEqual(hijack.status_code, 409)
 
+    def test_taken_slots_only_lists_upcoming_ones(self):
+        """过去的时段不会再冲突；摆在详情页里，一条上周的「待确认」像房东一直没理人。"""
+        import app.db as db
+        from app.models import Appointment
+        booked = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future().isoformat()})
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, booked.json()["appointment"]["id"]).viewing_time = \
+                datetime.now() - timedelta(days=2)
+            session.commit()
+        finally:
+            session.close()
+        slots = self.client.get("/api/appointments?house_no=DL0001").json()
+        self.assertEqual(slots["total"], 0)
+
     def test_viewing_hours_and_horizon(self):
         """这几条原先只有智能体那一侧守着，直接调接口凌晨三点、三年以后都能约。"""
         for moment in (self._future(hour=3), self._future(hour=19),

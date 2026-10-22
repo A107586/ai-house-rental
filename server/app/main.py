@@ -618,6 +618,10 @@ def get_house(house_no: str, user: User = Depends(current_user),
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    if house.status not in PUBLIC_HOUSE_STATUS and not _may_see_unlisted(session, user, house):
+        # 待审、已下架的不对外。列表接口早就这么做了，详情这里原先没拦：
+        # 被复核下架的违规房源，知道编号的人照样打得开（2026-10-22）
+        raise HTTPException(status_code=404, detail="房源不存在或已下架")
     # **加一这件事交给数据库做，不要读出来加完再写回去。**
     #
     # `house.view_count += 1` 是「读-改-写」：两个请求同时读到 563，
@@ -656,7 +660,20 @@ def get_house(house_no: str, user: User = Depends(current_user),
     data["viewing_agent"] = mask_name(delegation.agent) if delegation and delegation.agent else ""
     # 页面靠它决定给不给「报修」——判断与 POST /api/repairs 同一处，界面和接口不会各说各的
     data["can_report_repair"] = can_report_repair(session, user, house)
+    # 管得了这套房的人（房东、受托中介、管理员）在详情页上不该看到收藏、咨询、预约看房
+    data["can_manage"] = can_manage_house(session, user, house)
+    data["is_owner"] = bool(user and house.landlord_id == user.id)
     return data
+
+
+def _may_see_unlisted(session, user, house):
+    """没上架的房源谁还能看：管房的人，以及在这套房上签过合同的租客（合同里要链过来）。"""
+    if not user:
+        return False
+    if can_manage_house(session, user, house):
+        return True
+    return session.scalar(select(Contract.id).where(
+        Contract.house_id == house.id, Contract.tenant_id == user.id).limit(1)) is not None
 
 
 @app.get("/api/houses/{house_no}/landlord")
@@ -1173,9 +1190,11 @@ def landlord_dashboard(user: User = Depends(require_staff),
     month_income = sum(b.net_amount for b in paid
                        if b.paid_at and b.paid_at.strftime("%Y-%m") == this_month)
 
+    # 只数还没到点的：过了时间的已经确认不了（后端会拒），算进待办就是一个永远消不掉的数
     pending_appointments = session.scalars(
         select(Appointment).where(Appointment.house_id.in_(house_ids),
-                                  Appointment.status == "pending")).all()
+                                  Appointment.status == "pending",
+                                  Appointment.viewing_time > datetime.now())).all()
     open_repairs = session.scalars(
         select(Repair).where(Repair.house_id.in_(house_ids),
                              Repair.status != "done")).all()
@@ -1903,7 +1922,10 @@ def list_appointments(
     if not house:
         return {"total": 0, "list": []}
 
-    stmt = select(Appointment).where(Appointment.house_id == house.id)
+    # 只给还没到的。过去的时段既不会再冲突，摆在详情页「已约时段」里也只是噪音——
+    # 一条上周的「待确认」看着像房东一直没理人
+    stmt = select(Appointment).where(Appointment.house_id == house.id,
+                                     Appointment.viewing_time > datetime.now())
     if status:
         stmt = stmt.where(Appointment.status == status)
     else:

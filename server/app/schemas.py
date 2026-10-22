@@ -35,6 +35,18 @@ def _valid_real_name(value):
     return value
 
 
+def _local_naive(value):
+    """带时区的时间换成本地时间再去掉时区，库里一律存本地的「墙上时间」。
+
+    前端原先把本地零点 toISOString() 成 UTC 再发：北京时间 10-25 00:00 到了这里是
+    10-24 16:00Z，原样存下去起租日就早了一天，账单都排在每月 24 号（2026-10-22）。
+    前端已经改成发本地时间；这里兜底，别的调用方再这么发也不会错。
+    """
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone().replace(tzinfo=None)
+    return value
+
+
 class RegisterRequest(BaseModel):
     username: str = ""
     password: str = ""
@@ -60,6 +72,8 @@ class AppointmentCreate(BaseModel):
     # 同一套房只能留一条待看的预约，先约新的再退旧的会被那条规矩挡住；
     # 先退旧的再约新的，新时段约不上时人就一条都没有了。所以两步放进一个事务
     replaces: int | None = None
+
+    _viewing_time_local = field_validator("viewing_time")(_local_naive)
 
 
 class AppointmentUpdate(BaseModel):
@@ -189,6 +203,8 @@ class ContractCreate(BaseModel):
     deposit_months: int | None = Field(default=None, ge=0, le=6)
     pay_months: int = Field(default=1, ge=1, le=12)
 
+    _start_date_local = field_validator("start_date")(_local_naive)
+
 
 class ContractUpdate(BaseModel):
     """改一份**还没生效**的合同（B4）。
@@ -205,6 +221,8 @@ class ContractUpdate(BaseModel):
     months: int | None = Field(default=None, ge=1, le=60)
     deposit_months: int | None = Field(default=None, ge=0, le=6)
     pay_months: int | None = Field(default=None, ge=1, le=12)
+
+    _start_date_local = field_validator("start_date")(_local_naive)
 
 
 class ContractEnd(BaseModel):

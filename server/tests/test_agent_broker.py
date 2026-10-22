@@ -678,7 +678,18 @@ class TestDashboardTodo(BrokerCase):
         到了地方才发现这场约根本没成立。
         """
         self.delegate("DL0001")
-        self._appoint("DL0001")          # 停在 pending
+        # 停在 pending，时间是**今天、还没到**：过了点的待确认已经确认不了，不算待办。
+        # 钉在今天 12 点的话，下午跑就成了「已过点」——又一条按时钟变脸的用例
+        soon = datetime.now() + timedelta(minutes=5)
+        if soon.date() != datetime.now().date():
+            self.skipTest("离午夜不到 5 分钟，凑不出「今天还没到」的时刻")
+        aid = self._appoint("DL0001")["appointment"]["id"]
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, aid).viewing_time = soon
+            session.commit()
+        finally:
+            session.close()
 
         todo = self.client.get("/api/agent/dashboard",
                                headers=self.agent).json()["todo"]

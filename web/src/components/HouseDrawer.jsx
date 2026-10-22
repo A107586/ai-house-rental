@@ -26,8 +26,15 @@ const TABS = [
 export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
                                      onClose, onOpenHouse, onTalk,
                                      onAskAssistant, demandText = '',
-                                     owner = false, onEdit }) {
+                                     owner: fromWorkbench = false, onEdit }) {
   const [tab, setTab] = useState('booking')
+  // 管得了这套房的人（房东、受托中介、管理员）从首页点进自己的房，原先看到的是租客那一套：
+  // 收藏、咨询房东（咨询自己）、举报、预约看房（接口会拒）。以详情接口的 can_manage 为准
+  const [canManage, setCanManage] = useState(false)
+  const [isOwner, setIsOwner] = useState(false)
+  const owner = fromWorkbench || canManage
+  // 已出租的房子不能约看，表单留着只会让人填完才被拒
+  const rented = house.status === 'rented'
   // 「报修」只给正住在这套房的租客和管房的人（后端 can_report_repair）。
   // 原先所有人都看得到、匿名也能提交，任何人都能往别人的房源上写一条维修记录
   const [canRepair, setCanRepair] = useState(false)
@@ -71,8 +78,12 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
     // 而 AI-07 房源推荐正是靠足迹工作的。
     // 失败不影响抽屉展示，所以单独 catch。
     api.getHouse(house.house_no)
-      .then((detail) => setCanRepair(!!detail?.can_report_repair))
-      .catch(() => setCanRepair(false))
+      .then((detail) => {
+        setCanRepair(!!detail?.can_report_repair)
+        setCanManage(!!detail?.can_manage)
+        setIsOwner(!!detail?.is_owner)
+      })
+      .catch(() => { setCanRepair(false); setCanManage(false); setIsOwner(false) })
 
     // 这两块失败就静默略过——房东概要拉不到不该让整个详情页报错
     api.houseLandlord(house.house_no).then(setLandlord).catch(() => setLandlord(null))
@@ -252,7 +263,8 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
         {/* 房东在工作台里看自己的房：收藏、咨询、举报都不适用，只给「编辑」 */}
         {owner && (
           <div className="record-actions">
-            <span className="own">这是你的房源</span>
+            <span className="own">{fromWorkbench || isOwner
+              ? '这是你的房源' : '这是你管理的房源'}</span>
             {onEdit && (
               <button className="btn small" onClick={() => onEdit(house)}>编辑房源</button>
             )}
@@ -557,13 +569,17 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </>
         )}
 
-        {!owner && (
+        {!owner && tab === 'booking' && rented && (
+          <p className="desc">这套房已出租，暂时不能预约看房。可以收藏它，或者看看下面的相似房源。</p>
+        )}
+
+        {!owner && !(tab === 'booking' && rented) && (
         <div className="section-title">
           {tab === 'booking' ? '智能预约看房' : '智能报修'}
         </div>
         )}
 
-        {!owner && (
+        {!owner && !(tab === 'booking' && rented) && (
         <form onSubmit={submit}>
           <div className="field">
             <input
@@ -633,6 +649,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </div>
         )}
 
+        {!owner && !(tab === 'booking' && rented) && (
         <div className="examples">
           <span>试试：</span>
           {samples.map((s) => (
@@ -641,6 +658,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
             </button>
           ))}
         </div>
+        )}
 
         {reply && (
           <div className={`reply ${REPLY_STYLE[reply.status] || 'failed'}`}>

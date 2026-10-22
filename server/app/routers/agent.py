@@ -675,7 +675,8 @@ def dashboard(user: User = Depends(require_agent),
     pending_appointments = session.scalars(select(Appointment).where(
         Appointment.house_id.in_(house_ids),
         Appointment.status == "pending",
-        Appointment.viewing_time >= day_start).order_by(
+        # 今天早上那条已经过了点，确认不了了，不再算待办
+        Appointment.viewing_time > datetime.now()).order_by(
             Appointment.viewing_time).limit(20)).all()
 
     return {

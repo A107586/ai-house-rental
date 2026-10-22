@@ -57,7 +57,8 @@ class FacetCase(ApiTestCase):
         return self.client.post("/api/houses", headers=self.landlord, json=body)
 
     def fetch(self, house_no):
-        return self.client.get("/api/houses/%s" % house_no).json()
+        # 新发布的房源还在待审，只有房东自己打得开详情
+        return self.client.get("/api/houses/%s" % house_no, headers=self.landlord).json()
 
 
 class TestPublishAcceptsFacets(FacetCase):
@@ -322,9 +323,9 @@ class TestVerificationFields(FacetCase):
         self.assertEqual(house["verify_no"], "")
 
     def test_verification_fields_are_public(self):
-        """核验信息必须对未登录用户可见——它存在的意义就是给人看。"""
-        house_no = self.publish().json()["house"]["house_no"]
-        body = self.client.get("/api/houses/%s" % house_no).json()
+        """核验信息必须对未登录用户可见——它存在的意义就是给人看。
+        （用已上架的那套：刚发布的还在待审，本来就不对外）"""
+        body = self.client.get("/api/houses/DL0001").json()
         for key in ("verify_status", "verify_no", "verified_at",
                     "maintained_at"):
             self.assertIn(key, body)
