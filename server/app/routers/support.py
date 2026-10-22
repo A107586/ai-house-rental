@@ -251,6 +251,10 @@ def support_feedback(payload: FeedbackPayload,
     return {"ok": True}
 
 
+# 一个人同时在等人工回复的问题上限
+HANDOFF_PENDING_LIMIT = 5
+
+
 @router.post("/api/support/handoff")
 def create_handoff(payload: HandoffPayload,
                    user: User = Depends(require_login),
@@ -262,6 +266,21 @@ def create_handoff(payload: HandoffPayload,
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
+
+    # 每一条都会给全体管理员发站内信。原先不设限：同一句话点十次就是十张工单、
+    # 每个管理员十条提醒（2026-10-22）。同一个问题还在等的，直接告诉他在排队
+    waiting = session.scalars(select(SupportHandoff).where(
+        SupportHandoff.user_id == user.id,
+        SupportHandoff.status == "pending")).all()
+    for row in waiting:
+        if row.question == question[:500]:
+            return {"ok": True, "handoff": row.to_dict(), "duplicate": True,
+                    "message": "这个问题已经转给人工了，回复会通过站内消息送达。"}
+    if len(waiting) >= HANDOFF_PENDING_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="你已经有 %d 个问题在等人工回复，请先等等，回复会通过站内消息送达"
+                   % len(waiting))
 
     row = SupportHandoff(
         handoff_no=leasing._serial("HD"), user_id=user.id,

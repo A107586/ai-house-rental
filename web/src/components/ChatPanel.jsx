@@ -861,8 +861,11 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           .join('\n'))
       setMessages((prev) => [...prev, {
         role: 'assistant',
-        content: `已转给管理员，工单号 ${res.handoff.handoff_no}。`
-          + '回复会通过站内消息通知你。',
+        // 同一个问题还在排队时后端不再新建工单，回的是原来那张
+        content: res.duplicate
+          ? `${res.message}（工单号 ${res.handoff.handoff_no}）`
+          : `已转给管理员，工单号 ${res.handoff.handoff_no}。`
+            + '回复会通过站内消息通知你。',
         ok: true,
       }])
     } catch (err) {
