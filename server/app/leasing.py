@@ -557,6 +557,14 @@ def activate_contract(session, contract):
     contract.signed_at = datetime.now()
     house.status = "rented"
     close_open_viewings(session, house, "这套房已经租出去了")
+    # 同一套房上发给别人的待确认合同已经不可能生效（确认会 409「已被占用」）。
+    # 原先一直挂着「待确认」：那位租客等不到结果，房东名下也一直算着
+    # 「合同尚未结束」，退回租客永远过不去（2026-10-23）
+    others = session.scalars(select(Contract).where(
+        Contract.house_id == house.id, Contract.status == "pending",
+        Contract.id != contract.id)).all()
+    for other in others:
+        cancel_contract(session, other, "system", "这套房已与其他租客签约")
 
     # 这套房如果是委托给中介带看的，成交这一刻结算佣金并结束委托（J-06）。
     # 放在这里而不是签约那一步：合同生效才算成交，pending 的合同
@@ -572,6 +580,42 @@ def activate_contract(session, contract):
            % (house.house_no, contract.end_date.strftime("%Y-%m-%d")),
            contract.contract_no)
     return bills
+
+
+def cancel_contract(session, contract, by, reason=""):
+    """取消一份**还没生效**的合同：租客拒签、房东撤回，或另一份合同抢先生效。
+
+    模型上的状态图一直画着「pending ──任一方取消──► cancelled」，
+    改条款接口的注释也说「换人签就取消这份重开一份」——可这一步从来没有实现：
+    签错了人、租客不想签，合同就永远「待确认」，还算在房东的「合同尚未结束」里，
+    退回租客永远过不去（2026-10-23）。
+
+    `by`：tenant 拒签 / landlord 撤回（管理员按房东算）/ system 自动取消，
+    通知发给另一方；自动取消只通知租客。
+    """
+    if contract.status != "pending":
+        raise ValueError("只有待确认的合同可以取消")
+    reason = (reason or "").strip()[:100]
+    contract.status = "cancelled"
+    contract.ended_at = datetime.now()
+    contract.end_reason = reason or {"tenant": "租客拒签",
+                                     "landlord": "房东撤回"}.get(by, "已取消")
+    house = contract.house or session.get(House, contract.house_id)
+    house_no = house.house_no if house else ""
+    detail = "：%s" % reason if reason else ""
+    if by == "tenant":
+        notify(session, contract.landlord_id, "contract", "租客未接受合同",
+               "房源 %s 的合同 %s 租客没有接受%s。" % (house_no, contract.contract_no, detail),
+               contract.contract_no)
+    else:
+        title = "合同已撤回" if by == "landlord" else "合同已取消"
+        notify(session, contract.tenant_id, "contract", title,
+               "房源 %s 的合同 %s 已%s%s。" % (
+                   house_no, contract.contract_no,
+                   "由房东撤回" if by == "landlord" else "取消", detail),
+               contract.contract_no)
+    session.flush()
+    return contract
 
 
 # ---------------------------------------------------------------- 账单
@@ -928,7 +972,10 @@ def end_contract(session, contract, reason="", deduct=0):
     contract.ended_at = today
     contract.end_reason = reason
     _clear_request(contract)
-    contract.deposit_refund = deposit - deduct
+    # 这一列是**实际退还**的押金（见 Contract 的说明）。押金没收到过就没有退，
+    # 留空——原先照写「押金 − 扣款」，合同卡片上就是「已退还押金 2800 元」，
+    # 而同一时刻的通知写着「押金未曾缴纳，无需退款」（2026-10-23）
+    contract.deposit_refund = deposit - deduct if deposit_info["paid"] else None
 
     # 押金退款：**只有真的收到过押金才生成退款记录**。
     #
@@ -974,6 +1021,10 @@ def end_contract(session, contract, reason="", deduct=0):
     if house and house.status == "rented":
         # 出租期间改过房源内容的，审核记录已经清掉——回到待审，不直接上架
         house.status = "available" if house.approved_at else "pending"
+        if owner_can_list(session.get(User, house.landlord_id)):
+            # 房东在租期内被停用（或已不是房东）：停用时只下架了在架的房，
+            # 出租中的这套原先退租后照样回到在架、照样能约看（2026-10-23）
+            house.status = "offline"
         if house.status == "available":
             # 退租后房子空出来，对按条件等房的人来说就是一套新房
             from app.routers import saved_search

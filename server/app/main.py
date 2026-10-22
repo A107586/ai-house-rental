@@ -1323,6 +1323,9 @@ def review_house(house_no: str, payload: HouseReview,
     else:
         house.status = "offline"
         house.approved_at = None
+        # 改内容后回到待审的房子，身上可能挂着已确认的看房。驳回即下架，
+        # 和房东自己下架同一个处理；原先这些看房照常有效，约的人到了楼下（2026-10-23）
+        leasing.close_open_viewings(session, house, "房源未通过平台审核，已下架")
         title = "房源审核未通过"
         content = "房源 %s 未通过审核。%s" % (house.house_no, payload.reason or "")
 
@@ -2884,6 +2887,17 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         raise HTTPException(status_code=409,
                             detail="乙方不能是中介、管理员账号或这套房的受托人")
 
+    # 同一个人、同一套房只留一份待确认的。原先连点两下「发起签约」就是两份，
+    # 租客确认其中一份之后另一份永远挂着（2026-10-23）
+    waiting = session.scalar(select(Contract).where(
+        Contract.house_id == house.id, Contract.tenant_id == tenant.id,
+        Contract.status == "pending"))
+    if waiting:
+        raise HTTPException(
+            status_code=409,
+            detail="已经有一份发给这位租客的待确认合同（%s），要调整请在那份上修改条款"
+                   % waiting.contract_no)
+
     try:
         leasing.check_start_date(payload.start_date)
         contract = leasing.create_contract(
@@ -3043,12 +3057,32 @@ def update_contract(contract_no: str, payload: ContractUpdate,
 
 
 @app.post("/api/contracts/{contract_no}/activate")
-def activate_contract(contract_no: str, user: User = Depends(require_login),
+def activate_contract(contract_no: str,
+                      terms_digest: str = Body(default="", embed=True),
+                      user: User = Depends(require_login),
                       session: Session = Depends(get_session)):
-    """租客确认合同，合同生效并排出整个租期的账单。"""
+    """租客确认合同，合同生效并排出整个租期的账单。
+
+    `terms_digest` 是租客看到的那一版条款的指纹（合同详情里带着）。
+    不传就不比对——智能助手和老页面照旧能用。
+    """
     contract = _visible_contract(session, contract_no, user)
     if user.role != "admin" and user.id != contract.tenant_id:
         raise HTTPException(status_code=403, detail="只有承租方可以确认合同")
+    if (contract.status == "pending" and terms_digest
+            and terms_digest != contract.terms_digest):
+        raise HTTPException(status_code=409,
+                            detail="房东刚刚修改了合同条款，请重新查看后再确认")
+    if contract.status == "pending":
+        # 起租日的范围原先只在发起和修改时查。合同放了两个月才确认，起租日就到了
+        # 九十天前，一生效就是一串逾期账单——正是「最多往前补 30 天」要挡的那种（2026-10-23）
+        try:
+            leasing.check_start_date(contract.start_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=409,
+                detail="这份合同的起租日（%s）已经过去太久，请联系房东改一下起租日再确认"
+                       % contract.start_date.strftime("%Y-%m-%d"))
 
     try:
         bills = leasing.activate_contract(session, contract)
@@ -3065,6 +3099,25 @@ def _contract_side(contract, user):
     if user.id == contract.tenant_id and user.role != "admin":
         return "tenant"
     return "landlord"
+
+
+@app.post("/api/contracts/{contract_no}/cancel")
+def cancel_contract(contract_no: str,
+                    reason: str = Body(default="", embed=True),
+                    user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """取消一份还没生效的合同：租客点是**拒签**，房东点是**撤回**，管理员按房东算。
+
+    已经生效的不走这里——那要退租结算，见 end_contract。
+    """
+    contract = _visible_contract(session, contract_no, user)
+    try:
+        leasing.cancel_contract(session, contract, _contract_side(contract, user), reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
 
 
 @app.post("/api/contracts/{contract_no}/end")
@@ -3246,10 +3299,12 @@ def contract_detail(contract_no: str, user: User = Depends(require_login),
     if contract.ended_at:
         # 原先这里写「退还押金 X 元」，押金一分没交过也照写——和退租通知里的
         # 「押金未曾缴纳，无需退款」对不上。退了什么，以退款流水为准，逐笔列出
+        # 拒签 / 撤回的合同也有 ended_at，它们从没生效过，不是「结束」
+        cancelled = contract.status == "cancelled"
         timeline.append({
             "at": contract.ended_at.strftime("%Y-%m-%d %H:%M"),
-            "title": "合同结束",
-            "detail": contract.end_reason or "退租"})
+            "title": "合同已取消" if cancelled else "合同结束",
+            "detail": contract.end_reason or ("已取消" if cancelled else "退租")})
     for bill in bills:
         for refund in bill.refunds:
             timeline.append({

@@ -147,13 +147,21 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         </div>
       )}
 
-      {contract.status === 'ended' && contract.deposit_refund !== null && (
+      {/* deposit_refund 是实际退还的押金；押金没收到过就是空的，不能写成「已退还」 */}
+      {contract.status === 'ended' && (
         <div className="record-body">
-          已退还押金 {contract.deposit_refund} 元
-          {contract.deposit - contract.deposit_refund > 0 &&
-            `（扣款 ${(contract.deposit - contract.deposit_refund).toFixed(0)} 元）`}
+          {contract.deposit_refund !== null ? (
+            <>
+              已退还押金 {contract.deposit_refund} 元
+              {contract.deposit - contract.deposit_refund > 0 &&
+                `（扣款 ${(contract.deposit - contract.deposit_refund).toFixed(0)} 元）`}
+            </>
+          ) : contract.deposit > 0 ? '押金未缴纳，无需退还' : '免押'}
           {contract.end_reason && ` · ${contract.end_reason}`}
         </div>
+      )}
+      {contract.status === 'cancelled' && contract.end_reason && (
+        <div className="record-body">{contract.end_reason}</div>
       )}
 
       {error && <div className="reply failed">{error}</div>}
@@ -187,19 +195,38 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         )}
 
         {contract.status === 'pending' && isTenant && (
-          <button
-            className="btn small"
-            disabled={busy}
-            onClick={() => act(() => api.activateContract(contract.contract_no))}
-          >
-            {busy ? '处理中' : '确认签约'}
-          </button>
+          <>
+            <button
+              className="btn small"
+              disabled={busy}
+              onClick={() => act(() => api.activateContract(contract.contract_no,
+                                                            contract.terms_digest))}
+            >
+              {busy ? '处理中' : '确认签约'}
+            </button>
+            <button
+              className="btn ghost small"
+              disabled={busy}
+              onClick={() => window.confirm('不接受这份合同？房东会收到通知，合同随即作废。')
+                && act(() => api.cancelContract(contract.contract_no))}
+            >
+              拒签
+            </button>
+          </>
         )}
 
         {contract.status === 'pending' && isStaff && (
           <>
             <button className="btn ghost small" onClick={() => setEditing(true)}>
               修改条款
+            </button>
+            <button
+              className="btn ghost small"
+              disabled={busy}
+              onClick={() => window.confirm('撤回这份合同？租客会收到通知，合同随即作废。')
+                && act(() => api.cancelContract(contract.contract_no))}
+            >
+              撤回
             </button>
             <span className="own">等待租客确认</span>
           </>

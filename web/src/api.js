@@ -287,7 +287,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
+  // termsDigest：租客看到的那一版条款。房东在这期间改过条款，后端回 409 要他重看
+  activateContract: (no, termsDigest = '') =>
+    post(`/api/contracts/${no}/activate`, { terms_digest: termsDigest }),
+  // 还没生效的合同：租客点是拒签，房东点是撤回
+  cancelContract: (no, reason = '') =>
+    post(`/api/contracts/${no}/cancel`, { reason }),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>
