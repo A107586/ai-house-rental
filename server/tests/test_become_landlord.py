@@ -125,6 +125,22 @@ class TestUpgrade(UpgradeCase):
         me = self.client.get("/api/auth/me", headers=self.tenant).json()
         self.assertEqual(me["role"], "tenant")
 
+    def test_eligibility_reports_the_latest_request(self):
+        """提交过申请再打开页面，原先看到的还是那个按钮；被驳回了也看不到理由。"""
+        self.upgrade()
+        info = self.eligibility()
+        self.assertEqual(info["request"]["status"], "pending")
+        self.assertFalse(info["can_upgrade"], "审核中就别再给一个能点的按钮")
+
+        admin = make_admin(self.client, "root_el")
+        rid = self.client.get("/api/admin/role-requests", headers=admin).json()["list"][0]["id"]
+        self.client.post("/api/admin/role-requests/%d" % rid, headers=admin,
+                         json={"action": "reject", "note": "请补充房产证"})
+        info = self.eligibility()
+        self.assertEqual(info["request"]["status"], "rejected")
+        self.assertEqual(info["request"]["review_note"], "请补充房产证")
+        self.assertTrue(info["can_upgrade"], "驳回之后可以补材料再申请")
+
     def test_token_still_works(self):
         """**不吊销令牌。** 角色变了但还是同一个人。
 

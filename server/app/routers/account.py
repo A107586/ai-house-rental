@@ -210,9 +210,17 @@ def landlord_eligibility(user: User = Depends(require_login),
     if not user.phone.strip():
         missing.append("手机号")
 
+    # 最近一次申请。原先这里不说，用户提交过申请再打开页面，看到的还是那个「成为房东」按钮，
+    # 被驳回了也只能去翻站内信才知道为什么
+    latest = session.scalar(select(RoleRequest).where(
+        RoleRequest.user_id == user.id, RoleRequest.target_role == "landlord")
+        .order_by(RoleRequest.created_at.desc(), RoleRequest.id.desc()).limit(1))
+    waiting = bool(latest and latest.status == "pending")
+
     return {
         "role": user.role,
-        "can_upgrade": user.role == "tenant" and not missing,
+        "can_upgrade": user.role == "tenant" and not missing and not waiting,
+        "request": latest.to_dict() if latest else None,
         "already_landlord": user.role in ("landlord", "admin"),
         # 经纪人既不是「已经是房东」也不是「可以升级」，
         # 前端据此把升级入口整个藏掉，而不是给一个点了会报错的按钮
