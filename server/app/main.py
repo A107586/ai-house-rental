@@ -3264,6 +3264,54 @@ def my_bills(status: str = "", contract_no: str = "",
     }
 
 
+class BillSettleOffline(BaseModel):
+    note: str = Field(default="", max_length=60)
+
+
+class BillWaive(BaseModel):
+    reason: str = Field(default="", max_length=60)
+
+
+def _landlord_bill(session, bill_no, user):
+    """房东（或管理员）手里的一张账单。"""
+    bill = session.scalar(select(Bill).where(Bill.bill_no == bill_no))
+    if not bill or not bill.contract:
+        raise HTTPException(status_code=404, detail="账单不存在")
+    if user.role != "admin" and bill.contract.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只有这份合同的出租方可以操作")
+    return bill
+
+
+@app.post("/api/bills/{bill_no}/offline")
+def settle_bill_offline(bill_no: str, payload: BillSettleOffline,
+                        user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """房东确认线下收到了这笔钱。退租后的欠款「请与房东线下结清」，结清了得有处记。"""
+    bill = _landlord_bill(session, bill_no, user)
+    try:
+        leasing.record_offline_payment(session, bill, payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
+
+
+@app.post("/api/bills/{bill_no}/waive")
+def waive_bill(bill_no: str, payload: BillWaive,
+               user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    """房东减免一笔账单。原因必填，原样通知租客。"""
+    bill = _landlord_bill(session, bill_no, user)
+    try:
+        leasing.waive_bill(session, bill, payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "待缴" in str(exc) else 422, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
+
+
 @app.post("/api/bills/{bill_no}/pay")
 def pay_bill(bill_no: str, payload: PayRequest,
              user: User = Depends(require_login),

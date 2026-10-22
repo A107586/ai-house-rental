@@ -4058,6 +4058,9 @@
 
 .td-bills { width: 100%; font-size: 13px; }
 .td-bills tr.bad td { color: var(--danger, #d14343); }
+/* 待缴那几行的「已收到（线下）」「减免」：小、靠右、不换行 */
+.td-bills .td-acts { display: flex; gap: 10px; justify-content: flex-end; white-space: nowrap; }
+.td-bills .td-acts .link { font-size: 12px; }
 
 /* ============================================================
    房源相册：主图左右翻页 + 点开全屏看图

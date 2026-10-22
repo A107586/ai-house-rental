@@ -80,6 +80,8 @@ ACTION_RULES = (
     ("POST", r"^/api/contracts/[^/]+/review-result$", "保存合同审阅结果"),
 
     ("POST", r"^/api/bills/[^/]+/pay$", "缴纳账单"),
+    ("POST", r"^/api/bills/[^/]+/offline$", "确认线下收款"),
+    ("POST", r"^/api/bills/[^/]+/waive$", "减免账单"),
     ("POST", r"^/api/payments/notify$", "支付结果回调"),
     ("POST", r"^/api/payments/[^/]+/mock-pay$", "模拟支付"),
     ("POST", r"^/api/landlord/tenants/\d+/remind$", "催缴提醒租客"),

@@ -740,6 +740,66 @@ def confirm_payment(session, payment, payload=None, result="success"):
     return payment, True
 
 
+def _close_open_attempts(bill, reason):
+    """账单在别处结掉了（线下收款、减免），收银台上还开着的那一单要关掉。"""
+    for attempt in bill.payments:
+        if attempt.status == "pending":
+            attempt.status = "closed"
+            attempt.failure_reason = reason[:200]
+
+
+def record_offline_payment(session, bill, note=""):
+    """房东确认这笔钱线下收到了（现金、转账）。
+
+    原先没有这条路：退租后剩下的欠款提示「请与房东线下结清」，结清了也没处记——
+    账单永远是「待缴」，租客的待缴总额、房东的逾期名单、催缴提醒都一直算着它（2026-10-23）。
+    记成一条 method=offline 的成功支付，收支流水、收入统计都按它走。
+    """
+    if bill.status != "unpaid":
+        raise ValueError("这笔账单不是待缴状态（%s）" % {"paid": "已缴", "cancelled": "已作废"}
+                         .get(bill.status, bill.status))
+    _close_open_attempts(bill, "房东已确认线下收款")
+    now = datetime.now()
+    contract = bill.contract
+    payment = Payment(
+        trade_no=_serial("XX"), bill_id=bill.id,
+        user_id=contract.tenant_id if contract else None,
+        amount=bill.amount, method="offline", status="succeeded",
+        gateway="offline", paid_at=now, notified_at=now,
+        failure_reason="", notify_payload="")
+    session.add(payment)
+    bill.payments.append(payment)
+    bill.status = "paid"
+    bill.paid_at = now
+    note = (note or "").strip()[:60]
+    bill.remark = ((bill.remark or "") + " · 线下收款" + ("：" + note if note else "")).strip(" ·")
+    if contract:
+        notify(session, contract.tenant_id, "bill", "房东已确认收款",
+               "账单 %s（%s 元）房东已确认线下收到%s。"
+               % (bill.bill_no, _money(bill.amount), "，备注：" + note if note else ""),
+               bill.bill_no)
+    session.flush()
+    return payment
+
+
+def waive_bill(session, bill, reason):
+    """房东减免这一笔：不收了。必须写原因，原因会发给租客。"""
+    reason = (reason or "").strip()[:60]
+    if not reason:
+        raise ValueError("减免要写一句原因，会通知租客")
+    if bill.status != "unpaid":
+        raise ValueError("只有待缴的账单可以减免")
+    _close_open_attempts(bill, "房东已减免这笔账单")
+    bill.status = "cancelled"
+    bill.remark = ((bill.remark or "") + " · 房东减免：" + reason).strip(" ·")
+    if bill.contract:
+        notify(session, bill.contract.tenant_id, "bill", "房东减免了一笔账单",
+               "账单 %s（%s 元）不用再缴了：%s。" % (bill.bill_no, _money(bill.amount), reason),
+               bill.bill_no)
+    session.flush()
+    return bill
+
+
 def close_payment(session, payment, reason="超时未支付"):
     """第三段的反面：关单。
 

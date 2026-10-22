@@ -282,6 +282,9 @@ export const api = {
   // 待确认的合同不签了：出租方撤回、承租方拒签
   cancelContract: (contractNo, reason = '') =>
     post(`/api/contracts/${contractNo}/cancel`, { reason }),
+  // 房东确认线下收到了这笔钱 / 减免这一笔（原因必填，会通知租客）
+  settleBillOffline: (billNo, note = '') => post(`/api/bills/${billNo}/offline`, { note }),
+  waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>
