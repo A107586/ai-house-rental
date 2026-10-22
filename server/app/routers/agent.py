@@ -28,7 +28,7 @@ from app.deps import require_login
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
                         House, HouseDelegation, Review, User, ViewingRecord,
                         mask_name)
-from app.permissions import active_delegation, can_see_tenant_contact
+from app.permissions import active_delegation, can_see_tenant_contact, tenant_side_block
 
 router = APIRouter()
 
@@ -399,6 +399,17 @@ def create_viewing(payload: ViewingCreate,
         select(User).where(User.username == payload.tenant_username.strip()))
     if not tenant:
         raise HTTPException(status_code=404, detail="租客不存在")
+    # 看房的得是能以租客身份看这套房的人：房东本人、中介、管理员都不是（2026-10-23）
+    if tenant_side_block(session, tenant, house):
+        raise HTTPException(status_code=400, detail="这个账号不能作为这套房的看房人")
+    # 关联的预约必须就是这套房、这个人的。原先 appointment_id 不查，
+    # 随手填一个别的房子的预约号也能挂上
+    if payload.appointment_id is not None:
+        appointment = session.get(Appointment, payload.appointment_id)
+        if (not appointment or appointment.house_id != house.id
+                or appointment.tenant_id != tenant.id):
+            raise HTTPException(status_code=400,
+                                detail="关联的预约不是这位租客在这套房上的预约")
 
     row = ViewingRecord(
         appointment_id=payload.appointment_id, house_id=house.id,

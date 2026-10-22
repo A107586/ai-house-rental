@@ -693,8 +693,14 @@ def generate_bills(session, contract):
     return bills
 
 
-def _rent_bills(contract, start, total_months, remark):
-    """从 start 起排 total_months 个月的租金账单，按付款周期合并成期。续租也用它。"""
+def _rent_bills(contract, start, total_months, remark, offset=0):
+    """从 start 起排 total_months 个月的租金账单，按付款周期合并成期。续租也用它。
+
+    `offset`：从 start 之后第几个月开始排。续租传已经排过的月数、start 仍传起租日——
+    到期日一律按「起租日 + 第几个月」算。原先续租从旧到期日起算：8 月 31 日起租、
+    租 6 个月，到期日落在 2 月 28 日，续租的账单就排在每月 28 日，而合同写的是
+    「每月 31 日，当月没有这一天的为当月最后一天」（2026-10-23）。
+    """
     bills = []
     pay_months = max(contract.pay_months, 1)
     rent = Decimal(str(contract.rent))
@@ -702,9 +708,9 @@ def _rent_bills(contract, start, total_months, remark):
     while index < total_months:
         # 最后一期可能不足一个完整付款周期，按实际月数收
         span = min(pay_months, total_months - index)
-        due = add_months(start, index)
+        due = add_months(start, offset + index)
         start_label = due.strftime("%Y-%m")
-        end_label = add_months(start, index + span - 1).strftime("%Y-%m")
+        end_label = add_months(start, offset + index + span - 1).strftime("%Y-%m")
         period = start_label if span == 1 else "%s ~ %s" % (start_label, end_label)
         bills.append(Bill(
             bill_no=_serial("ZD"),
@@ -1040,6 +1046,13 @@ def end_contract(session, contract, reason="", deduct=0):
     deposit_info = plan["deposit"]
     deduct, deposit = deposit_info["deduct"], deposit_info["amount"]
 
+    # 收银台还开着的支付单一并关掉。原先留着：退租之后租客在收银台付成功，
+    # 回调被「合同已结束」拒掉，支付单永远停在「等待付款」，查询状态的接口
+    # 每轮询一次就抛一次异常（2026-10-23）
+    for bill in contract.bills:
+        for payment in bill.payments:
+            close_payment(session, payment, "合同已结束，支付单关闭")
+
     for bill in plan["cancel"]:
         bill.status = "cancelled"
         note = "退租作废，押金未缴无需再缴" if bill.type == "deposit" else "退租作废"
@@ -1151,9 +1164,12 @@ def renew_contract(session, contract, months=12):
     if months < 1:
         raise ValueError("续租至少 1 个月")
 
-    old_end = contract.end_date
-    contract.end_date = add_months(old_end, months)
-    bills = _rent_bills(contract, old_end, months, "续租第 %d 期租金")
+    # 按起租日 + 总月数算，不从旧到期日往后推：月末起租的，旧到期日可能已经被
+    # 2 月压成了 28 日，再往后推每个月都是 28 日（见 _rent_bills）
+    covered = months_between(contract.start_date, contract.end_date)
+    contract.end_date = add_months(contract.start_date, covered + months)
+    bills = _rent_bills(contract, contract.start_date, months, "续租第 %d 期租金",
+                        offset=covered)
     session.add_all(bills)
     contract.content = (contract.content or "") + (
         "\n\n【续租补充条款】双方同意续租 %d 个月，租期延长至 %s，"

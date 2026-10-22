@@ -950,6 +950,17 @@ def update_house_status(house_no: str, status: str,
     # 审核形同虚设；「已出租」也能手动标，和合同对不上。
     # 出租由签约生效推进，待审核由发布和编辑推进，只有管理员可以直接改。
     message = ""
+    # 「已出租」只由合同推进，管理员也不例外（2026-10-23）。原先管理员这两条都不查：
+    # 把有生效租约的房改回「在架」，另一位租客就能签约并生效——同一套房两份生效中的合同；
+    # 也能把一套没签约的房标成「已出租」，房源和合同从此对不上
+    if status == "rented" and house.status != "rented":
+        raise HTTPException(status_code=409,
+                            detail="「已出租」随合同生效自动变化，不能手动设置")
+    if house.status == "rented" and status != "rented" and session.scalar(
+            select(Contract.id).where(Contract.house_id == house.id,
+                                      Contract.status == "active")):
+        raise HTTPException(status_code=409,
+                            detail="这套房源有生效中的租约，退租结算之后才能改状态")
     if user.role != "admin":
         if status not in ("available", "offline"):
             raise HTTPException(
@@ -2607,9 +2618,15 @@ def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
 
     total = round(sum(float(b.amount) for b in late), 2)
     first = late[0]
-    content = ("你有 %d 笔逾期账单，共 %s 元，最早一笔 %s 到期。请尽快在「我的租约 → 账单」里缴纳，"
+    # 已结束合同上的欠款线上付不了（_guard_payable），只能线下结、房东确认收款。
+    # 原先一律叫人「在账单里缴纳」，点进去却没有缴费按钮（2026-10-23）
+    online = [b for b in late if b.contract and b.contract.status == "active"]
+    how = ("请尽快在「我的租约 → 账单」里缴纳" if len(online) == len(late)
+           else "租约已结束的那部分请与房东线下结清，房东确认收款后会记为已缴" if not online
+           else "租约还在的请在「我的租约 → 账单」里缴纳，已结束的请与房东线下结清")
+    content = ("你有 %d 笔逾期账单，共 %s 元，最早一笔 %s 到期。%s，"
                "有困难可以先和房东沟通。" % (len(late), ("%g" % total),
-                                            first.due_date.strftime("%Y-%m-%d")))
+                                            first.due_date.strftime("%Y-%m-%d"), how))
     leasing.notify(session, tenant_id, "bill", REMIND_TITLE, content,
                    link_no=first.bill_no)
     session.commit()
@@ -3595,8 +3612,13 @@ def payment_status(trade_no: str, user: User = Depends(require_login),
                 # 网关说付了，我们这边还是 pending —— 回调丢了，就地补上
                 notice = gateway.get_gateway().build_notify(
                     payment.trade_no, payment.gateway_trade_no, payment.amount)
-                leasing.confirm_payment(session, payment, notice, "success")
-                session.commit()
+                try:
+                    leasing.confirm_payment(session, payment, notice, "success")
+                    session.commit()
+                except ValueError:
+                    # 补登被拒（比如这期间合同已经结束）：和回调被拒同一个结论，
+                    # 原样返回当前状态。原先这里不接，轮询一次就是一次 500
+                    session.rollback()
 
     session.refresh(payment)
     return {"ok": True, "payment": payment.to_dict(),
