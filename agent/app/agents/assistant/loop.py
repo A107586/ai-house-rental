@@ -185,6 +185,7 @@ STEP_LABELS = {
     "knowledge": "在查平台规则", "my_bills": "在查你的账单", "my_contracts": "在查你的合同",
     "my_appointments": "在查你的预约", "my_repairs": "在查你的报修", "my_favorites": "在查你的收藏",
     "my_history": "在查浏览记录", "my_todos": "在查待办事项",
+    "my_money": "在查你的收支记录", "landlord_commissions": "在查应付佣金",
     "review_contract": "在看合同条款", "handoff": "在准备转人工",
 }
 

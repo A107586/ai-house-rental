@@ -160,6 +160,15 @@ TOOLS = [
         "required": [],
     },
     {
+        "name": "my_money",
+        "kind": "read",
+        # 2026-10-22 起退租会退回押金与已付未住的房租，每一笔都有流水。
+        # 「押金退了吗」「退了多少」「我一共交过多少钱」原先助手一句也答不上
+        "desc": "查我的收支记录：交过哪些钱、退回了多少（押金退款、提前退租退回的房租）。",
+        "params": {},
+        "required": [],
+    },
+    {
         "name": "my_contracts",
         "kind": "read",
         # 「我租了哪些房」「在租的有哪些」都是它。原说明只写了「租约」，
@@ -327,6 +336,14 @@ TOOLS = [
     # 助手一条都答不上来——**而后端这三个接口一直都在**。
     # 中介只好退回去翻工作台页面，等于对他这个角色，助手不存在。
     {
+        "name": "landlord_commissions",
+        "kind": "read",
+        # 房东付给中介的佣金。和 agent_commissions 方向相反——那个是中介自己的收入
+        "desc": "（房东用）我应付给中介的佣金：还有多少没付、已经付清多少。",
+        "params": {},
+        "required": [],
+    },
+    {
         "name": "agent_commissions",
         "kind": "read",
         "desc": "（中介用）我的佣金：待结多少、已结多少、共几笔。",
@@ -460,7 +477,7 @@ BY_NAME = {t["name"]: t for t in TOOLS}
 # 而用户问的可能根本不是这件事
 NEEDS_LOGIN = {
     "my_bills", "my_contracts", "my_appointments", "my_repairs",
-    "my_favorites", "my_history", "my_todos",
+    "my_favorites", "my_history", "my_todos", "my_money", "landlord_commissions",
     "landlord_appointments", "landlord_houses",
     "landlord_tenants", "landlord_income", "landlord_repairs",
     "landlord_contracts", "pricing_suggest", "admin_todos", "agent_commissions",
@@ -474,7 +491,7 @@ NEEDS_LOGIN = {
 # 「我的预约」和「谁约了我的房」这两条对模型来说长得很像
 STAFF_ONLY = {"landlord_appointments", "landlord_houses", "landlord_tenants",
               "landlord_income", "landlord_repairs", "landlord_contracts",
-              "pricing_suggest",
+              "landlord_commissions", "pricing_suggest",
               "handle_appointment", "toggle_house", "edit_house",
               "remind_tenant"}
 

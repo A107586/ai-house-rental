@@ -73,6 +73,8 @@ export default function AdminPanel({ user, onClose, embedded,
   const [flagPending, setFlagPending] = useState(0)
   // 全平台资金流水。订单总览原先只有租约和预约，**一分钱的流向都看不到**
   const [money, setMoney] = useState(null)
+  // 全平台佣金。取消只有管理员能做（纠纷处理），房东不能单方面取消自己欠的
+  const [commissions, setCommissions] = useState(null)
 
   async function load() {
     setError('')
@@ -103,6 +105,11 @@ export default function AdminPanel({ user, onClose, embedded,
       setMoney(await api.moneyRecords())
     } catch {
       setMoney(null)
+    }
+    try {
+      setCommissions(await api.owedCommissions())
+    } catch {
+      setCommissions(null)
     }
     try {
       const a = await api.adminAgentStats()
@@ -444,6 +451,48 @@ export default function AdminPanel({ user, onClose, embedded,
             )}
 
             <MoneyRecords money={money} side="admin" limit={30} />
+
+            {commissions && commissions.list.length > 0 && (
+              <>
+                <div className="section-title">
+                  中介佣金 · 待结 {commissions.pending_amount} 元 · 已结 {commissions.settled_amount} 元
+                </div>
+                <ul className="record-list">
+                  {commissions.list.slice(0, 30).map((c) => (
+                    <li key={c.id}>
+                      <div className="record-head">
+                        <strong>{c.house_no} · {c.agent_name}</strong>
+                        <span className={`pill ${c.status === 'settled' ? 'status-confirmed'
+                          : c.status === 'cancelled' ? 'status-cancelled' : 'status-pending'}`}>
+                          {c.status === 'settled' ? '已结清' : c.status === 'cancelled' ? '已取消' : '待结算'}
+                        </span>
+                      </div>
+                      <div className="record-body">
+                        <span className="amount">{c.amount} 元</span>
+                        （月租 {c.base_amount} × {c.rate}%）· 合同 {c.contract_no}
+                      </div>
+                      {c.status === 'pending' && (
+                        <div className="record-actions">
+                          <button className="btn ghost small" onClick={async () => {
+                            const reason = window.prompt('取消这笔佣金的原因（会发给中介）：', '')
+                            if (reason === null) return
+                            if (!reason.trim()) { setError('取消佣金必须写原因'); return }
+                            try {
+                              await api.cancelCommission(c.id, reason.trim())
+                              setCommissions(await api.owedCommissions())
+                            } catch (err) {
+                              setError(err.message)
+                            }
+                          }}>
+                            取消这笔佣金
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
 
             <div className="section-title">看房预约（{appointments.length}）</div>
             {appointments.length === 0 ? (

@@ -109,6 +109,8 @@ def _filters_from(params):
 # 「你有 3 笔待缴、共 5400 元」不需要润色，多一次往返只是多等两秒。
 ACCOUNT_TOOLS = {
     "my_bills": ("/api/bills/mine", "账单"),
+    "my_money": ("/api/money/records", "收支"),
+    "landlord_commissions": ("/api/landlord/commissions", "应付佣金"),
     "my_contracts": ("/api/contracts/mine", "租约"),
     "my_appointments": ("/api/appointments/mine", "看房预约"),
     "my_repairs": ("/api/repairs", "报修"),
@@ -128,6 +130,7 @@ ACCOUNT_TOOLS = {
 # 靠 side 分开——这正是 D3 加那个参数的用处
 ACCOUNT_QUERY = {
     "my_bills": {"side": "tenant"},
+    "my_money": {"side": "tenant"},
     "my_appointments": {"side": "tenant"},
     "my_contracts": {"side": "tenant"},
     "my_repairs": {"side": "tenant"},
@@ -790,6 +793,24 @@ def _summarize(name, data, rows, label):
         rented = [r for r in rows if r.get("status") == "rented"]
         return ("你名下有 %d 套房源：%d 套在架，%d 套已出租。"
                 % (len(rows), len(listed), len(rented)))
+
+    if name == "my_money":
+        # 两个合计直接取返回体里算好的，理由同 agent_commissions
+        text = "你一共交过 %s 元，退回 %s 元。" % (
+            money_text(data.get("total_out") or 0), money_text(data.get("total_in") or 0))
+        refunds = [r for r in rows if r.get("kind") == "refund"]
+        if refunds:
+            last = refunds[0]          # 后端按时间倒序
+            text += "最近一笔退款是「%s」%s 元，%s。" % (
+                last.get("title") or "退款", money_text(last.get("amount")),
+                str(last.get("at") or "")[:10])
+        return text
+
+    if name == "landlord_commissions":
+        return ("你共有 %d 笔应付给中介的佣金：还没付 %s 元，已付清 %s 元。"
+                "付了之后到「委托中介」底部点「我已付清」。"
+                % (len(rows), money_text(data.get("pending_amount") or 0),
+                   money_text(data.get("settled_amount") or 0)))
 
     if name == "agent_commissions":
         # **金额直接取返回体里算好的那两个数。**

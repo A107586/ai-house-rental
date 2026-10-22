@@ -742,6 +742,9 @@ export const api = {
   // 我（房东）应付给中介的佣金，与「付清后标记已结清」。钱线下给，这里只记状态
   owedCommissions: () => request('/api/landlord/commissions'),
   settleCommission: (id) => request(`/api/commissions/${id}/settle`, { method: 'POST' }),
+  // 管理员取消一笔佣金（纠纷处理），必须写原因
+  cancelCommission: (id, reason) =>
+    request(`/api/commissions/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   createDelegation: (payload) => post('/api/delegations', payload),
 
   // 由房源负责人主动联系某位租客（J-07）。租客设了免打扰会被服务端拒绝，

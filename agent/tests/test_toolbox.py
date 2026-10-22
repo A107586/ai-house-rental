@@ -308,6 +308,23 @@ class TestAccountSummary(unittest.TestCase):
         self.assertNotIn("1250.0", text)
         self.assertNotIn("e+", text)
 
+    def test_money_names_the_latest_refund(self):
+        """「押金退了吗」：合计取返回体，再点名最近那一笔退款。"""
+        rows = [{"kind": "refund", "title": "押金退款", "amount": 2500.0, "at": "2026-10-22 05:30"},
+                {"kind": "payment", "title": "缴纳租金", "amount": 2800.0, "at": "2026-10-01 09:00"}]
+        text = runner._summarize("my_money", {"total_out": 5600.0, "total_in": 2500.0}, rows, "收支")
+        self.assertIn("5600 元", text)
+        self.assertIn("2500 元", text)
+        self.assertIn("押金退款", text)
+        self.assertIn("2026-10-22", text)
+
+    def test_landlord_commissions_point_to_where_to_settle(self):
+        text = runner._summarize("landlord_commissions",
+                                 {"pending_amount": 1400.0, "settled_amount": 0},
+                                 [{}], "应付佣金")
+        self.assertIn("还没付 1400 元", text)
+        self.assertIn("我已付清", text)
+
     def test_delegations_count_active_ones(self):
         rows = [{"status": "active"}, {"status": "active"}, {"status": "ended"}]
         text = runner._summarize("agent_delegations", {}, rows, "委托")

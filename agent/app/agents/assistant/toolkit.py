@@ -507,6 +507,11 @@ _KEY_LABELS = {
     "month_income": "本月已收",
     "overdue": "已逾期",
     "due_date": "到期日",
+    # 收支记录：方向是从当前这一方看的
+    "total_out": "交出去的合计",
+    "total_in": "退回 / 收到的合计",
+    "pending_amount": "待结合计",
+    "settled_amount": "已结合计",
 }
 
 

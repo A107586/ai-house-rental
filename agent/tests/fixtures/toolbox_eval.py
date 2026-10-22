@@ -78,6 +78,11 @@ CASES = [
     ("有人约我的房吗", "landlord_appointments", "landlord"),
     ("我名下有几套房", "landlord_houses", "landlord"),
     ("我的租客都有谁", "landlord_tenants", "landlord"),
+    # 2026-10-22 加的两件工具。说法照着用户会怎么问写，不照工具名念：
+    # 退租后最常被问的就是「押金退了吗」；房东问的是「欠中介多少」
+    ("我的押金退回来了吗", "my_money", "tenant"),
+    ("我一共交过多少钱", "my_money", "tenant"),
+    ("我还欠中介多少佣金", "landlord_commissions", "landlord"),
 
     # 中介侧。这三条是长对话测试补上工具之后加的——**加工具的时候
     # 忘了加评测**，`test_suite_hygiene` 里那条覆盖率用例就是为此写的。
@@ -132,7 +137,7 @@ CASES = [
 
 # 未登录时这些工具不该出现在候选里——挑中了就是身份过滤没生效
 LOGIN_ONLY = ("my_bills", "my_contracts", "my_appointments", "my_repairs",
-              "my_favorites", "my_history", "my_todos",
+              "my_favorites", "my_history", "my_todos", "my_money",
               "pay_bill", "book_viewing", "submit_repair",
               "end_contract", "renew_contract", "favorite_house",
               "unfavorite_house", "cancel_viewing", "reschedule_viewing")
