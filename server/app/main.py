@@ -2722,6 +2722,7 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         raise HTTPException(status_code=404, detail="租客不存在")
 
     try:
+        leasing.check_start_date(payload.start_date)
         contract = leasing.create_contract(
             session, house, tenant, payload.start_date,
             months=payload.months,
@@ -2789,6 +2790,11 @@ def update_contract(contract_no: str, payload: ContractUpdate,
         raise HTTPException(status_code=409, detail="房源或租客已不存在")
 
     start = payload.start_date or contract.start_date
+    if payload.start_date:
+        try:
+            leasing.check_start_date(start)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
     months = payload.months
     if months is None:
         # 没传月数就沿用原来的跨度，**按月算而不是按天**——

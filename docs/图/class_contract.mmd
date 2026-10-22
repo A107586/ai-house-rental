@@ -35,6 +35,7 @@ classDiagram
         +months_between(start, end)
         +resolve_deposit(house, deposit_months, default_deposit_months)
         +create_contract(session, house, tenant, start_date, months, deposit_months, pay_months, content, default_deposit_months)
+        +check_start_date(start, today)
         +house_specific_clauses(house, deposit, pay_months)
         +render_contract_text(house, tenant, start_date, end_date, rent, deposit, pay_months)
         +settle_delegation(session, contract, house)

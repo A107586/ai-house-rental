@@ -9,12 +9,18 @@
 这里测的是**同一个值在不同地方是否一致**，关注点不一样。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tests.base import ApiTestCase, auth_header
 import app.db as db
 from app import leasing
 from app.models import House, User
+
+
+def _soon():
+    """走接口签约用相对日期：接口限制起租日最多往前补 30 天，写死的日子过几周就红"""
+    return (datetime.now() + timedelta(days=7)).replace(hour=0, minute=0, second=0,
+                                                        microsecond=0)
 
 
 class TermsCase(ApiTestCase):
@@ -124,7 +130,7 @@ class TestDepositThroughApi(ApiTestCase):
         payload = {
             "house_no": "DL0001",
             "tenant_username": "tenant1",
-            "start_date": datetime(2026, 10, 1).isoformat(),
+            "start_date": _soon().isoformat(),
             "months": 12,
         }
         payload.update(extra)
@@ -222,7 +228,7 @@ class TestUnnamedTenantRejectedByApi(ApiTestCase):
         response = self.client.post("/api/contracts", headers=self.landlord, json={
             "house_no": "DL0001",
             "tenant_username": "tenant1",
-            "start_date": datetime(2026, 10, 1).isoformat(),
+            "start_date": _soon().isoformat(),
             "months": 12,
         })
         self.assertEqual(response.status_code, 409)

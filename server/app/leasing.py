@@ -108,6 +108,11 @@ def create_contract(session, house, tenant, start_date, months=12,
         raise ValueError("该房源当前不可签约")
     if months < 1:
         raise ValueError("租期至少一个月")
+    # 和自己签约：房源显示已出租、统计跟着变，退租后他还成了能给自己房子写评价的「租客」
+    if tenant.id == house.landlord_id:
+        raise ValueError("不能和自己签约")
+    if getattr(tenant, "status", "active") != "active":
+        raise ValueError("该租客账号已停用，无法签约")
 
     # 合同是法律文本，甲乙双方必须是真实姓名。租客没实名就签，
     # 正文里的承租方会写成 `tenant1` 这种登录名（K-03）。
@@ -146,6 +151,24 @@ def create_contract(session, house, tenant, start_date, months=12,
 
 _CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
            13: "十三", 14: "十四", 15: "十五"}
+
+
+# 起租日能往前补多少天、往后排多远。往前补是常见的（先搬进去、后补签），
+# 但补几个月的话，确认那一刻起前面每一期都已经逾期；往后排太远的合同也不是真合同
+START_BACK_DAYS = 30
+START_AHEAD_DAYS = 365
+
+
+def check_start_date(start, today=None):
+    """起租日的合理范围。**在接口层调用**，不放进 create_contract——
+    单元测试直接调 create_contract 用的是固定日期，放进去它们会随日子过去而红。"""
+    today = (today or datetime.now()).date()
+    day = start.date() if hasattr(start, "date") else start
+    if (today - day).days > START_BACK_DAYS:
+        raise ValueError("起租日最多只能往前补 %d 天；更早的租期请按实际情况重新约定"
+                         % START_BACK_DAYS)
+    if (day - today).days > START_AHEAD_DAYS:
+        raise ValueError("起租日不能晚于一年以后")
 
 
 def house_specific_clauses(house, deposit, pay_months):
