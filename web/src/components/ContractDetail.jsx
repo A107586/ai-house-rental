@@ -56,7 +56,7 @@ export default function ContractDetail({ contractNo, onClose, onOpenHouse, asPay
     setBusy(bill.bill_no)
     setError('')
     try {
-      await api.offlineReceipt(bill.bill_no)
+      await api.settleBillOffline(bill.bill_no)
       setReload((n) => n + 1)
     } catch (err) {
       setError(err.message)

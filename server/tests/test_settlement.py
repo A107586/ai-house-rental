@@ -302,5 +302,71 @@ class TestMonthEndPeriods(unittest.TestCase):
         self.assertEqual(str(feb["refund"]), "3000.00")
 
 
+class TestOfflineSettlement(SettlementCase):
+    """退租后剩下的欠款提示「请与房东线下结清」，结清了却没处记——账单永远是待缴，
+    待缴总额、逾期名单、催缴都一直算着它（2026-10-23）。"""
+
+    def _arrears(self):
+        """一份已结束、还欠着一期房租的合同。"""
+        no = self.lease(datetime.now(), months=3)
+        self.shift_start(no, 40)                 # 住了 40 天，第一期整期已过、没交
+        end_lease(self.client, no, self.landlord, self.tenant)
+        unpaid = [b for b in self.bills(no) if b["status"] == "unpaid"]
+        self.assertTrue(unpaid, "应当留下住过期间没交的那一期")
+        return no, unpaid[0]["bill_no"]
+
+    def test_landlord_records_cash(self):
+        no, bill_no = self._arrears()
+        r = self.client.post("/api/bills/%s/offline" % bill_no, headers=self.landlord,
+                             json={"note": "微信转账"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["bill"]["status"], "paid")
+        # 住了 40 天：第一期整期欠着，第二期按天折算后也欠着。都线下结了，待缴才归零
+        for rest in [b["bill_no"] for b in self.bills(no) if b["status"] == "unpaid"]:
+            self.client.post("/api/bills/%s/offline" % rest, headers=self.landlord, json={})
+        mine = self.client.get("/api/bills/mine", headers=self.tenant,
+                               params={"side": "tenant"}).json()
+        self.assertEqual(mine["unpaid_count"], 0)
+        flows = self.client.get("/api/money/records", headers=self.tenant,
+                                params={"side": "tenant"}).json()["list"]
+        self.assertTrue(any(f.get("bill_no") == bill_no for f in flows), flows)
+        titles = [m["title"] for m in self.client.get("/api/messages", headers=self.tenant)
+                  .json()["list"]]
+        self.assertIn("房东已确认收款", titles)
+
+    def test_tenant_cannot_mark_his_own_bill_paid(self):
+        _, bill_no = self._arrears()
+        r = self.client.post("/api/bills/%s/offline" % bill_no, headers=self.tenant, json={})
+        self.assertEqual(r.status_code, 403)
+
+    def test_waive_needs_a_reason_and_tells_the_tenant(self):
+        _, bill_no = self._arrears()
+        blank = self.client.post("/api/bills/%s/waive" % bill_no, headers=self.landlord,
+                                 json={"reason": ""})
+        self.assertEqual(blank.status_code, 422)
+        r = self.client.post("/api/bills/%s/waive" % bill_no, headers=self.landlord,
+                             json={"reason": "押金里已经扣过了"})
+        self.assertEqual(r.json()["bill"]["status"], "cancelled")
+        titles = [m["title"] for m in self.client.get("/api/messages", headers=self.tenant)
+                  .json()["list"]]
+        self.assertIn("房东减免了一笔账单", titles)
+
+    def test_open_online_attempt_is_closed(self):
+        """收银台上还开着的那一单要关掉，否则回调晚到会再记一笔。"""
+        no = self.lease(datetime.now(), months=3)
+        bill_no = self.rent_bills(no)[0]["bill_no"]
+        started = self.client.post("/api/bills/%s/pay" % bill_no, headers=self.tenant,
+                                   json={"method": "alipay"})
+        self.assertEqual(started.status_code, 200, started.text)
+        self.client.post("/api/bills/%s/offline" % bill_no, headers=self.landlord, json={})
+        session = db.SessionLocal()
+        try:
+            states = sorted(p.status for p in session.query(Payment).join(Bill)
+                            .filter(Bill.bill_no == bill_no).all())
+        finally:
+            session.close()
+        self.assertEqual(states, ["closed", "succeeded"])
+
+
 if __name__ == "__main__":
     unittest.main()

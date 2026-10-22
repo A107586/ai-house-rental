@@ -293,6 +293,9 @@ export const api = {
   // 还没生效的合同：租客点是拒签，房东点是撤回
   cancelContract: (no, reason = '') =>
     post(`/api/contracts/${no}/cancel`, { reason }),
+  // 房东确认线下收到了这笔钱 / 减免这一笔（原因必填，会通知租客）
+  settleBillOffline: (billNo, note = '') => post(`/api/bills/${billNo}/offline`, { note }),
+  waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>
@@ -304,8 +307,6 @@ export const api = {
   // ---------------- 账单 ----------------
   // side：tenant 我要交的 / landlord 我该收的（D3）。不传就是两份混在一起
   myBills: (status = '', side = '') => request(`/api/bills/mine?${toQuery({ status, side })}`),
-  // 房东确认这笔钱线下收到了（合同结束后的欠款只能这样结清）
-  offlineReceipt: (billNo) => post(`/api/bills/${billNo}/offline-receipt`, {}),
   payBill: (no, method = 'alipay', idempotencyKey = '') =>
     post(`/api/bills/${no}/pay`, {
       method,

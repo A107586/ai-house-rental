@@ -832,6 +832,66 @@ def confirm_payment(session, payment, payload=None, result="success"):
     return payment, True
 
 
+def _close_open_attempts(bill, reason):
+    """账单在别处结掉了（线下收款、减免），收银台上还开着的那一单要关掉。"""
+    for attempt in bill.payments:
+        if attempt.status == "pending":
+            attempt.status = "closed"
+            attempt.failure_reason = reason[:200]
+
+
+def record_offline_payment(session, bill, note=""):
+    """房东确认这笔钱线下收到了（现金、转账）。
+
+    原先没有这条路：退租后剩下的欠款提示「请与房东线下结清」，结清了也没处记——
+    账单永远是「待缴」，租客的待缴总额、房东的逾期名单、催缴提醒都一直算着它（2026-10-23）。
+    记成一条 method=offline 的成功支付，收支流水、收入统计都按它走。
+    """
+    if bill.status != "unpaid":
+        raise ValueError("这笔账单不是待缴状态（%s）" % {"paid": "已缴", "cancelled": "已作废"}
+                         .get(bill.status, bill.status))
+    _close_open_attempts(bill, "房东已确认线下收款")
+    now = datetime.now()
+    contract = bill.contract
+    payment = Payment(
+        trade_no=_serial("XX"), bill_id=bill.id,
+        user_id=contract.tenant_id if contract else None,
+        amount=bill.amount, method="offline", status="succeeded",
+        gateway="offline", paid_at=now, notified_at=now,
+        failure_reason="", notify_payload="")
+    session.add(payment)
+    bill.payments.append(payment)
+    bill.status = "paid"
+    bill.paid_at = now
+    note = (note or "").strip()[:60]
+    bill.remark = ((bill.remark or "") + " · 线下收款" + ("：" + note if note else "")).strip(" ·")
+    if contract:
+        notify(session, contract.tenant_id, "bill", "房东已确认收款",
+               "账单 %s（%s 元）房东已确认线下收到%s。"
+               % (bill.bill_no, _money(bill.amount), "，备注：" + note if note else ""),
+               bill.bill_no)
+    session.flush()
+    return payment
+
+
+def waive_bill(session, bill, reason):
+    """房东减免这一笔：不收了。必须写原因，原因会发给租客。"""
+    reason = (reason or "").strip()[:60]
+    if not reason:
+        raise ValueError("减免要写一句原因，会通知租客")
+    if bill.status != "unpaid":
+        raise ValueError("只有待缴的账单可以减免")
+    _close_open_attempts(bill, "房东已减免这笔账单")
+    bill.status = "cancelled"
+    bill.remark = ((bill.remark or "") + " · 房东减免：" + reason).strip(" ·")
+    if bill.contract:
+        notify(session, bill.contract.tenant_id, "bill", "房东减免了一笔账单",
+               "账单 %s（%s 元）不用再缴了：%s。" % (bill.bill_no, _money(bill.amount), reason),
+               bill.bill_no)
+    session.flush()
+    return bill
+
+
 def close_payment(session, payment, reason="超时未支付"):
     """第三段的反面：关单。
 
@@ -870,52 +930,6 @@ def pay_bill(session, bill, user=None, method="alipay", idempotency_key=None):
     """
     payment = start_payment(session, bill, user, method, idempotency_key)
     payment, _ = confirm_payment(session, payment, None, "success")
-    return payment
-
-
-def record_offline_receipt(session, bill, user):
-    """收款方确认「这笔钱线下收到了」：房东（或管理员）登记，账单置已缴并留一条 offline 流水。
-
-    合同结束后 `_guard_payable` 拒收任何缴费——那条规矩是对的，已终止的合同不该
-    再走缴费通道。可退租时「住过期间没交的租金」原样留成欠款，让双方线下结；
-    线下结清了，系统里却没有任何一处能记下来：租客的「待缴」、房东的「待收」
-    永远挂着（2026-10-23 定：给收款方一个确认入口）。
-
-    只有收钱的一方能点：付款方说「我付了」不算数，收款方确认收到才算。
-    """
-    if bill.status == "paid":
-        raise ValueError("该账单已缴清")
-    if bill.status == "cancelled":
-        raise ValueError("该账单已作废")
-    contract = bill.contract
-    if not contract or contract.status not in ("active", "ended"):
-        raise ValueError("只有生效中或已结束的合同上的账单可以登记线下收款")
-    now = datetime.now()
-    for payment in list(bill.payments):
-        if payment.status != "pending":
-            continue
-        if payment.expire_at and payment.expire_at <= now:
-            close_payment(session, payment, "超时未支付，自动关单")
-        else:
-            # 租客那边的收银台还开着：这时登记线下收款，他接着付成功就是收了两遍
-            raise ValueError("租客正在线上支付这张账单，等这次支付结束后再登记")
-
-    payment = Payment(
-        trade_no=_serial("LS"), bill_id=bill.id, user_id=user.id if user else None,
-        amount=bill.amount, method="offline", status="succeeded", gateway="offline",
-        paid_at=now)
-    session.add(payment)
-    bill.payments.append(payment)
-    bill.status = "paid"
-    bill.paid_at = now
-    bill.remark = (bill.remark + " · 线下收款，%s确认" % (
-        "平台" if user and user.role == "admin" else "房东")).strip(" ·")
-    notify(session, contract.tenant_id, "bill", "账单已确认收款",
-           "账单 %s（%s 元）已由%s确认线下收到。" % (
-               bill.bill_no, _money(bill.amount),
-               "平台" if user and user.role == "admin" else "房东"),
-           bill.bill_no)
-    session.flush()
     return payment
 
 

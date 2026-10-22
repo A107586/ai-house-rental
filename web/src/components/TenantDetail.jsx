@@ -18,13 +18,43 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const [version, setVersion] = useState(0)
+
   useEffect(() => {
     let alive = true
     api.landlordTenant(tenantId)
       .then((d) => { if (alive) setData(d) })
       .catch((err) => { if (alive) setError(err.message) })
     return () => { alive = false }
-  }, [tenantId])
+  }, [tenantId, version])
+
+  /** 线下收了 / 减免。退租后的欠款原先只能「请与房东线下结清」，结清了却没处记（2026-10-23） */
+  async function settle(bill, how) {
+    if (busy) return
+    let text = ''
+    if (how === 'offline') {
+      text = window.prompt(`确认已线下收到 ${bill.amount} 元？可以备注一句（比如「微信转账」）：`, '')
+      if (text === null) return
+    } else {
+      text = window.prompt(`减免这笔 ${bill.amount} 元？写一句原因，会发给租客：`, '')
+      if (text === null) return
+      if (!text.trim()) { setError('减免要写一句原因。'); return }
+    }
+    setBusy(true)
+    setError('')
+    setOk('')
+    try {
+      if (how === 'offline') await api.settleBillOffline(bill.bill_no, text.trim())
+      else await api.waiveBill(bill.bill_no, text.trim())
+      setOk(how === 'offline' ? `已记为线下收款 ${bill.amount} 元，租客会收到通知。`
+                              : `已减免 ${bill.amount} 元，租客会收到通知。`)
+      setVersion((v) => v + 1)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose() }
@@ -118,7 +148,7 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
             ) : (
               <table className="log-table td-bills">
                 <thead>
-                  <tr><th>期数</th><th>房源</th><th>金额</th><th>到期日</th><th>状态</th></tr>
+                  <tr><th>期数</th><th>房源</th><th>金额</th><th>到期日</th><th>状态</th><th /></tr>
                 </thead>
                 <tbody>
                   {data.bills.map((b) => (
@@ -128,6 +158,16 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
                       <td>{b.amount}</td>
                       <td>{b.due_date}</td>
                       <td>{b.status === 'paid' ? '已缴' : b.overdue ? '逾期' : '待缴'}</td>
+                      <td>
+                        {b.status === 'unpaid' && (
+                          <span className="td-acts">
+                            <button className="link" disabled={busy}
+                                    onClick={() => settle(b, 'offline')}>已收到（线下）</button>
+                            <button className="link" disabled={busy}
+                                    onClick={() => settle(b, 'waive')}>减免</button>
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

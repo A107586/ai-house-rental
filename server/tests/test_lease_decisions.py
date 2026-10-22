@@ -136,44 +136,47 @@ class TestOfflineReceipt(DecisionCase):
 
     def test_landlord_records_offline_receipt(self):
         _, bill = self._ended_with_arrears()
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill["bill_no"],
-                             headers=self.landlord)
+        r = self.client.post("/api/bills/%s/offline" % bill["bill_no"],
+                             headers=self.landlord, json={})
         self.assertEqual(r.status_code, 200, r.text)
         got = r.json()["bill"]
         self.assertEqual(got["status"], "paid")
         self.assertEqual(got["payment"]["method"], "offline")
-        self.assertIn("账单已确认收款", self.titles(self.tenant))
+        self.assertIn("房东已确认收款", self.titles(self.tenant))
         # 收支流水里有这一笔
         records = self.client.get("/api/money/records?side=landlord",
                                   headers=self.landlord).json()
         self.assertIn(bill["bill_no"], str(records))
         # 再点一次不会收两遍
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill["bill_no"],
-                             headers=self.landlord)
+        r = self.client.post("/api/bills/%s/offline" % bill["bill_no"],
+                             headers=self.landlord, json={})
         self.assertEqual(r.status_code, 409)
 
     def test_only_the_payee_can_record(self):
         _, bill = self._ended_with_arrears()
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill["bill_no"],
-                             headers=self.tenant)
+        r = self.client.post("/api/bills/%s/offline" % bill["bill_no"],
+                             headers=self.tenant, json={})
         self.assertEqual(r.status_code, 403)
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill["bill_no"],
-                             headers=self.admin)
+        r = self.client.post("/api/bills/%s/offline" % bill["bill_no"],
+                             headers=self.admin, json={})
         self.assertEqual(r.status_code, 200, r.text)
 
-    def test_refused_while_tenant_is_paying_online(self):
+    def test_open_checkout_is_closed_when_received_offline(self):
+        """租客收银台还开着时房东确认线下收款：那一单关掉，回调晚到也不会再记一笔。"""
         no = self.sign(house="DL0002")["contract_no"]
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
         bill = next(b for b in self.client.get("/api/bills/mine?contract_no=%s" % no,
                                                headers=self.tenant).json()["list"]
                     if b["type"] == "rent")
         started = self.client.post("/api/bills/%s/pay" % bill["bill_no"], headers=self.tenant,
-                                   json={"method": "alipay"})
-        self.assertEqual(started.json()["payment"]["status"], "pending")
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill["bill_no"],
-                             headers=self.landlord)
+                                   json={"method": "alipay"}).json()["payment"]
+        self.assertEqual(started["status"], "pending")
+        r = self.client.post("/api/bills/%s/offline" % bill["bill_no"],
+                             headers=self.landlord, json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post("/api/payments/%s/mock-pay" % started["trade_no"],
+                             headers=self.tenant)
         self.assertEqual(r.status_code, 409)
-        self.assertIn("正在线上支付", r.json()["detail"])
 
     def test_cancelled_bill_cannot_be_received(self):
         no = self.sign(house="DL0002")["contract_no"]
@@ -187,7 +190,7 @@ class TestOfflineReceipt(DecisionCase):
             paid_before = session.query(Payment).count()
         finally:
             session.close()
-        r = self.client.post("/api/bills/%s/offline-receipt" % bill_no, headers=self.landlord)
+        r = self.client.post("/api/bills/%s/offline" % bill_no, headers=self.landlord, json={})
         self.assertEqual(r.status_code, 409)
         session = db.SessionLocal()
         try:
