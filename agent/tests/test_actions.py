@@ -26,6 +26,31 @@ from app.agents.support.tools import actions  # noqa: E402
 from app.backend import BackendError  # noqa: E402
 
 
+def _ahead(days, clock):
+    """今天往后第 days 天的某个时刻。**预约夹具不写死日子**：
+    助手只列还没到点的预约（2026-10-23），写死的 9 月份过了就全被筛掉，用例跟着红。"""
+    day = datetime.date.today() + datetime.timedelta(days=days)
+    return "%s %s" % (day.isoformat(), clock)
+
+
+# **函数，不是常量**：日期挪动扫描（scripts/run_at_dates.py）是先导入再拨钟，
+# 模块级常量会按真实的今天算死，挪到别的日子就全成了过去
+def slot_a():
+    return _ahead(2, "14:00")
+
+
+def slot_b():
+    return _ahead(3, "10:00")
+
+
+def slot_c():
+    return _ahead(4, "10:00")
+
+
+def slot_d():
+    return _ahead(5, "14:00")
+
+
 class RecordingBackend(object):
     """记录每一次调用的假后端。
 
@@ -182,12 +207,12 @@ class TestProposeIsSideEffectFree(unittest.TestCase):
         payloads.update(ACTIVE_CONTRACT)
         payloads["/api/messages"] = {"list": [{"title": "x"}], "unread": 3}
         payloads["/api/appointments/mine"] = {"list": [
-            {"id": 1, "status": "pending", "viewing_time": "2026-09-05 14:00",
+            {"id": 1, "status": "pending", "viewing_time": slot_a(),
              "house_no": "DL0001"}]}
         payloads["/api/reviews/pending"] = {"list": [{"contract_no": "HT001"}]}
         payloads["/api/landlord/houses"] = {"list": [{"house_no": "DL0001"}]}
         payloads["/api/appointments"] = {"list": [
-            {"id": 2, "status": "pending", "viewing_time": "2026-09-06 10:00",
+            {"id": 2, "status": "pending", "viewing_time": slot_b(),
              "house_no": "DL0002"}]}
         payloads["/api/repairs"] = {"list": [
             {"id": 3, "status": "pending", "content": "空调不制冷"}]}
@@ -642,9 +667,9 @@ class TestMultiTurn(unittest.TestCase):
         support.reset_knowledge_base()
         self.backend = RecordingBackend({
             "/api/appointments/mine": {"list": [
-                {"id": 1, "status": "pending", "viewing_time": "2026-09-05 14:00",
+                {"id": 1, "status": "pending", "viewing_time": slot_a(),
                  "house_no": "A"},
-                {"id": 2, "status": "pending", "viewing_time": "2026-09-06 10:00",
+                {"id": 2, "status": "pending", "viewing_time": slot_b(),
                  "house_no": "B"}]},
             "/api/favorites": {"list": [
                 {"house_no": "DL0008", "title": "中山区桂林街"},
@@ -796,56 +821,59 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
     # 每个动作在「什么上下文都没有」时需要读到的数据。给全了才走得到追问，
     # 给不全会提前返回 NOT_APPLICABLE（「你没有待评价的租约」），
     # 那条路不是这里要测的。
-    PAYLOADS = {
-        "/api/bills/mine": {"list": [
-            {"bill_no": "ZD001", "amount": 2200, "status": "unpaid",
-             "bill_type": "租金", "due_date": "2026-09-01"},
-            {"bill_no": "ZD002", "amount": 1800, "status": "unpaid",
-             "bill_type": "水电", "due_date": "2026-09-10"}]},
-        "/api/contracts/mine": {"list": [
-            {"contract_no": "HT001", "status": "active", "house_no": "DL0001",
-             "start_date": "2026-01-01", "end_date": "2026-12-31"},
-            {"contract_no": "HT002", "status": "active", "house_no": "DL0002",
-             "start_date": "2026-02-01", "end_date": "2027-01-31"}]},
-        "/api/favorites": {"list": [
-            {"house_no": "DL0007", "title": "中山区青泥洼桥 两室一厅"},
-            {"house_no": "DL0008", "title": "中山区桂林街 两室一厅"}]},
-        "/api/history": {"list": [
-            {"house_no": "DL0009", "title": "西岗区北京街 两室一厅"},
-            {"house_no": "DL0010", "title": "中山区海军广场 两室"}]},
-        "/api/appointments/mine": {"list": [
-            {"id": 1, "house_no": "DL0007", "status": "pending",
-             "viewing_time": "2026-09-05 14:00:00"},
-            {"id": 2, "house_no": "DL0008", "status": "pending",
-             "viewing_time": "2026-09-06 10:00:00"}]},
-        # 陷阱夹具：这些 id 不该出现在任何「我的预约」动作里。
-        # /api/appointments 是公开的时段占用查询，不按人过滤
-        "/api/appointments": {"list": [
-            {"id": 11, "house_no": "DL0101", "status": "pending",
-             "viewing_time": "2026-09-05 14:00:00"},
-            {"id": 12, "house_no": "DL0102", "status": "pending",
-             "viewing_time": "2026-09-06 10:00:00"}]},
-        "/api/repairs": {"list": [
-            {"id": 21, "content": "卧室门锁打不开", "status": "pending"},
-            {"id": 22, "content": "厨房水管漏水", "status": "processing"}]},
-        "/api/reviews/pending": {"list": [
-            {"contract_no": "HT900", "house_no": "DL0201",
-             "start_date": "2025-01-01", "end_date": "2025-12-31"},
-            {"contract_no": "HT901", "house_no": "DL0202",
-             "start_date": "2025-03-01", "end_date": "2026-02-28"}]},
-        "/api/landlord/houses": {"list": [
-            {"house_no": "DL0101", "title": "中山区人民路 三室",
-             "status": "available"},
-            {"house_no": "DL0102", "title": "西岗区北京街 两室",
-             "status": "offline"}]},
-        "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}],
-                          "unread": 1},
-        "/api/landlord/tenants": {"list": [
-            {"id": 7, "username": "tenant1", "overdue_count": 2,
-             "unpaid_total": 6100},
-            {"id": 9, "username": "tenant9", "overdue_count": 1,
-             "unpaid_total": 750}]},
-    }
+    @property
+    def PAYLOADS(self):
+        # 夹具里有预约时间，用例运行时才按「今天」算
+        return {
+            "/api/bills/mine": {"list": [
+                {"bill_no": "ZD001", "amount": 2200, "status": "unpaid",
+                 "bill_type": "租金", "due_date": "2026-09-01"},
+                {"bill_no": "ZD002", "amount": 1800, "status": "unpaid",
+                 "bill_type": "水电", "due_date": "2026-09-10"}]},
+            "/api/contracts/mine": {"list": [
+                {"contract_no": "HT001", "status": "active", "house_no": "DL0001",
+                 "start_date": "2026-01-01", "end_date": "2026-12-31"},
+                {"contract_no": "HT002", "status": "active", "house_no": "DL0002",
+                 "start_date": "2026-02-01", "end_date": "2027-01-31"}]},
+            "/api/favorites": {"list": [
+                {"house_no": "DL0007", "title": "中山区青泥洼桥 两室一厅"},
+                {"house_no": "DL0008", "title": "中山区桂林街 两室一厅"}]},
+            "/api/history": {"list": [
+                {"house_no": "DL0009", "title": "西岗区北京街 两室一厅"},
+                {"house_no": "DL0010", "title": "中山区海军广场 两室"}]},
+            "/api/appointments/mine": {"list": [
+                {"id": 1, "house_no": "DL0007", "status": "pending",
+                 "viewing_time": slot_a() + ":00"},
+                {"id": 2, "house_no": "DL0008", "status": "pending",
+                 "viewing_time": slot_b() + ":00"}]},
+            # 陷阱夹具：这些 id 不该出现在任何「我的预约」动作里。
+            # /api/appointments 是公开的时段占用查询，不按人过滤
+            "/api/appointments": {"list": [
+                {"id": 11, "house_no": "DL0101", "status": "pending",
+                 "viewing_time": slot_a() + ":00"},
+                {"id": 12, "house_no": "DL0102", "status": "pending",
+                 "viewing_time": slot_b() + ":00"}]},
+            "/api/repairs": {"list": [
+                {"id": 21, "content": "卧室门锁打不开", "status": "pending"},
+                {"id": 22, "content": "厨房水管漏水", "status": "processing"}]},
+            "/api/reviews/pending": {"list": [
+                {"contract_no": "HT900", "house_no": "DL0201",
+                 "start_date": "2025-01-01", "end_date": "2025-12-31"},
+                {"contract_no": "HT901", "house_no": "DL0202",
+                 "start_date": "2025-03-01", "end_date": "2026-02-28"}]},
+            "/api/landlord/houses": {"list": [
+                {"house_no": "DL0101", "title": "中山区人民路 三室",
+                 "status": "available"},
+                {"house_no": "DL0102", "title": "西岗区北京街 两室",
+                 "status": "offline"}]},
+            "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}],
+                              "unread": 1},
+            "/api/landlord/tenants": {"list": [
+                {"id": 7, "username": "tenant1", "overdue_count": 2,
+                 "unpaid_total": 6100},
+                {"id": 9, "username": "tenant9", "overdue_count": 1,
+                 "unpaid_total": 750}]},
+        }
 
     # 「确认签约」要的是待生效合同，和上面那份生效中的不是一回事
     PAYLOADS_EXTRA = {
@@ -1151,12 +1179,15 @@ class TestImperativeBeatsTheQueryTopic(unittest.TestCase):
 class TestRescheduleViewing(unittest.TestCase):
     """看房改期。**后端没有「改时间」这个接口**，所以它其实是两步。"""
 
-    ROWS = {"/api/appointments/mine": {"list": [
-        {"id": 11, "house_no": "DL0007", "status": "pending",
-         "viewing_time": "2026-09-12 10:00:00"},
-        {"id": 12, "house_no": "DL0009", "status": "confirmed",
-         "viewing_time": "2026-09-20 14:00:00"},
-    ]}}
+    @property
+    def ROWS(self):
+        # 夹具里有预约时间，用例运行时才按「今天」算
+        return {"/api/appointments/mine": {"list": [
+            {"id": 11, "house_no": "DL0007", "status": "pending",
+             "viewing_time": slot_c() + ":00"},
+            {"id": 12, "house_no": "DL0009", "status": "confirmed",
+             "viewing_time": slot_d() + ":00"},
+        ]}}
 
     def test_asks_which_one_then_asks_the_new_time(self):
         backend = RecordingBackend(self.ROWS)
@@ -1175,12 +1206,12 @@ class TestRescheduleViewing(unittest.TestCase):
         """
         backend = RecordingBackend(self.ROWS)
         status, message, card, ask = actions.propose(
-            "reschedule_viewing", "改到这周日下午三点", "tok", backend,
-            context={"appointment_id": "11", "new_time": "这周日下午三点"})
+            "reschedule_viewing", "改到明天下午三点", "tok", backend,
+            context={"appointment_id": "11", "new_time": "明天下午三点"})
         self.assertEqual(status, actions.CONFIRM)
         self.assertIn("改到", card["summary"])
         self.assertNotEqual(card["params"]["viewing_time"],
-                            "2026-09-12 10:00")
+                            slot_c())
 
     def test_execute_swaps_in_one_request(self):
         """**新的和旧的在后端一个事务里换。**
@@ -1600,6 +1631,45 @@ class TestPickFromRequest(unittest.TestCase):
 
     def test_any_of_them_is_not_a_choice_in_a_request(self):
         self.assertEqual(actions._pick_from_request("随便哪个都行", self.OPTIONS), "")
+
+
+class TestSlotIsCheckedBeforeTheCard(unittest.TestCase):
+    """后端只收 9:00–18:00、30 天以内、不是过去的看房。原先助手照样给一张确认卡片，
+    点了确认才报「没能完成：看房时间需在 9:00–18:00 之间」（2026-10-23）。"""
+
+    NOW = datetime.datetime(2026, 10, 23, 15, 0)
+
+    def test_rules(self):
+        date, time = datetime.date, datetime.time
+        check = actions._slot_problem
+        self.assertEqual(check(date(2026, 10, 24), time(10, 0), self.NOW), "")
+        self.assertIn("9:00 到 18:00", check(date(2026, 10, 24), time(20, 0), self.NOW))
+        self.assertIn("已经过去", check(date(2026, 10, 23), time(9, 0), self.NOW))
+        self.assertIn("30 天以内", check(date(2026, 12, 20), time(10, 0), self.NOW))
+
+    def test_past_viewings_are_not_offered_for_cancel(self):
+        """过了点的已确认看房后端不让取消。列出来让人挑，挑中了只会报错。"""
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        backend = RecordingBackend({"/api/appointments/mine": {"list": [
+            {"id": 7, "house_no": "DL0007", "status": "confirmed",
+             "viewing_time": yesterday + " 10:00:00"},
+            {"id": 8, "house_no": "DL0008", "status": "pending",
+             "viewing_time": slot_b() + ":00"},
+        ]}})
+        status, message, card, ask = actions.propose(
+            "cancel_viewing", "帮我取消看房", "tok", backend, context={})
+        self.assertEqual(status, actions.CONFIRM, message)
+        self.assertEqual(card["params"]["appointment_id"], 8)
+
+    def test_evening_asks_again_with_daytime_options(self):
+        backend = RecordingBackend()
+        status, message, card, ask = actions.propose(
+            "book_viewing", "帮我约明天晚上八点看房", "tok", backend,
+            context={"house_no": "DL0001"})
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertIsNone(card)
+        self.assertIn("9:00 到 18:00", message)
+        self.assertEqual([o["value"][-5:] for o in ask["options"]], ["10:00", "14:00", "16:00"])
 
 
 if __name__ == "__main__":

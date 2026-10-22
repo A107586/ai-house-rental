@@ -7,6 +7,7 @@
 用户会照着它做决定。所以用例大都压在「不能多说」上。
 """
 
+import datetime
 import os
 import sys
 import unittest
@@ -31,25 +32,29 @@ class FakeBackend(object):
         return self.payloads.get(path, {})
 
 
-BUSY = {
-    "/api/bills/mine": {"list": [
-        {"bill_no": "ZD1", "amount": 2200, "status": "unpaid",
-         "due_date": "2026-09-01", "overdue": True},
-        {"bill_no": "ZD2", "amount": 1800, "status": "unpaid",
-         "due_date": "2026-10-01"},
-        {"bill_no": "ZD3", "amount": 2200, "status": "paid"},
-    ]},
-    "/api/appointments/mine": {"list": [
-        {"id": 1, "status": "pending", "viewing_time": "2026-09-06 10:00:00"},
-        {"id": 2, "status": "cancelled", "viewing_time": "2026-09-01 10:00:00"},
-    ]},
-    "/api/repairs": {"list": [
-        {"id": 5, "status": "processing", "content": "厨房水管漏水"},
-        {"id": 6, "status": "done", "content": "空调不制冷"},
-    ]},
-    "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}], "unread": 2},
-    "/api/reviews/pending": {"list": [{"contract_no": "HT9"}]},
-}
+def busy():
+    """一个有不少事没办完的人。**函数**：预约时间按今天往后推，用例运行时才算——
+    写死 9 月 6 日的话，过了那天它就成了「过了点的待确认」，开场白不再提它（2026-10-23）。"""
+    soon = (datetime.date.today() + datetime.timedelta(days=3)).isoformat() + " 10:00:00"
+    return {
+        "/api/bills/mine": {"list": [
+            {"bill_no": "ZD1", "amount": 2200, "status": "unpaid",
+             "due_date": "2026-09-01", "overdue": True},
+            {"bill_no": "ZD2", "amount": 1800, "status": "unpaid",
+             "due_date": "2026-10-01"},
+            {"bill_no": "ZD3", "amount": 2200, "status": "paid"},
+        ]},
+        "/api/appointments/mine": {"list": [
+            {"id": 1, "status": "pending", "viewing_time": soon},
+            {"id": 2, "status": "cancelled", "viewing_time": "2026-09-01 10:00:00"},
+        ]},
+        "/api/repairs": {"list": [
+            {"id": 5, "status": "processing", "content": "厨房水管漏水"},
+            {"id": 6, "status": "done", "content": "空调不制冷"},
+        ]},
+        "/api/messages": {"list": [{"id": 1, "title": "合同已结束"}], "unread": 2},
+        "/api/reviews/pending": {"list": [{"contract_no": "HT9"}]},
+    }
 
 
 class TestGreeting(unittest.TestCase):
@@ -67,26 +72,34 @@ class TestGreeting(unittest.TestCase):
         self.assertEqual(backend.calls, [])
 
     def test_busy_user_gets_their_own_todo_list(self):
-        got = greeting.build(FakeBackend(BUSY), "tok")
+        got = greeting.build(FakeBackend(busy()), "tok")
         self.assertTrue(got["personalised"])
         self.assertIn("2 笔待缴账单", got["message"])
         self.assertIn("4000", got["message"])          # 2200 + 1800
         self.assertIn("已逾期", got["message"])
         self.assertIn("1 条看房预约", got["message"])
 
+    def test_past_pending_viewing_is_not_mentioned(self):
+        """过了点还没确认的预约已经确认不了了，再说「在等房东确认」是在给人假希望。"""
+        data = busy()
+        data["/api/appointments/mine"] = {"list": [
+            {"id": 1, "status": "pending", "viewing_time": "2026-01-02 10:00:00"}]}
+        got = greeting.build(FakeBackend(data), "tok")
+        self.assertNotIn("看房预约", got["message"])
+
     def test_only_counts_what_is_actually_pending(self):
         """已缴的账单、已取消的预约、已完成的工单都不算数。
 
         多报一件事的代价是实的：用户会以为自己还欠着钱、还有约要赴。
         """
-        got = greeting.build(FakeBackend(BUSY), "tok")
+        got = greeting.build(FakeBackend(busy()), "tok")
         self.assertNotIn("3 笔", got["message"])       # 第三笔已缴
         self.assertNotIn("2 条看房预约", got["message"])  # 第二条已取消
         self.assertIn("1 条报修", got["message"])      # 第二条已完成
 
     def test_money_first_then_waiting_then_optional(self):
         """排序就是重要性：要花钱的最前，等别人的居中，有空再弄的最后。"""
-        items = greeting.collect(FakeBackend(BUSY), "tok")
+        items = greeting.collect(FakeBackend(busy()), "tok")
         order = [item["chip"] for item in items]
         self.assertEqual(order[0], "交最近一笔房租")
         self.assertLess(order.index("查我的预约进度"), order.index("帮我评价"))
@@ -94,7 +107,7 @@ class TestGreeting(unittest.TestCase):
     def test_chips_are_capped_and_keep_a_general_exit(self):
         """一屏放不下五条。但要留一个通用出口，
         免得用户想问别的、面前却只有自己的账单。"""
-        got = greeting.build(FakeBackend(BUSY), "tok")
+        got = greeting.build(FakeBackend(busy()), "tok")
         self.assertLessEqual(len(got["chips"]), 4)
         self.assertIn("押金怎么退", got["chips"])
 
@@ -104,7 +117,7 @@ class TestGreeting(unittest.TestCase):
 
     def test_a_broken_backend_does_not_break_the_opening(self):
         """某个接口炸了，开场白照常出——它不值得让面板打不开。"""
-        backend = FakeBackend(BUSY, boom=["/api/repairs", "/api/messages"])
+        backend = FakeBackend(busy(), boom=["/api/repairs", "/api/messages"])
         got = greeting.build(backend, "tok")
         self.assertTrue(got["personalised"])
         self.assertIn("待缴账单", got["message"])
@@ -112,7 +125,7 @@ class TestGreeting(unittest.TestCase):
 
     def test_house_context_leads_with_that_house(self):
         """从房源详情页进来，第一句就该是关于这套房的。"""
-        got = greeting.build(FakeBackend(BUSY), "tok", house={
+        got = greeting.build(FakeBackend(busy()), "tok", house={
             "house_no": "DL0007", "title": "中山区青泥洼桥 两室一厅 78平",
             "rent_price": 4150})
         self.assertIn("DL0007", got["message"])
@@ -121,7 +134,7 @@ class TestGreeting(unittest.TestCase):
 
     def test_house_context_wins_over_the_todo_list(self):
         """他正在看某套房，此刻关心的是这套房，不是上个月的账单。"""
-        got = greeting.build(FakeBackend(BUSY), "tok",
+        got = greeting.build(FakeBackend(busy()), "tok",
                              house={"house_no": "DL0007"})
         self.assertNotIn("待缴账单", got["message"])
 

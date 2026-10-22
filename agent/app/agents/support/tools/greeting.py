@@ -26,6 +26,8 @@
    但不预先生成任何确认卡片——两阶段边界在这里同样成立。
 """
 
+from datetime import datetime
+
 from app.backend import BackendError
 
 # 未登录、或者一件待办都没有时说的话。保留原来那段自我介绍的信息量，
@@ -69,6 +71,21 @@ def _safe(backend, path, token, params=None):
 from app.agents.support.tools.money import money_text as _money
 
 
+def _upcoming(rows):
+    """还没到点的。时间读不出来的照留"""
+    now = datetime.now()
+    kept = []
+    for row in rows:
+        raw = str(row.get("viewing_time") or "")[:16].replace("T", " ")
+        try:
+            if datetime.strptime(raw, "%Y-%m-%d %H:%M") <= now:
+                continue
+        except ValueError:
+            pass
+        kept.append(row)
+    return kept
+
+
 def collect(backend, token):
     """把这个人手头没办完的事收集起来。返回若干条 ``{text, chip, action}``。
 
@@ -94,8 +111,11 @@ def collect(backend, token):
             "detail": "最近一笔 %s 到期" % (first.get("due_date") or "待定"),
         })
 
-    waiting = [a for a in _rows(_safe(backend, "/api/appointments/mine", token))
-               if a.get("status") in ("pending", "待审核")]
+    # 只算**我约的**、还没到点的。不带 side 时房东账号拿到的是别人约他房子的预约，
+    # 却被说成「在等房东确认」；过了点的待确认也确认不了了（2026-10-23）
+    waiting = _upcoming([a for a in _rows(_safe(backend, "/api/appointments/mine", token,
+                                                {"side": "tenant"}))
+                         if a.get("status") in ("pending", "待审核")])
     if waiting:
         items.append({
             "text": "%d 条看房预约在等房东确认" % len(waiting),
@@ -103,7 +123,9 @@ def collect(backend, token):
             "detail": (waiting[0].get("viewing_time") or "")[:16],
         })
 
-    open_repairs = [r for r in _rows(_safe(backend, "/api/repairs", token))
+    # 同上：「我的报修」是我报的那几单，不是别人报到我房子上的
+    open_repairs = [r for r in _rows(_safe(backend, "/api/repairs", token,
+                                           {"side": "tenant"}))
                     if r.get("status") not in ("done", "已完成", "closed")]
     if open_repairs:
         items.append({

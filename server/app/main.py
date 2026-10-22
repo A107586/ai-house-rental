@@ -2436,16 +2436,25 @@ def update_repair(repair_id: int, payload: RepairUpdate,
     if payload.status == repair.status:
         # 重复点：什么都不改，也不再给报修人发一遍「已处理完成」
         return {"ok": True, "repair": repair.to_dict()}
+    if repair.status == "done":
+        # 结案时物料已经扣了库存、成本也记了；改回「待处理」再结一次会被「已登记过」拦下，
+        # 扣掉的库存也回不来。真没修好的，让租客重新报一单（2026-10-23）
+        raise HTTPException(status_code=409,
+                            detail="已完成的工单不能改回，没修好请重新报修一单")
     if payload.status not in REPAIR_NEXT.get(repair.status, ()):
-        raise HTTPException(
-            status_code=409,
-            detail="这张工单已经完成，不能再改回去；没修好请让报修人重新报修"
-            if repair.status == "done" else "工单状态只能往前推进")
+        raise HTTPException(status_code=409, detail="工单状态只能往前推进")
 
     repair.status = payload.status
-    if payload.status == "done" and repair.tenant_id:
-        leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
-                       "你提交的报修（%s）已处理完成。" % repair.content[:20])
+    if payload.status == "done":
+        # 不走结案登记、直接标完成的（助手里说「这单修好了」走的就是这里），也留一条记录。
+        # 原先这一类在维修统计里整个看不见：人员工作量、成本只算登记过的那部分
+        if not session.scalar(select(RepairRecord.id).where(RepairRecord.repair_id == repair.id)):
+            session.add(RepairRecord(repair_id=repair.id,
+                                     # 这句租客能看到（报修记录里「由 … 处理完成：…」）
+                                     note="房东已确认处理完成"))
+        if repair.tenant_id:
+            leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
+                           "你提交的报修（%s）已处理完成。" % repair.content[:20])
     session.commit()
     return {"ok": True, "repair": repair.to_dict()}
 
