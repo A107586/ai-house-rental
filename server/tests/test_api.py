@@ -134,32 +134,91 @@ class TestAppointments(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["appointment"]["status"], "pending")
 
+    def _other(self):
+        """第二个租客。时段冲突要拿两个人测——同一个人约同一套房第二次，
+        先撞上的是「同一套房只留一条」那条规矩，测不到时段。"""
+        self.client.post("/api/auth/register", json={
+            "username": "tenant2", "password": "test123", "real_name": "租客乙",
+            "phone": "13900002222"})
+        return auth_header(self.client, "tenant2", "test123")
+
     def test_rejects_conflict(self):
         """服务端必须独立做冲突校验，不能只依赖智能体那边的检查。"""
         moment = self._future().isoformat()
         self.client.post("/api/appointments", headers=self.headers,
                          json={"house_no": "DL0001", "viewing_time": moment})
-        second = self.client.post("/api/appointments", headers=self.headers,
+        second = self.client.post("/api/appointments", headers=self._other(),
                                   json={"house_no": "DL0001", "viewing_time": moment})
         self.assertEqual(second.status_code, 409)
+        self.assertIn("时段", second.json()["detail"])
 
     def test_rejects_overlapping_within_an_hour(self):
         base = self._future(hour=14)
         self.client.post("/api/appointments", headers=self.headers, json={
             "house_no": "DL0001", "viewing_time": base.isoformat()})
-        overlap = self.client.post("/api/appointments", headers=self.headers, json={
+        overlap = self.client.post("/api/appointments", headers=self._other(), json={
             "house_no": "DL0001",
             "viewing_time": (base + timedelta(minutes=30)).isoformat()})
         self.assertEqual(overlap.status_code, 409)
+        self.assertIn("时段", overlap.json()["detail"])
 
     def test_allows_adjacent_hour(self):
         base = self._future(hour=14)
         self.client.post("/api/appointments", headers=self.headers, json={
             "house_no": "DL0001", "viewing_time": base.isoformat()})
-        adjacent = self.client.post("/api/appointments", headers=self.headers, json={
+        adjacent = self.client.post("/api/appointments", headers=self._other(), json={
             "house_no": "DL0001",
             "viewing_time": (base + timedelta(hours=1)).isoformat()})
         self.assertEqual(adjacent.status_code, 200)
+
+    def test_one_open_viewing_per_house(self):
+        """原先同一个人能连占几个时段，别人约不进来。"""
+        self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future(hour=10).isoformat()})
+        again = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future(hour=15).isoformat()})
+        self.assertEqual(again.status_code, 409)
+        self.assertIn("先取消原来的", again.json()["detail"])
+        # 另一套房不受影响
+        other = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0002", "viewing_time": self._future(hour=15).isoformat()})
+        self.assertEqual(other.status_code, 200, other.text)
+
+    def test_reschedule_swaps_in_one_step(self):
+        """改期带 replaces：新的约上、旧的同时取消。挪半小时也不算和自己冲突。"""
+        first = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future(hour=10).isoformat()})
+        old_id = first.json()["appointment"]["id"]
+        moved = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "replaces": old_id,
+            "viewing_time": self._future(hour=10).replace(minute=30).isoformat()})
+        self.assertEqual(moved.status_code, 200, moved.text)
+        rows = {a["id"]: a for a in self.client.get(
+            "/api/appointments/mine?side=tenant", headers=self.headers).json()["list"]}
+        self.assertEqual(rows[old_id]["status"], "cancelled")
+        self.assertEqual(rows[moved.json()["appointment"]["id"]]["status"], "pending")
+
+    def test_cannot_replace_someone_elses_viewing(self):
+        first = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future(hour=10).isoformat()})
+        hijack = self.client.post("/api/appointments", headers=self._other(), json={
+            "house_no": "DL0001", "replaces": first.json()["appointment"]["id"],
+            "viewing_time": self._future(hour=15).isoformat()})
+        self.assertEqual(hijack.status_code, 409)
+
+    def test_viewing_hours_and_horizon(self):
+        """这几条原先只有智能体那一侧守着，直接调接口凌晨三点、三年以后都能约。"""
+        for moment in (self._future(hour=3), self._future(hour=19),
+                       self._future(days=45, hour=10)):
+            response = self.client.post("/api/appointments", headers=self.headers, json={
+                "house_no": "DL0001", "viewing_time": moment.isoformat()})
+            self.assertEqual(response.status_code, 400, moment)
+
+    def test_landlord_cannot_book_his_own_house(self):
+        landlord = auth_header(self.client, "landlord1", "test123")
+        response = self.client.post("/api/appointments", headers=landlord, json={
+            "house_no": "DL0001", "viewing_time": self._future().isoformat()})
+        self.assertEqual(response.status_code, 400)
 
     def _book(self, headers, moment):
         response = self.client.post("/api/appointments", headers=headers, json={

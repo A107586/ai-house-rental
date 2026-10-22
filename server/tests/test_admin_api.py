@@ -12,8 +12,9 @@ from tests.base import ApiTestCase, auth_header, make_resident, settle
 
 
 def future(days=7):
+    # 看房只能约 9:00–18:00
     return (datetime.now() + timedelta(days=days)).replace(
-        hour=0, minute=0, second=0, microsecond=0)
+        hour=10, minute=0, second=0, microsecond=0)
 
 
 class AdminCase(ApiTestCase):

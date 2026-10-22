@@ -235,6 +235,19 @@ class TestBookingAgent(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("预约提交失败", result["message"])
 
+    def test_backend_refusal_reason_reaches_the_user(self):
+        """后端拒收（比如同一套房已经约过）时把原因说出来，不能只说「稍后再试」。"""
+        from app.backend import BackendError
+
+        class Refusing(FakeBackend):
+            def create_viewing(self, house_no, moment, applicant, token=None):
+                raise BackendError("你已经约过这套房（09-04 10:00），要换时间请先取消原来的预约")
+
+        result = agent.run("这周六下午两点", house_no="F001", now=NOW, backend=Refusing())
+        self.assertFalse(result["ok"])
+        self.assertIn("你已经约过这套房", result["message"])
+        self.assertNotIn("稍后再试", result["message"])
+
 
 class JsonProvider:
     """只回固定 JSON 的假大模型，记下被调了几次。"""

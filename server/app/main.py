@@ -11,7 +11,7 @@ import time
 import uuid
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, time as dtime, timedelta
 from typing import Literal
 
 from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -184,6 +184,10 @@ app.include_router(agent.router)
 # 一次看房占用多久由系统配置决定（M-09），这里只是配置缺失时的兜底。
 # 智能体端的默认值与此保持一致。
 VIEWING_MINUTES = 60
+# 可预约的看房时段，与智能体 booking/tools/parse_datetime.py 的 BUSINESS_START/END 一致
+VIEWING_OPEN = dtime(9, 0)
+VIEWING_CLOSE = dtime(18, 0)
+VIEWING_AHEAD_DAYS = 30
 
 # 看房预约的状态只能往前走：待确认的可以确认、拒绝、取消；已确认的只能取消；
 # 拒绝与取消是终点——要再看就重新约一次，重新约会重新查时段冲突。
@@ -937,10 +941,15 @@ def update_house_status(house_no: str, status: str,
         if problem:
             raise HTTPException(status_code=409, detail=problem)
 
+    was = house.status
     house.status = status
     if status == "offline":
         # 下架了，还没到时间的看房也就没意义了——同签约生效时的处理
         leasing.close_open_viewings(session, house, "房东已下架这套房")
+    if status == "available" and was != "available":
+        # 重新上架也是「有新房」。原先只有首次审核通过才提醒，下架过的房子回来没人知道；
+        # 同一条搜索对同一套房只提醒一次，反复上下架不会刷屏
+        saved_search.notify_new_house(session, house)
     session.commit()
     out = {"ok": True, "house": house.to_dict()}
     if message:
@@ -1987,6 +1996,37 @@ def create_appointment(payload: AppointmentCreate,
         raise HTTPException(status_code=409, detail="该房源当前不可预约")
     if payload.viewing_time <= datetime.now():
         raise HTTPException(status_code=400, detail="看房时间必须晚于当前时间")
+    # 下面三条原先只有智能体那一侧在守：它只给 9:00–18:00 的时段、不会替房东约自己的房。
+    # 绕开智能体直接调接口，凌晨三点、三年以后、自己约自己都能落库（2026-10-22）
+    if can_manage_house(session, user, house):
+        raise HTTPException(status_code=400, detail="这是你管理的房源，不需要预约看房")
+    clock = payload.viewing_time.time()
+    if not (VIEWING_OPEN <= clock <= VIEWING_CLOSE):
+        raise HTTPException(status_code=400, detail="看房时间需在 %s–%s 之间" % (
+            VIEWING_OPEN.strftime("%H:%M"), VIEWING_CLOSE.strftime("%H:%M")))
+    if payload.viewing_time > datetime.now() + timedelta(days=VIEWING_AHEAD_DAYS):
+        raise HTTPException(status_code=400,
+                            detail="只能预约 %d 天以内的看房" % VIEWING_AHEAD_DAYS)
+    replaced = None
+    if payload.replaces is not None:
+        replaced = session.get(Appointment, payload.replaces)
+        if (not replaced or replaced.tenant_id != user.id
+                or replaced.house_id != house.id
+                or replaced.status not in ("pending", "confirmed")):
+            raise HTTPException(status_code=409, detail="要改期的那条预约不存在或已经结束")
+    skip = [replaced.id] if replaced else [-1]
+    # 同一套房同时只留一条待看的。原先能连占几个时段，别人约不进来，
+    # 房东的待办里也是同一个人的好几条
+    held = session.scalar(select(Appointment).where(
+        Appointment.house_id == house.id, Appointment.tenant_id == user.id,
+        Appointment.status.in_(["pending", "confirmed"]),
+        Appointment.viewing_time > datetime.now(),
+        Appointment.id.not_in(skip)))
+    if held:
+        raise HTTPException(
+            status_code=409,
+            detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
+                   % held.viewing_time.strftime("%m-%d %H:%M"))
 
     contact_phone = (payload.contact_phone or user.phone or "").strip()
     if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
@@ -1999,7 +2039,7 @@ def create_appointment(payload: AppointmentCreate,
         Appointment.tenant_id == user.id,
         Appointment.created_at >= today,
         Appointment.status.in_(["pending", "confirmed"]))).all())
-    if used >= daily_limit:
+    if used >= daily_limit and replaced is None:     # 改期是换一条，不是多约一条
         raise HTTPException(
             status_code=429,
             detail="今天的预约次数已达上限（%d 次），请明天再试" % daily_limit)
@@ -2029,6 +2069,7 @@ def create_appointment(payload: AppointmentCreate,
             Appointment.status.in_(["pending", "confirmed"]),
             Appointment.viewing_time > payload.viewing_time - window,
             Appointment.viewing_time < payload.viewing_time + window,
+            Appointment.id.not_in(skip),     # 改期挪半小时，不算和自己冲突
         ))
     if clash:
         raise HTTPException(status_code=409, detail="该时段已被预约")
@@ -2044,6 +2085,9 @@ def create_appointment(payload: AppointmentCreate,
     )
     session.add(appointment)
     session.flush()
+    if replaced is not None:
+        replaced.status = "cancelled"
+        replaced.reply = "租客改约到 %s" % payload.viewing_time.strftime("%m-%d %H:%M")
 
     # 通知当前负责这套房的人（J-05）。
     #
@@ -2056,9 +2100,11 @@ def create_appointment(payload: AppointmentCreate,
     # 逼着人先回答「活到底有没有人接到」。
     responsible = responsible_user_id(session, house)
     when = payload.viewing_time.strftime("%m-%d %H:%M")
+    moved = ("（由 %s 改约）" % replaced.viewing_time.strftime("%m-%d %H:%M")
+             if replaced is not None else "")
     leasing.notify(
         session, responsible, "system", "新的看房预约",
-        "%s 有一条 %s 的看房预约待确认。" % (house.house_no, when),
+        "%s 有一条 %s 的看房预约待确认%s。" % (house.house_no, when, moved),
         house.house_no)
     if responsible != house.landlord_id:
         leasing.notify(

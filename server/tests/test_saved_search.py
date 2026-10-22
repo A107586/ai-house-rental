@@ -8,6 +8,7 @@
 """
 
 import json
+from datetime import datetime
 import re
 
 from tests.base import ApiTestCase, auth_header, make_admin
@@ -154,9 +155,46 @@ class TestNewHouseNotice(SavedSearchCase):
         house_no = self.publish()
         self.client.patch("/api/houses/%s/status?status=offline" % house_no,
                           headers=self.landlord)
-        self.client.patch("/api/houses/%s/review" % house_no,
-                          headers=self.admin, json={"approved": True})
+        back = self.client.patch("/api/houses/%s/status?status=available" % house_no,
+                                 headers=self.landlord)
+        self.assertEqual(back.json()["house"]["status"], "available")
         self.assertEqual(len(self.notices()), 1)
+
+    def test_relisting_notifies_searches_saved_meanwhile(self):
+        """重新上架也是「有新房」。原先只有首次审核通过才提醒，
+        下架那几天才存下条件的人，房子回来了也不知道。"""
+        house_no = self.publish()
+        self.client.patch("/api/houses/%s/status?status=offline" % house_no,
+                          headers=self.landlord)
+        self.save({"district": "中山区", "elevator": "true"})
+        self.client.patch("/api/houses/%s/status?status=available" % house_no,
+                          headers=self.landlord)
+        self.assertEqual([n["link_no"] for n in self.notices()], [house_no])
+
+    def test_house_freed_by_a_lease_end_notifies(self):
+        """退租后房子空出来，对按条件等房的人来说就是一套新房。"""
+        from tests.base import end_lease, make_resident
+        from app.models import Contract
+        self.client.post("/api/auth/register", json={
+            "username": "mover", "password": "test123", "real_name": "搬家的"})
+        session = db.SessionLocal()
+        try:
+            session.query(House).filter_by(house_no="DL0003").one().approved_at =                 datetime.now()
+            session.commit()
+        finally:
+            session.close()
+        make_resident("mover", "DL0003")
+        session = db.SessionLocal()
+        try:
+            contract_no = session.query(Contract).filter_by(status="active").one().contract_no
+        finally:
+            session.close()
+
+        self.save({"district": "中山区"})
+        ended = end_lease(self.client, contract_no, self.landlord,
+                          auth_header(self.client, "mover", "test123"))
+        self.assertEqual(ended.status_code, 200, ended.text)
+        self.assertEqual([n["link_no"] for n in self.notices()], ["DL0003"])
 
     def test_notify_off_stays_silent_but_keeps_conditions(self):
         row = self.save().json()["saved_search"]

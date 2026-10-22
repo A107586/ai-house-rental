@@ -56,6 +56,10 @@ class AppointmentCreate(BaseModel):
     contact_name: str = ""
     contact_phone: str = ""
     remark: str = ""
+    # 改期：新的一条约成功时，把这一条（自己的、同一套房的）同时取消。
+    # 同一套房只能留一条待看的预约，先约新的再退旧的会被那条规矩挡住；
+    # 先退旧的再约新的，新时段约不上时人就一条都没有了。所以两步放进一个事务
+    replaces: int | None = None
 
 
 class AppointmentUpdate(BaseModel):

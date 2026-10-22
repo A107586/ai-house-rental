@@ -913,6 +913,10 @@ def end_contract(session, contract, reason="", deduct=0):
     if house and house.status == "rented":
         # 出租期间改过房源内容的，审核记录已经清掉——回到待审，不直接上架
         house.status = "available" if house.approved_at else "pending"
+        if house.status == "available":
+            # 退租后房子空出来，对按条件等房的人来说就是一套新房
+            from app.routers import saved_search
+            saved_search.notify_new_house(session, house)
 
     # 通知文案要与实际资金流动一致。押金从没收到过却告诉租客
     # 「退还押金 3000 元」，会直接引出「钱退哪去了」的质问。

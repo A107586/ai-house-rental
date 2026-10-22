@@ -245,7 +245,7 @@ class TestAdminOverview(ManageCase):
 
     def test_appointments(self):
         self.client.post("/api/appointments", headers=self.tenant, json={
-            "house_no": "DL0001", "viewing_time": future().isoformat()})
+            "house_no": "DL0001", "viewing_time": future().replace(hour=10).isoformat()})
         data = self.client.get("/api/admin/appointments", headers=self.admin).json()
         self.assertEqual(data["total"], 1)
 
