@@ -45,6 +45,17 @@ const PAY_STATE = {
   closed: '超时关单，可重新发起',
 }
 
+// 可约看房的整点（和后端 VIEWING_OPEN / VIEWING_CLOSE 一致）
+const HOURS = ['9', '10', '11', '12', '13', '14', '15', '16', '17', '18']
+
+/** 本地日期 YYYY-MM-DD（不用 toISOString——那是 UTC，北京时间零点会变成前一天） */
+function dayOffset(days) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 const MSG_TYPE = {
   system: '系统通知', appointment: '预约', contract: '合同',
   bill: '账单', repair: '报修', chat: '会话',
@@ -72,6 +83,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
   const [receipt, setReceipt] = useState(null)
   // 收支流水：缴费成功的与退回的每一笔。原先退款有接口没页面，退了多少、哪天退的看不到
   const [money, setMoney] = useState({ list: [], total_in: 0, total_out: 0 })
+  // 正在改哪条预约的时间：{ id, day, hour }。原先网页上只能取消，改时间只能去找助手（2026-10-23）
+  const [moving, setMoving] = useState(null)
 
 
   async function load() {
@@ -133,15 +146,18 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
     }
   }
 
+  /** 返回成没成：改时间失败（时段被占）时表单要留着，让人换个点再试 */
   async function run(key, fn) {
-    if (busy) return
+    if (busy) return false
     setBusy(key)
     setError('')
     try {
       await fn()
       await load()
+      return true
     } catch (err) {
       setError(err.message)
+      return false
     } finally {
       setBusy('')
     }
@@ -499,7 +515,37 @@ export default function MyPanel({ user, online, onClose, onOpenHouse,
                       >
                         {item.status === 'confirmed' ? '取消看房' : '取消'}
                       </button>
+                      {moving?.id !== item.id && (
+                        <button className="btn ghost small" onClick={() => {
+                          // 原来那天已经过了（待确认一直没人理），就从明天起选
+                          const day = item.viewing_time.slice(0, 10)
+                          setMoving({ id: item.id, day: day > dayOffset(0) ? day : dayOffset(1),
+                                      hour: '10' })
+                        }}>
+                          改时间
+                        </button>
+                      )}
                     </div>
+                  )}
+                  {moving?.id === item.id && (
+                    <form className="field move-form" onSubmit={(e) => {
+                      e.preventDefault()
+                      // 新的约上了旧的才取消；约不上（时段被占、超出范围）旧的原样保留
+                      run(`a${item.id}`, () => api.rescheduleAppointment(
+                        item.house_no, `${moving.day}T${moving.hour.padStart(2, '0')}:00:00`, item.id))
+                        .then((done) => done && setMoving(null))
+                    }}>
+                      {/* 和后端同一套：只约 9:00–18:00、30 天以内 */}
+                      <input type="date" value={moving.day} min={dayOffset(0)} max={dayOffset(30)}
+                             onChange={(e) => setMoving({ ...moving, day: e.target.value })} />
+                      <select value={moving.hour}
+                              onChange={(e) => setMoving({ ...moving, hour: e.target.value })}>
+                        {HOURS.map((h) => <option key={h} value={h}>{h}:00</option>)}
+                      </select>
+                      <button className="btn small" type="submit" disabled={!!busy}>改到这个时间</button>
+                      <button className="btn ghost small" type="button"
+                              onClick={() => setMoving(null)}>算了</button>
+                    </form>
                   )}
 
                   <DetailToggle open={isOpen(`a${item.id}`)}

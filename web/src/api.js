@@ -257,6 +257,9 @@ export const api = {
     request(`/api/appointments?${toQuery({ house_no: houseNo })}`),
   myAppointments: (side = '') =>
     request(`/api/appointments/mine?${toQuery({ side })}`),
+  // 改期：新的一条约上时旧的同时取消（后端一个事务）；新时间约不上，旧的原样保留
+  rescheduleAppointment: (houseNo, viewingTime, replaces) =>
+    post('/api/appointments', { house_no: houseNo, viewing_time: viewingTime, replaces }),
   updateAppointment: (id, status, reply = '') =>
     request(`/api/appointments/${id}`, {
       method: 'PATCH',

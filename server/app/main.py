@@ -2064,7 +2064,9 @@ def create_appointment(payload: AppointmentCreate,
             detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
                    % held.viewing_time.strftime("%m-%d %H:%M"))
 
-    contact_phone = (payload.contact_phone or user.phone or "").strip()
+    # 改期没带联系人就沿用原来那条的——页面上拿到的是掩码号码，传不回来
+    contact_phone = (payload.contact_phone or (replaced.contact_phone if replaced else "")
+                     or user.phone or "").strip()
     if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
         raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
 
@@ -2113,7 +2115,8 @@ def create_appointment(payload: AppointmentCreate,
     appointment = Appointment(
         house_id=house.id,
         tenant_id=user.id,
-        contact_name=payload.contact_name or user.real_name,
+        contact_name=(payload.contact_name or (replaced.contact_name if replaced else "")
+                      or user.real_name),
         contact_phone=contact_phone,
         viewing_time=payload.viewing_time,
         remark=payload.remark,
