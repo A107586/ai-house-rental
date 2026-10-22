@@ -279,6 +279,9 @@ export const api = {
   getContract: (no) => request(`/api/contracts/${no}`),
   createContract: (payload) => post('/api/contracts', payload),
   activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
+  // 待确认的合同不签了：出租方撤回、承租方拒签
+  cancelContract: (contractNo, reason = '') =>
+    post(`/api/contracts/${contractNo}/cancel`, { reason }),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
   renewContract: (no, months = 12) =>

@@ -2975,6 +2975,28 @@ def activate_contract(contract_no: str, user: User = Depends(require_login),
     return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
 
 
+class ContractCancel(BaseModel):
+    reason: str = Field(default="", max_length=100)
+
+
+@app.post("/api/contracts/{contract_no}/cancel")
+def cancel_contract(contract_no: str, payload: ContractCancel,
+                    user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """待确认的合同不签了：出租方撤回、承租方拒签。生效了的走退租。"""
+    contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id not in (contract.tenant_id, contract.landlord_id):
+        raise HTTPException(status_code=403, detail="只有合同双方可以操作")
+    side = _contract_side(contract, user)
+    try:
+        leasing.cancel_contract(session, contract, side, payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
+
+
 def _contract_side(contract, user):
     """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
     if user.id == contract.tenant_id and user.role != "admin":

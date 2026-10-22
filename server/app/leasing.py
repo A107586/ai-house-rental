@@ -487,6 +487,33 @@ def owner_can_list(owner):
     return ""
 
 
+def cancel_contract(session, contract, by, reason=""):
+    """待确认的合同不签了：房东撤回、租客拒签，或者房子已经租给了别人（by="system"）。
+
+    原先没有任何一条路能让待确认的合同结束——发错了人、租客不想签，它就一直挂着：
+    租客的「我的租约」里一直有一份「待确认」，房东也因此永远退不回租客身份
+    （待确认的合同算没结束的）（2026-10-23）。还没生效，所以没有账单要处理。
+    """
+    if contract.status != "pending":
+        raise ValueError("只有待确认的合同可以%s" % ("拒签" if by == "tenant" else "撤回"))
+    reason = (reason or "").strip()[:100]
+    contract.status = "cancelled"
+    contract.ended_at = datetime.now()
+    contract.end_reason = reason or {"tenant": "租客拒签", "landlord": "房东撤回"}.get(by, "已取消")
+    _clear_request(contract)
+    tail = "：%s" % reason if reason else ""
+    if by == "tenant":
+        notify(session, contract.landlord_id, "contract", "租客没有签这份合同",
+               "合同 %s 租客拒签%s。" % (contract.contract_no, tail), contract.contract_no)
+    elif by == "landlord":
+        notify(session, contract.tenant_id, "contract", "房东撤回了合同",
+               "合同 %s 房东已撤回%s。" % (contract.contract_no, tail), contract.contract_no)
+    else:
+        notify(session, contract.tenant_id, "contract", "合同已失效",
+               "合同 %s 已失效%s。" % (contract.contract_no, tail), contract.contract_no)
+    return contract
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":
@@ -503,10 +530,25 @@ def activate_contract(session, contract):
                           "pending": "这套房源正在重新审核，审核通过后才能确认签约",
                           }.get(house.status, "该房源当前不可签约"))
 
+    # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
+    # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）
+    try:
+        check_start_date(contract.start_date)
+    except ValueError:
+        raise ValueError("这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
+                         % contract.start_date.strftime("%Y-%m-%d"))
+
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
     close_open_viewings(session, house, "这套房已经租出去了")
+    # 同一套房上发给别人的待确认合同：房子已经租出去了，它们不可能再生效。
+    # 原先一直挂在对方的「我的租约」里，点确认才被告知「已被占用」
+    others = session.scalars(select(Contract).where(
+        Contract.house_id == house.id, Contract.status == "pending",
+        Contract.id != contract.id)).all()
+    for other in others:
+        cancel_contract(session, other, "system", "这套房已与其他租客签约")
 
     # 这套房如果是委托给中介带看的，成交这一刻结算佣金并结束委托（J-06）。
     # 放在这里而不是签约那一步：合同生效才算成交，pending 的合同
