@@ -562,3 +562,8 @@ def _payment_attempts_and_rent_refunds(connection, engine):
             "UPDATE refunds SET bill_id = (SELECT b.id FROM bills b "
             "WHERE b.contract_id = refunds.contract_id AND b.type = 'deposit' LIMIT 1) "
             "WHERE bill_id IS NULL AND type = 'deposit'"))
+
+
+@step("0022", "合同表：签约时约定的佣金比例")
+def _contract_commission_rate(connection, engine):
+    _add_column(connection, engine, "contracts", "commission_rate", "NUMERIC(5, 2)")

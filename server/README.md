@@ -59,7 +59,7 @@ python -m uvicorn app.main:app --reload --port 8080
 python -m unittest discover -s tests -v
 ```
 
-1,033 个用例，跑在内存数据库上，不会动开发用的 `rental.db`。
+1,046 个用例，跑在内存数据库上，不会动开发用的 `rental.db`。
 
 ## 接口
 

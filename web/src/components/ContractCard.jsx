@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import EndLeaseDialog from './EndLeaseDialog'
+import SignContractDialog from './SignContractDialog'
 
 const STATUS = {
   pending: { label: '待确认', cls: 'status-pending' },
@@ -17,6 +18,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
   const [review, setReview] = useState(null)
   const [reviewing, setReviewing] = useState(false)
   const [ending, setEnding] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   async function runReview() {
     if (reviewing) return
@@ -122,9 +124,14 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
       </div>
 
       <div className="record-body">
-        {contract.start_date} 至 {contract.end_date} · 月租 {contract.rent} 元 ·
+        {contract.start_date} 至 {contract.end_date} · 月租 {contract.rent} 元
+        {contract.list_rent != null && contract.list_rent !== contract.rent &&
+          `（挂牌 ${contract.list_rent}）`} ·
         押金 {contract.deposit} 元
         {contract.pay_months > 1 && ` · 每 ${contract.pay_months} 个月一付`}
+        {/* 佣金是房东和中介之间的事，租客那边不显示 */}
+        {isStaff && contract.commission_rate != null &&
+          ` · 约定佣金 ${contract.commission_rate}%`}
       </div>
 
       {contract.status === 'active' && !expired && (
@@ -190,7 +197,12 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
         )}
 
         {contract.status === 'pending' && isStaff && (
-          <span className="own">等待租客确认</span>
+          <>
+            <button className="btn ghost small" onClick={() => setEditing(true)}>
+              修改条款
+            </button>
+            <span className="own">等待租客确认</span>
+          </>
         )}
 
         {/* 退租 / 续租：一方提，另一方确认。没有待处理的申请时两边都能发起 */}
@@ -321,6 +333,17 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
       )}
 
       {showText && <pre className="contract-text">{contract.content}</pre>}
+
+      {editing && (
+        <SignContractDialog
+          contract={contract}
+          onClose={() => setEditing(false)}
+          onDone={() => {
+            setEditing(false)
+            onChanged()
+          }}
+        />
+      )}
 
       {ending && (
         <EndLeaseDialog

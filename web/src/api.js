@@ -278,6 +278,13 @@ export const api = {
     request(`/api/contracts/mine?${toQuery({ status, side })}`),
   getContract: (no) => request(`/api/contracts/${no}`),
   createContract: (payload) => post('/api/contracts', payload),
+  // 改一份还没生效的合同：月租、押金、佣金比例、日期都能改，不填的不动
+  updateContract: (no, payload) =>
+    request(`/api/contracts/${no}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),

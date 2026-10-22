@@ -671,6 +671,9 @@ class Contract(Base):
     # 房东自管的房源签出来的合同这里就是空的
     agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"),
                                           nullable=True, index=True)
+    # 签约时约定的佣金比例（月租的百分比）。空表示按委托上的比例算。
+    # 中介费常在签约时才谈定，委托时写的 50% 不一定是最后成交的数（2026-10-22）
+    commission_rate: Mapped[float] = mapped_column(Numeric(5, 2), nullable=True)
 
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -757,8 +760,12 @@ class Contract(Base):
             "start_date": self.start_date.strftime("%Y-%m-%d"),
             "end_date": self.end_date.strftime("%Y-%m-%d"),
             "rent": float(self.rent),
+            # 房源挂牌价。和 rent 不同说明签约时议过价，页面据此标出来
+            "list_rent": float(self.house.rent_price) if self.house else None,
             "deposit": float(self.deposit),
             "pay_months": self.pay_months,
+            "commission_rate": (float(self.commission_rate)
+                                if self.commission_rate is not None else None),
             "status": self.status,
             "content": self.content,
             "days_left": self.days_left,

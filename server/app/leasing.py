@@ -60,7 +60,8 @@ def months_between(start, end):
 
 # ---------------------------------------------------------------- 签约
 
-def resolve_deposit(house, deposit_months=None, default_deposit_months=1):
+def resolve_deposit(house, deposit_months=None, default_deposit_months=1,
+                    rent=None):
     """算这份合同的押金。**这是押金唯一的口径，别处不许再算一遍**（K-02）。
 
     原先这里写死 `rent * deposit_months`，完全没读 `house.deposit`——
@@ -81,8 +82,11 @@ def resolve_deposit(house, deposit_months=None, default_deposit_months=1):
     3. **房源上填了押金金额**——房东填的是不成整数倍的数（月租 2800、
        押金 800）时走这条，也是租客在详情页看到的数字；
     4. 都没有，才回落到系统配置的押金月数。
+
+    `rent` 是签约时议定的月租（不传就是挂牌价）。按月数算的押金跟着它走：
+    议价到 2800 的「押一」押的是 2800，不是挂牌的 3000。
     """
-    rent = Decimal(str(house.rent_price))
+    rent = Decimal(str(house.rent_price if rent is None else rent))
     if deposit_months is not None:
         return rent * deposit_months
     if house.deposit_months is not None:
@@ -94,7 +98,8 @@ def resolve_deposit(house, deposit_months=None, default_deposit_months=1):
 
 def create_contract(session, house, tenant, start_date, months=12,
                     deposit_months=None, pay_months=1, content="",
-                    default_deposit_months=1):
+                    default_deposit_months=1, rent=None, deposit=None,
+                    commission_rate=None):
     """生成一份待确认合同。
 
     不在这里改房源状态——合同要等租客确认后才生效，
@@ -103,6 +108,10 @@ def create_contract(session, house, tenant, start_date, months=12,
     `deposit_months` 默认是 **None 而不是 1**：None 表示「签约方没有指定，
     按房源上的押金走」，1 表示「明确要求押一」。用 1 当默认值就无法
     区分这两种情况，房源上填的押金也就永远读不到了（K-02）。
+
+    `rent` / `deposit` / `commission_rate` 是签约时谈定的数，都可以不传：
+    月租不传取挂牌价，押金不传按上面的口径算，佣金比例不传按委托上的走。
+    原先这三样都锁死在房源与委托上，议了价只能先去改房源挂牌价再签（2026-10-22）。
     """
     if house.status != "available":
         raise ValueError("该房源当前不可签约")
@@ -120,8 +129,9 @@ def create_contract(session, house, tenant, start_date, months=12,
         raise ValueError("租客尚未实名，请让对方在「个人中心 → 编辑资料」"
                          "填写真实姓名后再签约")
 
-    rent = Decimal(str(house.rent_price))
-    deposit = resolve_deposit(house, deposit_months, default_deposit_months)
+    rent, deposit = negotiated_terms(house, rent, deposit, deposit_months,
+                                     default_deposit_months)
+    check_commission_rate(session, house, commission_rate)
     end_date = add_months(start_date, months)
 
     contract = Contract(
@@ -134,6 +144,7 @@ def create_contract(session, house, tenant, start_date, months=12,
         rent=rent,
         deposit=deposit,
         pay_months=pay_months,
+        commission_rate=commission_rate,
         status="pending",
         content=content or render_contract_text(house, tenant, start_date,
                                                 end_date, rent,
@@ -142,6 +153,42 @@ def create_contract(session, house, tenant, start_date, months=12,
     session.add(contract)
     session.flush()
     return contract
+
+
+def negotiated_terms(house, rent=None, deposit=None, deposit_months=None,
+                     default_deposit_months=1):
+    """签约时的月租与押金：显式给了就用给的，没给就按房源与押金口径算。
+
+    押金封顶 6 个月租金，和「押金月数最多 6」同一条线——金额一栏手填，
+    多打一个 0 就成了押六十，租客确认前未必看得出来。
+    """
+    rent = Decimal(str(house.rent_price if rent is None else rent))
+    if rent <= 0:
+        raise ValueError("月租必须大于 0")
+    if deposit is None:
+        deposit = resolve_deposit(house, deposit_months, default_deposit_months,
+                                  rent)
+    deposit = Decimal(str(deposit))
+    if deposit < 0:
+        raise ValueError("押金不能是负数")
+    if deposit > rent * 6:
+        raise ValueError("押金不能超过 6 个月租金（%d 元）" % int(rent * 6))
+    return rent, deposit
+
+
+def check_commission_rate(session, house, commission_rate):
+    """约定佣金比例只对有受托中介的房源有意义。
+
+    没委托还填了佣金，这个数既没人收、也没人对账；与其悄悄存下来，
+    不如当场说清楚。
+    """
+    if commission_rate is None:
+        return None
+    from app.permissions import active_delegation
+    delegation = active_delegation(session, house.id)
+    if not delegation:
+        raise ValueError("这套房没有委托中介，不涉及中介费")
+    return delegation
 
 
 _CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
@@ -333,7 +380,10 @@ def settle_delegation(session, contract, house):
         return None
 
     contract.agent_id = delegation.agent_id
-    rate = Decimal(str(delegation.commission_rate))
+    # 签约时另谈了比例就按谈定的算，没谈就按委托上的
+    rate = Decimal(str(delegation.commission_rate
+                       if contract.commission_rate is None
+                       else contract.commission_rate))
     base = Decimal(str(contract.rent))
     commission = AgentCommission(
         contract_id=contract.id, delegation_id=delegation.id,

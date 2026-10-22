@@ -12,6 +12,7 @@ import uuid
 import logging
 import re
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -2744,16 +2745,46 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
             deposit_months=payload.deposit_months,
             pay_months=payload.pay_months,
             default_deposit_months=config_store.get_int(session,
-                                                        "deposit_months"))
+                                                        "deposit_months"),
+            rent=payload.rent, deposit=payload.deposit,
+            commission_rate=payload.commission_rate)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
     leasing.notify(session, tenant.id, "contract", "有一份合同待确认",
                    "房源 %s 的租赁合同已生成，请确认。" % house.house_no,
                    contract.contract_no)
+    _notify_commission_change(session, house, contract)
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}
+
+
+def _notify_commission_change(session, house, contract):
+    """签约时改了佣金比例，告诉受托中介一声。
+
+    佣金是中介的钱，比例变了他却要等成交那条「佣金已入账」才发现，
+    那时合同已经生效、改不回来了。
+    """
+    if contract.commission_rate is None:
+        return
+    delegation = leasing.check_commission_rate(session, house,
+                                               contract.commission_rate)
+    agreed = Decimal(str(delegation.commission_rate))
+    rate = Decimal(str(contract.commission_rate))
+    if rate == agreed:
+        return
+    leasing.notify(session, delegation.agent_id, "system", "签约佣金比例有调整",
+                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），"
+                   "按月租 %d 元计 %d 元。有异议请在合同生效前联系房东。"
+                   % (house.house_no, contract.contract_no, _pct(rate),
+                      _pct(agreed), int(contract.rent),
+                      int(Decimal(str(contract.rent)) * rate / 100)),
+                   contract.contract_no)
+
+
+def _pct(value):
+    return ("%.2f" % value).rstrip("0").rstrip(".")
 
 
 @app.patch("/api/contracts/{contract_no}")
@@ -2809,16 +2840,39 @@ def update_contract(contract_no: str, payload: ContractUpdate,
         months = leasing.months_between(contract.start_date, contract.end_date)
     pay_months = payload.pay_months or contract.pay_months
 
+    # 月租与押金：传了哪个改哪个。原先这里每次都把月租拉回房源挂牌价，
+    # 签约时议的价一改日期就丢了（2026-10-22 改为合同里可以议价）。
+    # 只改月租不动押金时，按月数算的押金跟着新月租走
+    rent = payload.rent if payload.rent is not None else contract.rent
+    deposit = payload.deposit
+    if deposit is None and (payload.deposit_months is not None
+                            or payload.rent is not None):
+        deposit_months = payload.deposit_months
+        if deposit_months is None and Decimal(str(contract.rent)) > 0:
+            months_held = Decimal(str(contract.deposit)) / Decimal(str(contract.rent))
+            if months_held == months_held.to_integral_value():
+                deposit_months = int(months_held)
+        if deposit_months is None:
+            deposit = contract.deposit     # 原先是个不成整月的数，原样留着
+        else:
+            deposit = leasing.resolve_deposit(
+                house, deposit_months,
+                config_store.get_int(session, "deposit_months"), rent)
+    elif deposit is None:
+        deposit = contract.deposit
+    old_rate = contract.commission_rate
+    try:
+        contract.rent, contract.deposit = leasing.negotiated_terms(
+            house, rent, deposit)
+        if payload.commission_rate is not None:
+            leasing.check_commission_rate(session, house, payload.commission_rate)
+            contract.commission_rate = payload.commission_rate
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
     contract.start_date = start
     contract.end_date = leasing.add_months(start, months)
     contract.pay_months = pay_months
-    if payload.deposit_months is not None:
-        contract.deposit = leasing.resolve_deposit(
-            house, payload.deposit_months,
-            config_store.get_int(session, "deposit_months"))
-    # 租金始终跟着房源当前定价走，和创建时同一个口径——
-    # 房东想改租金就去改房源，不该在合同里另开一个价
-    contract.rent = house.rent_price
     contract.content = leasing.render_contract_text(
         house, tenant, contract.start_date, contract.end_date,
         contract.rent, contract.deposit, contract.pay_months)
@@ -2826,6 +2880,8 @@ def update_contract(contract_no: str, payload: ContractUpdate,
     leasing.notify(session, contract.tenant_id, "system", "合同条款已修改",
                    "房东修改了合同 %s 的条款，确认前请再看一遍。"
                    % contract.contract_no, house.house_no)
+    if contract.commission_rate != old_rate:
+        _notify_commission_change(session, house, contract)
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}
