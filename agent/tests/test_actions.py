@@ -1602,5 +1602,30 @@ class TestPickFromRequest(unittest.TestCase):
         self.assertEqual(actions._pick_from_request("随便哪个都行", self.OPTIONS), "")
 
 
+class TestSlotIsCheckedBeforeTheCard(unittest.TestCase):
+    """后端只收 9:00–18:00、30 天以内、不是过去的看房。原先助手照样给一张确认卡片，
+    点了确认才报「没能完成：看房时间需在 9:00–18:00 之间」（2026-10-23）。"""
+
+    NOW = datetime.datetime(2026, 10, 23, 15, 0)
+
+    def test_rules(self):
+        date, time = datetime.date, datetime.time
+        check = actions._slot_problem
+        self.assertEqual(check(date(2026, 10, 24), time(10, 0), self.NOW), "")
+        self.assertIn("9:00 到 18:00", check(date(2026, 10, 24), time(20, 0), self.NOW))
+        self.assertIn("已经过去", check(date(2026, 10, 23), time(9, 0), self.NOW))
+        self.assertIn("30 天以内", check(date(2026, 12, 20), time(10, 0), self.NOW))
+
+    def test_evening_asks_again_with_daytime_options(self):
+        backend = RecordingBackend()
+        status, message, card, ask = actions.propose(
+            "book_viewing", "帮我约明天晚上八点看房", "tok", backend,
+            context={"house_no": "DL0001"})
+        self.assertEqual(status, actions.NEED_SLOT)
+        self.assertIsNone(card)
+        self.assertIn("9:00 到 18:00", message)
+        self.assertEqual([o["value"][-5:] for o in ask["options"]], ["10:00", "14:00", "16:00"])
+
+
 if __name__ == "__main__":
     unittest.main()

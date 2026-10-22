@@ -56,8 +56,10 @@
 """
 
 import re
+from datetime import datetime, timedelta
 
-from app.agents.booking.tools.parse_datetime import parse_datetime
+from app.agents.booking.tools.parse_datetime import (BUSINESS_END, BUSINESS_START,
+                                                     parse_datetime)
 from app.agents.support.tools import account, forms
 from app.backend import BackendError
 
@@ -922,6 +924,12 @@ def _propose_reschedule_viewing(text, token, backend, context):
                     _option("这周日下午三点", "本周日下午三点")],
                      carry={"appointment_id": chosen}))
 
+    problem = _slot_problem(day, clock)
+    if problem:
+        return (NEED_SLOT, problem, None,
+                _ask("new_time", problem, _day_options(day),
+                     carry={"appointment_id": chosen}))
+
     when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
     return CONFIRM, "", _card(
         "reschedule_viewing", "看房改期",
@@ -950,6 +958,36 @@ def _exec_reschedule_viewing(params, token, backend):
     }, token=token)
     return ("已经改到 %s，原来那条已取消。新的一条要等房东确认。"
             % params["viewing_time"], created)
+
+
+# 和后端 `create_appointment` 同一套：只约 9:00–18:00、30 天以内、不能是过去
+VIEWING_AHEAD_DAYS = 30
+
+
+def _slot_problem(day, clock, now=None):
+    """这个时间后端会不会收。会拒的就先说，别给一张点了确认才报错的卡片。"""
+    now = now or datetime.now()
+    moment = datetime.combine(day, clock)
+    if moment <= now:
+        return "%s 已经过去了，换一个时间吧。" % moment.strftime("%m 月 %d 日 %H:%M")
+    if not (BUSINESS_START <= clock <= BUSINESS_END):
+        return "看房只能约 9:00 到 18:00，%s 换个点吧。" % clock.strftime("%H:%M")
+    if moment > now + timedelta(days=VIEWING_AHEAD_DAYS):
+        return "只能预约 %d 天以内的看房，%s 太远了。" % (
+            VIEWING_AHEAD_DAYS, day.strftime("%m 月 %d 日"))
+    return ""
+
+
+def _day_options(day):
+    """追问时给的几个时段：那天还在范围内就给那天，否则给明天。"""
+    target = day
+    today = datetime.now().date()
+    if day <= today or day > today + timedelta(days=VIEWING_AHEAD_DAYS):
+        target = today + timedelta(days=1)
+    stamp = target.strftime("%Y-%m-%d")
+    return [_option("%s 10:00" % stamp, "%s 上午 10:00" % target.strftime("%m-%d")),
+            _option("%s 14:00" % stamp, "%s 下午 14:00" % target.strftime("%m-%d")),
+            _option("%s 16:00" % stamp, "%s 下午 16:00" % target.strftime("%m-%d"))]
 
 
 def _propose_book_viewing(text, token, backend, context):
@@ -1015,6 +1053,11 @@ def _propose_book_viewing(text, token, backend, context):
                     _option("%s 10:00" % stamp, "上午 10:00"),
                     _option("%s 14:00" % stamp, "下午 14:00"),
                     _option("%s 16:00" % stamp, "下午 16:00")]))
+
+    problem = _slot_problem(day, clock)
+    if problem:
+        return (NEED_SLOT, problem, None,
+                _ask("viewing_time", problem, _day_options(day)))
 
     when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
     return CONFIRM, "", _card(
