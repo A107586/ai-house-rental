@@ -978,5 +978,78 @@ class TestContractUpdate(ApiTestCase):
         self.assertIn("合同条款已修改", titles)
 
 
+
+class TestPendingContractCanBeCalledOff(ApiTestCase):
+    """待确认的合同原先没有任何一条路能结束：发错了人、租客不想签，它就一直挂着（2026-10-23）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.landlord = auth_header(self.client, "landlord1", "test123")
+        self.tenant = auth_header(self.client, "tenant1", "test123")
+
+    def _draft(self, tenant="tenant1", start=None):
+        start = start or (datetime.now() + timedelta(days=5)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        made = self.client.post("/api/contracts", headers=self.landlord, json={
+            "house_no": "DL0001", "tenant_username": tenant,
+            "start_date": start.isoformat(), "months": 12})
+        self.assertEqual(made.status_code, 200, made.text)
+        return made.json()["contract"]["contract_no"]
+
+    def _messages(self, headers):
+        return [m["title"] for m in self.client.get("/api/messages", headers=headers).json()["list"]]
+
+    def test_tenant_declines(self):
+        no = self._draft()
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.tenant,
+                             json={"reason": "租金谈不拢"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["contract"]["status"], "cancelled")
+        self.assertIn("租客没有签这份合同", self._messages(self.landlord))
+        # 拒签了就不能再确认
+        again = self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
+        self.assertEqual(again.status_code, 409)
+
+    def test_landlord_withdraws(self):
+        no = self._draft()
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord, json={})
+        self.assertEqual(r.json()["contract"]["status"], "cancelled")
+        self.assertIn("房东撤回了合同", self._messages(self.tenant))
+
+    def test_active_contract_cannot_be_called_off(self):
+        no = self._draft()
+        self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
+        r = self.client.post("/api/contracts/%s/cancel" % no, headers=self.landlord, json={})
+        self.assertEqual(r.status_code, 409)
+
+    def test_signing_one_cancels_the_others_on_that_house(self):
+        self.client.post("/api/auth/register", json={
+            "username": "tenant2", "password": "test123", "real_name": "租客乙",
+            "phone": "13900002222"})
+        other = self._draft("tenant2")
+        mine = self._draft()
+        self.client.post("/api/contracts/%s/activate" % mine, headers=self.tenant)
+        second = auth_header(self.client, "tenant2", "test123")
+        detail = self.client.get("/api/contracts/%s" % other, headers=second).json()
+        self.assertEqual(detail["status"], "cancelled")
+        self.assertIn("合同已失效", self._messages(second))
+
+    def test_stale_start_date_is_rechecked_on_activation(self):
+        """签约时起租日合规，租客隔太久才确认，起租日就成了很久以前——一生效就是几期逾期账单。"""
+        import app.db as db
+        from app.models import Contract
+        no = self._draft()
+        session = db.SessionLocal()
+        try:
+            row = session.query(Contract).filter_by(contract_no=no).one()
+            row.start_date = datetime.now() - timedelta(days=90)
+            session.commit()
+        finally:
+            session.close()
+        r = self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("起租日", r.json()["detail"])
+
+
 if __name__ == "__main__":
     unittest.main()

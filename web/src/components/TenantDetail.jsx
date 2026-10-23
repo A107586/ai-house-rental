@@ -5,6 +5,8 @@ const CONTRACT_STATUS = {
   pending: '待确认', active: '生效中', ended: '已结束', cancelled: '已取消',
 }
 const REPAIR_STATUS = { pending: '待处理', processing: '处理中', done: '已完成' }
+// 缴费期限留空 = 后端默认 7 天后
+const EMPTY_CHARGE = { type: 'utility', amount: '', title: '', due: '' }
 
 /**
  * 租客详情（房东视角）：他和我之间的合同、账单、报修。
@@ -18,13 +20,71 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const [version, setVersion] = useState(0)
+  // 正在给哪份合同加费用（合同号），以及那张小表单
+  const [charging, setCharging] = useState('')
+  const [charge, setCharge] = useState(EMPTY_CHARGE)
+
   useEffect(() => {
     let alive = true
     api.landlordTenant(tenantId)
       .then((d) => { if (alive) setData(d) })
       .catch((err) => { if (alive) setError(err.message) })
     return () => { alive = false }
-  }, [tenantId])
+  }, [tenantId, version])
+
+  /** 加一笔水电燃气 / 其它费用。原先表里有这两个类型，却没有任何一条路能建出来（2026-10-23） */
+  async function addCharge(e) {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    setOk('')
+    try {
+      await api.addExtraBill(charging, {
+        type: charge.type,
+        amount: Number(charge.amount),
+        title: charge.title.trim(),
+        due_date: charge.due ? `${charge.due}T00:00:00` : undefined,
+      })
+      setOk(`已加收「${charge.title.trim()}」${charge.amount} 元，租客会收到通知。`)
+      setCharging('')
+      setCharge(EMPTY_CHARGE)
+      setVersion((v) => v + 1)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 线下收了 / 减免。退租后的欠款原先只能「请与房东线下结清」，结清了却没处记（2026-10-23） */
+  async function settle(bill, how) {
+    if (busy) return
+    let text = ''
+    if (how === 'offline') {
+      text = window.prompt(`确认已线下收到 ${bill.amount} 元？可以备注一句（比如「微信转账」）：`, '')
+      if (text === null) return
+    } else {
+      text = window.prompt(`减免这笔 ${bill.amount} 元？写一句原因，会发给租客：`, '')
+      if (text === null) return
+      if (!text.trim()) { setError('减免要写一句原因。'); return }
+    }
+    setBusy(true)
+    setError('')
+    setOk('')
+    try {
+      if (how === 'offline') await api.settleBillOffline(bill.bill_no, text.trim())
+      else await api.waiveBill(bill.bill_no, text.trim())
+      setOk(how === 'offline' ? `已记为线下收款 ${bill.amount} 元，租客会收到通知。`
+                              : `已减免 ${bill.amount} 元，租客会收到通知。`)
+      setVersion((v) => v + 1)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose() }
@@ -101,12 +161,58 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
                     {c.status === 'active' && ` · 剩 ${c.days_left} 天`}
                     {c.request && ` · 有${c.request.type === 'end' ? '退租' : '续租'}申请待处理`}
                   </div>
-                  {onOpenContract && (
-                    <div className="record-actions">
+                  <div className="record-actions">
+                    {onOpenContract && (
                       <button className="btn ghost small" onClick={() => onOpenContract(c.contract_no)}>
                         查看合同档案
                       </button>
-                    </div>
+                    )}
+                    {c.status === 'active' && charging !== c.contract_no && (
+                      <button className="btn ghost small"
+                              onClick={() => { setCharging(c.contract_no); setCharge(EMPTY_CHARGE) }}>
+                        加一笔费用（水电等）
+                      </button>
+                    )}
+                  </div>
+                  {charging === c.contract_no && (
+                    <form className="house-form td-charge" onSubmit={addCharge}>
+                      <div className="fld-row">
+                        <label className="fld">
+                          <span>类型</span>
+                          <select value={charge.type}
+                                  onChange={(e) => setCharge({ ...charge, type: e.target.value })}>
+                            <option value="utility">水电燃气</option>
+                            <option value="other">其它费用（物业、网费等）</option>
+                          </select>
+                        </label>
+                        <label className="fld">
+                          <span>金额（元）</span>
+                          <input type="number" min="0.01" max="100000" step="0.01" required
+                                 value={charge.amount}
+                                 onChange={(e) => setCharge({ ...charge, amount: e.target.value })} />
+                        </label>
+                      </div>
+                      <div className="fld-row">
+                        <label className="fld">
+                          <span>说明（租客会看到）</span>
+                          <input maxLength={60} required placeholder="比如「9 月水电」"
+                                 value={charge.title}
+                                 onChange={(e) => setCharge({ ...charge, title: e.target.value })} />
+                        </label>
+                        <label className="fld">
+                          <span>缴费期限</span>
+                          <input type="date" value={charge.due}
+                                 onChange={(e) => setCharge({ ...charge, due: e.target.value })} />
+                        </label>
+                      </div>
+                      <div className="record-actions">
+                        <button className="btn small" type="submit" disabled={busy}>
+                          {busy ? '提交中…' : '加收并通知租客'}
+                        </button>
+                        <button className="btn ghost small" type="button"
+                                onClick={() => setCharging('')}>取消</button>
+                      </div>
+                    </form>
                   )}
                 </li>
               ))}
@@ -118,16 +224,27 @@ export default function TenantDetail({ tenantId, onClose, onOpenContract, onOpen
             ) : (
               <table className="log-table td-bills">
                 <thead>
-                  <tr><th>期数</th><th>房源</th><th>金额</th><th>到期日</th><th>状态</th></tr>
+                  <tr><th>期数</th><th>房源</th><th>金额</th><th>到期日</th><th>状态</th><th /></tr>
                 </thead>
                 <tbody>
                   {data.bills.map((b) => (
                     <tr key={b.bill_no} className={b.overdue ? 'bad' : ''}>
-                      <td>{b.type === 'deposit' ? '押金' : b.period}</td>
+                      <td>{b.type === 'deposit' ? '押金'
+                        : b.type === 'rent' ? b.period : (b.remark || '其它费用')}</td>
                       <td>{b.house_no}</td>
                       <td>{b.amount}</td>
                       <td>{b.due_date}</td>
                       <td>{b.status === 'paid' ? '已缴' : b.overdue ? '逾期' : '待缴'}</td>
+                      <td>
+                        {b.status === 'unpaid' && (
+                          <span className="td-acts">
+                            <button className="link" disabled={busy}
+                                    onClick={() => settle(b, 'offline')}>已收到（线下）</button>
+                            <button className="link" disabled={busy}
+                                    onClick={() => settle(b, 'waive')}>减免</button>
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

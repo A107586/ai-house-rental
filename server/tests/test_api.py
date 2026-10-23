@@ -198,6 +198,24 @@ class TestAppointments(ApiTestCase):
         self.assertEqual(rows[old_id]["status"], "cancelled")
         self.assertEqual(rows[moved.json()["appointment"]["id"]]["status"], "pending")
 
+    def test_reschedule_keeps_the_original_contact(self):
+        """页面上拿到的是掩码号码，传不回来；改期没带联系人就沿用原来那条的。"""
+        import app.db as db
+        from app.models import Appointment
+        first = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "viewing_time": self._future(hour=10).isoformat(),
+            "contact_name": "张三", "contact_phone": "13811112222"})
+        moved = self.client.post("/api/appointments", headers=self.headers, json={
+            "house_no": "DL0001", "replaces": first.json()["appointment"]["id"],
+            "viewing_time": self._future(hour=15).isoformat()})
+        self.assertEqual(moved.status_code, 200, moved.text)
+        session = db.SessionLocal()
+        try:
+            row = session.get(Appointment, moved.json()["appointment"]["id"])
+            self.assertEqual((row.contact_name, row.contact_phone), ("张三", "13811112222"))
+        finally:
+            session.close()
+
     def test_cannot_replace_someone_elses_viewing(self):
         first = self.client.post("/api/appointments", headers=self.headers, json={
             "house_no": "DL0001", "viewing_time": self._future(hour=10).isoformat()})

@@ -230,6 +230,64 @@ export default function ProfileForm({ user, onUpdated, onLogout }) {
           「我也要出租房子」是一次关于账号本身的决定，
           和改密码、管设备是同一类事 */}
       <BecomeLandlord onUpgraded={onUpdated} />
+
+      {user.role !== 'admin' && <DeleteAccount onDone={onLogout} />}
+    </>
+  )
+}
+
+
+/** 注销账号（个人信息保护法第 47 条）。原先只有管理员能停用，用户自己没法让平台忘掉他（2026-10-23） */
+function DeleteAccount({ onDone }) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (busy || !password) return
+    if (!window.confirm('注销后无法恢复：姓名、手机、邮箱、收藏、足迹都会删除，用户名会释放给别人注册。'
+                        + '合同和缴费记录作为交易凭证保留。确定注销吗？')) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await api.deactivateAccount(password)
+      setMsg({ ok: true, text: r.message })
+      setTimeout(() => {
+        setToken('')
+        onDone()
+      }, 1500)
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="section-title">注销账号</div>
+      {msg && <div className={`reply ${msg.ok ? 'created' : 'failed'}`}>{msg.text}</div>}
+      {!open ? (
+        <button className="btn ghost block" onClick={() => setOpen(true)}>我要注销账号</button>
+      ) : (
+        <form onSubmit={submit}>
+          <p className="desc">
+            合同、账单、中介佣金都了结之后才能注销；还有没办完的，提交后会列出来。
+          </p>
+          <div className="field">
+            <input type="password" placeholder="输入登录密码确认" value={password}
+                   autoComplete="current-password"
+                   onChange={(e) => setPassword(e.target.value)} />
+            <button className="btn danger" type="submit" disabled={busy || !password}>
+              {busy ? '处理中…' : '注销'}
+            </button>
+          </div>
+          <button className="link" type="button" onClick={() => { setOpen(false); setPassword('') }}>
+            算了
+          </button>
+        </form>
+      )}
     </>
   )
 }

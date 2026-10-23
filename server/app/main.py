@@ -48,11 +48,11 @@ from app.models import (Appointment, Bill, BrowsingHistory, ChatMessage,
                         mask_name)
 from app import (config_store, idcard, moderation, oplog,
                  pricing,
-                 ratelimit,
+                 ratelimit, reminders,
                  uploads)
 from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          ContractUpdate,
-                         ContractCreate, ContractEnd, ContractRenew,
+                         ContractCreate, ContractEnd, ContractRenew, ExtraBillIn,
                          HouseCreate, HouseReview, HouseUpdate,
                          LoginRequest, NoticeCreate, PasswordChange,
                          PayRequest, ProfileUpdate, RegisterRequest,
@@ -213,6 +213,9 @@ def _startup():
         config_store.ensure_defaults(session)
     finally:
         session.close()
+    # 到期 / 逾期 / 租约快到期的定时提醒（app/reminders.py）。内存库是测试，不起
+    if db_module.DATABASE_URL != "sqlite://" and not db_module.DATABASE_URL.endswith(":memory:"):
+        reminders.start_background(db_module.SessionLocal)
 
 
 # ------------------------------------------------------------------ 通用
@@ -1630,6 +1633,9 @@ def admin_update_user(user_id: int, payload: UserUpdate,
     if target.id == user.id:
         # 管理员把自己禁用或降级会直接锁死后台，必须挡住
         raise HTTPException(status_code=409, detail="不能修改自己的账号状态")
+    if target.status == "deleted":
+        # 用户自己注销的：个人信息已经删了，再「启用」只会得到一个没有主人的空账号
+        raise HTTPException(status_code=409, detail="这个账号已由本人注销，不能再修改")
 
     # 禁用账号与调整角色都要吊销对方已签发的令牌（B-2）。
     #
@@ -2068,7 +2074,9 @@ def create_appointment(payload: AppointmentCreate,
             detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
                    % held.viewing_time.strftime("%m-%d %H:%M"))
 
-    contact_phone = (payload.contact_phone or user.phone or "").strip()
+    # 改期没带联系人就沿用原来那条的——页面上拿到的是掩码号码，传不回来
+    contact_phone = (payload.contact_phone or (replaced.contact_phone if replaced else "")
+                     or user.phone or "").strip()
     if not re.fullmatch(r"1[3-9]\d{9}", contact_phone):
         raise HTTPException(status_code=422, detail="请输入正确的 11 位手机号")
 
@@ -2117,7 +2125,8 @@ def create_appointment(payload: AppointmentCreate,
     appointment = Appointment(
         house_id=house.id,
         tenant_id=user.id,
-        contact_name=payload.contact_name or user.real_name,
+        contact_name=(payload.contact_name or (replaced.contact_name if replaced else "")
+                      or user.real_name),
         contact_phone=contact_phone,
         viewing_time=payload.viewing_time,
         remark=payload.remark,
@@ -2415,10 +2424,25 @@ def update_repair(repair_id: int, payload: RepairUpdate,
         if not house or house.landlord_id != user.id:
             raise HTTPException(status_code=403, detail="只能处理自己房源的工单")
 
+    if repair.status == "done" and payload.status != "done":
+        # 结案时物料已经扣了库存、成本也记了；改回「待处理」再结一次会被「已登记过」拦下，
+        # 扣掉的库存也回不来。真没修好的，让租客重新报一单（2026-10-23）
+        raise HTTPException(status_code=409,
+                            detail="已完成的工单不能改回，没修好请重新报修一单")
+    if repair.status == payload.status:
+        return {"ok": True, "repair": repair.to_dict()}
+
     repair.status = payload.status
-    if payload.status == "done" and repair.tenant_id:
-        leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
-                       "你提交的报修（%s）已处理完成。" % repair.content[:20])
+    if payload.status == "done":
+        # 不走结案登记、直接标完成的（助手里说「这单修好了」走的就是这里），也留一条记录。
+        # 原先这一类在维修统计里整个看不见：人员工作量、成本只算登记过的那部分
+        if not session.scalar(select(RepairRecord.id).where(RepairRecord.repair_id == repair.id)):
+            session.add(RepairRecord(repair_id=repair.id,
+                                     # 这句租客能看到（报修记录里「由 … 处理完成：…」）
+                                     note="房东已确认处理完成"))
+        if repair.tenant_id:
+            leasing.notify(session, repair.tenant_id, "repair", "报修已处理完成",
+                           "你提交的报修（%s）已处理完成。" % repair.content[:20])
     session.commit()
     return {"ok": True, "repair": repair.to_dict()}
 
@@ -2598,6 +2622,18 @@ def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
                    link_no=first.bill_no)
     session.commit()
     return {"ok": True, "count": len(late), "amount": total}
+
+
+@app.post("/api/admin/reminders/run")
+def run_reminders(user: User = Depends(require_login),
+                  session: Session = Depends(get_session)):
+    """立刻跑一轮定时提醒。平时后台每几小时自己跑；演示和排查时不想等就点这个。
+    跑几次都一样——每条提醒按「谁、什么事、哪张单」去重。"""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    counts = reminders.run(session)
+    session.commit()
+    return {"ok": True, "sent": counts, "total": sum(counts.values())}
 
 
 @app.get("/api/admin/contracts")
@@ -3060,6 +3096,28 @@ def activate_contract(contract_no: str, user: User = Depends(require_login),
     return {"ok": True, "contract": contract.to_dict(), "bill_count": len(bills)}
 
 
+class ContractCancel(BaseModel):
+    reason: str = Field(default="", max_length=100)
+
+
+@app.post("/api/contracts/{contract_no}/cancel")
+def cancel_contract(contract_no: str, payload: ContractCancel,
+                    user: User = Depends(require_login),
+                    session: Session = Depends(get_session)):
+    """待确认的合同不签了：出租方撤回、承租方拒签。生效了的走退租。"""
+    contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id not in (contract.tenant_id, contract.landlord_id):
+        raise HTTPException(status_code=403, detail="只有合同双方可以操作")
+    side = _contract_side(contract, user)
+    try:
+        leasing.cancel_contract(session, contract, side, payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(contract)
+    return {"ok": True, "contract": contract.to_dict()}
+
+
 def _contract_side(contract, user):
     """我在这份合同里是哪一方。管理员按出租方算（代房东处理）。"""
     if user.id == contract.tenant_id and user.role != "admin":
@@ -3325,6 +3383,72 @@ def my_bills(status: str = "", contract_no: str = "",
         "overdue_count": sum(1 for b in unpaid if b.overdue),
         "list": [b.to_dict() for b in rows],
     }
+
+
+@app.post("/api/contracts/{contract_no}/bills")
+def add_extra_bill(contract_no: str, payload: ExtraBillIn,
+                   user: User = Depends(require_login),
+                   session: Session = Depends(get_session)):
+    """出租方在生效中的合同上加一笔水电燃气或其它费用。"""
+    contract = _visible_contract(session, contract_no, user)
+    if user.role != "admin" and user.id != contract.landlord_id:
+        raise HTTPException(status_code=403, detail="只有出租方可以加收费用")
+    try:
+        bill = leasing.add_extra_bill(session, contract, payload.type, payload.amount,
+                                      payload.title, payload.due_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
+
+
+class BillSettleOffline(BaseModel):
+    note: str = Field(default="", max_length=60)
+
+
+class BillWaive(BaseModel):
+    reason: str = Field(default="", max_length=60)
+
+
+def _landlord_bill(session, bill_no, user):
+    """房东（或管理员）手里的一张账单。"""
+    bill = session.scalar(select(Bill).where(Bill.bill_no == bill_no))
+    if not bill or not bill.contract:
+        raise HTTPException(status_code=404, detail="账单不存在")
+    if user.role != "admin" and bill.contract.landlord_id != user.id:
+        raise HTTPException(status_code=403, detail="只有这份合同的出租方可以操作")
+    return bill
+
+
+@app.post("/api/bills/{bill_no}/offline")
+def settle_bill_offline(bill_no: str, payload: BillSettleOffline,
+                        user: User = Depends(require_login),
+                        session: Session = Depends(get_session)):
+    """房东确认线下收到了这笔钱。退租后的欠款「请与房东线下结清」，结清了得有处记。"""
+    bill = _landlord_bill(session, bill_no, user)
+    try:
+        leasing.record_offline_payment(session, bill, payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
+
+
+@app.post("/api/bills/{bill_no}/waive")
+def waive_bill(bill_no: str, payload: BillWaive,
+               user: User = Depends(require_login),
+               session: Session = Depends(get_session)):
+    """房东减免一笔账单。原因必填，原样通知租客。"""
+    bill = _landlord_bill(session, bill_no, user)
+    try:
+        leasing.waive_bill(session, bill, payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "待缴" in str(exc) else 422, detail=str(exc))
+    session.commit()
+    session.refresh(bill)
+    return {"ok": True, "bill": bill.to_dict()}
 
 
 @app.post("/api/bills/{bill_no}/pay")

@@ -18,7 +18,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
@@ -537,6 +537,33 @@ def owner_can_list(owner):
     return ""
 
 
+def cancel_contract(session, contract, by, reason=""):
+    """待确认的合同不签了：房东撤回、租客拒签，或者房子已经租给了别人（by="system"）。
+
+    原先没有任何一条路能让待确认的合同结束——发错了人、租客不想签，它就一直挂着：
+    租客的「我的租约」里一直有一份「待确认」，房东也因此永远退不回租客身份
+    （待确认的合同算没结束的）（2026-10-23）。还没生效，所以没有账单要处理。
+    """
+    if contract.status != "pending":
+        raise ValueError("只有待确认的合同可以%s" % ("拒签" if by == "tenant" else "撤回"))
+    reason = (reason or "").strip()[:100]
+    contract.status = "cancelled"
+    contract.ended_at = datetime.now()
+    contract.end_reason = reason or {"tenant": "租客拒签", "landlord": "房东撤回"}.get(by, "已取消")
+    _clear_request(contract)
+    tail = "：%s" % reason if reason else ""
+    if by == "tenant":
+        notify(session, contract.landlord_id, "contract", "租客没有签这份合同",
+               "合同 %s 租客拒签%s。" % (contract.contract_no, tail), contract.contract_no)
+    elif by == "landlord":
+        notify(session, contract.tenant_id, "contract", "房东撤回了合同",
+               "合同 %s 房东已撤回%s。" % (contract.contract_no, tail), contract.contract_no)
+    else:
+        notify(session, contract.tenant_id, "contract", "合同已失效",
+               "合同 %s 已失效%s。" % (contract.contract_no, tail), contract.contract_no)
+    return contract
+
+
 def activate_contract(session, contract):
     """租客确认，合同生效：排账单 + 占用房源。"""
     if contract.status != "pending":
@@ -553,10 +580,25 @@ def activate_contract(session, contract):
                           "pending": "这套房源正在重新审核，审核通过后才能确认签约",
                           }.get(house.status, "该房源当前不可签约"))
 
+    # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
+    # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）
+    try:
+        check_start_date(contract.start_date)
+    except ValueError:
+        raise ValueError("这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
+                         % contract.start_date.strftime("%Y-%m-%d"))
+
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
     close_open_viewings(session, house, "这套房已经租出去了")
+    # 同一套房上发给别人的待确认合同：房子已经租出去了，它们不可能再生效。
+    # 原先一直挂在对方的「我的租约」里，点确认才被告知「已被占用」
+    others = session.scalars(select(Contract).where(
+        Contract.house_id == house.id, Contract.status == "pending",
+        Contract.id != contract.id)).all()
+    for other in others:
+        cancel_contract(session, other, "system", "这套房已与其他租客签约")
 
     # 这套房如果是委托给中介带看的，成交这一刻结算佣金并结束委托（J-06）。
     # 放在这里而不是签约那一步：合同生效才算成交，pending 的合同
@@ -746,6 +788,102 @@ def confirm_payment(session, payment, payload=None, result="success"):
                "收到租金", "账单 %s 已缴纳，金额 %d 元。"
                % (bill.bill_no, int(bill.amount)), bill.bill_no)
     return payment, True
+
+
+EXTRA_BILL_TYPES = {"utility": "水电燃气", "other": "其它费用"}
+
+
+def add_extra_bill(session, contract, type_, amount, title, due_date=None):
+    """房东在生效中的合同上加一笔房租以外的费用：水电燃气、物业、网费等。
+
+    原先账单只有押金和房租两种是系统排的，表里和页面上都有「水电」「其它」这两个类型，
+    却没有任何一条路能建出来——房东代收的水电只能线下要（2026-10-23）。
+    走的是同一张账单表，租客在「我的账单」里照常缴，收支流水、收入统计都算得到。
+    """
+    if contract.status != "active":
+        raise ValueError("只有生效中的合同可以加收费用")
+    if type_ not in EXTRA_BILL_TYPES:
+        raise ValueError("费用类型只能是水电燃气或其它费用")
+    amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    if amount <= 0 or amount > Decimal("100000"):
+        raise ValueError("金额要在 0 到 10 万元之间")
+    title = (title or "").strip()[:60]
+    if not title:
+        raise ValueError("写一句这是什么费用，比如「9 月水电」，租客要看得懂")
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    due = (due_date or today + timedelta(days=7)).replace(hour=0, minute=0, second=0,
+                                                         microsecond=0)
+    if due < today or due > today + timedelta(days=60):
+        raise ValueError("缴费期限要在今天到 60 天以内")
+    bill = Bill(bill_no=_serial("ZD"), contract_id=contract.id, type=type_,
+                period="", amount=amount, due_date=due, remark=title)
+    session.add(bill)
+    contract.bills.append(bill)
+    notify(session, contract.tenant_id, "bill", "房东加了一笔%s" % EXTRA_BILL_TYPES[type_],
+           "%s，%s 元，请在 %s 前缴纳。" % (title, _money(amount), due.strftime("%m-%d")),
+           bill.bill_no)
+    session.flush()
+    return bill
+
+
+def _close_open_attempts(bill, reason):
+    """账单在别处结掉了（线下收款、减免），收银台上还开着的那一单要关掉。"""
+    for attempt in bill.payments:
+        if attempt.status == "pending":
+            attempt.status = "closed"
+            attempt.failure_reason = reason[:200]
+
+
+def record_offline_payment(session, bill, note=""):
+    """房东确认这笔钱线下收到了（现金、转账）。
+
+    原先没有这条路：退租后剩下的欠款提示「请与房东线下结清」，结清了也没处记——
+    账单永远是「待缴」，租客的待缴总额、房东的逾期名单、催缴提醒都一直算着它（2026-10-23）。
+    记成一条 method=offline 的成功支付，收支流水、收入统计都按它走。
+    """
+    if bill.status != "unpaid":
+        raise ValueError("这笔账单不是待缴状态（%s）" % {"paid": "已缴", "cancelled": "已作废"}
+                         .get(bill.status, bill.status))
+    _close_open_attempts(bill, "房东已确认线下收款")
+    now = datetime.now()
+    contract = bill.contract
+    payment = Payment(
+        trade_no=_serial("XX"), bill_id=bill.id,
+        user_id=contract.tenant_id if contract else None,
+        amount=bill.amount, method="offline", status="succeeded",
+        gateway="offline", paid_at=now, notified_at=now,
+        failure_reason="", notify_payload="")
+    session.add(payment)
+    bill.payments.append(payment)
+    bill.status = "paid"
+    bill.paid_at = now
+    note = (note or "").strip()[:60]
+    bill.remark = ((bill.remark or "") + " · 线下收款" + ("：" + note if note else "")).strip(" ·")
+    if contract:
+        notify(session, contract.tenant_id, "bill", "房东已确认收款",
+               "账单 %s（%s 元）房东已确认线下收到%s。"
+               % (bill.bill_no, _money(bill.amount), "，备注：" + note if note else ""),
+               bill.bill_no)
+    session.flush()
+    return payment
+
+
+def waive_bill(session, bill, reason):
+    """房东减免这一笔：不收了。必须写原因，原因会发给租客。"""
+    reason = (reason or "").strip()[:60]
+    if not reason:
+        raise ValueError("减免要写一句原因，会通知租客")
+    if bill.status != "unpaid":
+        raise ValueError("只有待缴的账单可以减免")
+    _close_open_attempts(bill, "房东已减免这笔账单")
+    bill.status = "cancelled"
+    bill.remark = ((bill.remark or "") + " · 房东减免：" + reason).strip(" ·")
+    if bill.contract:
+        notify(session, bill.contract.tenant_id, "bill", "房东减免了一笔账单",
+               "账单 %s（%s 元）不用再缴了：%s。" % (bill.bill_no, _money(bill.amount), reason),
+               bill.bill_no)
+    session.flush()
+    return bill
 
 
 def close_payment(session, payment, reason="超时未支付"):

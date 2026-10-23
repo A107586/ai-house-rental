@@ -453,3 +453,41 @@ class TestRepairSla(RepairDataCase):
         body = self.client.get("/api/repairs", headers=self.admin).json()
         self.assertTrue(body["list"][0]["overdue"])
         self.assertNotEqual(body["list"][0]["urgency"], "紧急")
+
+class TestOnePathToDone(RepairDataCase):
+    """「完成」有两条路：结案登记、直接改状态（助手里说「这单修好了」走后者）。
+    原先后者不留记录，统计里看不见；完成之后还能改回待处理，扣掉的库存回不来（2026-10-23）。"""
+
+    def _patch(self, repair_id, status):
+        return self.client.patch("/api/repairs/%d" % repair_id, headers=self.landlord,
+                                 json={"status": status})
+
+    def test_marking_done_directly_still_counts(self):
+        repair = self.new_repair()
+        self.assertEqual(self._patch(repair["id"], "done").status_code, 200)
+        stats = self.client.get("/api/repair-stats", headers=self.admin).json()
+        self.assertEqual(stats["record_total"], 1)
+        self.assertEqual(stats["by_worker"][0]["name"], "未指派")
+
+    def test_records_without_cost_do_not_drag_the_average(self):
+        costed = self.new_repair()
+        self.close(costed["id"], labor_cost=200)
+        bare = self.new_repair(content="门锁有点紧")
+        self._patch(bare["id"], "done")
+        stats = self.client.get("/api/repair-stats", headers=self.admin).json()
+        self.assertEqual(stats["record_total"], 2)
+        self.assertEqual(stats["avg_cost"], 200)
+
+    def test_done_cannot_be_reopened(self):
+        item = self.new_item(stock=10)
+        repair = self.new_repair()
+        self.close(repair["id"], items=[{"item_id": item["id"], "quantity": 3}])
+        reopened = self._patch(repair["id"], "pending")
+        self.assertEqual(reopened.status_code, 409)
+        self.assertIn("重新报修", reopened.json()["detail"])
+        # 点两下「完成」不算改回
+        self.assertEqual(self._patch(repair["id"], "done").status_code, 200)
+
+    def test_cost_has_a_ceiling(self):
+        repair = self.new_repair()
+        self.assertEqual(self.close(repair["id"], labor_cost=1e9).status_code, 422)

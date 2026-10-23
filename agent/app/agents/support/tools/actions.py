@@ -56,8 +56,10 @@
 """
 
 import re
+from datetime import datetime, timedelta
 
-from app.agents.booking.tools.parse_datetime import parse_datetime
+from app.agents.booking.tools.parse_datetime import (BUSINESS_END, BUSINESS_START,
+                                                     parse_datetime)
 from app.agents.support.tools import account, forms
 from app.backend import BackendError
 
@@ -794,8 +796,26 @@ def _live_appointments(token, backend):
     # 而后端允许房东取消那些，「取消我的看房」就可能取消掉一个陌生人的（2026-10-22）
     rows = _rows(backend.get("/api/appointments/mine", params={"side": "tenant"},
                              token=token))
-    return [r for r in rows if r.get("status") in ("pending", "confirmed",
-                                                   "待审核", "已确认")]
+    return _upcoming([r for r in rows if r.get("status") in ("pending", "confirmed",
+                                                             "待审核", "已确认")])
+
+
+def _upcoming(rows, now=None):
+    """只留还没到点的。过了时间的：已确认的后端不让取消（那是一次发生过的看房），
+    待确认的也确认不了了——列出来让人挑，挑中了只会报错（2026-10-23）。
+    时间读不出来的照留，宁可多一条也别把真的那条筛掉。"""
+    now = now or datetime.now()
+    kept = []
+    for row in rows:
+        raw = str(row.get("viewing_time") or "")[:16].replace("T", " ")
+        try:
+            moment = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+        except ValueError:
+            kept.append(row)
+            continue
+        if moment > now:
+            kept.append(row)
+    return kept
 
 
 def _narrow_by_time(rows, text):
@@ -922,6 +942,12 @@ def _propose_reschedule_viewing(text, token, backend, context):
                     _option("这周日下午三点", "本周日下午三点")],
                      carry={"appointment_id": chosen}))
 
+    problem = _slot_problem(day, clock)
+    if problem:
+        return (NEED_SLOT, problem, None,
+                _ask("new_time", problem, _day_options(day),
+                     carry={"appointment_id": chosen}))
+
     when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
     return CONFIRM, "", _card(
         "reschedule_viewing", "看房改期",
@@ -950,6 +976,36 @@ def _exec_reschedule_viewing(params, token, backend):
     }, token=token)
     return ("已经改到 %s，原来那条已取消。新的一条要等房东确认。"
             % params["viewing_time"], created)
+
+
+# 和后端 `create_appointment` 同一套：只约 9:00–18:00、30 天以内、不能是过去
+VIEWING_AHEAD_DAYS = 30
+
+
+def _slot_problem(day, clock, now=None):
+    """这个时间后端会不会收。会拒的就先说，别给一张点了确认才报错的卡片。"""
+    now = now or datetime.now()
+    moment = datetime.combine(day, clock)
+    if moment <= now:
+        return "%s 已经过去了，换一个时间吧。" % moment.strftime("%m 月 %d 日 %H:%M")
+    if not (BUSINESS_START <= clock <= BUSINESS_END):
+        return "看房只能约 9:00 到 18:00，%s 换个点吧。" % clock.strftime("%H:%M")
+    if moment > now + timedelta(days=VIEWING_AHEAD_DAYS):
+        return "只能预约 %d 天以内的看房，%s 太远了。" % (
+            VIEWING_AHEAD_DAYS, day.strftime("%m 月 %d 日"))
+    return ""
+
+
+def _day_options(day):
+    """追问时给的几个时段：那天还在范围内就给那天，否则给明天。"""
+    target = day
+    today = datetime.now().date()
+    if day <= today or day > today + timedelta(days=VIEWING_AHEAD_DAYS):
+        target = today + timedelta(days=1)
+    stamp = target.strftime("%Y-%m-%d")
+    return [_option("%s 10:00" % stamp, "%s 上午 10:00" % target.strftime("%m-%d")),
+            _option("%s 14:00" % stamp, "%s 下午 14:00" % target.strftime("%m-%d")),
+            _option("%s 16:00" % stamp, "%s 下午 16:00" % target.strftime("%m-%d"))]
 
 
 def _propose_book_viewing(text, token, backend, context):
@@ -1015,6 +1071,11 @@ def _propose_book_viewing(text, token, backend, context):
                     _option("%s 10:00" % stamp, "上午 10:00"),
                     _option("%s 14:00" % stamp, "下午 14:00"),
                     _option("%s 16:00" % stamp, "下午 16:00")]))
+
+    problem = _slot_problem(day, clock)
+    if problem:
+        return (NEED_SLOT, problem, None,
+                _ask("viewing_time", problem, _day_options(day)))
 
     when = "%s %s" % (day.strftime("%Y-%m-%d"), clock.strftime("%H:%M"))
     return CONFIRM, "", _card(
@@ -1440,7 +1501,7 @@ def _propose_handle_appointment(text, token, backend, context):
     # 只要「等我确认的」：同一个账号自己约别人房子的那些，他确认不了（后端 403）
     rows = _rows(backend.get("/api/appointments/mine", params={"side": "landlord"},
                              token=token))
-    pending = [r for r in rows if r.get("status") in ("pending", "待审核")]
+    pending = _upcoming([r for r in rows if r.get("status") in ("pending", "待审核")])
     if not pending:
         return NOT_APPLICABLE, "没有待处理的看房预约。", None, None
 

@@ -44,6 +44,7 @@ ACTION_RULES = (
     ("POST", r"^/api/auth/reset$", "重置密码"),
     ("POST", r"^/api/auth/become-landlord$", "升级为房东"),
     ("POST", r"^/api/auth/revert-to-tenant$", "改回租客身份"),
+    ("POST", r"^/api/auth/deactivate$", "注销账号"),
 
     # 房源。图片、核验这些带后缀的要排在「修改房源」前面——虽然那条锚了结尾，
     # 顺序写清楚，以后有人去掉 $ 也不会把上传图片记成修改房源
@@ -73,12 +74,17 @@ ACTION_RULES = (
     ("POST", r"^/api/contracts$", "创建合同"),
     ("PATCH", r"^/api/contracts/[^/]+$", "修改合同条款"),
     ("POST", r"^/api/contracts/[^/]+/activate$", "确认合同生效"),
+    ("POST", r"^/api/contracts/[^/]+/cancel$", "撤回或拒签待确认合同"),
+    ("POST", r"^/api/contracts/[^/]+/bills$", "加收水电等费用"),
     ("POST", r"^/api/contracts/[^/]+/end$", "退租（租客为申请）"),
     ("POST", r"^/api/contracts/[^/]+/renew$", "续租申请或确认"),
     ("DELETE", r"^/api/contracts/[^/]+/request$", "撤回或拒绝退租续租申请"),
     ("POST", r"^/api/contracts/[^/]+/review-result$", "保存合同审阅结果"),
 
     ("POST", r"^/api/bills/[^/]+/pay$", "缴纳账单"),
+    ("POST", r"^/api/bills/[^/]+/offline$", "确认线下收款"),
+    ("POST", r"^/api/bills/[^/]+/waive$", "减免账单"),
+    ("POST", r"^/api/admin/reminders/run$", "手动跑一轮到期提醒"),
     ("POST", r"^/api/payments/notify$", "支付结果回调"),
     ("POST", r"^/api/payments/[^/]+/mock-pay$", "模拟支付"),
     ("POST", r"^/api/landlord/tenants/\d+/remind$", "催缴提醒租客"),
