@@ -412,6 +412,11 @@ def settle_delegation(session, contract, house):
         contract_id=contract.id, delegation_id=delegation.id,
         agent_id=delegation.agent_id, base_amount=base, rate=rate,
         amount=(base * rate / 100).quantize(Decimal("0.01")))
+    if commission.amount <= 0:
+        # 签约时把比例谈成了 0：没有钱要付，记录留着（谁促成的这一单），但直接算结清——
+        # 否则一笔「待结算 0 元」永远挂在两边的列表里，还挡着两边注销账号（2026-10-24）
+        commission.status = "settled"
+        commission.settled_at = datetime.now()
     session.add(commission)
 
     # 房子租出去了，委托自然结束，不留悬空关系

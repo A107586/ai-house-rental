@@ -106,6 +106,16 @@ class TestCommission(TermsCase):
         self.assertEqual((row["base_amount"], row["rate"], row["amount"]),
                          (700, 30, 210))
 
+    def test_zero_rate_is_settled_at_once(self):
+        """比例谈成 0：记录留着（谁促成的），但没有钱要付——不该挂一笔「待结算 0 元」，
+        还挡着两边注销账号（2026-10-24）。"""
+        self.delegate("DL0001", rate=50)
+        r = self.sign(commission_rate=0)
+        no = r.json()["contract"]["contract_no"]
+        self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
+        row = next(c for c in self.commissions() if c["contract_no"] == no)
+        self.assertEqual((row["amount"], row["status"]), (0, "settled"))
+
     def test_unchanged_rate_does_not_ping_the_agent(self):
         self.delegate("DL0001", rate=50)
         self.sign(commission_rate=50)
