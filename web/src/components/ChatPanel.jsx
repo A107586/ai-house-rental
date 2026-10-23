@@ -29,6 +29,29 @@ const DRAFT_KEY = 'rental_chat_draft'
 // 只留最近这些轮。存太多既没意义，也可能撑爆 localStorage 的配额
 const DRAFT_LIMIT = 40
 
+// 助手身份（2026-10-22）。房东账号单账号双身份：管自己的房用「房东」，
+// 租别人的房用「租客」。原先两套工具混在一起，模型常把「确认预约」和「约看房」
+// 弄混，也没有签约——房东签约用不了助手。中介、管理员只有本职身份。
+// 第一个是默认；按账号记住上次选的
+const IDENTITY_KEY = 'rental_chat_identity'
+const IDENTITIES = {
+  landlord: [['landlord', '房东'], ['tenant', '租客']],
+  agent: [['agent', '中介']],
+  admin: [['admin', '管理员']],
+}
+const IDENTITY_HINT = {
+  landlord: '管房源、处理预约、发起签约、看租客和收入，都可以找我',
+  agent: '查委托房源、带看安排、佣金，都可以找我',
+  admin: '平台待办、房源与规则，都可以问我',
+}
+
+function loadIdentity(user) {
+  const options = IDENTITIES[user?.role]
+  if (!options) return ''
+  const saved = readText(scopedKey(IDENTITY_KEY, user))
+  return options.some(([v]) => v === saved) ? saved : options[0][0]
+}
+
 function newSessionId() {
   return 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
@@ -68,6 +91,12 @@ const OPENING = {
 }
 
 const QUICK = ['中山区两室一厅', '三千以内的', '押金怎么退', '水电费怎么算']
+// 非租客身份的默认快捷入口。和智能体那边开场白（greeting.STAFF_OPENING）的一致
+const QUICK_BY_IDENTITY = {
+  landlord: ['谁约了我的房', '帮我发起签约', '我的房源', '这个月收了多少租'],
+  agent: ['我在托哪些房', '我的带看记录', '我的佣金', '押金怎么退'],
+  admin: ['平台有哪些待办', '押金怎么退', '水电费怎么算'],
+}
 
 // 一句话最多带几张图。和智能体那边读图的上限一致（support/tools/photo.py MAX_IMAGES）
 const MAX_ATTACH = 3
@@ -458,6 +487,8 @@ function AccountCard({ topic, data, onOpenHouse }) {
  */
 export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) {
   const [sessionId] = useState(() => loadSessionId(user))
+  const [identity, setIdentity] = useState(() => loadIdentity(user))
+  const identities = IDENTITIES[user?.role] || []
   // 优先恢复上次没聊完的，没有才从开场白开始
   const [messages, setMessages] = useState(() => loadDraft(user)?.messages || [OPENING])
   const [text, setText] = useState('')
@@ -497,6 +528,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
   // 跟固定的 QUICK 不是一回事，所以单独存一份。
   const [chips, setChips] = useState([])
   const bottomRef = useRef(null)
+  const logRef = useRef(null)
+  // 用户自己往上翻在看历史时，新内容不把他拽回底部；他回到底部附近，就接着跟随
+  const stickRef = useRef(true)
   // 随下一句话一起发的照片。选中就先传到业务后端换成地址，这里只存地址——
   // 智能体只认本系统上传的 /static/ 路径，不收二进制，也不收外链。
   const [attachments, setAttachments] = useState([])
@@ -520,7 +554,8 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     if (draft && !houseNo) return undefined
     let alive = true
     api
-      .supportGreeting(houseNo)
+      // 身份从存储里读（和 state 同一份）：开场白跟着身份换，房东看到的不该是「交房租」
+      .supportGreeting(houseNo, loadIdentity(user))
       .then((data) => {
         if (!alive || !data.message) return
         setMessages((prev) => {
@@ -574,9 +609,38 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     return () => { alive = false }
   }, [sessionId, user])
 
+  // 跟随最新内容。原先只在 messages / busy 变化时滚一次：
+  // 流式回答一个字一个字变长、房源卡片和图片后加载撑高、思考气泡出现，
+  // 都不会再滚，最新那几行落在可视区下面，看着像「不会自动上翻」。
+  // 现在内容区高度一变就跟到底（ResizeObserver），除非用户自己翻上去了。
+  function scrollToEnd() {
+    const el = logRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages, busy])
+    // 自己刚发了一句：无论之前翻到哪，都回到底部看回复
+    const last = messages[messages.length - 1]
+    if (last?.role === 'user') stickRef.current = true
+    scrollToEnd()
+  }, [messages, busy, streamText, streamStep, thinkingOn])
+
+  useEffect(() => {
+    const el = logRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const onScroll = () => {
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    const observer = new ResizeObserver(() => scrollToEnd())
+    Array.from(el.children).forEach((child) => observer.observe(child))
+    const mo = new MutationObserver(() => {
+      Array.from(el.children).forEach((child) => observer.observe(child))
+      scrollToEnd()
+    })
+    mo.observe(el, { childList: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => { observer.disconnect(); mo.disconnect(); el.removeEventListener('scroll', onScroll) }
+  }, [])
 
   // 消息或待办一变就落盘。抽屉关掉、页面刷新、甚至换个标签页回来，
   // 都还在上次那个位置。
@@ -706,7 +770,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setError('')
 
     try {
-      const extra = { seen: houseNos.length, houseNo: focus || houseNo, images }
+      const extra = { seen: houseNos.length, houseNo: focus || houseNo, images, identity }
       let res
       try {
         // 流式：「在查你的账单」这类真实进度先出来，回答一个字一个字显示在等待气泡里；
@@ -911,6 +975,27 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     setPending(null)
   }
 
+  function switchIdentity(next) {
+    if (next === identity || busy) return
+    setIdentity(next)
+    writeText(scopedKey(IDENTITY_KEY, user), next)
+    // 办到一半的事是上一个身份的（租客的缴费卡片、房东的签约追问），换了身份就作废；
+    // 对话本身留着，加一条分隔，看得出从哪句起换了身份
+    setPending(null)
+    setChips([])
+    const label = identities.find(([v]) => v === next)?.[1]
+    setMessages((prev) => [...prev,
+      { role: 'assistant', kind: 'divider', content: `已切换到${label}身份` }])
+    // 接一段这个身份的开场白和快捷入口；取不到就只留分隔线
+    api.supportGreeting('', next)
+      .then((data) => {
+        if (!data?.message) return
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.message }])
+        setChips(data.chips || [])
+      })
+      .catch(() => {})
+  }
+
   async function restart() {
     setMessages([OPENING])
     setContext('')
@@ -938,8 +1023,29 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         </button>
         <h3>租房助手</h3>
         <div className="loc">
-          找房、问规定、办事都可以问我
+          {IDENTITY_HINT[identity] || '找房、问规定、办事都可以问我'}
         </div>
+
+        {/* 只有一个身份（租客、中介、管理员）就不摆开关，只标一下是谁在用 */}
+        {identities.length > 1 ? (
+          <div className="chat-identity" role="group" aria-label="以什么身份使用助手">
+            <span className="chat-identity-k">身份</span>
+            {identities.map(([value, label]) => (
+              <button key={value} type="button"
+                      className={identity === value ? 'on' : ''}
+                      aria-pressed={identity === value}
+                      disabled={busy}
+                      onClick={() => switchIdentity(value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : identities.length === 1 && (
+          <div className="chat-identity single">
+            <span className="chat-identity-k">身份</span>
+            <span className="on">{identities[0][1]}</span>
+          </div>
+        )}
 
         {context && (
           <div className="chat-context">
@@ -951,7 +1057,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
           </div>
         )}
 
-        <div className="chat-log">
+        <div className="chat-log" ref={logRef}>
           {messages.map((message, index) => (
             message.kind === 'divider' ? (
               <div className="chat-divider" key={index}>{message.content}</div>
@@ -1177,7 +1283,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         {error && <div className="reply failed">{error}</div>}
 
         <div className="chat-quick">
-          {(chips.length ? chips : QUICK).map((sample) => (
+          {(chips.length ? chips : QUICK_BY_IDENTITY[identity] || QUICK).map((sample) => (
             <button
               className="chip-btn"
               key={sample}

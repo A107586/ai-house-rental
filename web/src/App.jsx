@@ -580,6 +580,10 @@ export default function App() {
     loadPage(1, true, merged).then((found) => history.refine(searched, merged, found))
   }
 
+  // 管理员只做平台管理、中介只做经纪业务，不以租客身份收藏（后端同样拦）。
+  // 传 null 给卡片，收藏的心形就不画出来
+  const favoriteHandler = user && ['admin', 'agent'].includes(user.role) ? null : toggleFavorite
+
   async function toggleFavorite(houseNo) {
     if (!user) {
       setShowAuth(true)
@@ -974,7 +978,7 @@ export default function App() {
           <RecommendStrip
             user={user}
             favorites={favorites}
-            onToggleFavorite={toggleFavorite}
+            onToggleFavorite={favoriteHandler}
             onOpen={(house) => go('house', house.house_no)}
           />
         )}
@@ -984,7 +988,7 @@ export default function App() {
         {!isList && (
           <HomeSections
             favorites={favorites}
-            onToggleFavorite={toggleFavorite}
+            onToggleFavorite={favoriteHandler}
             onOpen={(house) => go('house', house.house_no)}
             onMore={(kind) => go('list', kind)}
           />
@@ -1125,7 +1129,7 @@ export default function App() {
                   key={house.house_no}
                   house={house}
                   favorited={favorites.includes(house.house_no)}
-                  onToggleFavorite={toggleFavorite}
+                  onToggleFavorite={favoriteHandler}
                   compared={compare.some((h) => h.house_no === house.house_no)}
                   onToggleCompare={toggleCompare}
                   onClick={(house) => go('house', house.house_no)}
@@ -1400,7 +1404,7 @@ export default function App() {
           // 一份需求摘要，随咨询一并发给负责人——省掉「请您再描述一遍」
           demandText={searched}
           favorited={favorites.includes(selected.house_no)}
-          onToggleFavorite={toggleFavorite}
+          onToggleFavorite={favoriteHandler}
           // D1：关掉详情要**回到打开它的那一层**，不是一路回首页。
           // 从「我的收藏」点进来的，关掉就该重新看到收藏列表——
           // 否则用户得重走一遍：个人中心 → 收藏 → 往下翻到刚才那个位置。
@@ -1444,6 +1448,13 @@ export default function App() {
           setSaveState('')
           setFilters(conditions)
           loadPage(1, true, conditions)
+          }}
+          onTalk={(id) => {
+          // 从工单「联系房东」打开会话，关掉会话回到个人中心
+          setCameFrom('mine')
+          setShowMine(false)
+          setTalkId(id)
+          setShowTalk(true)
           }}
           onOpenHouse={(house) => {
           // 记住是从个人中心进来的。**自己不关**——关了的话

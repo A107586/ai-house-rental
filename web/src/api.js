@@ -61,6 +61,8 @@ function chatBody(text, sessionId, history, lastHouseNos, pending, extra) {
     pending,
     // 随这句话发的照片，已传到本系统的地址（/static/uploads/...）
     images: extra.images || [],
+    // 以什么身份办事。房东账号在助手顶部切「房东 / 租客」；智能体按账号角色核对
+    identity: extra.identity || '',
   }
 }
 
@@ -283,6 +285,13 @@ export const api = {
     request(`/api/contracts/mine?${toQuery({ status, side })}`),
   getContract: (no) => request(`/api/contracts/${no}`),
   createContract: (payload) => post('/api/contracts', payload),
+  // 改一份还没生效的合同：月租、押金、佣金比例、日期都能改，不填的不动
+  updateContract: (no, payload) =>
+    request(`/api/contracts/${no}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
   // 待确认的合同不签了：出租方撤回、承租方拒签
   cancelContract: (contractNo, reason = '') =>
@@ -347,6 +356,9 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
+  // 管理员就一张工单给房东（to=landlord）或报修人（to=tenant）发站内消息
+  adminRepairMessage: (id, to, content) =>
+    post(`/api/admin/repairs/${id}/message`, { to, content }),
   createHouse: (payload) => post('/api/houses', payload),
   updateHouse: (houseNo, payload) =>
     request(`/api/houses/${houseNo}`, {
@@ -696,9 +708,9 @@ export const api = {
   supportActions: () => request(agentUrl('/agent/support/actions')),
 
   // 会话开场白。带上令牌看这个人有什么没办完，带上房源编号则围绕那套房开场。
-  supportGreeting: (houseNo = '') =>
+  supportGreeting: (houseNo = '', identity = '') =>
     post(agentUrl('/agent/support/greeting'), {
-      token: getToken(), house_no: houseNo,
+      token: getToken(), house_no: houseNo, identity,
     }),
 
   // 一条回答有用 / 没用。「没用」是补语料时第一个该看的清单

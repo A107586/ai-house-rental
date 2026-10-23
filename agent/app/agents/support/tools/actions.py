@@ -1730,6 +1730,14 @@ def _propose_form(name):
         # 留着它会被当成「填过了」（str(None) == "None"）。
         slots = {k: v for k, v in (context or {}).items()
                  if k in allowed and v is not None and str(v).strip()}
+        # 模型直接给的值也要过一遍校验：它把「十二个月」「下月初」原样填进来，
+        # 卡片照样出得来，点确认时才在 int()、后端那里炸。不合格的丢掉，回头再问
+        for key in [k for k in slots if k != "house_no"]:
+            ok, cleaned = forms.validate(name, key, str(slots[key]), slots)
+            if ok:
+                slots[key] = cleaned
+            else:
+                slots.pop(key)
 
         # **先问「你能不能办这件事」，再问第一项。**
         # 顺序反了的代价实测过：租客把十一项填完才收到「没有操作权限」。
@@ -2015,12 +2023,15 @@ def _exec_publish_house(params, token, backend):
 
 
 def _exec_sign_contract(params, token, backend):
-    data = backend.post("/api/contracts", {
+    body = {
         "house_no": params["house_no"],
         "tenant_username": params["tenant_username"],
         "start_date": params["start_date"],
         "months": int(params["months"]),
-    }, token=token)
+    }
+    if params.get("rent"):
+        body["rent"] = float(params["rent"])
+    data = backend.post("/api/contracts", body, token=token)
     return "合同已发起，等租客确认后生效。", data
 
 
@@ -2105,7 +2116,7 @@ ALLOWED_PARAMS = {
                       "area", "rent_price", "deposit", "rent_type",
                       "floor", "orientation", "title"},
     "sign_contract": {"house_no", "tenant_username", "start_date",
-                      "months"},
+                      "months", "rent"},
     "edit_house": {"house_no", "field", "value"},
     # **只放行 phone。** 这张白名单是这一层真正的安全边界：
     # 即使有人构造出 {"password": "..."}，也进不了后端。

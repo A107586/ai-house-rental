@@ -38,6 +38,9 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
   // 「报修」只给正住在这套房的租客和管房的人（后端 can_report_repair）。
   // 原先所有人都看得到、匿名也能提交，任何人都能往别人的房源上写一条维修记录
   const [canRepair, setCanRepair] = useState(false)
+  // 管不了这套房、但也不能以租客身份做事的（后端 tenant_side_block）：中介看别人的房。
+  // 不给收藏 / 咨询 / 预约，换成一句说明
+  const [tenantBlock, setTenantBlock] = useState('')
   const tabs = TABS.filter((item) => item.key !== 'repair' || canRepair)
   useEffect(() => {
     if (tab === 'repair' && !canRepair) setTab('booking')
@@ -82,8 +85,11 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
         setCanRepair(!!detail?.can_report_repair)
         setCanManage(!!detail?.can_manage)
         setIsOwner(!!detail?.is_owner)
+        setTenantBlock(detail?.tenant_block || '')
       })
-      .catch(() => { setCanRepair(false); setCanManage(false); setIsOwner(false) })
+      .catch(() => {
+        setCanRepair(false); setCanManage(false); setIsOwner(false); setTenantBlock('')
+      })
 
     // 这两块失败就静默略过——房东概要拉不到不该让整个详情页报错
     api.houseLandlord(house.house_no).then(setLandlord).catch(() => setLandlord(null))
@@ -271,7 +277,13 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </div>
         )}
 
-        {!owner && (
+        {!owner && tenantBlock && (
+          <div className="record-actions">
+            <span className="own">{tenantBlock}</span>
+          </div>
+        )}
+
+        {!owner && !tenantBlock && (
         <div className="record-actions">
           <button
             className={`btn ghost small ${favorited ? 'active' : ''}`}
@@ -569,17 +581,17 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </>
         )}
 
-        {!owner && tab === 'booking' && rented && (
+        {!owner && !tenantBlock && tab === 'booking' && rented && (
           <p className="desc">这套房已出租，暂时不能预约看房。可以收藏它，或者看看下面的相似房源。</p>
         )}
 
-        {!owner && !(tab === 'booking' && rented) && (
+        {!owner && !(tab === 'booking' && (rented || tenantBlock)) && (
         <div className="section-title">
           {tab === 'booking' ? '智能预约看房' : '智能报修'}
         </div>
         )}
 
-        {!owner && !(tab === 'booking' && rented) && (
+        {!owner && !(tab === 'booking' && (rented || tenantBlock)) && (
         <form onSubmit={submit}>
           <div className="field">
             <input
@@ -649,7 +661,7 @@ export default function HouseDrawer({ house, user, favorited, onToggleFavorite,
           </div>
         )}
 
-        {!owner && !(tab === 'booking' && rented) && (
+        {!owner && !(tab === 'booking' && (rented || tenantBlock)) && (
         <div className="examples">
           <span>试试：</span>
           {samples.map((s) => (

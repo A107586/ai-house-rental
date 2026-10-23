@@ -106,6 +106,12 @@ class RepairUpdate(BaseModel):
     status: str
 
 
+class RepairMessage(BaseModel):
+    """管理员就一张工单联系房东或报修人。"""
+    to: Literal["landlord", "tenant"]
+    content: str = Field(min_length=1, max_length=500)
+
+
 # 可选枚举。**空串一律合法**——表示房东没填，不是填错了。
 # 把「没填」当成非法值会逼着房东为了发布而瞎选一个，那比留空更糟。
 DECORATIONS = ("", "精装", "简装", "毛坯")
@@ -212,6 +218,13 @@ class ContractCreate(BaseModel):
     # 具体数字：0 本身是合法取值（免押），用 0 当哨兵就没法表达免押了。
     deposit_months: int | None = Field(default=None, ge=0, le=6)
     pay_months: int = Field(default=1, ge=1, le=12)
+    # 以下三项都是「签约时谈定的数」，不填就按房源与委托上的走。
+    # 月租：议价后的成交价，不填取房源挂牌价
+    rent: float | None = Field(default=None, gt=0, le=1_000_000)
+    # 押金金额：填了就用它，优先于押金月数
+    deposit: float | None = Field(default=None, ge=0, le=6_000_000)
+    # 佣金比例（月租的百分比），只对有受托中介的房源有意义
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
 
     _start_date_local = field_validator("start_date")(_local_naive)
 
@@ -231,6 +244,9 @@ class ContractUpdate(BaseModel):
     months: int | None = Field(default=None, ge=1, le=60)
     deposit_months: int | None = Field(default=None, ge=0, le=6)
     pay_months: int | None = Field(default=None, ge=1, le=12)
+    rent: float | None = Field(default=None, gt=0, le=1_000_000)
+    deposit: float | None = Field(default=None, ge=0, le=6_000_000)
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
 
     _start_date_local = field_validator("start_date")(_local_naive)
 

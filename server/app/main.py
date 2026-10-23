@@ -12,6 +12,7 @@ import uuid
 import logging
 import re
 from datetime import datetime, time as dtime, timedelta
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -33,7 +34,7 @@ from app import db as db_module
 from app.db import get_session, init_db
 from app.deps import (current_user, require_house_manager,
                       require_login, require_staff)
-from app.permissions import (can_manage_house,
+from app.permissions import (can_manage_house, tenant_side_block,
                              can_report_repair,
                              can_see_tenant_contact,
                              require_can_manage_house,
@@ -55,7 +56,7 @@ from app.schemas import (AppointmentCreate, AppointmentUpdate, ChatLog,
                          HouseCreate, HouseReview, HouseUpdate,
                          LoginRequest, NoticeCreate, PasswordChange,
                          PayRequest, ProfileUpdate, RegisterRequest,
-                         RepairCreate, RepairUpdate, ReviewCreate,
+                         RepairCreate, RepairMessage, RepairUpdate, ReviewCreate,
                          UserUpdate)
 from app.routers import (account, agent, conversation, password_reset,
                          repair_data, reports, saved_search, support)
@@ -670,6 +671,9 @@ def get_house(house_no: str, user: User = Depends(current_user),
     # 管得了这套房的人（房东、受托中介、管理员）在详情页上不该看到收藏、咨询、预约看房
     data["can_manage"] = can_manage_house(session, user, house)
     data["is_owner"] = bool(user and house.landlord_id == user.id)
+    # 管不了、但也不能以租客身份做事的（中介、管理员看别人的房）：给出原因，
+    # 前端据此收起预约 / 咨询 / 收藏。真正的边界在各个接口里（tenant_side_block）
+    data["tenant_block"] = tenant_side_block(session, user, house) or ""
     return data
 
 
@@ -1876,6 +1880,9 @@ def add_favorite(house_no: str, user: User = Depends(require_login),
         # 和详情同一道门：收藏列表返回的是整套房源资料，待审 / 下架的从这里收进来，
         # 等于绕过详情页把内容读走
         raise HTTPException(status_code=404, detail="房源不存在或已下架")
+    blocked = tenant_side_block(session, user, house)
+    if blocked:
+        raise HTTPException(status_code=403, detail=blocked.replace("预约、咨询或签约", "收藏"))
 
     exists = session.scalar(select(Favorite).where(
         Favorite.user_id == user.id, Favorite.house_id == house.id))
@@ -2028,14 +2035,17 @@ def create_appointment(payload: AppointmentCreate,
     house = session.scalar(select(House).where(House.house_no == payload.house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    # 自己约自己原先只有智能体那一侧在守（它不会替房东约自己的房），直接调接口照样落库。
+    # 管这套房的人、中介、管理员都不以租客身份预约（2026-10-22）
+    blocked = tenant_side_block(session, user, house)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
     if house.status != "available":
         raise HTTPException(status_code=409, detail="该房源当前不可预约")
     if payload.viewing_time <= datetime.now():
         raise HTTPException(status_code=400, detail="看房时间必须晚于当前时间")
-    # 下面三条原先只有智能体那一侧在守：它只给 9:00–18:00 的时段、不会替房东约自己的房。
-    # 绕开智能体直接调接口，凌晨三点、三年以后、自己约自己都能落库（2026-10-22）
-    if can_manage_house(session, user, house):
-        raise HTTPException(status_code=400, detail="这是你管理的房源，不需要预约看房")
+    # 下面两条同样原先只有智能体那一侧在守：它只给 9:00–18:00、30 天以内的时段。
+    # 绕开智能体直接调接口，凌晨三点、三年以后都能落库（2026-10-22）
     clock = payload.viewing_time.time()
     if not (VIEWING_OPEN <= clock <= VIEWING_CLOSE):
         raise HTTPException(status_code=400, detail="看房时间需在 %s–%s 之间" % (
@@ -2435,6 +2445,36 @@ def update_repair(repair_id: int, payload: RepairUpdate,
                            "你提交的报修（%s）已处理完成。" % repair.content[:20])
     session.commit()
     return {"ok": True, "repair": repair.to_dict()}
+
+
+@app.post("/api/admin/repairs/{repair_id}/message")
+def message_about_repair(repair_id: int, payload: RepairMessage,
+                         user: User = Depends(require_login),
+                         session: Session = Depends(get_session)):
+    """管理员就一张工单给房东或报修人发站内消息。
+
+    原先管理员在工单总览里只能看：紧急工单挂了一天没人管，
+    想催房东、想问租客现场情况，都得自己去翻用户列表找人。
+    消息里带工单号，对方要回话就在工单详情里点「联系平台」，进转人工队列。
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    repair = session.get(Repair, repair_id)
+    if not repair:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+    house = repair.house or session.get(House, repair.house_id)
+    target = house.landlord_id if payload.to == "landlord" else repair.tenant_id
+    if not target:
+        raise HTTPException(status_code=409, detail="这张工单没有关联报修人账号")
+    no = "GD%06d" % repair.id
+    leasing.notify(session, target, "system", "平台就工单 %s 联系你" % no,
+                   "%s\n（房源 %s · %s）要回复请在工单详情里点「联系平台」。"
+                   % (content, house.house_no, repair.content[:20]), no)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/landlord/tenants")
@@ -2874,6 +2914,11 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         select(User).where(User.username == payload.tenant_username))
     if not tenant:
         raise HTTPException(status_code=404, detail="租客不存在")
+    # 和房东本人签约的由 leasing.create_contract 拦（「不能和自己签约」）；
+    # 中介、管理员账号和这套房的受托人也不能当乙方
+    if tenant.id != house.landlord_id and tenant_side_block(session, tenant, house):
+        raise HTTPException(status_code=409,
+                            detail="乙方不能是中介、管理员账号或这套房的受托人")
 
     try:
         leasing.check_start_date(payload.start_date)
@@ -2886,16 +2931,46 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
             deposit_months=payload.deposit_months,
             pay_months=payload.pay_months,
             default_deposit_months=config_store.get_int(session,
-                                                        "deposit_months"))
+                                                        "deposit_months"),
+            rent=payload.rent, deposit=payload.deposit,
+            commission_rate=payload.commission_rate)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
     leasing.notify(session, tenant.id, "contract", "有一份合同待确认",
                    "房源 %s 的租赁合同已生成，请确认。" % house.house_no,
                    contract.contract_no)
+    _notify_commission_change(session, house, contract)
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}
+
+
+def _notify_commission_change(session, house, contract):
+    """签约时改了佣金比例，告诉受托中介一声。
+
+    佣金是中介的钱，比例变了他却要等成交那条「佣金已入账」才发现，
+    那时合同已经生效、改不回来了。
+    """
+    if contract.commission_rate is None:
+        return
+    delegation = leasing.check_commission_rate(session, house,
+                                               contract.commission_rate)
+    agreed = Decimal(str(delegation.commission_rate))
+    rate = Decimal(str(contract.commission_rate))
+    if rate == agreed:
+        return
+    leasing.notify(session, delegation.agent_id, "system", "签约佣金比例有调整",
+                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），"
+                   "按月租 %d 元计 %d 元。有异议请在合同生效前联系房东。"
+                   % (house.house_no, contract.contract_no, _pct(rate),
+                      _pct(agreed), int(contract.rent),
+                      int(Decimal(str(contract.rent)) * rate / 100)),
+                   contract.contract_no)
+
+
+def _pct(value):
+    return ("%.2f" % value).rstrip("0").rstrip(".")
 
 
 @app.patch("/api/contracts/{contract_no}")
@@ -2956,16 +3031,39 @@ def update_contract(contract_no: str, payload: ContractUpdate,
         months = leasing.months_between(contract.start_date, contract.end_date)
     pay_months = payload.pay_months or contract.pay_months
 
+    # 月租与押金：传了哪个改哪个。原先这里每次都把月租拉回房源挂牌价，
+    # 签约时议的价一改日期就丢了（2026-10-22 改为合同里可以议价）。
+    # 只改月租不动押金时，按月数算的押金跟着新月租走
+    rent = payload.rent if payload.rent is not None else contract.rent
+    deposit = payload.deposit
+    if deposit is None and (payload.deposit_months is not None
+                            or payload.rent is not None):
+        deposit_months = payload.deposit_months
+        if deposit_months is None and Decimal(str(contract.rent)) > 0:
+            months_held = Decimal(str(contract.deposit)) / Decimal(str(contract.rent))
+            if months_held == months_held.to_integral_value():
+                deposit_months = int(months_held)
+        if deposit_months is None:
+            deposit = contract.deposit     # 原先是个不成整月的数，原样留着
+        else:
+            deposit = leasing.resolve_deposit(
+                house, deposit_months,
+                config_store.get_int(session, "deposit_months"), rent)
+    elif deposit is None:
+        deposit = contract.deposit
+    old_rate = contract.commission_rate
+    try:
+        contract.rent, contract.deposit = leasing.negotiated_terms(
+            house, rent, deposit)
+        if payload.commission_rate is not None:
+            leasing.check_commission_rate(session, house, payload.commission_rate)
+            contract.commission_rate = payload.commission_rate
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
     contract.start_date = start
     contract.end_date = leasing.add_months(start, months)
     contract.pay_months = pay_months
-    if payload.deposit_months is not None:
-        contract.deposit = leasing.resolve_deposit(
-            house, payload.deposit_months,
-            config_store.get_int(session, "deposit_months"))
-    # 租金始终跟着房源当前定价走，和创建时同一个口径——
-    # 房东想改租金就去改房源，不该在合同里另开一个价
-    contract.rent = house.rent_price
     contract.content = leasing.render_contract_text(
         house, tenant, contract.start_date, contract.end_date,
         contract.rent, contract.deposit, contract.pay_months)
@@ -2973,6 +3071,8 @@ def update_contract(contract_no: str, payload: ContractUpdate,
     leasing.notify(session, contract.tenant_id, "system", "合同条款已修改",
                    "房东修改了合同 %s 的条款，确认前请再看一遍。"
                    % contract.contract_no, house.house_no)
+    if contract.commission_rate != old_rate:
+        _notify_commission_change(session, house, contract)
     session.commit()
     session.refresh(contract)
     return {"ok": True, "contract": contract.to_dict()}

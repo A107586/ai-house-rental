@@ -502,24 +502,61 @@ AGENT_ONLY = {"agent_commissions", "agent_delegations", "agent_viewings"}
 # 只有管理员用得上的
 ADMIN_ONLY = {"admin_todos"}
 
+# 只有**以租客身份**才用得上的：自己的租约、账单、预约、报修、收藏，
+# 以及预约看房、缴费、续租退租这些租客办的事。
+# 原先房东账号拿到的是租客和房东两套工具混在一起——「确认预约」和「约看房」、
+# 「我的租约」和「我租出去的合同」并排摆着，模型常常挑错；
+# 中介、管理员也拿得到租客的工具（2026-10-22 起身份分开，见 IDENTITIES）
+TENANT_ONLY = {
+    "recommend_houses", "my_bills", "my_money", "my_contracts", "my_appointments",
+    "my_repairs", "my_favorites", "my_history", "my_todos",
+    "book_viewing", "cancel_viewing", "reschedule_viewing", "pay_bill",
+    "submit_repair", "favorite_house", "unfavorite_house", "end_contract",
+    "renew_contract",
+}
 
-def visible_tools(logged_in, role):
-    """当前这个人能用的工具。
+# 每种账号能切到哪些身份，第一个是默认。
+#
+# 房东账号是单账号双身份：管自己的房用「房东」，租别人的房用「租客」，
+# 在助手顶部切换。中介只做经纪、管理员只做平台管理，都只有本职身份——
+# 和业务后端 tenant_side_block 是同一条规则（2026-10-22 定）。
+IDENTITIES = {
+    "tenant": ("tenant",),
+    "landlord": ("landlord", "tenant"),
+    "agent": ("agent",),
+    "admin": ("admin",),
+}
+
+IDENTITY_LABEL = {"tenant": "租客", "landlord": "房东", "agent": "中介",
+                  "admin": "管理员"}
+
+
+def resolve_identity(role, asked=""):
+    """这一轮按什么身份服务。要的身份这个账号没有，就用账号的默认身份——
+    前端传什么都不作数，账号角色才作数（角色由后端 /api/auth/me 给）。"""
+    allowed = IDENTITIES.get(role) or ("tenant",)
+    return asked if asked in allowed else allowed[0]
+
+
+def visible_tools(logged_in, identity):
+    """当前这个身份能用的工具。`identity` 见 `resolve_identity`；没登录传空串。
 
     过滤不是权限控制——**权限在后端**，令牌带不带得动那个接口，
     不取决于提示词里写了什么。这里过滤只是为了让模型少几个选项，
-    选得更准。
+    选得更准，也让「我现在是哪个身份在办事」没有歧义。
     """
     out = []
     for tool in TOOLS:
-        if not logged_in and tool["name"] in NEEDS_LOGIN:
+        name = tool["name"]
+        if not logged_in and name in NEEDS_LOGIN:
             continue
-        if tool["name"] in STAFF_ONLY and role not in ("landlord", "agent",
-                                                       "admin"):
+        if name in TENANT_ONLY and identity not in ("tenant", ""):
             continue
-        if tool["name"] in AGENT_ONLY and role not in ("agent", "admin"):
+        if name in STAFF_ONLY and identity not in ("landlord", "agent"):
             continue
-        if tool["name"] in ADMIN_ONLY and role != "admin":
+        if name in AGENT_ONLY and identity != "agent":
+            continue
+        if name in ADMIN_ONLY and identity != "admin":
             continue
         out.append(tool)
     return out

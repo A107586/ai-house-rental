@@ -76,6 +76,7 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
           {Math.round(house.rent_price)}
           <small> 元/月</small>
         </span>
+        {onToggleFavorite && (
         <button
           className={`fav-heart ${favorited ? 'on' : ''}`}
           title={favorited ? '取消收藏' : '收藏'}
@@ -91,6 +92,7 @@ export default function HouseCard({ house, favorited, onToggleFavorite,
             <path d="M12 20.6 4.3 13a4.8 4.8 0 0 1 0-6.8 4.8 4.8 0 0 1 6.8 0l.9.9.9-.9a4.8 4.8 0 0 1 6.8 0 4.8 4.8 0 0 1 0 6.8Z" />
           </svg>
         </button>
+        )}
       </div>
 
       <div className="card-meta">

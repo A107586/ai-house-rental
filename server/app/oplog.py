@@ -94,6 +94,7 @@ ACTION_RULES = (
     ("POST", r"^/api/repairs/\d+/images$", "上传报修图片"),
     ("POST", r"^/api/repairs/\d+/record$", "登记维修结果"),
     ("PATCH", r"^/api/repairs/", "处理报修工单"),
+    ("POST", r"^/api/admin/repairs/\d+/message$", "就工单联系用户"),
     ("POST", r"^/api/repair-workers$", "新增维修师傅"),
     ("PATCH", r"^/api/repair-workers/", "修改维修师傅"),
     ("POST", r"^/api/repair-items$", "新增维修物料"),

@@ -6,6 +6,7 @@ import ContractCard from './ContractCard'
 import ContractDetail from './ContractDetail'
 import DelegationPanel from './DelegationPanel'
 import ImageUploader from './ImageUploader'
+import RepairContact from './RepairContact'
 import SignContractDialog from './SignContractDialog'
 import TenantDetail from './TenantDetail'
 
@@ -643,6 +644,8 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                         </button>
                       </div>
                     )}
+                    <RepairContact repair={item} viewer="landlord" me={user}
+                                   onOpenHouse={openHouseByNo} onTalk={onTalk} />
                   </li>
                 )
               })}

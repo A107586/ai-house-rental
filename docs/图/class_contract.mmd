@@ -37,8 +37,10 @@ classDiagram
         <<service>>
         +add_months(moment, months)
         +months_between(start, end)
-        +resolve_deposit(house, deposit_months, default_deposit_months)
-        +create_contract(session, house, tenant, start_date, months, deposit_months, pay_months, content, default_deposit_months)
+        +resolve_deposit(house, deposit_months, default_deposit_months, rent)
+        +create_contract(session, house, tenant, start_date, months, deposit_months, pay_months, content, default_deposit_months, rent, deposit, commission_rate)
+        +negotiated_terms(house, rent, deposit, deposit_months, default_deposit_months)
+        +check_commission_rate(session, house, commission_rate)
         +check_start_date(start, today)
         +house_specific_clauses(house, deposit, pay_months)
         +render_contract_text(house, tenant, start_date, end_date, rent, deposit, pay_months)
@@ -73,6 +75,7 @@ classDiagram
         +config_store.get_int()
         +deps.require_login()
         +deps.require_staff()
+        +permissions.tenant_side_block()
     }
     Api ..> m_shared
     class MockGateway["MockGateway（gateway.py）"] {
@@ -97,7 +100,7 @@ classDiagram
         +int landlord_id «FK»
         +int agent_id «FK»
         +str status
-        +… 另 18 列（见数据库设计书）
+        +… 另 19 列（见数据库设计书）
         +/expired
         +/days_left
         +/review_summary

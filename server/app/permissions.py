@@ -46,6 +46,28 @@ def active_delegation(session, house_id, agent_id=None):
     return session.scalar(stmt)
 
 
+def tenant_side_block(session, user, house):
+    """这个人能不能以**租客身份**对这套房做事（预约、咨询、收藏、当合同乙方）。
+
+    能就返回 None，不能就返回给用户看的原因。原先只有「咨询」拦了房东本人，
+    实测房东给自己的房源约了三次看房（一次还确认了）、跟自己签了一份合同，
+    受托中介、管理员也都能以租客身份进来——角色混在一起，后面的账就对不上了。
+    """
+    if user is None:
+        return None
+    if user.role == "admin":
+        return "管理员账号只做平台管理，不能以租客身份预约、咨询或签约"
+    # 中介账号只做经纪业务（2026-10-22 定）：不在任何房源上当租客。
+    # 房东账号可以租别人的房（单账号双身份），但不能对自己的房这么做——见下一条
+    if user.role == "agent":
+        return "中介账号只做经纪业务，不能以租客身份预约、咨询或签约"
+    if can_manage_house(session, user, house):
+        if house.landlord_id == user.id:
+            return "这是你自己的房源，不能自己预约、咨询或签约"
+        return "这套房在你的受托范围内，不能以租客身份预约、咨询或签约"
+    return None
+
+
 def can_manage_house(session, user, house):
     """这个人管不管得了这套房。"""
     if not user:

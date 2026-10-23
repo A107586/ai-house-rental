@@ -40,15 +40,30 @@ _WRITE_PARAMS = {
     "house_no": ("string", "房源编号，只能抄工具结果或当前情况里出现过的"),
 }
 
-# 目录里没有、但提议器支持的写操作。只收语义清楚、权限简单的几个
+# 目录里没有、但提议器支持的写操作。只收语义清楚、权限简单的几个。
+# `identities`：哪些身份用得上（见 catalog.IDENTITIES），不写就是都能用
 _EXTRA_WRITES = [
-    {"name": "publish_house", "kind": "write", "action": "publish_house", "roles": ("landlord",),
+    {"name": "publish_house", "kind": "write", "action": "publish_house",
+     "identities": ("landlord",),
      "desc": "房东发布一套新房源（会逐项追问小区、户型、面积、租金等）。"},
+    # 原先助手里没有签约：房东说「给 tenant1 签 DL0007」，模型只能让他去工作台点
+    {"name": "sign_contract", "kind": "write", "action": "sign_contract",
+     "identities": ("landlord",),
+     "desc": "房东给自己的某套房源和某位租客发起签约（生成待确认合同，租客确认后生效）。"
+             "会逐项追问房源、租客账号、起租日、租期。",
+     "params": {
+         "tenant_username": ("string", "租客的平台账号（用户名），用户说了才填"),
+         "start_date": ("string", "起租日，写成 2026-11-01 这样；用户没说就不填"),
+         "months": ("number", "租期几个月，用户没说就不填"),
+         "rent": ("number", "谈定的月租（元），和挂牌价不同时才填"),
+     }},
     {"name": "submit_review", "kind": "write", "action": "submit_review",
+     "identities": ("tenant",),
      "desc": "给住过或看过的房源写评价、打分。"},
     {"name": "read_all_messages", "kind": "write", "action": "read_all_messages",
      "desc": "把站内消息全部标为已读。"},
     {"name": "clear_history", "kind": "write", "action": "clear_history",
+     "identities": ("tenant",),
      "desc": "清空浏览记录。"},
     {"name": "update_profile", "kind": "write", "action": "update_profile",
      "desc": "修改自己的资料：姓名、手机号、邮箱等。"},
@@ -90,7 +105,8 @@ class Toolkit:
     """一轮对话的工具集。`deps` 由 `app/main.py` 注入，见 `_agent_turn`。
 
     deps 需要提供：
-      logged_in, role, runner_ctx (dict),
+      logged_in, role（账号角色）, identity（这一轮的身份，见 catalog.resolve_identity）,
+      runner_ctx (dict),
       run_read(name, params, ctx) -> dict | None
       knowledge(question) -> dict        # 客服检索问答的结果
       recommend() -> dict                 # 推荐结果（带 items）
@@ -112,7 +128,7 @@ class Toolkit:
     def tools(self):
         if self._tools is not None:
             return self._tools
-        visible = catalog.visible_tools(self.deps.logged_in, self.deps.role)
+        visible = catalog.visible_tools(self.deps.logged_in, self._identity())
         out = []
         for tool in visible:
             if tool["name"] in _SKIP:
@@ -125,12 +141,17 @@ class Toolkit:
         out.append(_HANDOFF_TOOL)
         if self.deps.logged_in:
             for tool in _EXTRA_WRITES:
-                roles = tool.get("roles")
-                if roles and self.deps.role not in roles + ("admin",):
+                allowed = tool.get("identities")
+                if allowed and self._identity() not in allowed:
                     continue
-                out.append(dict(tool, params=dict(_WRITE_PARAMS)))
+                out.append(dict(tool, params=dict(_WRITE_PARAMS, **(tool.get("params") or {}))))
         self._tools = out
         return out
+
+    def _identity(self):
+        if not self.deps.logged_in:
+            return ""
+        return getattr(self.deps, "identity", "") or catalog.resolve_identity(self.deps.role)
 
     def why_unavailable(self, name):
         """模型要的工具不在这个人的工具表里时，告诉它**为什么**。
@@ -142,10 +163,19 @@ class Toolkit:
         """
         if self.deps.logged_in:
             known = {t["name"] for t in catalog.TOOLS} | {t["name"] for t in _EXTRA_WRITES}
-            if name in known:
-                return ("「%s」不是你现在这个身份能用的功能。照实告诉用户这件事要换哪种身份办，"
-                        "不要说平台没有这个功能。" % name)
-            return None
+            if name not in known:
+                return None
+            identity = self._identity()
+            others = [i for i in catalog.IDENTITIES.get(self.deps.role, ()) if i != identity]
+            if others:
+                # 房东账号：另一个身份就能办，告诉他点哪里切
+                return ("「%s」不是%s身份的功能。告诉用户：在助手顶部把身份切到「%s」再说一次就能办；"
+                        "不要说平台没有这个功能。"
+                        % (name, catalog.IDENTITY_LABEL[identity],
+                           "」或「".join(catalog.IDENTITY_LABEL[i] for i in others)))
+            return ("「%s」不是%s账号能用的功能（中介只做经纪业务、管理员只做平台管理，"
+                    "不以租客身份预约、缴费、签约）。照实告诉用户，不要说平台没有这个功能。"
+                    % (name, catalog.IDENTITY_LABEL.get(identity, "当前")))
         return ("没有叫「%s」的工具——用户**还没登录**，所以预约看房、收藏、缴费、报修这类办事的工具"
                 "都还没给你。平台能办这些事：请他先点页面右上角「登录 / 注册」，登录后在对话里"
                 "再说一声就能办。不要说做不了，也不要提 App、电话这类不存在的入口。" % name)

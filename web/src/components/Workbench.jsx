@@ -403,13 +403,13 @@ export default function Workbench({ user, onClose }) {
                       {lines.map((line) => (
                         <div className={`bubble ${line.mine ? 'user' : 'assistant'}`}
                              key={line.id}>
-                          /* A2：对方的头像用**这个会话里对方的名字**，不是一个占位词。
+                          {/* A2：对方的头像用**这个会话里对方的名字**，不是一个占位词。
 
    `sender_label` 只在「同侧但不是我」时才有值（那是委托期间中介
    代答的情形），普通两人会话里它永远是空串。于是这里原来回退到
    「对方」「租客」这种字面量——头像取首字，结果每一个会话的对方
    都长着同一个「对」或「租」。**换个人说话，画面上没有任何变化**，
-   而头像的全部作用就是让人一眼认出说话的是谁。 */
+   而头像的全部作用就是让人一眼认出说话的是谁。 */}
                           <ChatAvatar
                             kind={line.mine ? 'me' : 'other'}
                             name={line.mine
@@ -543,6 +543,7 @@ export default function Workbench({ user, onClose }) {
               {user.role === 'admin' && (
                 <AdminPanel
                   user={user} embedded
+                  onOpenHouse={openHouse}
                   onSections={setSections}
                   activeTab={commKeys.includes(nav) ? '' : nav}
                   onTabChange={setNav}

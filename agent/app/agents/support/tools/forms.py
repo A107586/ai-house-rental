@@ -167,6 +167,10 @@ FORMS = {
              "question": "起租日写哪天？比如 2026-10-01。"},
             {"name": "months", "type": "number", "question": "租期几个月？",
              "min": 1, "max": 60},
+            # 谈定的月租。**不追问**：多数时候就是挂牌价，后端不填就按挂牌价走；
+            # 用户自己说了「月租 2800」才带上（2026-10-22 起合同里可以议价）
+            {"name": "rent", "type": "number", "question": "谈定的月租是多少？",
+             "min": 1, "max": 1000000, "optional": True},
         ],
     },
     "edit_house": {
@@ -323,7 +327,7 @@ _LABELS = {
     "layout": "户型 ", "area": "面积 ", "rent_price": "月租 ",
     "deposit": "押金 ", "rent_type": "类型 ", "floor": "楼层 ",
     "orientation": "朝向 ", "title": "标题 ", "house_no": "房源 ",
-    "tenant_username": "租客 ", "start_date": "起租 ", "months": "租期 ",
+    "tenant_username": "租客 ", "start_date": "起租 ", "months": "租期 ", "rent": "月租 ",
     "field": "改 ", "value": "改成 ", "description": "描述 ",
 }
 

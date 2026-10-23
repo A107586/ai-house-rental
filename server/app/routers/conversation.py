@@ -15,10 +15,11 @@ from sqlalchemy.orm import Session
 from app import leasing, moderation
 from app.db import get_session
 from app.deps import require_login
-from app.models import (Appointment, ChatLine, ContentFlag, Conversation,
-                        House, HouseDelegation, User, ViewingRecord,
-                        mask_name)
-from app.permissions import active_delegation, can_manage_house, responsible_user_id
+from app.models import (Appointment, ChatLine, ContentFlag, Contract,
+                        Conversation, House, HouseDelegation, Repair, User,
+                        ViewingRecord, mask_name)
+from app.permissions import (active_delegation, can_manage_house, responsible_user_id,
+                             tenant_side_block)
 
 router = APIRouter()
 
@@ -158,8 +159,15 @@ def start_conversation(payload: ConversationStart,
 
         # **不能对任意人发起会话。** 否则「主动联系」就成了一个站内群发
         # 入口——中介手上有全站房源的浏览记录，挨个私信是稳赚的。
-        # 必须是这套房上已经有往来的人：约过看房，或者被带看过。
-        related = session.scalar(select(Appointment.id).where(
+        # 必须是这套房上已经有往来的人：约过看房、被带看过，
+        # 或者签过约、报过修——后两种原先漏了，线下谈好直接签约的租客
+        # 报修之后，房东从工单上联系不到他（2026-10-22）
+        resident = session.scalar(select(Contract.id).where(
+            Contract.house_id == house.id,
+            Contract.tenant_id == tenant.id)) or session.scalar(
+            select(Repair.id).where(Repair.house_id == house.id,
+                                    Repair.tenant_id == tenant.id))
+        related = resident or session.scalar(select(Appointment.id).where(
             Appointment.house_id == house.id,
             Appointment.tenant_id == tenant.id)) or session.scalar(
             select(ViewingRecord.id).where(
@@ -168,18 +176,21 @@ def start_conversation(payload: ConversationStart,
         if not related:
             raise HTTPException(
                 status_code=403,
-                detail="只能联系在这套房上约过看房或被带看过的租客")
+                detail="只能联系在这套房上约过看房、被带看过、签过约或报过修的租客")
 
         # **免打扰**（J-07）。放在这里而不是只把前端按钮置灰：
-        # 按钮是提示，接口才是边界——灰掉的按钮拦不住直接调接口的人
-        if not tenant.accept_contact:
+        # 按钮是提示，接口才是边界——灰掉的按钮拦不住直接调接口的人。
+        # 免打扰挡的是看房阶段的主动招揽；签过约、报过修的是这套房的住户，
+        # 房东为租约和维修找他不算打扰
+        if not tenant.accept_contact and not resident:
             raise HTTPException(
                 status_code=403,
                 detail="对方已设置不接受主动联系。你可以等他先来问，"
                        "预约与带看的通知照常送达")
         tenant_id = tenant.id
-    elif house.landlord_id == user.id:
-        raise HTTPException(status_code=400, detail="不能和自己的房源发起咨询")
+    elif tenant_side_block(session, user, house):
+        # 房东本人、受托中介、管理员都不能以租客身份咨询这套房（原先只拦了房东本人）
+        raise HTTPException(status_code=400, detail=tenant_side_block(session, user, house))
     elif house.status not in ("available", "rented") and not can_manage_house(session, user, house):
         # 待审、已下架的房源对外不可见；知道房源编号也不该能从这里绕进去问
         raise HTTPException(status_code=404, detail="房源不存在")
