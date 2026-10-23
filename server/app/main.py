@@ -2574,7 +2574,10 @@ def landlord_tenant_detail(tenant_id: int, user: User = Depends(require_staff),
         .order_by(Repair.created_at.desc()).limit(20)).all()
 
     def bill_row(b):
+        # remark 要带上：房东加收的水电、物业，说明写在这里（「9 月水电」），
+        # 不带的话这一行只剩一个「其它费用」，房东自己都认不出是哪笔
         return {"bill_no": b.bill_no, "type": b.type, "period": b.period,
+                "remark": b.remark or "",
                 "amount": float(b.amount), "status": b.status, "overdue": b.overdue,
                 "due_date": b.due_date.strftime("%Y-%m-%d"),
                 "house_no": b.contract.house.house_no if b.contract and b.contract.house else ""}

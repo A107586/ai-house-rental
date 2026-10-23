@@ -392,6 +392,15 @@ class TestExtraCharges(SettlementCase):
         paid = [b for b in self.bills(no) if b["bill_no"] == bill["bill_no"]][0]
         self.assertEqual(paid["status"], "paid")
 
+    def test_landlord_sees_the_description_in_tenant_detail(self):
+        """租客详情的账单表原先不带说明，房东加的「9 月水电」显示成「其它费用」（浏览器里看到的）。"""
+        no = self.lease(datetime.now(), months=3)
+        self._add(no)
+        uid = self.client.get("/api/auth/me", headers=self.tenant).json()["id"]
+        rows = self.client.get("/api/landlord/tenants/%d" % uid,
+                               headers=self.landlord).json()["bills"]
+        self.assertIn("9 月水电", [r["remark"] for r in rows if r["type"] == "utility"])
+
     def test_only_the_landlord_of_an_active_contract(self):
         no = self.lease(datetime.now(), months=3)
         self.assertEqual(self._add(no, headers=self.tenant).status_code, 403)
