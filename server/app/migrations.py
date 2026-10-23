@@ -572,3 +572,8 @@ def _contract_commission_rate(connection, engine):
 @step("0023", "房源表：核验凭证照片（不对外）")
 def _house_verify_images(connection, engine):
     _add_column(connection, engine, "houses", "verify_images", "TEXT DEFAULT ''")
+
+
+@step("0024", "合同表：续租申请里提出的新月租")
+def _contract_request_rent(connection, engine):
+    _add_column(connection, engine, "contracts", "request_rent", "NUMERIC(10, 2)")

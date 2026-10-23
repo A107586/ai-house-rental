@@ -3229,12 +3229,20 @@ def renew_contract(contract_no: str, payload: ContractRenew,
     contract = _visible_contract(session, contract_no, user)
     side = _contract_side(contract, user)
     try:
-        if contract.request_type == "renew" and contract.request_by != side:
-            leasing.renew_contract(session, contract, months=contract.request_months)
+        # 对方提了续租，我这边不带新月租（或带的就是对方提的那个数）= 同意；
+        # 带了另一个月租 = 还价，换成我方的申请等对方确认
+        counter = (payload.rent is not None
+                   and (contract.request_rent is None
+                        or Decimal(str(payload.rent)) != Decimal(str(contract.request_rent)))
+                   and Decimal(str(payload.rent)) != Decimal(str(contract.rent)))
+        if contract.request_type == "renew" and contract.request_by != side and not counter:
+            leasing.renew_contract(session, contract, months=contract.request_months,
+                                   rent=contract.request_rent)
             session.commit()
             session.refresh(contract)
             return {"ok": True, "renewed": True, "contract": contract.to_dict()}
-        leasing.request_change(session, contract, "renew", side, months=payload.months)
+        leasing.request_change(session, contract, "renew", side, months=payload.months,
+                               rent=payload.rent)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.commit()

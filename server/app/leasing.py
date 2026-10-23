@@ -1153,7 +1153,7 @@ def end_contract(session, contract, reason="", deduct=0):
             "settlement": summary}
 
 
-def renew_contract(session, contract, months=12):
+def renew_contract(session, contract, months=12, rent=None):
     """续租：**在本合同上延长租期**，按原租金补排新增月份的账单。
 
     原先是「结束旧合同、另起一份待确认的新合同」。结束旧合同走的是退租那一套：
@@ -1168,6 +1168,10 @@ def renew_contract(session, contract, months=12):
         raise ValueError("续租至少 1 个月")
 
     old_end = contract.end_date
+    old_rent = Decimal(str(contract.rent))
+    if rent is not None and Decimal(str(rent)) > 0:
+        # 只影响续租之后新排的账单；已经排出、付过的那些按原租金不动
+        contract.rent = Decimal(str(rent))
     contract.end_date = add_months(old_end, months)
     bills = _rent_bills(contract, old_end, months, "续租第 %d 期租金")
     session.add_all(bills)
@@ -1179,9 +1183,11 @@ def renew_contract(session, contract, months=12):
     _clear_request(contract)
     for user_id in (contract.tenant_id, contract.landlord_id):
         notify(session, user_id, "contract", "已续租",
-               "合同 %s 已续租 %d 个月，租期至 %s，新增 %d 期租金账单。" % (
+               "合同 %s 已续租 %d 个月，租期至 %s，新增 %d 期租金账单%s。" % (
                    contract.contract_no, months,
-                   contract.end_date.strftime("%Y-%m-%d"), len(bills)),
+                   contract.end_date.strftime("%Y-%m-%d"), len(bills),
+                   "，月租由 %s 元调为 %s 元" % (_money(old_rent), _money(contract.rent))
+                   if Decimal(str(contract.rent)) != old_rent else ""),
                contract.contract_no)
     session.flush()
     return contract
@@ -1191,7 +1197,8 @@ _REQUEST_LABEL = {"end": "退租", "renew": "续租"}
 _SIDE_LABEL = {"tenant": "租客", "landlord": "房东"}
 
 
-def request_change(session, contract, kind, by, months=0, reason="", deduct=0):
+def request_change(session, contract, kind, by, months=0, reason="", deduct=0,
+                   rent=None):
     """一方提出退租 / 续租，等另一方确认。
 
     `deduct` 只用于**房东提出的退租**：押金拟扣多少当场写明，租客同意的就是这个数。
@@ -1212,6 +1219,8 @@ def request_change(session, contract, kind, by, months=0, reason="", deduct=0):
     contract.request_months = int(months or 12) if kind == "renew" else 0
     contract.request_reason = (reason or "")[:100]
     contract.request_deduct = deduct
+    contract.request_rent = (Decimal(str(rent)) if kind == "renew" and rent is not None
+                             and Decimal(str(rent)) != Decimal(str(contract.rent)) else None)
     contract.requested_at = datetime.now()
 
     other = contract.landlord_id if by == "tenant" else contract.tenant_id
@@ -1221,6 +1230,9 @@ def request_change(session, contract, kind, by, months=0, reason="", deduct=0):
     detail = "，原因：%s" % reason if reason and kind == "end" else ""
     if deduct > 0:
         detail += "，押金拟扣 %s 元" % _money(deduct)
+    if contract.request_rent is not None:
+        detail += "，月租由 %s 元改为 %s 元" % (_money(contract.rent),
+                                           _money(contract.request_rent))
     notify(session, other, "contract", "%s申请%s" % (_SIDE_LABEL[by], _REQUEST_LABEL[kind]),
            "合同 %s：%s申请%s%s。请到合同里确认或拒绝。" % (
                contract.contract_no, _SIDE_LABEL[by], what, detail),
@@ -1255,6 +1267,7 @@ def _clear_request(contract):
     contract.request_months = 0
     contract.request_reason = ""
     contract.request_deduct = 0
+    contract.request_rent = None
     contract.requested_at = None
 
 

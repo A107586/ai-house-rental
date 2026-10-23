@@ -712,6 +712,9 @@ class Contract(Base):
     # 房东提前退租时写明的押金拟扣金额。**租客同意的是这个数**——
     # 原先房东点「退租」当场生效、扣多少自己定，租客事后才知道（2026-10-22）
     request_deduct: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    # 续租申请里提出的新月租（空 = 按原租金续）。续租往往要重新谈价，
+    # 原先续租只能按原租金，想涨想降都得退租重签（2026-10-24）
+    request_rent: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     signed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
@@ -802,6 +805,8 @@ class Contract(Base):
             "request": ({"type": self.request_type, "by": self.request_by,
                          "months": self.request_months, "reason": self.request_reason,
                          "deduct": float(self.request_deduct or 0),
+                         "rent": (float(self.request_rent)
+                                  if self.request_rent is not None else None),
                          "at": self.requested_at.strftime("%Y-%m-%d %H:%M")
                          if self.requested_at else ""}
                         if self.request_type else None),

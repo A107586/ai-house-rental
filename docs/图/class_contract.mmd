@@ -64,8 +64,8 @@ classDiagram
         +plan_settlement(contract, deduct, now)
         +settlement_summary(plan)
         +end_contract(session, contract, reason, deduct)
-        +renew_contract(session, contract, months)
-        +request_change(session, contract, kind, by, months, reason, deduct)
+        +renew_contract(session, contract, months, rent)
+        +request_change(session, contract, kind, by, months, reason, deduct, rent)
         +withdraw_request(session, contract, side)
         +notify(session, user_id, type_, title, content, link_no)
     }
@@ -100,7 +100,7 @@ classDiagram
         +int landlord_id «FK»
         +int agent_id «FK»
         +str status
-        +… 另 19 列（见数据库设计书）
+        +… 另 20 列（见数据库设计书）
         +/terms_version
         +/expired
         +/days_left

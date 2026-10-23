@@ -307,8 +307,9 @@ export const api = {
   runReminders: () => post('/api/admin/reminders/run', {}),
   endContract: (no, reason = '', deduct = 0) =>
     post(`/api/contracts/${no}/end`, { reason, deduct }),
-  renewContract: (no, months = 12) =>
-    post(`/api/contracts/${no}/renew`, { months }),
+  // rent 可选：续租时提出新月租（只对续租后新排的账单生效）；对方提了续租时不带 = 同意，带别的数 = 还价
+  renewContract: (no, months = 12, rent) =>
+    post(`/api/contracts/${no}/renew`, rent ? { months, rent } : { months }),
   // 撤回自己提的退租 / 续租申请，或拒绝对方提的
   withdrawContractRequest: (no) =>
     request(`/api/contracts/${no}/request`, { method: 'DELETE' }),

@@ -1051,5 +1051,54 @@ class TestPendingContractCanBeCalledOff(ApiTestCase):
         self.assertIn("起租日", r.json()["detail"])
 
 
+class TestRenewWithNewRent(ApiTestCase):
+    """续租时可以重新谈月租。原先只能按原租金续，想涨想降都得退租重签（2026-10-24）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.landlord = auth_header(self.client, "landlord1", "test123")
+        self.tenant = auth_header(self.client, "tenant1", "test123")
+        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        no = self.client.post("/api/contracts", headers=self.landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant1",
+            "start_date": start.isoformat(), "months": 3}).json()["contract"]["contract_no"]
+        self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
+        self.no = no
+
+    def renew(self, headers, **body):
+        return self.client.post("/api/contracts/%s/renew" % self.no, headers=headers, json=body)
+
+    def rent_bills(self):
+        rows = self.client.get("/api/bills/mine", headers=self.tenant,
+                               params={"side": "tenant"}).json()["list"]
+        return sorted((b for b in rows if b["type"] == "rent"), key=lambda b: b["due_date"])
+
+    def test_landlord_proposes_tenant_accepts(self):
+        asked = self.renew(self.landlord, months=6, rent=3000)
+        self.assertEqual(asked.json()["contract"]["request"]["rent"], 3000)
+        done = self.renew(self.tenant)              # 不带月租 = 同意
+        self.assertTrue(done.json().get("renewed"), done.text)
+        self.assertEqual(done.json()["contract"]["rent"], 3000)
+        amounts = [b["amount"] for b in self.rent_bills()]
+        # 原来 3 期按 2800，续的 6 期按 3000；已经排出的不动
+        self.assertEqual(amounts[:3], [2800, 2800, 2800])
+        self.assertEqual(amounts[3:], [3000] * 6)
+
+    def test_counter_offer_becomes_a_new_request(self):
+        self.renew(self.landlord, months=12, rent=3200)
+        counter = self.renew(self.tenant, rent=3000)
+        self.assertFalse(counter.json().get("renewed"))
+        request = counter.json()["contract"]["request"]
+        self.assertEqual((request["by"], request["rent"]), ("tenant", 3000))
+        done = self.renew(self.landlord)
+        self.assertEqual(done.json()["contract"]["rent"], 3000)
+
+    def test_plain_renewal_keeps_the_rent(self):
+        self.renew(self.tenant, months=6)
+        done = self.renew(self.landlord)
+        self.assertEqual(done.json()["contract"]["rent"], 2800)
+        self.assertIsNone(done.json()["contract"]["request"])
+
+
 if __name__ == "__main__":
     unittest.main()

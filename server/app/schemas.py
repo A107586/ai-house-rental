@@ -258,6 +258,8 @@ class ContractEnd(BaseModel):
 
 class ContractRenew(BaseModel):
     months: int = Field(default=12, ge=1, le=60)
+    # 续租时提出的新月租，不填就按原租金续；只对续租之后新排的账单生效
+    rent: float | None = Field(default=None, gt=0, le=1_000_000)
 
 
 class PayRequest(BaseModel):

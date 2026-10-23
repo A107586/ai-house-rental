@@ -71,7 +71,8 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
   const byLabel = request?.by === 'tenant' ? '租客' : '房东'
   const otherLabel = isTenant ? '房东' : '租客'
   const landlordEnd = request?.type === 'end' && request?.by === 'landlord'
-  const requestWhat = request?.type === 'renew' ? `续租 ${request.months} 个月`
+  const requestWhat = request?.type === 'renew'
+    ? `续租 ${request.months} 个月${request.rent ? `，月租改为 ${request.rent} 元（现 ${contract.rent} 元）` : ''}`
     : landlordEnd ? '提前退租' : '退租'
 
   // 退租弹窗的四种情形（2026-10-22 起房东提前退租也要租客同意）：
@@ -239,7 +240,18 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
             <button
               className="btn ghost small"
               disabled={busy}
-              onClick={() => act(() => api.renewContract(contract.contract_no, 12))}
+              onClick={() => {
+                // 续租可以重新谈月租（2026-10-24）。留空就是按原租金续
+                const typed = window.prompt(
+                  `续租一年。月租要调整就填新的月租（现在 ${contract.rent} 元），不调整留空：`, '')
+                if (typed === null) return
+                const rent = typed.trim() ? Number(typed.trim()) : undefined
+                if (rent !== undefined && !(rent > 0)) {
+                  setError('月租要填一个大于 0 的数字。')
+                  return
+                }
+                act(() => api.renewContract(contract.contract_no, 12, rent))
+              }}
             >
               申请续租一年
             </button>
