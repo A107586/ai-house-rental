@@ -26,7 +26,7 @@
    但不预先生成任何确认卡片——两阶段边界在这里同样成立。
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from app.backend import BackendError
 
@@ -50,6 +50,10 @@ STAFF_OPENING = {
     "admin": ("你好，我是租房助手，现在按管理员身份帮你：平台待办、房源和规则都可以问。",
               ["平台有哪些待办", "押金怎么退", "水电费怎么算"]),
 }
+
+
+# 开场白只提「眼下要交」的账单：已逾期或这么多天内到期
+DUE_HORIZON_DAYS = 30
 
 
 def _rows(data):
@@ -95,14 +99,19 @@ def collect(backend, token):
     items = []
 
     # 只算我要交的，房东账号的应收不是「待缴」
+    # 只算**眼下要交的**：已逾期、或 30 天内到期的。合同一生效整个租期的账单就排好了，
+    # 原先把它们全算进来，开场白一张口就是「22 笔待缴账单，合计 22000 元」——
+    # 听着像欠了一年的钱，其实到期的只有两笔（2026-10-24 浏览器里看到的）
+    horizon = (date.today() + timedelta(days=DUE_HORIZON_DAYS)).isoformat()
     unpaid = [b for b in _rows(_safe(backend, "/api/bills/mine", token,
                                      {"side": "tenant"}))
-              if b.get("status") == "unpaid"]
+              if b.get("status") == "unpaid"
+              and (b.get("overdue") or str(b.get("due_date") or "") <= horizon)]
     if unpaid:
         total = sum(float(b.get("amount") or 0) for b in unpaid)
         first = sorted(unpaid, key=lambda b: b.get("due_date") or "")[0]
         overdue = [b for b in unpaid if b.get("overdue")]
-        text = "%d 笔待缴账单，合计 %s 元" % (len(unpaid), _money(total))
+        text = "%d 笔账单近期要交，合计 %s 元" % (len(unpaid), _money(total))
         if overdue:
             text += "（其中 %d 笔已逾期）" % len(overdue)
         items.append({

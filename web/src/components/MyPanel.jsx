@@ -241,7 +241,11 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
     // 这两个原先却把已取消的预约、已结束的租约也数进去，角标永远亮着
     { key: 'contracts', label: '我的租约',
       n: contracts.filter((c) => c.status === 'pending' || c.status === 'active').length },
-    { key: 'bills', label: '我的账单', n: bills.unpaid_count },
+    // 只数眼下要交的（已逾期、30 天内到期）。整个租期的账单一生效就排好了，
+    // 全数进来角标常年挂着一个 22，看不出哪几笔真该交了（2026-10-24）
+    { key: 'bills', label: '我的账单',
+      n: (bills.list || []).filter((b) => b.status === 'unpaid'
+        && (b.overdue || b.due_date <= dayOffset(30))).length },
     { key: 'appointments', label: '我的预约',
       n: appointments.filter((a) => (a.status === 'pending' || a.status === 'confirmed')
         && new Date(a.viewing_time.replace(' ', 'T')) > new Date()).length },

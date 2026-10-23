@@ -65,6 +65,12 @@ function loadDraft(user) {
   return draft
 }
 
+/** 草稿里有没有**真聊过**的东西。面板一打开就会把只含开场白的列表存成草稿，
+ *  拿它当「聊到一半」的话，个性化开场白永远上不来（2026-10-24 浏览器里看到的） */
+function hasConversation(draft) {
+  return !!draft && draft.messages.some((m) => m.role === 'user')
+}
+
 function saveDraft(user, messages, pending) {
   // 存不下（隐私模式、配额满）不影响这一轮对话，writeJSON 里已经吞掉了
   writeJSON(scopedKey(DRAFT_KEY, user), {
@@ -551,7 +557,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     // 他自然会觉得「房源根本没发过去」。
     // 这种时候不是恢复现场，是**开一段关于这套房的新对话**。
     const draft = loadDraft(user)
-    if (draft && !houseNo) return undefined
+    if (hasConversation(draft) && !houseNo) return undefined
     let alive = true
     api
       // 身份从存储里读（和 state 同一份）：开场白跟着身份换，房东看到的不该是「交房租」
@@ -560,7 +566,12 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         if (!alive || !data.message) return
         setMessages((prev) => {
           const opening = { role: 'assistant', content: data.message }
-          if (!houseNo) return [opening]
+          // 只换掉开头那句开场白，后面已经拉回来的历史记录留着——
+          // 历史和开场白是两个并发请求，谁先回来都不该把对方冲掉
+          if (!houseNo) {
+            return prev.length && prev[0].role === 'assistant' && !prev[0].kind
+              ? [opening, ...prev.slice(1)] : [opening]
+          }
           // 带着房源进来：保留之前聊过的，加一条分隔，再接开场白。
           // 直接清空等于把他刚才问到一半的事情抹掉。
           const kept = (draft?.messages || prev || []).slice(-DRAFT_LIMIT)
@@ -583,7 +594,7 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
     let alive = true
     // 本地草稿比后端历史更完整——后端只存文字，没有确认卡片与待办状态。
     // 已经从草稿恢复过就别再覆盖，否则聊到一半的卡片会被纯文本冲掉。
-    if (loadDraft(user)) return undefined
+    if (hasConversation(loadDraft(user))) return undefined
     api
       .chatHistory(sessionId)
       .then((data) => {
@@ -593,8 +604,9 @@ export default function ChatPanel({ user, houseNo = '', onOpenHouse, onClose }) 
         // 里面还夹着「要取消收藏哪一套？」这种问到一半、却点不动的句子——
         // 看上去就像这些功能根本没做。所以明确标成「以前的记录」，
         // 并在末尾画一条线，把历史和这一轮分开。
-        setMessages([
-          OPENING,
+        setMessages((prev) => [
+          // 开场白已经换成个性化的那句就留着它
+          prev[0]?.role === 'assistant' && !prev[0].kind ? prev[0] : OPENING,
           ...data.list.map((m) => ({
             role: m.role, content: m.content, history: true,
           })),

@@ -74,7 +74,7 @@ class TestGreeting(unittest.TestCase):
     def test_busy_user_gets_their_own_todo_list(self):
         got = greeting.build(FakeBackend(busy()), "tok")
         self.assertTrue(got["personalised"])
-        self.assertIn("2 笔待缴账单", got["message"])
+        self.assertIn("2 笔账单近期要交", got["message"])
         self.assertIn("4000", got["message"])          # 2200 + 1800
         self.assertIn("已逾期", got["message"])
         self.assertIn("1 条看房预约", got["message"])
@@ -115,12 +115,23 @@ class TestGreeting(unittest.TestCase):
         got = greeting.build(FakeBackend({}), "tok")
         self.assertFalse(got["personalised"])
 
+    def test_bills_far_in_the_future_are_not_todos(self):
+        """合同一生效整年的账单就排好了。原先全算进来，一张口就是「22 笔待缴账单」，
+        听着像欠了一年的钱（2026-10-24）。"""
+        far = (datetime.date.today() + datetime.timedelta(days=200)).isoformat()
+        data = busy()
+        data["/api/bills/mine"]["list"].append(
+            {"bill_no": "ZD9", "amount": 9999, "status": "unpaid", "due_date": far})
+        got = greeting.build(FakeBackend(data), "tok")
+        self.assertIn("2 笔账单近期要交", got["message"])
+        self.assertNotIn("9999", got["message"])
+
     def test_a_broken_backend_does_not_break_the_opening(self):
         """某个接口炸了，开场白照常出——它不值得让面板打不开。"""
         backend = FakeBackend(busy(), boom=["/api/repairs", "/api/messages"])
         got = greeting.build(backend, "tok")
         self.assertTrue(got["personalised"])
-        self.assertIn("待缴账单", got["message"])
+        self.assertIn("近期要交", got["message"])
         self.assertNotIn("报修", got["message"])
 
     def test_house_context_leads_with_that_house(self):
@@ -136,7 +147,7 @@ class TestGreeting(unittest.TestCase):
         """他正在看某套房，此刻关心的是这套房，不是上个月的账单。"""
         got = greeting.build(FakeBackend(busy()), "tok",
                              house={"house_no": "DL0007"})
-        self.assertNotIn("待缴账单", got["message"])
+        self.assertNotIn("近期要交", got["message"])
 
 
 class TestProgress(unittest.TestCase):
