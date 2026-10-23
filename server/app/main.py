@@ -2094,7 +2094,7 @@ def create_appointment(payload: AppointmentCreate,
     if held:
         raise HTTPException(
             status_code=409,
-            detail="你已经约过这套房（%s），要换时间请先取消原来的预约"
+            detail="你已经约过这套房（%s），要换时间可以在「我的预约」里点「改时间」"
                    % held.viewing_time.strftime("%m-%d %H:%M"))
 
     # 改期没带联系人就沿用原来那条的——页面上拿到的是掩码号码，传不回来

@@ -178,7 +178,7 @@ class TestAppointments(ApiTestCase):
         again = self.client.post("/api/appointments", headers=self.headers, json={
             "house_no": "DL0001", "viewing_time": self._future(hour=15).isoformat()})
         self.assertEqual(again.status_code, 409)
-        self.assertIn("先取消原来的", again.json()["detail"])
+        self.assertIn("改时间", again.json()["detail"])
         # 另一套房不受影响
         other = self.client.post("/api/appointments", headers=self.headers, json={
             "house_no": "DL0002", "viewing_time": self._future(hour=15).isoformat()})

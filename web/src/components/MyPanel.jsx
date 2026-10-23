@@ -57,6 +57,11 @@ function dayOffset(days) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+/** 预约上那句话是谁说的：取消的写「取消原因」（系统或房东都可能），其余是房东 / 中介的回复 */
+function replyLabel(item) {
+  return item.status === 'cancelled' ? '取消原因' : '房东回复'
+}
+
 const MSG_TYPE = {
   system: '系统通知', appointment: '预约', contract: '合同',
   bill: '账单', repair: '报修', chat: '会话',
@@ -498,7 +503,8 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                     {item.contact_name && ` · 联系人 ${item.contact_name}`}
                   </div>
                   {item.remark && <div className="record-body">备注：{item.remark}</div>}
-                  {item.reply && <div className="record-body">房东回复：{item.reply}</div>}
+                  {/* 取消的那条，reply 多半是系统写的原因（改约、房子租出去了、下架了），不是房东说的话 */}
+                  {item.reply && <div className="record-body">{replyLabel(item)}：{item.reply}</div>}
 
                   {/* 已确认的也能取消：临时有事恰恰发生在确认之后。原先只有待确认的
                       有这个按钮，确认了就没法取消，只能爽约。取消会通知房东 / 中介 */}
@@ -572,7 +578,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                       ['联系电话', item.contact_visible ? item.contact_phone
                         : '看房当天可见'],
                       ['我的备注', item.remark, { wide: true }],
-                      ['房东回复', item.reply, { wide: true }],
+                      [replyLabel(item), item.reply, { wide: true }],
                     ]} />
                   )}
                 </li>

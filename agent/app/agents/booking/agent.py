@@ -182,7 +182,7 @@ def _create(moment, house_no, applicant, backend, token=None):
 
     return {
         "intent": "booking", "status": "created", "ok": True,
-        "message": "已为你预约 %s 看房，等待管理员确认。" % format_slot(moment),
+        "message": "已为你预约 %s 看房，等房东确认，结果会通过站内消息通知你。" % format_slot(moment),
         "appointment_time": moment.isoformat(),
         "alternatives": [],
     }

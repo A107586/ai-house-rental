@@ -241,7 +241,7 @@ class TestBookingAgent(unittest.TestCase):
 
         class Refusing(FakeBackend):
             def create_viewing(self, house_no, moment, applicant, token=None):
-                raise BackendError("你已经约过这套房（09-04 10:00），要换时间请先取消原来的预约")
+                raise BackendError("你已经约过这套房（09-04 10:00），要换时间可以在「我的预约」里点「改时间」")
 
         result = agent.run("这周六下午两点", house_no="F001", now=NOW, backend=Refusing())
         self.assertFalse(result["ok"])
