@@ -303,6 +303,9 @@ def deactivate_account(payload: DeactivateRequest,
     for model in (Favorite, BrowsingHistory, SavedSearch, ChatMessage):
         for row in session.scalars(select(model).where(model.user_id == user.id)).all():
             session.delete(row)
+    # 核验凭证（房产证照片）上是他本人的姓名和证号，属于要删的个人信息
+    for house in session.scalars(select(House).where(House.landlord_id == user.id)).all():
+        house.verify_images = ""
     profile = session.scalar(select(AgentProfile).where(AgentProfile.user_id == user.id))
     if profile:
         profile.accepting = False

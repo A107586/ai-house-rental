@@ -1001,6 +1001,12 @@ def plan_settlement(contract, deduct=0, now=None):
             elif bill.status == "unpaid":
                 plan["cancel"].append(bill)
             continue
+        if bill.type in EXTRA_BILL_TYPES:
+            # 房东加收的水电、物业：用掉了就是用掉了，不按天折算也不作废，没交的就是欠款。
+            # 原先结算只看押金和房租，预览和退租通知里都说「没有欠款」，水电单还挂着（2026-10-24）
+            if bill.status == "unpaid":
+                plan["arrears"].append(bill)
+            continue
         if bill.type != "rent" or bill.status not in ("paid", "unpaid"):
             continue
         start, end = _bill_period(bill, contract)
@@ -1133,7 +1139,7 @@ def end_contract(session, contract, reason="", deduct=0):
     if summary["rent_refund"]:
         parts.append("退回已付未住的租金 %s 元" % _money(summary["rent_refund"]))
     if summary["arrears"]:
-        parts.append("还有 %s 元住过期间的租金未缴，请与房东线下结清" % _money(summary["arrears"]))
+        parts.append("还有 %s 元没缴（住过期间的房租或房东加收的水电等），请与房东线下结清" % _money(summary["arrears"]))
     notify(session, contract.tenant_id, "contract", "合同已结束",
            "合同 %s 已结束，%s。" % (contract.contract_no, "；".join(parts)),
            contract.contract_no)

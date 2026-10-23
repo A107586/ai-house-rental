@@ -126,11 +126,28 @@ class TestHandling(ReportCase):
     def test_cannot_handle_twice(self):
         no = self.report().json()["report"]["report_no"]
         self.client.patch("/api/admin/reports/%s" % no, headers=self.admin,
-                          json={"status": "accepted"})
+                          json={"status": "accepted", "conclusion": "已核实"})
         again = self.client.patch("/api/admin/reports/%s" % no,
                                   headers=self.admin,
-                                  json={"status": "rejected"})
+                                  json={"status": "rejected", "conclusion": "改判"})
         self.assertEqual(again.status_code, 409)
+
+    def test_conclusion_is_required(self):
+        """K-08：处理时必须填结论且原样通知举报人。原先空着也能交，举报人收到一句「感谢你的反馈」。"""
+        no = self.report().json()["report"]["report_no"]
+        r = self.client.patch("/api/admin/reports/%s" % no, headers=self.admin,
+                              json={"status": "rejected", "conclusion": "  "})
+        self.assertEqual(r.status_code, 422)
+
+    def test_upheld_report_tells_the_landlord(self):
+        """属实的要让房东知道，他才知道哪里出了问题；不属实的不去打扰他。"""
+        no = self.report().json()["report"]["report_no"]
+        self.client.patch("/api/admin/reports/%s" % no, headers=self.admin,
+                          json={"status": "accepted", "conclusion": "实拍图与房源不符"})
+        landlord = auth_header(self.client, "landlord1", "test123")
+        titles = [m["title"] for m in self.client.get("/api/messages", headers=landlord)
+                  .json()["list"]]
+        self.assertIn("你的房源被举报，经核实属实", titles)
 
     def test_unknown_status_rejected(self):
         no = self.report().json()["report"]["report_no"]

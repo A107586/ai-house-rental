@@ -4189,7 +4189,8 @@ def _upload_still_used(session, url):
     if session.scalar(select(RepairImage.id).where(RepairImage.url == url).limit(1)):
         return True
     for model, column in ((Review, Review.images), (HouseReport, HouseReport.evidence),
-                          (AgentProfile, AgentProfile.license_images)):
+                          (AgentProfile, AgentProfile.license_images),
+                          (House, House.verify_images)):        # 核验凭证（2026-10-24）
         if session.scalar(select(model.id).where(column.contains(url)).limit(1)):
             return True
     return False

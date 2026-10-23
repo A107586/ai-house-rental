@@ -398,6 +398,20 @@ class TestExtraCharges(SettlementCase):
         end_lease(self.client, no, self.landlord, self.tenant)
         self.assertEqual(self._add(no).status_code, 422)
 
+    def test_unpaid_extra_charge_shows_up_as_arrears_at_move_out(self):
+        """结算原先只看押金和房租：水电单没交，退租预览和通知里却说没有欠款（2026-10-24）。"""
+        no = self.lease(datetime.now(), months=3)
+        for bill in self.bills(no):            # 房租押金都交清，只剩这一笔水电
+            if bill["status"] == "unpaid":
+                settle(self.client, bill["bill_no"], self.tenant)
+        utility = self._add(no).json()["bill"]["bill_no"]
+        preview = self.client.get("/api/contracts/%s/settlement" % no,
+                                  headers=self.landlord).json()["settlement"]
+        self.assertEqual(preview["arrears"], 186.5)
+        end_lease(self.client, no, self.landlord, self.tenant)
+        left = [b for b in self.bills(no) if b["bill_no"] == utility][0]
+        self.assertEqual(left["status"], "unpaid", "用掉的水电不作废，留着线下结")
+
     def test_needs_a_description_and_a_sane_amount(self):
         no = self.lease(datetime.now(), months=3)
         self.assertEqual(self._add(no, title="").status_code, 422)

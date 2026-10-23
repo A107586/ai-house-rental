@@ -160,6 +160,10 @@ def handle_report(report_no: str, payload: ReportHandle,
         raise HTTPException(status_code=404, detail="举报不存在")
     if report.status != "pending":
         raise HTTPException(status_code=409, detail="这条举报已经处理过了")
+    if not payload.conclusion.strip():
+        # K-08 原文：处理时必须填结论且结论原样通知举报人。原先空着也能提交，
+        # 举报人收到的是一句「感谢你的反馈」——等于没有回执
+        raise HTTPException(status_code=422, detail="处理举报要写结论，会原样发给举报人")
 
     report.status = payload.status
     report.conclusion = payload.conclusion.strip()
@@ -173,8 +177,18 @@ def handle_report(report_no: str, payload: ReportHandle,
         "举报处理结果：%s" % verdict,
         "你对房源 %s 的举报已处理。%s" % (
             report.house.house_no if report.house else "",
-            report.conclusion or "感谢你的反馈。"),
+            report.conclusion),
         report.report_no)
+    if payload.status == "accepted" and report.house:
+        # 属实的要让房东知道，否则他不知道哪里出了问题，也就无从整改。
+        # 判定与处置仍然分开（K-08）：这里不自动下架，下架走房源审核那条路
+        leasing.notify(
+            session, report.house.landlord_id, "system",
+            "你的房源被举报，经核实属实",
+            "房源 %s 被举报「%s」，平台核实属实：%s。请尽快整改。" % (
+                report.house.house_no,
+                HouseReport.KINDS.get(report.kind, report.kind), report.conclusion),
+            report.house.house_no)
     # 操作留痕不用在这里写：`app/oplog.py` 的中间件会记下所有 /api/ 上的
     # 写请求。只要在 ACTION_RULES 里给这条路径起个中文名，
     # 「谁把它判成属实的」在管理端的日志里就查得到。

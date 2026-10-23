@@ -241,7 +241,7 @@ function SettlementList({ plan, error, showDeduct }) {
       )}
       {plan.arrears > 0 && (
         <div>
-          <dt>住过期间仍欠的租金</dt>
+          <dt>仍欠的费用（住过期间的房租、加收的水电等）</dt>
           <dd className="warn-text">{yuan(plan.arrears)}（合同结束后线下结清）</dd>
         </div>
       )}
