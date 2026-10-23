@@ -1672,5 +1672,38 @@ class TestSlotIsCheckedBeforeTheCard(unittest.TestCase):
         self.assertEqual([o["value"][-5:] for o in ask["options"]], ["10:00", "14:00", "16:00"])
 
 
+class TestActivateCarriesTheTermsSeen(unittest.TestCase):
+    """卡片上摆的是哪一版条款，确认时就带哪一版的指纹；房东在这之间改过条款，后端会拦下。"""
+
+    def test_card_and_execute_carry_terms_version(self):
+        backend = RecordingBackend({"/api/contracts/mine": {"list": [
+            {"contract_no": "HT1", "house_no": "DL0001", "status": "pending",
+             "rent": 3000, "deposit": 3000, "start_date": "2026-11-01",
+             "end_date": "2027-11-01", "terms_version": "abc123def456"}]}})
+        status, _, card, _ = actions.propose("activate_contract", "确认签约", "tok", backend,
+                                             context={})
+        self.assertEqual(status, actions.CONFIRM)
+        self.assertEqual(card["params"]["terms_version"], "abc123def456")
+        actions.execute("activate_contract", card["params"], "tok", backend)
+        posted = [w for w in backend.writes if w[1].endswith("/activate")]
+        self.assertEqual(posted[0][2], {"terms_version": "abc123def456"})
+
+
+class TestStartDateIsARealDayInRange(unittest.TestCase):
+    """起租日原先只看格式：2 月 30 日、三年前、五年后都进得了卡片，点确认才被后端拒（2026-10-24）。"""
+
+    def check(self, value):
+        from app.agents.support.tools import forms
+        return forms.validate("sign_contract", "start_date", value)
+
+    def test_rules(self):
+        today = datetime.date.today()
+        ok, value = self.check((today + datetime.timedelta(days=7)).isoformat())
+        self.assertTrue(ok, value)
+        self.assertFalse(self.check("%d-02-30" % today.year)[0])
+        self.assertIn("往前补", self.check((today - datetime.timedelta(days=60)).isoformat())[1])
+        self.assertIn("太远", self.check((today + datetime.timedelta(days=500)).isoformat())[1])
+
+
 if __name__ == "__main__":
     unittest.main()

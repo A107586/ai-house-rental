@@ -33,6 +33,7 @@
 """
 
 import re
+from datetime import date
 
 # 字段类型 -> 校验函数。返回 (是否通过, 清洗后的值或错误提示)
 
@@ -84,9 +85,20 @@ def _date(value, spec):
     if not found:
         return False, "日期写成 2026-10-01 这样的格式就行。"
     year, month, day = (int(x) for x in found.groups())
-    if not 1 <= month <= 12 or not 1 <= day <= 31:
-        return False, "这个日期不对，再看一下。"
-    return True, "%04d-%02d-%02d" % (year, month, day)
+    # 真按日历查：原先只看 1–12 月、1–31 日，「2 月 30 日」也能进卡片，点确认才报 HTTP 422
+    try:
+        picked = date(year, month, day)
+    except ValueError:
+        return False, "这个日期不存在，再看一下。"
+    # 和后端同一个范围（起租日：往前最多 30 天、往后最多一年）——
+    # 范围外的日子进了卡片，点确认才被拒（2026-10-24）
+    today = date.today()
+    back, ahead = spec.get("days_back"), spec.get("days_ahead")
+    if back is not None and (today - picked).days > back:
+        return False, "最多只能往前补 %d 天，%s 太早了。" % (back, picked.isoformat())
+    if ahead is not None and (picked - today).days > ahead:
+        return False, "最远只能到 %d 天以后，%s 太远了。" % (ahead, picked.isoformat())
+    return True, picked.isoformat()
 
 
 VALIDATORS = {"text": _text, "number": _number, "choice": _choice,
@@ -164,7 +176,8 @@ FORMS = {
             {"name": "tenant_username", "type": "text",
              "question": "租客的账号是？", "max_len": 50},
             {"name": "start_date", "type": "date",
-             "question": "起租日写哪天？比如 2026-10-01。"},
+             "question": "起租日写哪天？比如 2026-10-01。",
+             "days_back": 30, "days_ahead": 365},
             {"name": "months", "type": "number", "question": "租期几个月？",
              "min": 1, "max": 60},
             # 谈定的月租。**不追问**：多数时候就是挂牌价，后端不填就按挂牌价走；

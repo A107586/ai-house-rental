@@ -5,7 +5,7 @@
 两个文件之间来回跳。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -133,6 +133,27 @@ def _landlord_side(conversation, user):
     return user.id != conversation.tenant_id
 
 
+# 租约结束、工单报上来之后多久内还算「这套房的住户」：押金和欠款的事、修没修好的回访都在这段时间里
+RESIDENT_GRACE_DAYS = 90
+
+
+def _is_resident(session, house, tenant):
+    """这个人现在是不是这套房的住户：在租，或者刚退租 / 刚报过修（90 天内），或者有没修完的工单。
+
+    原先「签过约、报过修」不分时间、不分状态：拒签了的合同、三年前的租约都算，
+    凭它就能越过免打扰（2026-10-24）。
+    """
+    since = datetime.now() - timedelta(days=RESIDENT_GRACE_DAYS)
+    if session.scalar(select(Contract.id).where(
+            Contract.house_id == house.id, Contract.tenant_id == tenant.id,
+            (Contract.status == "active")
+            | ((Contract.status == "ended") & (Contract.ended_at >= since))).limit(1)):
+        return True
+    return session.scalar(select(Repair.id).where(
+        Repair.house_id == house.id, Repair.tenant_id == tenant.id,
+        (Repair.status != "done") | (Repair.created_at >= since)).limit(1)) is not None
+
+
 @router.post("/api/conversations")
 def start_conversation(payload: ConversationStart,
                        user: User = Depends(require_login),
@@ -162,14 +183,15 @@ def start_conversation(payload: ConversationStart,
         # 必须是这套房上已经有往来的人：约过看房、被带看过，
         # 或者签过约、报过修——后两种原先漏了，线下谈好直接签约的租客
         # 报修之后，房东从工单上联系不到他（2026-10-22）
-        resident = session.scalar(select(Contract.id).where(
+        resident = _is_resident(session, house, tenant)
+        related = resident or session.scalar(select(Contract.id).where(
             Contract.house_id == house.id,
             Contract.tenant_id == tenant.id)) or session.scalar(
             select(Repair.id).where(Repair.house_id == house.id,
-                                    Repair.tenant_id == tenant.id))
-        related = resident or session.scalar(select(Appointment.id).where(
-            Appointment.house_id == house.id,
-            Appointment.tenant_id == tenant.id)) or session.scalar(
+                                    Repair.tenant_id == tenant.id)) or session.scalar(
+            select(Appointment.id).where(
+                Appointment.house_id == house.id,
+                Appointment.tenant_id == tenant.id)) or session.scalar(
             select(ViewingRecord.id).where(
                 ViewingRecord.house_id == house.id,
                 ViewingRecord.tenant_id == tenant.id))
@@ -182,7 +204,10 @@ def start_conversation(payload: ConversationStart,
         # 按钮是提示，接口才是边界——灰掉的按钮拦不住直接调接口的人。
         # 免打扰挡的是看房阶段的主动招揽；签过约、报过修的是这套房的住户，
         # 房东为租约和维修找他不算打扰
-        if not tenant.accept_contact and not resident:
+        # 只有**房东本人**（和管理员）能为住户的事越过免打扰；受托中介不行——
+        # J-07 防的正是中介的主动招揽，他替房东带看，不替房东管租约
+        landlord_side = user.role == "admin" or house.landlord_id == user.id
+        if not tenant.accept_contact and not (resident and landlord_side):
             raise HTTPException(
                 status_code=403,
                 detail="对方已设置不接受主动联系。你可以等他先来问，"

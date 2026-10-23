@@ -7,6 +7,7 @@
 
 from datetime import datetime, timedelta
 
+from tests.base import ApiTestCase, auth_header
 from tests.test_agent_broker import BrokerCase
 
 
@@ -127,3 +128,38 @@ class TestCommission(TermsCase):
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
         row = next(c for c in self.commissions() if c["contract_no"] == no)
         self.assertEqual(row["amount"], 280)
+
+
+class TestTenantConfirmsWhatHeSaw(ApiTestCase):
+    """待确认的合同房东能改；租客开着旧页面点确认，确认的却是改过的条款（2026-10-24）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.landlord = auth_header(self.client, "landlord1", "test123")
+        self.tenant = auth_header(self.client, "tenant1", "test123")
+        start = (datetime.now() + timedelta(days=5)).replace(hour=0, minute=0, second=0,
+                                                            microsecond=0)
+        made = self.client.post("/api/contracts", headers=self.landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant1",
+            "start_date": start.isoformat(), "months": 12})
+        self.contract = made.json()["contract"]
+
+    def test_stale_terms_are_refused(self):
+        seen = self.contract["terms_version"]
+        self.client.patch("/api/contracts/%s" % self.contract["contract_no"],
+                          headers=self.landlord, json={"rent": 3600})
+        r = self.client.post("/api/contracts/%s/activate" % self.contract["contract_no"],
+                             headers=self.tenant, json={"terms_version": seen})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("改过", r.json()["detail"])
+
+    def test_current_terms_go_through(self):
+        r = self.client.post("/api/contracts/%s/activate" % self.contract["contract_no"],
+                             headers=self.tenant,
+                             json={"terms_version": self.contract["terms_version"]})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_old_clients_without_a_version_still_work(self):
+        r = self.client.post("/api/contracts/%s/activate" % self.contract["contract_no"],
+                             headers=self.tenant)
+        self.assertEqual(r.status_code, 200, r.text)

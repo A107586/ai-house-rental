@@ -1602,7 +1602,9 @@ def _propose_activate_contract(text, token, backend, context):
         "activate_contract", "确认签约",
         "确认合同 %s：%s" % (target.get("contract_no"), "，".join(parts)),
         RISK_HIGH,
-        {"contract_no": target.get("contract_no")},
+        # 卡片上摆的是这一版条款；确认时带上它的指纹，房东在这之间改过条款后端会拦下
+        {"contract_no": target.get("contract_no"),
+         "terms_version": target.get("terms_version") or ""},
         detail=target,
         warning="确认后合同立即生效，整个租期的账单会一次性生成，不可撤销。")
 
@@ -2005,7 +2007,7 @@ def _exec_update_repair(params, token, backend):
 
 def _exec_activate_contract(params, token, backend):
     data = backend.post("/api/contracts/%s/activate" % params["contract_no"],
-                        {}, token=token)
+                        {"terms_version": params.get("terms_version") or ""}, token=token)
     return "合同已生效，整个租期的账单已经排好，可以在「我的租约」里看。", data
 
 
@@ -2110,7 +2112,7 @@ ALLOWED_PARAMS = {
     "update_repair": {"repair_id", "status"},
     "toggle_house": {"house_no", "status"},
     "remind_tenant": {"tenant_id"},
-    "activate_contract": {"contract_no"},
+    "activate_contract": {"contract_no", "terms_version"},
     "verify_request": {"house_no"},
     "publish_house": {"district", "community", "address", "layout",
                       "area", "rent_price", "deposit", "rent_type",
@@ -2144,7 +2146,7 @@ def execute(name, params, token, backend):
         return False, "操作参数不合法：%s" % "、".join(sorted(unexpected)), {}
     missing = allowed - set(params)
     # method / reason 有默认值，缺了不影响
-    missing -= {"method", "reason", "status"}
+    missing -= {"method", "reason", "status", "terms_version"}
     if missing:
         return False, "操作缺少参数：%s" % "、".join(sorted(missing)), {}
 

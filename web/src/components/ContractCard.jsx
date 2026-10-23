@@ -196,7 +196,7 @@ export default function ContractCard({ contract, role, onChanged, onOpenHouse,
           <button
             className="btn small"
             disabled={busy}
-            onClick={() => act(() => api.activateContract(contract.contract_no))}
+            onClick={() => act(() => api.activateContract(contract.contract_no, contract.terms_version))}
           >
             {busy ? '处理中' : '确认签约'}
           </button>

@@ -726,6 +726,20 @@ class Contract(Base):
                                          lazy="selectin")
 
     @property
+    def terms_version(self):
+        """条款指纹：月租、押金、起止日、付款周期、佣金比例、合同正文。
+
+        待确认的合同房东能改（月租、押金、日期都能改），租客那边如果开着旧页面，
+        点「确认签约」确认的却是改过的条款。确认时把看到的这个指纹带上，
+        对不上就拦下，让他先看新条款（2026-10-24）。
+        """
+        import hashlib
+        raw = "|".join(str(x) for x in (
+            self.rent, self.deposit, self.start_date, self.end_date, self.pay_months,
+            self.commission_rate, self.content or ""))
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+    @property
     def expired(self):
         """**已到期、还没办退租**：状态仍是生效中，但到期日已到。
 
@@ -774,6 +788,7 @@ class Contract(Base):
                                 if self.commission_rate is not None else None),
             "status": self.status,
             "content": self.content,
+            "terms_version": self.terms_version,
             "days_left": self.days_left,
             "expired": self.expired,
             "end_reason": self.end_reason,

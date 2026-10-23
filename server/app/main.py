@@ -3078,13 +3078,24 @@ def update_contract(contract_no: str, payload: ContractUpdate,
     return {"ok": True, "contract": contract.to_dict()}
 
 
+class ContractActivate(BaseModel):
+    # 租客看到的那一版条款的指纹（合同详情里的 terms_version）。不带就不比对——老客户端照常能签
+    terms_version: str = Field(default="", max_length=40)
+
+
 @app.post("/api/contracts/{contract_no}/activate")
-def activate_contract(contract_no: str, user: User = Depends(require_login),
+def activate_contract(contract_no: str, payload: ContractActivate | None = None,
+                      user: User = Depends(require_login),
                       session: Session = Depends(get_session)):
     """租客确认合同，合同生效并排出整个租期的账单。"""
     contract = _visible_contract(session, contract_no, user)
     if user.role != "admin" and user.id != contract.tenant_id:
         raise HTTPException(status_code=403, detail="只有承租方可以确认合同")
+    seen = (payload.terms_version if payload else "").strip()
+    if seen and seen != contract.terms_version:
+        # 待确认期间房东改过条款，而租客确认的是他打开页面时的那一版
+        raise HTTPException(status_code=409,
+                            detail="这份合同的条款在你打开之后被房东改过了，请刷新看一下新条款再确认")
 
     try:
         bills = leasing.activate_contract(session, contract)

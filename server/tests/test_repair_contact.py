@@ -75,6 +75,44 @@ class TestLandlordContactsReporter(RepairContactCase):
             session.close()
         self.assertEqual(self.contact().status_code, 200)
 
+    def _dnd(self):
+        session = db.SessionLocal()
+        try:
+            session.query(User).filter_by(username="tenant1").one().accept_contact = False
+            session.commit()
+        finally:
+            session.close()
+
+    def test_a_lease_that_ended_long_ago_does_not_bypass_do_not_disturb(self):
+        """「签过约、报过修」原先不分时间：三年前的租约也算住户，凭它就能越过免打扰（2026-10-24）。"""
+        from app.models import Contract, Repair
+        self._dnd()
+        session = db.SessionLocal()
+        try:
+            for c in session.query(Contract).all():
+                c.status = "ended"
+                c.ended_at = datetime.now() - timedelta(days=400)
+            for r in session.query(Repair).all():
+                r.status = "done"
+                r.created_at = datetime.now() - timedelta(days=400)
+            session.commit()
+        finally:
+            session.close()
+        self.assertEqual(self.contact().status_code, 403)
+
+    def test_an_agent_does_not_get_the_resident_exception(self):
+        """免打扰防的正是中介的主动招揽；他替房东带看，不替房东管租约。"""
+        from tests.test_agent_broker import BrokerCase
+        self._dnd()
+        agent = BrokerCase.make_agent(self, "agent1")
+        created = self.client.post("/api/delegations", headers=self.landlord,
+                                   json={"house_no": "DL0001", "agent_username": "agent1"})
+        self.client.patch("/api/delegations/%d" % created.json()["delegation"]["id"],
+                          headers=agent, json={"accept": True})
+        r = self.client.post("/api/conversations", headers=agent, json={
+            "house_no": "DL0001", "tenant_username": "tenant1"})
+        self.assertEqual(r.status_code, 403)
+
     def test_strangers_are_still_off_limits(self):
         r = self.client.post("/api/conversations", headers=self.landlord, json={
             "house_no": "DL0002", "tenant_username": "tenant1"})

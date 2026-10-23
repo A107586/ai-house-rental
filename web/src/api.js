@@ -292,7 +292,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
+  // 带上看到的那一版条款的指纹：确认前房东改过条款，后端会拦下让人先看新条款
+  activateContract: (no, termsVersion = '') =>
+    post(`/api/contracts/${no}/activate`, { terms_version: termsVersion }),
   // 待确认的合同不签了：出租方撤回、承租方拒签
   cancelContract: (contractNo, reason = '') =>
     post(`/api/contracts/${contractNo}/cancel`, { reason }),

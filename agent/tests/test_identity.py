@@ -7,6 +7,7 @@
 现在按**身份**给：房东账号在助手顶部切「房东 / 租客」，中介、管理员只有本职身份。
 """
 
+import datetime
 import unittest
 from types import SimpleNamespace
 
@@ -108,17 +109,25 @@ class TestSignContractForm(unittest.TestCase):
         return actions.propose("sign_contract", "帮我发起签约", "tok",
                                RecordingBackend(self.HOUSES), context=context)
 
+    @staticmethod
+    def _start():
+        """一周后。**按今天推算、用例运行时才求值**：起租日有「往前 30 天、往后一年」的范围，
+        写死 2026-11-01 的话，日期挪动扫描挪到 12 月底它就成了范围外"""
+        return datetime.date.today() + datetime.timedelta(days=7)
+
     def test_bad_value_is_asked_again(self):
         status, _, _, ask = self.propose(house_no="DL0101", tenant_username="tenant1",
-                                         start_date="2026-11-01", months="十二个月")
+                                         start_date=self._start().isoformat(), months="十二个月")
         self.assertEqual(status, actions.NEED_SLOT)
         self.assertEqual(ask["slot"], "months")
 
     def test_agreed_rent_rides_along_without_being_asked(self):
+        start = self._start()
+        slashed = "%d/%d/%d" % (start.year, start.month, start.day)   # 斜杠、不补零也认
         status, _, card, _ = self.propose(house_no="DL0101", tenant_username="tenant1",
-                                          start_date="2026/11/1", months="12", rent="2800")
+                                          start_date=slashed, months="12", rent="2800")
         self.assertEqual(status, actions.CONFIRM)
-        self.assertEqual(card["params"]["start_date"], "2026-11-01")
+        self.assertEqual(card["params"]["start_date"], start.isoformat())
         self.assertEqual(card["params"]["rent"], 2800)
         self.assertIn("月租 2800", card["summary"])
 
