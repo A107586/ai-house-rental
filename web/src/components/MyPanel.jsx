@@ -411,7 +411,7 @@ export default function MyPanel({ user, online, onClose, onOpenHouse, onTalk,
                       <div className="muted-note">
                         {bill.contract_status === 'active'
                           ? '这笔暂时不能在线支付'
-                          : '租约已结束，这笔欠款请与房东线下结清'}
+                          : '租约已结束，这笔欠款请与房东线下结清，房东确认收款后记为已缴'}
                       </div>
                     )}
                     {bill.status === 'paid' && bill.payment && (

@@ -3,8 +3,8 @@
   "class_agent_dispatch": "1e01d18042fd932831ffb8842a23423b4bda24b3709b598725fe3474c3bc4035",
   "class_agent_infra": "7b360aa2e297ce63821f8da147bc39847b37bb74f4eee179aa8c49a2541df7bc",
   "class_appointment": "9945c04f4faacfe44da10d0e044364d2049b9e5ec518d3c6bdcaada02c9b51a1",
-  "class_broker": "98a791ef5ee7751d357d1a276d537880adec94caf01282cb0c85b97059aadfc5",
-  "class_contract": "0e9731c8cba22ea41752019e43df52a164a7fbded5c482868645b28c42b0671e",
+  "class_broker": "b2c70932921c8dda34bfd8af22c793d1bd2ca14cbb8e9722fbe58cbaba236da1",
+  "class_contract": "6b6248f4bb310e3106cfc0485d4c835fdbe94bc6bebde734de92de65d8143b23",
   "class_governance": "92813ef2a78efb79f8811299430a52cb8abba0bddc2c1be30728555c0ea33a74",
   "class_house": "63c155b16de2ba8088683b0a7602475b5852d70f81db9ef9a770d92290e5ae20",
   "class_interaction": "b5f528d3ec6c7aa300e6fa7b8c6eb9f2c61a73c621e4c0618a577a7d1312934b",
@@ -15,12 +15,12 @@
   "struct_account": "6155ac16b392785aace1a4ff515a6bdc8f7f5a8683749a86f6c02114f193976e",
   "struct_agent": "d72ca79d30e3e046bc40015e32cf28fb04462a02e7447ffe350f99740b753a30",
   "struct_appointment": "a9037024cae975853caa784940a59861ec55fbe6ae9bcce9b09cdd1d333ae49e",
-  "struct_broker": "ecfbef1b7fd60f56329f20a22dafcb09b43bb253bffed4e68c96db0cb9409050",
-  "struct_contract": "3fd167454faaa1bc1ee7d0b0b4b4a2ea7bec1362f8021631182468527ef87638",
+  "struct_broker": "86720eabedb90ae74160a6190de3e92581f0bc60c0cd103cba2812700f0c4805",
+  "struct_contract": "c3606d58e0fb90294675b1d353358dde94e4beb99a4b13ccba8bf89d08afae87",
   "struct_governance": "0935ba125b36dbcc894bca3c63729546c020bb71d1d6b21fac792c71781026b4",
   "struct_house": "da3308068568b81415de32fb22f23ca1403e27b1a41bb7858a24d4882907ffe3",
   "struct_interaction": "b2221759eb60e8f13ffa697794dc07cee187c4f4dae361625260fa3bb7c5a6f5",
   "struct_repair": "de082d009e02d58a06373ebf94b8053df8fab4dc4670100dc73a2ad1afeafa28",
   "struct_support": "38bd87df81d95cbb748618e07ebd1d229b97f96cadba9817f535911ddf1dc3f9",
-  "system": "e9e75ad37ce3ae0f0d29446081010c2c8f3523390c3f010618e552de9bc403df"
+  "system": "eaaecc24693b9e0631c12e93940529e75342782427644b0c181b32ea1891b73d"
 }

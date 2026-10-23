@@ -196,6 +196,40 @@ def check_commission_rate(session, house, commission_rate):
     return delegation
 
 
+def commission_state_for(delegation, commission_rate):
+    """约定比例要不要中介同意：**比委托时低才要**。谈高了是房东多付，不用问。"""
+    if commission_rate is None or delegation is None:
+        return ""
+    if Decimal(str(commission_rate)) < Decimal(str(delegation.commission_rate)):
+        return "pending"
+    return ""
+
+
+def respond_commission(session, contract, agent, accept):
+    """中介对调低的佣金比例表态。只在合同还没生效时有意义——生效那一刻就按当时的结论结算了。"""
+    from app.permissions import active_delegation
+    if contract.status != "pending":
+        raise ValueError("合同已经%s，佣金按当时的约定结算，不能再改"
+                         % {"active": "生效", "ended": "结束", "cancelled": "取消"}.get(
+                             contract.status, "处理"))
+    delegation = active_delegation(session, contract.house_id)
+    if not delegation or delegation.agent_id != agent.id:
+        raise PermissionError("只有这套房的受托中介可以确认佣金比例")
+    if contract.commission_state != "pending":
+        raise ValueError("这份合同没有等你确认的佣金调整")
+    contract.commission_state = "agreed" if accept else "rejected"
+    house_no = contract.house.house_no if contract.house else ""
+    notify(session, contract.landlord_id, "system",
+           "中介%s调整佣金比例" % ("同意" if accept else "不同意"),
+           "房源 %s 的合同 %s：中介%s把佣金调为月租的 %s%%%s。" % (
+               house_no, contract.contract_no, "同意" if accept else "不同意",
+               _money(contract.commission_rate),
+               "" if accept else "，成交时按委托时的 %s%% 结算" % _money(delegation.commission_rate)),
+           contract.contract_no)
+    session.flush()
+    return contract
+
+
 _CN_NUM = {8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二",
            13: "十三", 14: "十四", 15: "十五"}
 
@@ -403,10 +437,12 @@ def settle_delegation(session, contract, house):
         return None
 
     contract.agent_id = delegation.agent_id
-    # 签约时另谈了比例就按谈定的算，没谈就按委托上的
-    rate = Decimal(str(delegation.commission_rate
-                       if contract.commission_rate is None
-                       else contract.commission_rate))
+    # 签约时另谈了比例就按谈定的算，没谈就按委托上的。
+    # 调低的比例中介没点头（还在等、或不同意），也按委托上的——付钱的一方不能单方面压价
+    agreed = (contract.commission_rate is not None
+              and (contract.commission_state or "") in ("", "agreed"))
+    rate = Decimal(str(contract.commission_rate if agreed
+                       else delegation.commission_rate))
     base = Decimal(str(contract.rent))
     commission = AgentCommission(
         contract_id=contract.id, delegation_id=delegation.id,
@@ -580,14 +616,6 @@ def activate_contract(session, contract):
                           "pending": "这套房源正在重新审核，审核通过后才能确认签约",
                           }.get(house.status, "该房源当前不可签约"))
 
-    # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
-    # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）
-    try:
-        check_start_date(contract.start_date)
-    except ValueError:
-        raise ValueError("这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
-                         % contract.start_date.strftime("%Y-%m-%d"))
-
     contract.status = "active"
     contract.signed_at = datetime.now()
     house.status = "rented"
@@ -655,8 +683,14 @@ def generate_bills(session, contract):
     return bills
 
 
-def _rent_bills(contract, start, total_months, remark):
-    """从 start 起排 total_months 个月的租金账单，按付款周期合并成期。续租也用它。"""
+def _rent_bills(contract, start, total_months, remark, offset=0):
+    """从 start 起排 total_months 个月的租金账单，按付款周期合并成期。续租也用它。
+
+    `offset`：从 start 之后第几个月开始排。续租传已经排过的月数、start 仍传起租日——
+    到期日一律按「起租日 + 第几个月」算。原先续租从旧到期日起算：8 月 31 日起租、
+    租 6 个月，到期日落在 2 月 28 日，续租的账单就排在每月 28 日，而合同写的是
+    「每月 31 日，当月没有这一天的为当月最后一天」（2026-10-23）。
+    """
     bills = []
     pay_months = max(contract.pay_months, 1)
     rent = Decimal(str(contract.rent))
@@ -664,9 +698,9 @@ def _rent_bills(contract, start, total_months, remark):
     while index < total_months:
         # 最后一期可能不足一个完整付款周期，按实际月数收
         span = min(pay_months, total_months - index)
-        due = add_months(start, index)
+        due = add_months(start, offset + index)
         start_label = due.strftime("%Y-%m")
-        end_label = add_months(start, index + span - 1).strftime("%Y-%m")
+        end_label = add_months(start, offset + index + span - 1).strftime("%Y-%m")
         period = start_label if span == 1 else "%s ~ %s" % (start_label, end_label)
         bills.append(Bill(
             bill_no=_serial("ZD"),
@@ -1052,6 +1086,13 @@ def end_contract(session, contract, reason="", deduct=0):
     deposit_info = plan["deposit"]
     deduct, deposit = deposit_info["deduct"], deposit_info["amount"]
 
+    # 收银台还开着的支付单一并关掉。原先留着：退租之后租客在收银台付成功，
+    # 回调被「合同已结束」拒掉，支付单永远停在「等待付款」，查询状态的接口
+    # 每轮询一次就抛一次异常（2026-10-23）
+    for bill in contract.bills:
+        for payment in bill.payments:
+            close_payment(session, payment, "合同已结束，支付单关闭")
+
     for bill in plan["cancel"]:
         bill.status = "cancelled"
         note = "退租作废，押金未缴无需再缴" if bill.type == "deposit" else "退租作废"
@@ -1066,7 +1107,10 @@ def end_contract(session, contract, reason="", deduct=0):
     contract.ended_at = today
     contract.end_reason = reason
     _clear_request(contract)
-    contract.deposit_refund = deposit - deduct
+    # 这一列是**实际退还**的押金（见 Contract 的说明）。押金没收到过就没有退，
+    # 留空——原先照写「押金 − 扣款」，合同卡片上就是「已退还押金 2800 元」，
+    # 而同一时刻的通知写着「押金未曾缴纳，无需退款」（2026-10-23）
+    contract.deposit_refund = deposit - deduct if deposit_info["paid"] else None
 
     # 押金退款：**只有真的收到过押金才生成退款记录**。
     #
@@ -1112,6 +1156,10 @@ def end_contract(session, contract, reason="", deduct=0):
     if house and house.status == "rented":
         # 出租期间改过房源内容的，审核记录已经清掉——回到待审，不直接上架
         house.status = "available" if house.approved_at else "pending"
+        if owner_can_list(session.get(User, house.landlord_id)):
+            # 房东在租期内被停用（或已不是房东）：停用时只下架了在架的房，
+            # 出租中的这套原先退租后照样回到在架、照样能约看（2026-10-23）
+            house.status = "offline"
         if house.status == "available":
             # 退租后房子空出来，对按条件等房的人来说就是一套新房
             from app.routers import saved_search
@@ -1156,9 +1204,12 @@ def renew_contract(session, contract, months=12):
     if months < 1:
         raise ValueError("续租至少 1 个月")
 
-    old_end = contract.end_date
-    contract.end_date = add_months(old_end, months)
-    bills = _rent_bills(contract, old_end, months, "续租第 %d 期租金")
+    # 按起租日 + 总月数算，不从旧到期日往后推：月末起租的，旧到期日可能已经被
+    # 2 月压成了 28 日，再往后推每个月都是 28 日（见 _rent_bills）
+    covered = months_between(contract.start_date, contract.end_date)
+    contract.end_date = add_months(contract.start_date, covered + months)
+    bills = _rent_bills(contract, contract.start_date, months, "续租第 %d 期租金",
+                        offset=covered)
     session.add_all(bills)
     contract.content = (contract.content or "") + (
         "\n\n【续租补充条款】双方同意续租 %d 个月，租期延长至 %s，"

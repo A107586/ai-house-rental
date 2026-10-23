@@ -199,6 +199,10 @@ APPOINTMENT_NEXT = {
 APPOINTMENT_STATUS_TEXT = {"pending": "还在待确认", "confirmed": "已经确认",
                            "rejected": "已经被拒绝", "cancelled": "已经取消"}
 
+# 工单只往前走：待处理 → 处理中 → 已完成，已完成是终点（2026-10-23 定）。
+# 原先任意改：「已完成」能改回「待处理」，登记过维修记录的再点「完成并登记」就 409
+REPAIR_NEXT = {"pending": ("processing", "done"), "processing": ("done",)}
+
 # 允许匿名与普通用户查询的房源状态。pending 待审、offline 已下架不对外。
 PUBLIC_HOUSE_STATUS = ("available", "rented")
 
@@ -949,6 +953,17 @@ def update_house_status(house_no: str, status: str,
     # 审核形同虚设；「已出租」也能手动标，和合同对不上。
     # 出租由签约生效推进，待审核由发布和编辑推进，只有管理员可以直接改。
     message = ""
+    # 「已出租」只由合同推进，管理员也不例外（2026-10-23）。原先管理员这两条都不查：
+    # 把有生效租约的房改回「在架」，另一位租客就能签约并生效——同一套房两份生效中的合同；
+    # 也能把一套没签约的房标成「已出租」，房源和合同从此对不上
+    if status == "rented" and house.status != "rented":
+        raise HTTPException(status_code=409,
+                            detail="「已出租」随合同生效自动变化，不能手动设置")
+    if house.status == "rented" and status != "rented" and session.scalar(
+            select(Contract.id).where(Contract.house_id == house.id,
+                                      Contract.status == "active")):
+        raise HTTPException(status_code=409,
+                            detail="这套房源有生效中的租约，退租结算之后才能改状态")
     if user.role != "admin":
         if status not in ("available", "offline"):
             raise HTTPException(
@@ -1326,6 +1341,9 @@ def review_house(house_no: str, payload: HouseReview,
     else:
         house.status = "offline"
         house.approved_at = None
+        # 改内容后回到待审的房子，身上可能挂着已确认的看房。驳回即下架，
+        # 和房东自己下架同一个处理；原先这些看房照常有效，约的人到了楼下（2026-10-23）
+        leasing.close_open_viewings(session, house, "房源未通过平台审核，已下架")
         title = "房源审核未通过"
         content = "房源 %s 未通过审核。%s" % (house.house_no, payload.reason or "")
 
@@ -2424,13 +2442,16 @@ def update_repair(repair_id: int, payload: RepairUpdate,
         if not house or house.landlord_id != user.id:
             raise HTTPException(status_code=403, detail="只能处理自己房源的工单")
 
-    if repair.status == "done" and payload.status != "done":
+    if payload.status == repair.status:
+        # 重复点：什么都不改，也不再给报修人发一遍「已处理完成」
+        return {"ok": True, "repair": repair.to_dict()}
+    if repair.status == "done":
         # 结案时物料已经扣了库存、成本也记了；改回「待处理」再结一次会被「已登记过」拦下，
         # 扣掉的库存也回不来。真没修好的，让租客重新报一单（2026-10-23）
         raise HTTPException(status_code=409,
                             detail="已完成的工单不能改回，没修好请重新报修一单")
-    if repair.status == payload.status:
-        return {"ok": True, "repair": repair.to_dict()}
+    if payload.status not in REPAIR_NEXT.get(repair.status, ()):
+        raise HTTPException(status_code=409, detail="工单状态只能往前推进")
 
     repair.status = payload.status
     if payload.status == "done":
@@ -2615,9 +2636,15 @@ def remind_tenant(tenant_id: int, user: User = Depends(require_staff),
 
     total = round(sum(float(b.amount) for b in late), 2)
     first = late[0]
-    content = ("你有 %d 笔逾期账单，共 %s 元，最早一笔 %s 到期。请尽快在「我的租约 → 账单」里缴纳，"
+    # 已结束合同上的欠款线上付不了（_guard_payable），只能线下结、房东确认收款。
+    # 原先一律叫人「在账单里缴纳」，点进去却没有缴费按钮（2026-10-23）
+    online = [b for b in late if b.contract and b.contract.status == "active"]
+    how = ("请尽快在「我的租约 → 账单」里缴纳" if len(online) == len(late)
+           else "租约已结束的那部分请与房东线下结清，房东确认收款后会记为已缴" if not online
+           else "租约还在的请在「我的租约 → 账单」里缴纳，已结束的请与房东线下结清")
+    content = ("你有 %d 笔逾期账单，共 %s 元，最早一笔 %s 到期。%s，"
                "有困难可以先和房东沟通。" % (len(late), ("%g" % total),
-                                            first.due_date.strftime("%Y-%m-%d")))
+                                            first.due_date.strftime("%Y-%m-%d"), how))
     leasing.notify(session, tenant_id, "bill", REMIND_TITLE, content,
                    link_no=first.bill_no)
     session.commit()
@@ -2920,6 +2947,17 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
         raise HTTPException(status_code=409,
                             detail="乙方不能是中介、管理员账号或这套房的受托人")
 
+    # 同一个人、同一套房只留一份待确认的。原先连点两下「发起签约」就是两份，
+    # 租客确认其中一份之后另一份永远挂着（2026-10-23）
+    waiting = session.scalar(select(Contract).where(
+        Contract.house_id == house.id, Contract.tenant_id == tenant.id,
+        Contract.status == "pending"))
+    if waiting:
+        raise HTTPException(
+            status_code=409,
+            detail="已经有一份发给这位租客的待确认合同（%s），要调整请在那份上修改条款"
+                   % waiting.contract_no)
+
     try:
         leasing.check_start_date(payload.start_date)
         contract = leasing.create_contract(
@@ -2947,25 +2985,37 @@ def create_contract(payload: ContractCreate, user: User = Depends(require_staff)
 
 
 def _notify_commission_change(session, house, contract):
-    """签约时改了佣金比例，告诉受托中介一声。
+    """签约时改了佣金比例，告诉受托中介一声；**调低的要他同意**（2026-10-23 定）。
 
     佣金是中介的钱，比例变了他却要等成交那条「佣金已入账」才发现，
-    那时合同已经生效、改不回来了。
+    那时合同已经生效、改不回来了。原先调成 0 也只是通知一声「有异议请联系房东」，
+    付钱的一方单方面定了自己欠多少。现在调低的记为待中介确认，没同意就按委托比例结算。
     """
     if contract.commission_rate is None:
+        contract.commission_state = ""
         return
     delegation = leasing.check_commission_rate(session, house,
                                                contract.commission_rate)
+    contract.commission_state = leasing.commission_state_for(
+        delegation, contract.commission_rate)
     agreed = Decimal(str(delegation.commission_rate))
     rate = Decimal(str(contract.commission_rate))
     if rate == agreed:
         return
+    amount = "按月租 %d 元计 %d 元" % (int(contract.rent),
+                                    int(Decimal(str(contract.rent)) * rate / 100))
+    if contract.commission_state == "pending":
+        leasing.notify(session, delegation.agent_id, "system", "佣金比例调低，请确认",
+                       "房源 %s 的合同 %s 提议佣金为月租的 %s%%（委托时为 %s%%），%s。"
+                       "请在工作台同意或不同意；合同生效前没有同意的，按委托时的比例结算。"
+                       % (house.house_no, contract.contract_no, _pct(rate),
+                          _pct(agreed), amount),
+                       contract.contract_no)
+        return
     leasing.notify(session, delegation.agent_id, "system", "签约佣金比例有调整",
-                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），"
-                   "按月租 %d 元计 %d 元。有异议请在合同生效前联系房东。"
+                   "房源 %s 的合同 %s 约定佣金为月租的 %s%%（委托时为 %s%%），%s。"
                    % (house.house_no, contract.contract_no, _pct(rate),
-                      _pct(agreed), int(contract.rent),
-                      int(Decimal(str(contract.rent)) * rate / 100)),
+                      _pct(agreed), amount),
                    contract.contract_no)
 
 
@@ -3079,12 +3129,34 @@ def update_contract(contract_no: str, payload: ContractUpdate,
 
 
 @app.post("/api/contracts/{contract_no}/activate")
-def activate_contract(contract_no: str, user: User = Depends(require_login),
+def activate_contract(contract_no: str,
+                      terms_digest: str = Body(default="", embed=True),
+                      user: User = Depends(require_login),
                       session: Session = Depends(get_session)):
-    """租客确认合同，合同生效并排出整个租期的账单。"""
+    """租客确认合同，合同生效并排出整个租期的账单。
+
+    `terms_digest` 是租客看到的那一版条款的指纹（合同详情里带着）。
+    不传就不比对——智能助手和老页面照旧能用。
+    """
     contract = _visible_contract(session, contract_no, user)
     if user.role != "admin" and user.id != contract.tenant_id:
         raise HTTPException(status_code=403, detail="只有承租方可以确认合同")
+    if (contract.status == "pending" and terms_digest
+            and terms_digest != contract.terms_digest):
+        raise HTTPException(status_code=409,
+                            detail="房东刚刚修改了合同条款，请重新查看后再确认")
+    if contract.status == "pending":
+        # 起租日在签约时查过一次，可租客隔了两个月才点确认，起租日就成了三个月前，
+        # 一生效就是三期逾期账单。确认这一刻再查一遍（2026-10-23）。
+        # **放在接口层，不放进 leasing.activate_contract**（同 check_start_date 的说明）：
+        # seed.py 要生成「几个月前起租」的演示租约，放进去之后播种直接失败，CI 的端到端测试跟着红
+        try:
+            leasing.check_start_date(contract.start_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=409,
+                detail="这份合同的起租日（%s）已经过去太久，请房东改一下起租日再确认"
+                       % contract.start_date.strftime("%Y-%m-%d"))
 
     try:
         bills = leasing.activate_contract(session, contract)
@@ -3304,10 +3376,12 @@ def contract_detail(contract_no: str, user: User = Depends(require_login),
     if contract.ended_at:
         # 原先这里写「退还押金 X 元」，押金一分没交过也照写——和退租通知里的
         # 「押金未曾缴纳，无需退款」对不上。退了什么，以退款流水为准，逐笔列出
+        # 拒签 / 撤回的合同也有 ended_at，它们从没生效过，不是「结束」
+        cancelled = contract.status == "cancelled"
         timeline.append({
             "at": contract.ended_at.strftime("%Y-%m-%d %H:%M"),
-            "title": "合同结束",
-            "detail": contract.end_reason or "退租"})
+            "title": "合同已取消" if cancelled else "合同结束",
+            "detail": contract.end_reason or ("已取消" if cancelled else "退租")})
     for bill in bills:
         for refund in bill.refunds:
             timeline.append({
@@ -3617,8 +3691,13 @@ def payment_status(trade_no: str, user: User = Depends(require_login),
                 # 网关说付了，我们这边还是 pending —— 回调丢了，就地补上
                 notice = gateway.get_gateway().build_notify(
                     payment.trade_no, payment.gateway_trade_no, payment.amount)
-                leasing.confirm_payment(session, payment, notice, "success")
-                session.commit()
+                try:
+                    leasing.confirm_payment(session, payment, notice, "success")
+                    session.commit()
+                except ValueError:
+                    # 补登被拒（比如这期间合同已经结束）：和回调被拒同一个结论，
+                    # 原样返回当前状态。原先这里不接，轮询一次就是一次 500
+                    session.rollback()
 
     session.refresh(payment)
     return {"ok": True, "payment": payment.to_dict(),

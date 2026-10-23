@@ -94,11 +94,16 @@ class TestCommission(TermsCase):
         self.assertEqual(r.status_code, 200, r.text)
         no = r.json()["contract"]["contract_no"]
         self.assertEqual(r.json()["contract"]["commission_rate"], 30)
+        self.assertEqual(r.json()["contract"]["commission_state"], "pending")
 
-        # 比例变了要告诉中介：等到「佣金已入账」才发现，合同已经改不回来了
+        # 比例变了要告诉中介：等到「佣金已入账」才发现，合同已经改不回来了。
+        # 调低的还要他同意（2026-10-23）
         titles = [m["title"] for m in self.client.get(
             "/api/messages", headers=self.agent).json()["list"]]
-        self.assertIn("签约佣金比例有调整", titles)
+        self.assertIn("佣金比例调低，请确认", titles)
+        r = self.client.post("/api/contracts/%s/commission" % no, headers=self.agent,
+                             json={"accept": True})
+        self.assertEqual(r.status_code, 200, r.text)
 
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
         row = next(c for c in self.commissions() if c["contract_no"] == no)
@@ -124,6 +129,8 @@ class TestCommission(TermsCase):
         no = self.sign(rent=700).json()["contract"]["contract_no"]
         got = self.patch(no, commission_rate=40).json()["contract"]
         self.assertEqual(got["commission_rate"], 40)
+        self.client.post("/api/contracts/%s/commission" % no, headers=self.agent,
+                         json={"accept": True})
         self.client.post("/api/contracts/%s/activate" % no, headers=self.tenant)
         row = next(c for c in self.commissions() if c["contract_no"] == no)
         self.assertEqual(row["amount"], 280)

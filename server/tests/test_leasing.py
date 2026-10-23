@@ -307,13 +307,28 @@ class TestEndContract(LeasingCase):
 
     def test_deposit_refund(self):
         contract = self.sign()
-        leasing.activate_contract(self.session, contract)
+        bills = leasing.activate_contract(self.session, contract)
+        deposit_bill = next(b for b in bills if b.type == "deposit")
+        leasing.pay_bill(self.session, deposit_bill)
         self.session.commit()
 
         result = leasing.end_contract(self.session, contract, deduct=500)
         self.session.commit()
         self.assertEqual(result["refund"], 2300.0)
         self.assertEqual(float(contract.deposit_refund), 2300.0)
+
+    def test_unpaid_deposit_records_no_refund(self):
+        """押金没收到过，合同上「实际退还」留空，不能写成退了 2300（2026-10-23）。
+        结算结论（应退多少）照旧在返回值里。"""
+        contract = self.sign()
+        leasing.activate_contract(self.session, contract)
+        self.session.commit()
+
+        result = leasing.end_contract(self.session, contract, deduct=500)
+        self.session.commit()
+        self.assertEqual(result["refund"], 2300.0)
+        self.assertIsNone(result["refund_record"])
+        self.assertIsNone(contract.deposit_refund)
 
     def test_deduct_cannot_exceed_deposit(self):
         contract = self.sign()

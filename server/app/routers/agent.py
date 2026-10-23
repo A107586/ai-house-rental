@@ -28,7 +28,7 @@ from app.deps import require_login
 from app.models import (AgentCommission, AgentProfile, Appointment, Contract,
                         House, HouseDelegation, Review, User, ViewingRecord,
                         mask_name)
-from app.permissions import active_delegation, can_see_tenant_contact
+from app.permissions import active_delegation, can_see_tenant_contact, tenant_side_block
 
 router = APIRouter()
 
@@ -399,6 +399,17 @@ def create_viewing(payload: ViewingCreate,
         select(User).where(User.username == payload.tenant_username.strip()))
     if not tenant:
         raise HTTPException(status_code=404, detail="租客不存在")
+    # 看房的得是能以租客身份看这套房的人：房东本人、中介、管理员都不是（2026-10-23）
+    if tenant_side_block(session, tenant, house):
+        raise HTTPException(status_code=400, detail="这个账号不能作为这套房的看房人")
+    # 关联的预约必须就是这套房、这个人的。原先 appointment_id 不查，
+    # 随手填一个别的房子的预约号也能挂上
+    if payload.appointment_id is not None:
+        appointment = session.get(Appointment, payload.appointment_id)
+        if (not appointment or appointment.house_id != house.id
+                or appointment.tenant_id != tenant.id):
+            raise HTTPException(status_code=400,
+                                detail="关联的预约不是这位租客在这套房上的预约")
 
     row = ViewingRecord(
         appointment_id=payload.appointment_id, house_id=house.id,
@@ -465,6 +476,55 @@ def my_commissions(status: str = "",
     return {"total": len(rows), "pending_amount": pending,
             "settled_amount": settled,
             "list": [r.to_dict() for r in rows]}
+
+
+@router.get("/api/agent/commission-proposals")
+def commission_proposals(user: User = Depends(require_agent),
+                         session: Session = Depends(get_session)):
+    """等我表态的佣金调低：受托房源上、还没生效、比例比委托时低的合同。
+
+    中介不是合同一方，看不到合同本身（_visible_contract 只放当事双方），
+    所以这里把表态需要的几样直接带出来。
+    """
+    rows = session.scalars(
+        select(Contract).join(HouseDelegation, HouseDelegation.house_id == Contract.house_id)
+        .where(HouseDelegation.agent_id == user.id, HouseDelegation.status == "active",
+               Contract.status == "pending", Contract.commission_state == "pending")
+        .order_by(Contract.created_at.desc())).all()
+    out = []
+    for c in rows:
+        delegation = active_delegation(session, c.house_id)
+        out.append({
+            "contract_no": c.contract_no,
+            "house_no": c.house.house_no if c.house else "",
+            "house_title": c.house.title if c.house else "",
+            "rent": float(c.rent),
+            "proposed_rate": float(c.commission_rate),
+            "delegation_rate": float(delegation.commission_rate) if delegation else None,
+            "landlord_name": mask_name(session.get(User, c.landlord_id)),
+            "created_at": c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
+        })
+    return {"total": len(out), "list": out}
+
+
+@router.post("/api/contracts/{contract_no}/commission")
+def respond_commission(contract_no: str,
+                       accept: bool = Body(embed=True),
+                       user: User = Depends(require_agent),
+                       session: Session = Depends(get_session)):
+    """受托中介同意或不同意房东调低的佣金比例（2026-10-23 定）。"""
+    contract = session.scalar(select(Contract).where(Contract.contract_no == contract_no))
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    try:
+        leasing.respond_commission(session, contract, user, accept)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.commit()
+    return {"ok": True, "contract_no": contract.contract_no,
+            "commission_state": contract.commission_state}
 
 
 @router.get("/api/landlord/commissions")
@@ -697,6 +757,8 @@ def dashboard(user: User = Depends(require_agent),
                 for a in today],
             "pending_appointments": [
                 a.to_dict(show_contact=False) for a in pending_appointments],
+            # 房东调低了佣金比例、等我表态的合同（2026-10-23）
+            "commission_proposals": commission_proposals(user, session)["list"],
         },
         "delegations": [d.to_dict() for d in active_rows[:20]],
     }

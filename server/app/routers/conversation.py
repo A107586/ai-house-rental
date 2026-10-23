@@ -162,12 +162,23 @@ def start_conversation(payload: ConversationStart,
         # 必须是这套房上已经有往来的人：约过看房、被带看过，
         # 或者签过约、报过修——后两种原先漏了，线下谈好直接签约的租客
         # 报修之后，房东从工单上联系不到他（2026-10-22）
+        #
+        # 「签过约」只认真正生效过的租约。待确认的合同房东填任何用户名都能发起，
+        # 原先发一份就能私信全站任何人、连免打扰也一并跳过；拒签、撤回的同理（2026-10-23）
+        leased = session.scalar(select(Contract.id).where(
+            Contract.house_id == house.id, Contract.tenant_id == tenant.id,
+            Contract.status.in_(("active", "ended"))))
+        repaired = session.scalar(select(Repair.id).where(
+            Repair.house_id == house.id, Repair.tenant_id == tenant.id))
+        # 免打扰只对**眼下**的住户让路：租约还在、或者有没修完的工单。
+        # 搬走多年的前租客设了免打扰，房东不该凭一份旧合同一直找得到他
         resident = session.scalar(select(Contract.id).where(
-            Contract.house_id == house.id,
-            Contract.tenant_id == tenant.id)) or session.scalar(
+            Contract.house_id == house.id, Contract.tenant_id == tenant.id,
+            Contract.status == "active")) or session.scalar(
             select(Repair.id).where(Repair.house_id == house.id,
-                                    Repair.tenant_id == tenant.id))
-        related = resident or session.scalar(select(Appointment.id).where(
+                                    Repair.tenant_id == tenant.id,
+                                    Repair.status != "done"))
+        related = leased or repaired or session.scalar(select(Appointment.id).where(
             Appointment.house_id == house.id,
             Appointment.tenant_id == tenant.id)) or session.scalar(
             select(ViewingRecord.id).where(
@@ -180,7 +191,7 @@ def start_conversation(payload: ConversationStart,
 
         # **免打扰**（J-07）。放在这里而不是只把前端按钮置灰：
         # 按钮是提示，接口才是边界——灰掉的按钮拦不住直接调接口的人。
-        # 免打扰挡的是看房阶段的主动招揽；签过约、报过修的是这套房的住户，
+        # 免打扰挡的是看房阶段的主动招揽；正住在这套房、或者工单还没修完的，
         # 房东为租约和维修找他不算打扰
         if not tenant.accept_contact and not resident:
             raise HTTPException(

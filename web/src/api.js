@@ -292,10 +292,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  activateContract: (no) => post(`/api/contracts/${no}/activate`, {}),
-  // 待确认的合同不签了：出租方撤回、承租方拒签
-  cancelContract: (contractNo, reason = '') =>
-    post(`/api/contracts/${contractNo}/cancel`, { reason }),
+  // termsDigest：租客看到的那一版条款。房东在这期间改过条款，后端回 409 要他重看
+  activateContract: (no, termsDigest = '') =>
+    post(`/api/contracts/${no}/activate`, { terms_digest: termsDigest }),
+  // 还没生效的合同：租客点是拒签，房东点是撤回
+  cancelContract: (no, reason = '') =>
+    post(`/api/contracts/${no}/cancel`, { reason }),
   // 房东确认线下收到了这笔钱 / 减免这一笔（原因必填，会通知租客）
   settleBillOffline: (billNo, note = '') => post(`/api/bills/${billNo}/offline`, { note }),
   waiveBill: (billNo, reason) => post(`/api/bills/${billNo}/waive`, { reason }),
@@ -784,6 +786,9 @@ export const api = {
   // accept 走请求体而不是查询串：服务端是 `Body(embed=True)`。
   // 拒绝不带理由——那个接口不收，与其在这里编一个参数送过去被忽略，
   // 不如让签名如实反映它能做什么
+  // 房东调低了佣金比例，受托中介同意或不同意
+  respondCommission: (contractNo, accept) =>
+    post(`/api/contracts/${contractNo}/commission`, { accept }),
   respondDelegation: (id, accept) =>
     request(`/api/delegations/${id}`, {
       method: 'PATCH',

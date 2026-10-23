@@ -136,8 +136,9 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
   const stats = data?.stats
   const approved = profile?.license_status === 'approved'
   const pendingAppts = data?.todo.pending_appointments || []
+  const proposals = data?.todo.commission_proposals || []
   const todoCount = (data?.todo.invitations.length || 0)
-    + (data?.todo.today_viewings.length || 0) + pendingAppts.length
+    + (data?.todo.today_viewings.length || 0) + pendingAppts.length + proposals.length
 
   // 资质没过就只留资质页签——见文件头注释
   //
@@ -164,6 +165,9 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
     { key: 'today', label: '待确认预约', n: pendingAppts.length, urgent: true },
     { key: 'today', label: '今日带看',
       n: data?.todo.today_viewings.length || 0 },
+    // 合同生效前不表态就按委托比例结，也是在等他回话
+    proposals.length > 0 && {
+      key: 'today', label: '佣金调整待确认', n: proposals.length, urgent: true },
   ] : []
 
   // 把页签清单（含计数）报给外面的左栏。
@@ -254,6 +258,50 @@ export default function AgentPanel({ user, onClose, onOpenHouse, embedded,
                 <div className="dd">已结 {Math.round(stats.commission_settled)} 元</div>
               </div>
             </div>
+
+            {proposals.length > 0 && (
+              <>
+                <div className="section-title">房东调低了佣金比例</div>
+                <p className="desc">
+                  合同生效前没有同意的，成交时按委托时的比例结算。
+                </p>
+                <ul className="record-list">
+                  {proposals.map((row) => (
+                    <li key={row.contract_no}>
+                      <div className="record-head">
+                        <strong>{row.house_title || row.house_no}</strong>
+                        <span className="pill status-pending">待我确认</span>
+                      </div>
+                      <div className="record-body">
+                        {row.contract_no} · 月租 {Math.round(row.rent)} 元 · 佣金
+                        {' '}{row.delegation_rate}% → <b>{row.proposed_rate}%</b>
+                        {' '}（{Math.round(row.rent * row.proposed_rate / 100)} 元）· 房东 {row.landlord_name}
+                      </div>
+                      <div className="record-actions">
+                        <button
+                          className="btn small"
+                          disabled={!!busy}
+                          onClick={() => run(`cy${row.contract_no}`,
+                            () => api.respondCommission(row.contract_no, true),
+                            '已同意，成交时按调整后的比例结算。')}
+                        >
+                          同意
+                        </button>
+                        <button
+                          className="btn ghost small"
+                          disabled={!!busy}
+                          onClick={() => run(`cn${row.contract_no}`,
+                            () => api.respondCommission(row.contract_no, false),
+                            '已回复不同意，成交时按委托时的比例结算。')}
+                        >
+                          不同意
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
 
             <div className="section-title">房东邀请我接管</div>
             {data.todo.invitations.length === 0 ? (

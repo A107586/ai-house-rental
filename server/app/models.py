@@ -12,6 +12,7 @@
 看房通过后生成合同，合同生效时一次性排出整个租期的账单，缴费产生流水。
 """
 
+import hashlib
 import json
 
 from datetime import datetime
@@ -680,6 +681,11 @@ class Contract(Base):
     # 签约时约定的佣金比例（月租的百分比）。空表示按委托上的比例算。
     # 中介费常在签约时才谈定，委托时写的 50% 不一定是最后成交的数（2026-10-22）
     commission_rate: Mapped[float] = mapped_column(Numeric(5, 2), nullable=True)
+    # 调低比例要中介点头（2026-10-23 定）：佣金是房东付给中介的，付钱的一方
+    # 不能单方面定自己欠多少。空串 = 不需要同意（没另谈，或谈高了）；
+    # pending 等中介；agreed 同意；rejected 不同意。只有空串与 agreed 时按约定比例结算，
+    # 其余按委托上的比例
+    commission_state: Mapped[str] = mapped_column(String(10), default="")
 
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -744,6 +750,21 @@ class Contract(Base):
         return max((self.end_date.date() - datetime.now().date()).days, 0)
 
     @property
+    def terms_digest(self):
+        """租客确认时看到的那一版条款的指纹。
+
+        待确认的合同房东随时能改（月租、押金、日期）。租客开着页面读完旧条款、
+        这期间房东把月租改高了，租客点下的「确认」原先照样生效——生效的是一份
+        他没看过的合同（2026-10-23）。确认时带上这个值，对不上就要他重新看一遍。
+        """
+        # 金额转 float：刚写进会话的是 Decimal("2800")，从库里读回来是 Decimal("2800.00")，
+        # 同一份条款不能算出两个指纹
+        raw = "|".join(str(v) for v in (
+            float(self.rent or 0), float(self.deposit or 0), self.pay_months,
+            self.start_date, self.end_date, self.content))
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+    @property
     def review_summary(self):
         """AI-02 审阅结论摘要。存的是 JSON 字符串，解不动就当没审过——
         一个坏掉的字段不该让整个合同接口跟着报错。"""
@@ -772,6 +793,7 @@ class Contract(Base):
             "pay_months": self.pay_months,
             "commission_rate": (float(self.commission_rate)
                                 if self.commission_rate is not None else None),
+            "commission_state": self.commission_state or "",
             "status": self.status,
             "content": self.content,
             "days_left": self.days_left,
@@ -780,6 +802,7 @@ class Contract(Base):
             "deposit_refund": (float(self.deposit_refund)
                                if self.deposit_refund is not None else None),
             "signed_at": self.signed_at.strftime("%Y-%m-%d %H:%M") if self.signed_at else "",
+            "terms_digest": self.terms_digest,
             "review_result": self.review_summary,
             "request": ({"type": self.request_type, "by": self.request_by,
                          "months": self.request_months, "reason": self.request_reason,
