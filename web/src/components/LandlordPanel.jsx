@@ -585,6 +585,7 @@ export default function LandlordPanel({ user, onClose, onOpenHouse, embedded,
                         <span className="own">等待管理员审核</span>
                       )}
                     </div>
+                    <HouseVerify house={house} onDone={load} />
                     </div>
                   </li>
                 )
@@ -959,4 +960,88 @@ function depositOf(typed, original) {
   const value = Number(typed)
   if (original !== null && original !== undefined && value === Number(original)) return undefined
   return value
+}
+
+
+/**
+ * 房源核验：带产权凭证照片申请，管理员核对后挂「已核验」。
+ *
+ * 原先只能在助手里说「申请核验」，而且什么凭证都不收；工作台上连核验状态都看不到（2026-10-24）。
+ * 照片走上传接口拿地址，**不进房源相册**——证件上有产权人姓名和证号。
+ */
+function HouseVerify({ house, onDone }) {
+  const [open, setOpen] = useState(false)
+  const [proofs, setProofs] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const status = house.verify_status || 'unverified'
+
+  if (status === 'verified') {
+    return <div className="record-body verify-line ok">已核验 · 编号 {house.verify_no}</div>
+  }
+  if (status === 'pending') {
+    return <div className="record-body verify-line">核验中，等管理员核对产权凭证</div>
+  }
+
+  async function pick(event) {
+    const files = Array.from(event.target.files || []).slice(0, 3 - proofs.length)
+    event.target.value = ''
+    if (!files.length) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const urls = []
+      for (const file of files) urls.push((await api.uploadImage(file)).url)
+      setProofs((prev) => [...prev, ...urls].slice(0, 3))
+    } catch (err) {
+      setMsg(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submit() {
+    if (busy || !proofs.length) return
+    setBusy(true)
+    setMsg('')
+    try {
+      await api.requestVerify(house.house_no, proofs)
+      setOpen(false)
+      setProofs([])
+      onDone?.()
+    } catch (err) {
+      setMsg(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="record-body verify-line">
+      {status === 'rejected'
+        ? <>核验未通过：{house.verify_remark || '未写原因'}</>
+        : <>未核验 · 核验后详情页会挂「已核验」和公开的核验编号</>}
+      {!open ? (
+        <button className="link" onClick={() => setOpen(true)}>
+          {status === 'rejected' ? '重新提交' : '申请核验'}
+        </button>
+      ) : (
+        <div className="verify-form">
+          <span className="own">
+            上传房产证（不动产权证）或租赁授权的照片，最多 3 张；只给管理员看，不会出现在房源相册里。
+          </span>
+          <label className="chip-btn" style={{ cursor: 'pointer' }}>
+            {busy ? '上传中…' : `选照片（已选 ${proofs.length} 张）`}
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                   onChange={pick} disabled={busy || proofs.length >= 3} />
+          </label>
+          <button className="btn small" disabled={busy || !proofs.length} onClick={submit}>
+            提交核验
+          </button>
+          <button className="link" onClick={() => { setOpen(false); setProofs([]) }}>算了</button>
+          {msg && <span className="reply failed">{msg}</span>}
+        </div>
+      )}
+    </div>
+  )
 }

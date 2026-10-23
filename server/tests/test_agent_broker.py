@@ -213,9 +213,11 @@ class TestAgentCanManageDelegatedHouse(BrokerCase):
 
     def test_can_request_verification(self):
         """房东可以把「提交核验材料」也一并委托出去。"""
+        from tests.base import upload_image
         self.delegate()
+        proof = upload_image(self.client, self.agent)
         response = self.client.post("/api/houses/DL0001/verify-request",
-                                    headers=self.agent)
+                                    headers=self.agent, json={"images": [proof]})
         self.assertIn(response.status_code, (200, 409))
 
 

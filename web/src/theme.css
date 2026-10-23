@@ -4444,3 +4444,11 @@
   color: var(--brand);
   font-size: 11.5px;
 }
+
+/* 房源核验（2026-10-24）：工作台每套房下面一行状态与申请入口；后台核验队列里的凭证缩略图 */
+.verify-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.verify-line.ok { color: var(--success, #2f8f5b); }
+.verify-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.verify-proofs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.verify-proofs img { width: 120px; height: 90px; object-fit: cover; border-radius: 6px;
+                     border: 1px solid var(--line, #e3e6eb); }

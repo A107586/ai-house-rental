@@ -1615,26 +1615,23 @@ def _propose_verify_request(text, token, backend, context):
     if not rows:
         return NOT_APPLICABLE, "你名下还没有房源。", None, None
 
-    # 已经在核验中或已通过的就别再报一次了
+    # 已经在核验中或已通过的就别再报一次了。后端的「没核验」叫 unverified——
+    # 原先这里只认 none，于是谁问都是「你的房源都已经提交过核验了」（2026-10-24）
     pool = [r for r in rows
-            if (r.get("verify_status") or "none") in ("none", "", "rejected")]
+            if (r.get("verify_status") or "unverified") in ("unverified", "none", "", "rejected")]
     if not pool:
         return NOT_APPLICABLE, "你的房源都已经提交过核验了。", None, None
 
-    picked = (context or {}).get("house_no") or ""
-    target = next((r for r in pool if r.get("house_no") == picked), None)
-    if target is None and len(pool) > 1:
-        options = _house_options(pool)
-        question = "有 %d 套房源还没核验，先提交哪一套？" % len(pool)
-        return NEED_SLOT, question, None, _ask("house_no", question, options)
-
-    target = target or pool[0]
-    return CONFIRM, "", _card(
-        "verify_request", "申请核验",
-        "为房源 %s 提交核验申请" % target.get("house_no"), RISK_LOW,
-        {"house_no": target.get("house_no")},
-        detail=target,
-        warning="管理员核验通过后，房源会带上「已核验」标识。")
+    # 核验要带产权凭证照片（2026-10-24 起后端必收），对话里收不齐，直接指路，
+    # 不再给一张点了确认才报「请上传房产证」的卡片
+    names = "、".join(r.get("house_no") or "" for r in pool[:3]) + ("等" if len(pool) > 3 else "")
+    rejected = [r for r in pool if r.get("verify_status") == "rejected"]
+    tail = ("其中 %s 上次没通过：%s。" % (rejected[0].get("house_no"),
+                                     rejected[0].get("verify_remark") or "未写原因")
+            if rejected else "")
+    return NOT_APPLICABLE, ("核验要上传房产证（不动产权证）或租赁授权的照片，管理员据此核对。"
+                            "到工作台「我的房源」，在 %s 下面点「申请核验」上传就行；照片只给管理员看。%s"
+                            % (names, tail)), None, None
 
 
 # ------------------------------------------------------------- 长表单

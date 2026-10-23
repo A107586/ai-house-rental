@@ -334,7 +334,10 @@ class TestVerificationFields(FacetCase):
         from tests.base import make_admin
         house_no = self.publish().json()["house"]["house_no"]
         admin = make_admin(self.client)
-        self.client.post("/api/houses/%s/verify-request" % house_no, headers=self.landlord)
+        from tests.base import upload_image
+        proof = upload_image(self.client, self.landlord)
+        self.client.post("/api/houses/%s/verify-request" % house_no, headers=self.landlord,
+                         json={"images": [proof]})
         decided = self.client.patch("/api/houses/%s/verify" % house_no, headers=admin,
                                     json={"approved": True})
         assert decided.status_code == 200, decided.text
@@ -570,3 +573,34 @@ class TestCardPayloadStaysInSync(FacetCase):
         for key in ("description", "images", "fee_detail", "verify_no",
                     "available_from", "min_months", "service_fee"):
             self.assertIn(key, row)
+
+class TestVerificationNeedsProof(FacetCase):
+    """核验原先什么凭证都不收：管理员在队列里看到「待核验」，却没有任何东西可核（2026-10-24）。"""
+
+    def test_request_without_photos_is_refused(self):
+        house_no = self.publish().json()["house"]["house_no"]
+        r = self.client.post("/api/houses/%s/verify-request" % house_no,
+                             headers=self.landlord, json={"images": []})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("房产证", r.json()["detail"])
+
+    def test_outside_urls_are_refused(self):
+        house_no = self.publish().json()["house"]["house_no"]
+        r = self.client.post("/api/houses/%s/verify-request" % house_no, headers=self.landlord,
+                             json={"images": ["https://evil.example.com/a.jpg"]})
+        self.assertEqual(r.status_code, 400)
+
+    def test_photos_reach_the_admin_but_never_the_public(self):
+        from tests.base import make_admin, upload_image
+        house_no = self.publish().json()["house"]["house_no"]
+        proof = upload_image(self.client, self.landlord)
+        r = self.client.post("/api/houses/%s/verify-request" % house_no,
+                             headers=self.landlord, json={"images": [proof]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(proof, r.text)
+        self.assertNotIn(proof, self.client.get("/api/houses/%s" % house_no,
+                                                headers=self.landlord).text)
+        admin = make_admin(self.client)
+        queue = self.client.get("/api/admin/verify-queue", headers=admin).json()["list"]
+        row = next(h for h in queue if h["house_no"] == house_no)
+        self.assertEqual(row["verify_images"], [proof])

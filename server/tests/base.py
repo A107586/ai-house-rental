@@ -195,3 +195,12 @@ def settle(client, bill_no, headers, method="alipay"):
                "result": "success"}
     payload["sign"] = gateway.sign(payload)
     return client.post("/api/payments/notify", json=payload)
+
+
+def upload_image(client, headers):
+    """传一张最小的 JPEG，返回本系统的图片地址。核验凭证、举报证据这类要「先上传再提交」的用。"""
+    data = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+    response = client.post("/api/upload", headers=headers,
+                           files={"file": ("proof.jpg", data, "image/jpeg")})
+    assert response.status_code == 200, response.text
+    return response.json()["url"]

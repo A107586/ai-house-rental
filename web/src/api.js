@@ -374,6 +374,14 @@ export const api = {
 
   // ---------------- 管理员端 ----------------
   adminHouses: (params = {}) => request(`/api/admin/houses?${toQuery(params)}`),
+  // 房源核验：房东带产权凭证照片申请；管理员看队列、裁定（驳回必须写原因）
+  requestVerify: (houseNo, images) => post(`/api/houses/${houseNo}/verify-request`, { images }),
+  verifyQueue: () => request('/api/admin/verify-queue'),
+  decideVerify: (houseNo, approved, reason = '') =>
+    request(`/api/houses/${houseNo}/verify`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approved, reason }),
+    }),
   reviewHouse: (houseNo, approved, reason = '') =>
     request(`/api/houses/${houseNo}/review`, {
       method: 'PATCH',

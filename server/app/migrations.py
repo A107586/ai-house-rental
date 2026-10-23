@@ -567,3 +567,8 @@ def _payment_attempts_and_rent_refunds(connection, engine):
 @step("0022", "合同表：签约时约定的佣金比例")
 def _contract_commission_rate(connection, engine):
     _add_column(connection, engine, "contracts", "commission_rate", "NUMERIC(5, 2)")
+
+
+@step("0023", "房源表：核验凭证照片（不对外）")
+def _house_verify_images(connection, engine):
+    _add_column(connection, engine, "houses", "verify_images", "TEXT DEFAULT ''")

@@ -943,7 +943,7 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
         """有多个候选时要给可点选项，而不是把编号拼进一句话让用户照着打。"""
         for name in ("unfavorite_house", "favorite_house", "submit_review",
                      "handle_appointment", "update_repair", "toggle_house",
-                     "activate_contract", "verify_request", "remind_tenant"):
+                     "activate_contract", "remind_tenant"):
             with self.subTest(action=name):
                 backend = RecordingBackend({**self.PAYLOADS, **self.PAYLOADS_EXTRA})
                 status, message, _, ask = actions.propose(
@@ -967,7 +967,6 @@ class TestEveryAskCanBeAnswered(unittest.TestCase):
             ("update_repair", "关闭工单", "repair_id", "22"),
             ("toggle_house", "把房源下架", "house_no", "DL0101"),
             ("activate_contract", "确认签约", "contract_no", "HT801"),
-            ("verify_request", "申请核验", "house_no", "DL0102"),
             ("update_profile", "改手机号", "phone", "13800001234"),
         ]
         for name, text, slot, value in cases:
@@ -1703,6 +1702,26 @@ class TestStartDateIsARealDayInRange(unittest.TestCase):
         self.assertFalse(self.check("%d-02-30" % today.year)[0])
         self.assertIn("往前补", self.check((today - datetime.timedelta(days=60)).isoformat())[1])
         self.assertIn("太远", self.check((today + datetime.timedelta(days=500)).isoformat())[1])
+
+
+class TestVerifyRequestPointsToTheWorkbench(unittest.TestCase):
+    """核验要带产权凭证照片（2026-10-24 起后端必收），对话里收不齐，所以直接指路。
+    原先还有一处：后端的「没核验」叫 unverified，这里只认 none，谁问都是「都已经提交过核验了」。"""
+
+    def test_unverified_houses_are_found_and_the_way_is_given(self):
+        backend = RecordingBackend({"/api/landlord/houses": {"list": [
+            {"house_no": "DL0201", "verify_status": "unverified"},
+            {"house_no": "DL0202", "verify_status": "rejected", "verify_remark": "照片看不清"},
+            {"house_no": "DL0203", "verify_status": "verified"}]}})
+        status, message, card, _ = actions.propose("verify_request", "申请核验", "tok", backend,
+                                                   context={})
+        self.assertEqual(status, actions.NOT_APPLICABLE)
+        self.assertIsNone(card)
+        self.assertIn("DL0201", message)
+        self.assertIn("申请核验", message)
+        self.assertIn("照片看不清", message)
+        self.assertNotIn("DL0203", message)
+        self.assertFalse(backend.writes)
 
 
 if __name__ == "__main__":

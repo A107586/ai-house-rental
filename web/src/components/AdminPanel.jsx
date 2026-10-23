@@ -15,6 +15,7 @@ import LogPanel from './LogPanel'
 import RecordDetail, { DetailToggle } from './RecordDetail'
 import RepairContact from './RepairContact'
 import UserOverview from './UserOverview'
+import VerifyQueue from './VerifyQueue'
 import ReportPanel from './ReportPanel'
 import SupportPanel from './SupportPanel'
 
@@ -69,6 +70,7 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
   // 只为了页签上那个待审角标。中介档案页自己会再取一次完整口径，
   // 但角标必须在打开后台的第一屏就出现——待审的东西藏在页签里没人点
   const [agentPending, setAgentPending] = useState(0)
+  const [verifyPending, setVerifyPending] = useState(0)
   // 同理：角色升级申请与内容审核的待办数，也得在第一屏就看得见
   const [rolePending, setRolePending] = useState(0)
   const [flagPending, setFlagPending] = useState(0)
@@ -132,6 +134,11 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
     } catch {
       setFlagPending(0)
     }
+    try {
+      setVerifyPending((await api.verifyQueue()).total || 0)
+    } catch {
+      setVerifyPending(0)
+    }
   }
 
   useEffect(() => {
@@ -188,6 +195,8 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
   const TABS = [
     { key: 'review', label: '房源审核', n: pending.length, group: '审核与治理' },
     { key: 'agentQueue', label: '中介资质', n: agentPending, group: '审核与治理' },
+    // 房源核验原先只有接口，后台没有任何地方能看、能裁定（2026-10-24）
+    { key: 'verify', label: '房源核验', n: verifyPending, group: '审核与治理' },
     { key: 'roleRequests', label: '身份升级', n: rolePending, group: '审核与治理' },
     { key: 'houseReports', label: '举报处理', group: '审核与治理' },
     { key: 'flags', label: '内容审核', n: flagPending, group: '审核与治理' },
@@ -211,6 +220,7 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
   const FOCUS = [
     { key: 'review', label: '房源待审', n: pending.length, urgent: true },
     { key: 'agentQueue', label: '中介资质待审', n: agentPending, urgent: true },
+    { key: 'verify', label: '房源待核验', n: verifyPending, urgent: true },
     { key: 'roleRequests', label: '身份升级待审', n: rolePending, urgent: true },
     { key: 'flags', label: '内容待审', n: flagPending },
     { key: 'repairs', label: '未完成工单', n: openRepairs },
@@ -276,6 +286,7 @@ export default function AdminPanel({ user, onClose, embedded, onOpenHouse,
 
         {/* ---------------- 中介治理（J-11） ---------------- */}
         {tab === 'agentQueue' && <AgentQueue onReviewed={load} />}
+        {tab === 'verify' && <VerifyQueue onChanged={load} />}
 
         {/* D1 身份升级申请。规则在后端，批准的地方在这里 */}
         {tab === 'roleRequests' && <RoleRequestPanel onReviewed={load} />}

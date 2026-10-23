@@ -1365,17 +1365,36 @@ def _make_verify_no(house):
     return "DL%s%08d" % (datetime.now().strftime("%y"), house.id * 7919 % 10**8)
 
 
-@app.post("/api/houses/{house_no}/verify-request")
-def request_verify(house_no: str, user: User = Depends(require_house_manager),
-                   session: Session = Depends(get_session)):
-    """房东提交核验申请。
+class VerifyRequestIn(BaseModel):
+    # 房产证 / 不动产权证、租赁授权的照片，先走 /api/upload 拿到地址
+    images: list[str] = Field(default_factory=list, max_length=6)
 
-    证件照片走已有的相册上传接口，这里只推进状态——把「上传」和
-    「提交」分开，房东可以先传齐再提交，不会传一半就进了待审队列。
+
+@app.post("/api/houses/{house_no}/verify-request")
+def request_verify(house_no: str, payload: VerifyRequestIn | None = None,
+                   user: User = Depends(require_house_manager),
+                   session: Session = Depends(get_session)):
+    """房东提交核验申请，**带上产权凭证的照片**。
+
+    原先这里只推进状态、什么凭证都不收：管理员在队列里看到一套「待核验」的房，
+    却没有任何东西可核（2026-10-24）。照片单独存在 verify_images，**不进房源相册**——
+    证件上有产权人姓名和证号，挂进相册就等于公开了。
     """
     house = session.scalar(select(House).where(House.house_no == house_no))
     if not house:
         raise HTTPException(status_code=404, detail="房源不存在")
+    images = []
+    for url in (payload.images if payload else []):
+        url = (url or "").strip()
+        if not url:
+            continue
+        if not uploads.is_managed(url):
+            raise HTTPException(status_code=400, detail="只能使用本系统上传的图片")
+        if url not in images:
+            images.append(url)
+    if not images:
+        raise HTTPException(status_code=422,
+                            detail="请上传房产证（不动产权证）或租赁授权的照片，管理员要据此核对")
     # 房东可以把「提交核验材料」这件事一并委托出去（J-02）
     require_can_manage_house(session, user, house)
     if house.verify_status not in VERIFY_SUBMITTABLE:
@@ -1385,6 +1404,7 @@ def request_verify(house_no: str, user: User = Depends(require_house_manager),
 
     house.verify_status = "pending"
     house.verify_remark = ""
+    house.verify_images = ",".join(images[:6])
     session.commit()
     session.refresh(house)
     return {"ok": True, "house": house.to_dict()}
@@ -1445,7 +1465,10 @@ def verify_queue(user: User = Depends(require_login),
     rows = session.scalars(
         select(House).where(House.verify_status == "pending")
         .order_by(House.id.desc())).all()
-    return {"total": len(rows), "list": [h.to_dict() for h in rows]}
+    # 凭证照片只在这里给（管理员），房源的公开数据里没有
+    return {"total": len(rows), "list": [
+        {**h.to_dict(), "verify_images": [u for u in (h.verify_images or "").split(",") if u]}
+        for h in rows]}
 
 
 @app.get("/api/admin/users")
@@ -2744,8 +2767,10 @@ def stats(user: User | None = Depends(current_user),
 
     # ---------------- 预约与报修 ----------------
     appointment_total = scalar(select(func.count(Appointment.id)))
+    # 待确认只数还没到点的，与房东、中介工作台同一口径——过了点的已经确认不了
     appointment_pending = scalar(select(func.count(Appointment.id))
-                                 .where(Appointment.status == "pending"))
+                                 .where(Appointment.status == "pending",
+                                        Appointment.viewing_time > datetime.now()))
     repair_total = scalar(select(func.count(Repair.id)))
     repair_pending = scalar(select(func.count(Repair.id))
                             .where(Repair.status == "pending"))

@@ -190,6 +190,9 @@ class House(Base):
     # unverified 未核验 / pending 待核验 / verified 已核验 / rejected 核验失败
     verify_status: Mapped[str] = mapped_column(String(20), default="unverified",
                                                index=True)
+    # 核验凭证（房产证 / 不动产权证、租赁授权）的照片地址，逗号分隔。
+    # **只给管理员看**，不进 to_dict：证件上有产权人姓名和证号，挂到房源相册里就等于公开了
+    verify_images: Mapped[str] = mapped_column(Text, default="")
     verify_no: Mapped[str] = mapped_column(String(32), default="", index=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     verify_remark: Mapped[str] = mapped_column(String(200), default="")

@@ -7,7 +7,7 @@
 --   生成：python scripts/gen_db_sql.py
 --   校验：python scripts/gen_db_sql.py --check（测试套件里也跑这一条）
 --
--- 共 36 张表、398 个字段。建表顺序是依赖拓扑序，被引用的表先建。
+-- 共 36 张表、399 个字段。建表顺序是依赖拓扑序，被引用的表先建。
 --
 -- 列默认值有意不写进 DDL：模型里的 default 是 Python 侧的，由 ORM 插入时填。
 -- 写进来就等于多一份由数据库执行的语义，两边不一致时谁说了算会说不清。
@@ -230,6 +230,7 @@ CREATE TABLE houses (
 	location_source VARCHAR(20) NOT NULL, 
 	geocoded_at DATETIME, 
 	verify_status VARCHAR(20) NOT NULL, 
+	verify_images TEXT NOT NULL, 
 	verify_no VARCHAR(32) NOT NULL, 
 	verified_at DATETIME, 
 	verify_remark VARCHAR(200) NOT NULL, 

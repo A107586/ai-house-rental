@@ -234,6 +234,23 @@ class TestLandlordDashboard(AdminCase):
         data = self.client.get("/api/landlord/dashboard", headers=self.landlord).json()
         self.assertEqual(data["todo"]["appointments"], 0)
 
+    def test_admin_dashboard_uses_the_same_pending_count(self):
+        """管理端「待确认预约」与房东、中介工作台同一口径：过了点的不算。"""
+        import app.db as db
+        from app.models import Appointment
+        booked = self.client.post("/api/appointments", headers=self.tenant, json={
+            "house_no": "DL0001", "viewing_time": future().isoformat()})
+        self.assertEqual(self.client.get("/api/stats", headers=self.admin)
+                         .json()["appointment_pending"], 1)
+        session = db.SessionLocal()
+        try:
+            session.get(Appointment, booked.json()["appointment"]["id"]).viewing_time =                 datetime.now() - timedelta(hours=3)
+            session.commit()
+        finally:
+            session.close()
+        self.assertEqual(self.client.get("/api/stats", headers=self.admin)
+                         .json()["appointment_pending"], 0)
+
     def test_todo_counts_open_repairs(self):
         make_resident("tenant1", "DL0001")   # 报修只收在住租客
         self.client.post("/api/repairs", headers=auth_header(self.client), json={
