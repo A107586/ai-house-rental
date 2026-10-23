@@ -154,5 +154,48 @@ class TestAdminTrigger(ReminderCase):
         self.assertEqual(again.json()["total"], 0)
 
 
+class TestPendingContracts(ReminderCase):
+    """待确认的合同：等久了提醒租客一次；起租日过去太久、已经确认不了的，自动作废（2026-10-24）。"""
+
+    def draft(self, start_in_days=5):
+        start = (datetime.now() + timedelta(days=start_in_days)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        return self.client.post("/api/contracts", headers=self.landlord, json={
+            "house_no": "DL0001", "tenant_username": "tenant1",
+            "start_date": start.isoformat(), "months": 12}).json()["contract"]["contract_no"]
+
+    def age(self, no, created_days_ago=0, start_days_ago=None):
+        session = db.SessionLocal()
+        try:
+            contract = session.query(Contract).filter_by(contract_no=no).one()
+            contract.created_at = datetime.now() - timedelta(days=created_days_ago)
+            if start_days_ago is not None:
+                contract.start_date = datetime.now() - timedelta(days=start_days_ago)
+            session.commit()
+        finally:
+            session.close()
+
+    def test_waiting_contract_nudges_the_tenant_once(self):
+        no = self.draft()
+        self.assertEqual(self.sweep()["contract_waiting"], 0, "刚发出的不催")
+        self.age(no, created_days_ago=3)
+        self.assertEqual(self.sweep()["contract_waiting"], 1)
+        self.assertEqual(self.sweep()["contract_waiting"], 0)
+        self.assertIn(reminders.TITLE_CONTRACT_WAITING, self.titles("tenant1"))
+
+    def test_stale_contract_is_called_off(self):
+        no = self.draft()
+        self.age(no, created_days_ago=60, start_days_ago=45)
+        self.assertEqual(self.sweep()["contract_stale"], 1)
+        session = db.SessionLocal()
+        try:
+            self.assertEqual(session.query(Contract).filter_by(contract_no=no).one().status,
+                             "cancelled")
+        finally:
+            session.close()
+        self.assertIn("待确认的合同已失效", self.titles("landlord1"))
+        self.assertIn("合同已失效", self.titles("tenant1"))
+
+
 if __name__ == "__main__":
     unittest.main()

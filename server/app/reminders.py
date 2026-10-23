@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from app.leasing import notify
+from app.leasing import START_BACK_DAYS, cancel_contract, notify
 from app.models import Bill, Contract, Message
 
 DUE_SOON_DAYS = 3          # 到期前几天提醒
@@ -34,6 +34,8 @@ TITLE_DUE_SOON = "账单快到期了"
 TITLE_OVERDUE = "账单已逾期"
 TITLE_LEASE_SOON = "租约快到期了"
 TITLE_LEASE_OVER = "租约已到期"
+TITLE_CONTRACT_WAITING = "有一份合同等你确认"
+CONTRACT_WAIT_DAYS = 2     # 待确认合同发出几天后提醒租客
 
 
 def _sent(session, user_id, title, link_no):
@@ -58,7 +60,27 @@ def run(session, now=None):
     """跑一轮，返回各类发了几条。不提交——调用方决定什么时候 commit。"""
     now = now or datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    counts = {"due_soon": 0, "overdue": 0, "lease_soon": 0, "lease_over": 0}
+    counts = {"due_soon": 0, "overdue": 0, "lease_soon": 0, "lease_over": 0,
+              "contract_waiting": 0, "contract_stale": 0}
+
+    # ---- 待确认的合同：等太久的提醒租客一次；起租日已经过去太久的，确认不了了，自动作废
+    for contract in session.scalars(select(Contract).where(Contract.status == "pending")).all():
+        if (today - contract.start_date).days > START_BACK_DAYS:
+            # 租客确认时会再查一次起租日（往前最多补 30 天），过了线就永远确认不了，
+            # 原先它就一直挂在两边的列表里（2026-10-24）
+            cancel_contract(session, contract, "system", "起租日已经过去太久，这份合同自动失效")
+            notify(session, contract.landlord_id, "contract", "待确认的合同已失效",
+                   "合同 %s 起租日 %s 已经过去太久，租客一直没有确认，已自动失效；要签的话请重新发起。"
+                   % (contract.contract_no, contract.start_date.strftime("%Y-%m-%d")),
+                   contract.contract_no)
+            counts["contract_stale"] += 1
+        elif contract.created_at and (now - contract.created_at).days >= CONTRACT_WAIT_DAYS:
+            counts["contract_waiting"] += _once(
+                session, contract.tenant_id, "contract", TITLE_CONTRACT_WAITING,
+                "房东发起的合同 %s 还在等你确认，起租日 %s。可以在「我的租约」里确认、"
+                "或者点「不签了」。" % (contract.contract_no,
+                                       contract.start_date.strftime("%Y-%m-%d")),
+                contract.contract_no)
 
     bills = session.scalars(select(Bill).join(Contract, Bill.contract_id == Contract.id).where(
         Bill.status == "unpaid", Contract.status == "active",

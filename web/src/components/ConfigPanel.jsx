@@ -136,7 +136,7 @@ export default function ConfigPanel() {
           <div className="cfg-meta">
             <div className="cfg-label">到期与逾期提醒</div>
             <div className="cfg-desc">
-              账单到期前 3 天、逾期后、租约到期前 30 天、到期还没退租时，自动发站内信（绑了邮箱的同时发邮件）。
+              账单到期前 3 天、逾期后、租约到期前 30 天、到期还没退租、合同发出 2 天还没确认时，自动发站内信（绑了邮箱的同时发邮件）；起租日已经过去太久、确认不了的待确认合同自动作废。
               后台每 6 小时跑一轮；同一件事只提醒一次，多点几次也不会重复发。
             </div>
           </div>
