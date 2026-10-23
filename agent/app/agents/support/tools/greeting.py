@@ -171,9 +171,10 @@ def compose(items, name=""):
 def collect_landlord(backend, token):
     """房东身份手头没办完的事：别人约我的看房、名下房源没修完的工单、未读消息。"""
     items = []
-    waiting = [a for a in _rows(_safe(backend, "/api/appointments/mine", token,
-                                      {"side": "landlord"}))
-               if a.get("status") in ("pending", "待审核")]
+    # 过了点的待确认已经确认不了，算进来就是一个永远消不掉的数（同 collect）
+    waiting = _upcoming([a for a in _rows(_safe(backend, "/api/appointments/mine", token,
+                                                {"side": "landlord"}))
+                         if a.get("status") in ("pending", "待审核")])
     if waiting:
         items.append({"text": "%d 条看房预约等你确认" % len(waiting),
                       "chip": "谁约了我的房", "detail": ""})
