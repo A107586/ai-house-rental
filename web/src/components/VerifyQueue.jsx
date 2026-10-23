@@ -70,6 +70,9 @@ export default function VerifyQueue({ onChanged }) {
                 {h.house_no} · {h.district} {h.community} {h.address}
                 {h.area ? ` · ${Math.round(h.area)}㎡` : ''} · 房东 {h.landlord_name || '—'}
               </div>
+              {!(h.verify_images || []).length && (
+                <div className="reply failed">这份申请没有附产权凭证，无从核对——驳回，让房东上传后重新提交。</div>
+              )}
               <div className="verify-proofs">
                 {(h.verify_images || []).map((url) => (
                   <a key={url} href={url} target="_blank" rel="noreferrer">

@@ -206,3 +206,26 @@ class TestOplogBackfill(MigrationCase):
         actions = [r[0] for r in conn.execute("SELECT action FROM operation_logs ORDER BY id")]
         conn.close()
         self.assertEqual(actions, ["发起房源委托", "POST /api/whatever", "发布房源"])
+
+class TestProoflessVerifyRequests(MigrationCase):
+
+    def test_old_requests_without_proof_are_sent_back(self):
+        """0025：0023 之前提交的核验申请没有凭证，管理员无从核对、房东那边一直「核验中」。"""
+        conn = self.raw()
+        conn.execute("CREATE TABLE houses (id INTEGER PRIMARY KEY, verify_status VARCHAR(20),"
+                     " verify_remark TEXT, verify_images TEXT DEFAULT '')")
+        conn.executemany("INSERT INTO houses (verify_status, verify_remark, verify_images)"
+                         " VALUES (?, '', ?)", [
+                             ("pending", ""), ("pending", "/static/uploads/a.jpg"),
+                             ("verified", ""), ("unverified", "")])
+        conn.commit()
+        conn.close()
+        step = next(f for v, _, f in migrations._STEPS if v == "0025")
+        with self.engine.begin() as connection:
+            step(connection, self.engine)
+        conn = self.raw()
+        rows = [r[0] for r in conn.execute("SELECT verify_status FROM houses ORDER BY id")]
+        remark = conn.execute("SELECT verify_remark FROM houses WHERE id = 1").fetchone()[0]
+        conn.close()
+        self.assertEqual(rows, ["rejected", "pending", "verified", "unverified"])
+        self.assertIn("产权凭证", remark)

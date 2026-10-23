@@ -577,3 +577,16 @@ def _house_verify_images(connection, engine):
 @step("0024", "合同表：续租申请里提出的新月租")
 def _contract_request_rent(connection, engine):
     _add_column(connection, engine, "contracts", "request_rent", "NUMERIC(10, 2)")
+
+
+@step("0025", "房源表：没附凭证的旧核验申请退回，请房东补交")
+def _verify_requests_without_proof(connection, engine):
+    """0023 之前提交的核验申请一张凭证都没有，管理员无从核对，房东那边却一直显示「核验中」。
+    退成「未通过」并写明原因，房东在「我的房源」里看得到、可以重新提交。"""
+    if "verify_images" not in (_columns(engine, "houses") or set()):
+        return
+    connection.execute(text(
+        "UPDATE houses SET verify_status = 'rejected', "
+        "verify_remark = '原申请没有附产权凭证，请上传房产证或租赁授权的照片后重新提交' "
+        "WHERE verify_status = 'pending' "
+        "AND (verify_images IS NULL OR verify_images = '')"))
